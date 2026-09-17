@@ -249,6 +249,21 @@ export function cliPathCandidates(id, options = {}) {
   return meta ? executablePathCandidates(meta.binary, options) : [];
 }
 
+// npm installs .cmd shims on Windows; the real executable lives inside the
+// package (for example %APPDATA%\npm\node_modules\@anthropic-ai\claude-code\bin\claude.exe).
+// Read the shim, expand %dp0%, and use the target when it exists.
+function windowsExecutableTarget(candidate, { fs, path, platform }) {
+  if (platform !== "win32" || !/\.(?:cmd|bat|ps1)$/i.test(candidate)) return candidate;
+  let text = "";
+  try { text = fs.readFileSync(candidate, "utf8"); } catch { return ""; }
+  const dir = path.dirname(candidate);
+  for (const match of text.matchAll(/"([^"]+\.(?:exe|cmd|bat))"/gi)) {
+    const target = match[1].replace(/%dp0%/gi, dir);
+    try { if (fs.existsSync(target)) return target; } catch { /* keep looking */ }
+  }
+  return "";
+}
+
 export function acpPathCandidates(id, options = {}) {
   const meta = cliMeta(id);
   if (!meta?.acpBinary) return [];
@@ -554,7 +569,9 @@ async function resolveLocalTool(binary, options = {}) {
     } catch { /* nvm is optional */ }
   }
   const delimiter = window.process.platform === "win32" ? ";" : ":";
-  for (const candidate of new Set(candidates)) {
+  for (const rawCandidate of new Set(candidates)) {
+    const candidate = windowsExecutableTarget(rawCandidate, { fs, path, platform: window.process.platform });
+    if (!candidate) continue;
     try {
       if (!fs.existsSync(candidate)) continue;
       fs.accessSync(candidate, fs.constants.X_OK);
@@ -599,12 +616,12 @@ export async function resolveCliPath(id, configuredPath = "", options = {}) {
     pathApi: path,
   })].filter(Boolean);
   const seen = new Set();
-  for (const candidate of candidates) {
-    if (seen.has(candidate)) continue;
+  for (const rawCandidate of candidates) {
+    const candidate = windowsExecutableTarget(rawCandidate, { fs, path, platform: window.process.platform });
+    if (!candidate || seen.has(candidate)) continue;
     seen.add(candidate);
     try {
       if (!fs.existsSync(candidate)) continue;
-      if (window.process.platform === "win32" && /\.cmd$/i.test(candidate)) continue;
       fs.accessSync(candidate, fs.constants.X_OK);
       const versionArgs = id === "grok-cli"
         ? ["--no-auto-update", "--version"]
@@ -1113,25 +1130,29 @@ export async function runCliAi(id, options = {}) {
       options.acpPath || (meta.acpBinary === meta.binary ? options.binaryPath : ""),
       options,
     );
-    if (!acpPath) throw cliError("acpmissing", "ACP executable was not found");
-    const nodePath = await resolveAcpNodePath(acpPath, options);
-    const effort = effectiveCliEffort(id, options.effort);
-    const managerArgs = [id, acpPath, binaryPath, String(options.model || "").trim(), effort, nodePath];
-    let manager = cliAcpManager(...managerArgs);
-    const promptOptions = {
-      signal: options.signal,
-      onDelta: options.onDelta,
-      timeoutMs: options.timeoutMs,
-    };
-    const result = await retryAcpFailureOnce(
-      () => manager.prompt(String(options.sessionKey), options.messages, promptOptions),
-      () => {
-        evictCliAcpManager(manager);
-        manager = cliAcpManager(...managerArgs);
-      },
-      "acpstopped",
-    );
-    return { ...result, binaryPath: binaryPath || acpPath, acpPath };
+    // No adapter installed: keep working through the one-shot CLI path instead
+    // of failing the whole request. Only providers that speak ACP exclusively
+    // (acpOnly) still require it.
+    if (acpPath) {
+      const nodePath = await resolveAcpNodePath(acpPath, options);
+      const effort = effectiveCliEffort(id, options.effort);
+      const managerArgs = [id, acpPath, binaryPath, String(options.model || "").trim(), effort, nodePath];
+      let manager = cliAcpManager(...managerArgs);
+      const promptOptions = {
+        signal: options.signal,
+        onDelta: options.onDelta,
+        timeoutMs: options.timeoutMs,
+      };
+      const result = await retryAcpFailureOnce(
+        () => manager.prompt(String(options.sessionKey), options.messages, promptOptions),
+        () => {
+          evictCliAcpManager(manager);
+          manager = cliAcpManager(...managerArgs);
+        },
+        "acpstopped",
+      );
+      return { ...result, binaryPath: binaryPath || acpPath, acpPath };
+    }
   }
   if (meta.acpOnly) throw cliError("notconfigured", "This provider requires an ACP session");
   const prompt = buildCliPrompt(options.messages);

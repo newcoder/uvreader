@@ -171,4 +171,12 @@ AI 会话拆文件在 shim 的 `loadData/saveData` 完成，`src/main.js` 无感
 
 已知注意：electron-builder 首次运行会下载 electron 与 nsis/winCodeSign 资源，网络受限时设置 `ELECTRON_MIRROR`、`ELECTRON_BUILDER_BINARIES_MIRROR`；`apps/desktop/release/` 已加入 `.gitignore`。
 
+## 13. AI CLI 兼容模式
+
+本机已装并登录 CLI（如 Claude Code）时，AI 伴读不再强制要求 ACP 适配器：
+
+- `ai-cli.js`：`runCliAi` 在会话密钥存在但 ACP 适配器缺失时回退到一次性 CLI 通道（`acpOnly` 的 ZCode 除外）；新增 `windowsExecutableTarget`，在 Windows 上把 npm 的 `.cmd` shim 解析到它真正启动的可执行文件（例如 `%APPDATA%\npm\node_modules\@anthropic-ai\claude-code\bin\claude.exe`），使 `claude` 能被自动发现。
+- `main.js`：`ensureAiCliReady` 在适配器缺失且无法自动安装时走兼容模式（`probeCliAi` 探测登录状态），不再抛 `acpmissing`。
+- 实测：Windows + Claude Code 2.1.x（DeepSeek 代理账号）自动识别、连接测试通过、流式回答成功；`tests/ai-cli-resolve.test.mjs` 锁定 shim 解析行为。手动集成脚本：`apps/desktop/scripts/test-claude-cli.mjs`（需本机已登录 CLI，未纳入 CI）。
+
 注意事项：新模块导出的符号必须显式 `export`（构建期缺失只会让 esbuild 降级成 `(void 0)`，`npm test` 抓不到，靠 smoke/E2E 兜底）；测试用 `jsdom` + `installDomExtensions(window)` 补 Obsidian DOM 扩展。抽离后按名字切 `main.js` 源码的测试要改读新模块（`core-config`、`engine-integration`、`reader-experience`、`check-i18n` 均已同步）；模块内函数有 2 空格缩进，按 `\n}` 切函数会切到工厂结尾，需带缩进匹配。端口命名避免与函数内局部变量重名（`HL_COLORS`→`hlColors` 就撞上了 `openSelectionMoreMenu` 里的局部 `colors`）。

@@ -9867,16 +9867,25 @@ async function ensureAiCliReady(plugin, onStage = () => {}) {
   }
   let acpPath = await resolveAcpPath(cfg.id, s.aiAcpPaths[cfg.id], { installRoot });
   let installed = false;
-  if (!acpPath) {
-    if (!acp.autoInstall || !installRoot) {
-      const error = new Error("ACP adapter was not found");
-      error.qiaomuReaderReason = acp.autoInstall ? "installlocation" : "acpmissing";
-      throw error;
-    }
+  if (!acpPath && acp.autoInstall && installRoot) {
     installed = true;
     onStage(qiaomuReaderTranslate("installing"));
     const result = await installCliAcp(cfg.id, { installRoot });
     acpPath = result.acpPath;
+  }
+  if (!acpPath) {
+    // Compatibility mode: a signed-in CLI can answer without the ACP adapter,
+    // so only providers that speak ACP exclusively are blocked here.
+    if (cli.acpOnly) {
+      const error = new Error("ACP adapter was not found");
+      error.qiaomuReaderReason = acp.autoInstall ? "installlocation" : "acpmissing";
+      throw error;
+    }
+    onStage(qiaomuReaderTranslate("verifying"));
+    const status = await probeCliAi(cfg.id, { binaryPath: s.aiCliPaths[cfg.id] });
+    s.aiCliPaths[cfg.id] = status.binaryPath;
+    await plugin.saveAll();
+    return { ...status, acpPath: "", compatibility: true, installed };
   }
   onStage(qiaomuReaderTranslate("verifying"));
   const status = await probeCliAcp(cfg.id, {
