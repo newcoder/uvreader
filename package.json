@@ -15,7 +15,11 @@
     "desktop:dev": "npm --prefix apps/desktop run dev",
     "desktop:start": "npm --prefix apps/desktop run start",
     "desktop:smoke": "npm --prefix apps/desktop run smoke",
-    "desktop:e2e": "npm --prefix apps/desktop run e2e"
+    "desktop:e2e": "npm --prefix apps/desktop run e2e",
+    "desktop:dist": "npm --prefix apps/desktop run dist",
+    "desktop:dist:dir": "npm --prefix apps/desktop run dist:dir",
+    "desktop:smoke:packaged": "npm --prefix apps/desktop run smoke:packaged",
+    "build:icon": "node scripts/make-app-icon.mjs"
   },
   "keywords": [
     "reader",

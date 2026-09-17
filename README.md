@@ -35,6 +35,20 @@ npm run desktop:start
 - 冒烟：`npm run desktop:smoke`（打开内置示例书，退出码 0/1）
 - 端到端：`npm run desktop:e2e`（Playwright 驱动 Electron：翻页、划线、笔记、目录、AI 密钥链路等）
 
+## 打包
+
+```bash
+npm run desktop:dist:dir   # 只出免安装目录（apps/desktop/release/win-unpacked）
+npm run desktop:dist       # Windows：NSIS 安装包 + 便携版
+npm run desktop:smoke:packaged   # 用打包产物跑冒烟（退出码 0/1）
+npm run build:icon         # 重新生成应用图标（纯 Node，无外部依赖）
+```
+
+- 产物：`apps/desktop/release/UV-Reader-<版本>-setup.exe`、`UV-Reader-<版本>-portable.exe`；macOS 为 dmg、Linux 为 AppImage（需在对应系统上构建）。
+- 版本号取自根 `package.json`；图标由 `scripts/make-app-icon.mjs` 生成到 `apps/desktop/build/icon.png`。
+- 已注册 `.epub/.pdf/.mobi/.azw3/.fb2/.cbz` 文件关联与单实例；用“打开方式”传入的路径会在启动后自动打开。
+- 网络受限时先设置镜像：`ELECTRON_MIRROR`、`ELECTRON_BUILDER_BINARIES_MIRROR`（例如 npmmirror 对应路径）。
+
 ## 测试与校验
 
 ```bash

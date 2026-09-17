@@ -155,4 +155,17 @@ AI 会话拆文件在 shim 的 `loadData/saveData` 完成，`src/main.js` 无感
 | M2.4a | `selection-actions.js`（`createSelectionActions(ports)`：选文→高亮弹层→三色下拉→批注编辑器→More 菜单→AI/复制/翻译入口，21 个函数；端口为 translate/Notice/Menu/Scope/TranslateModal/setIcon/window/isPdf/hlColorCss/hlColors/positionPopup/refreshHlPanel/autoFocus/paintAiSource/copyToClipboard/quoteMarkdown/createNoteFromSelection/hlCommentMd/flowSelectionParts/raiseSelectionPopup） | 完成，`tests/selection-actions.test.mjs` 直接 import 模块 |
 | M2.4b | `ReaderView` 装配（`main.js` 约 1200 行，`this.plugin`×56）与脚注/计时 HUD | 计划 |
 
+## 12. 打包与发布进度
+
+| 步骤 | 内容 | 状态 |
+| --- | --- | --- |
+| P-1 | 应用图标：`scripts/make-app-icon.mjs`（纯 Node 生成 512×512 PNG，无外部工具） | 完成 |
+| P-2 | electron-builder 26 接入：`apps/desktop/electron-builder.config.cjs`，版本取根 `package.json`（`extraMetadata.version`），Win NSIS+portable、mac dmg、Linux AppImage | 完成 |
+| P-3 | 文件关联（epub/pdf/mobi/azw3/fb2/cbz）、单实例、命令行打开书籍 | 完成 |
+| P-4 | 打包产物冒烟：`npm run desktop:smoke:packaged`（免安装目录 / 便携版，退出码 0/1） | 完成（Windows 实测 0） |
+| P-5 | CI 发布流水线：tag → 三平台构建 → 上传 GitHub Release | 下一步 |
+| P-6 | 代码签名/公证、自动更新（electron-updater） | 计划 |
+
+已知注意：electron-builder 首次运行会下载 electron 与 nsis/winCodeSign 资源，网络受限时设置 `ELECTRON_MIRROR`、`ELECTRON_BUILDER_BINARIES_MIRROR`；`apps/desktop/release/` 已加入 `.gitignore`。
+
 注意事项：新模块导出的符号必须显式 `export`（构建期缺失只会让 esbuild 降级成 `(void 0)`，`npm test` 抓不到，靠 smoke/E2E 兜底）；测试用 `jsdom` + `installDomExtensions(window)` 补 Obsidian DOM 扩展。抽离后按名字切 `main.js` 源码的测试要改读新模块（`core-config`、`engine-integration`、`reader-experience`、`check-i18n` 均已同步）；模块内函数有 2 空格缩进，按 `\n}` 切函数会切到工厂结尾，需带缩进匹配。端口命名避免与函数内局部变量重名（`HL_COLORS`→`hlColors` 就撞上了 `openSelectionMoreMenu` 里的局部 `colors`）。

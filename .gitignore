@@ -1,6 +1,8 @@
 node_modules/
 /dist/
 apps/desktop/dist/
+# Installers and unpacked builds from `npm run desktop:dist`.
+apps/desktop/release/
 # Legacy plugin artifacts: the product is a standalone desktop app now.
 /main.js
 /styles.css

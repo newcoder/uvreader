@@ -10,11 +10,15 @@
     "dev": "node build.mjs --watch",
     "start": "electron .",
     "smoke": "node scripts/smoke.mjs",
+    "smoke:packaged": "node scripts/smoke-packaged.mjs",
     "e2e": "node build.mjs && node scripts/e2e.mjs",
+    "dist": "node build.mjs --production && electron-builder --config electron-builder.config.cjs --publish never",
+    "dist:dir": "node build.mjs --production && electron-builder --config electron-builder.config.cjs --publish never --dir",
     "test": "node --test test/*.test.mjs"
   },
   "devDependencies": {
     "electron": "^38.0.0",
+    "electron-builder": "^26.15.3",
     "esbuild": "0.28.1",
     "playwright-core": "^1.63.0"
   },
