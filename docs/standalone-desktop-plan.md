@@ -155,7 +155,8 @@ AI 会话拆文件在 shim 的 `loadData/saveData` 完成，`src/main.js` 无感
 | M2.4a | `selection-actions.js`（`createSelectionActions(ports)`：选文→高亮弹层→三色下拉→批注编辑器→More 菜单→AI/复制/翻译入口，21 个函数；端口为 translate/Notice/Menu/Scope/TranslateModal/setIcon/window/isPdf/hlColorCss/hlColors/positionPopup/refreshHlPanel/autoFocus/paintAiSource/copyToClipboard/quoteMarkdown/createNoteFromSelection/hlCommentMd/flowSelectionParts/raiseSelectionPopup） | 完成，`tests/selection-actions.test.mjs` 直接 import 模块 |
 | M2.4b-1 | `reader-timer.js`（`createReaderTimer({ translate, notice, window })`：计时/目标条/计时胶囊）与 `reader-hud.js`（`createReaderHud({ translate, notice, window, platform, isPdf, jumpToHighlight, escapeSelector })`：启动遮罩、autoFocus/blur、footnote 弹层与回跳胶囊、`positionPopup`） | 完成，`tests/reader-timer.test.mjs`、`tests/reader-hud.test.mjs` |
 | M2.4b-2 | `reader-view.js`：`createReaderView(ports)` 返回 `class ReaderView extends ItemView`（宿主基类注入），整类 1,056 行移出；纯模块（reader-engine/reader-dom/reader-icons/reader-load/reader-experience/pdf-page-mode/pdf-zoom/reader-appearance/highlight-navigation）直接 import，其余 74 个宿主/本地依赖走端口 | 完成，`tests/reader-view.test.mjs`；`main.js` 13,018 → 11,848 行 |
-| M2.4b-3 | `QiaomuBookReader`（Plugin，1,149 行）与 `ReaderModal`/`LibraryModal` 等宿主类瘦身 | 下一步 |
+| M2.4b-3 | `reader-modal.js`：`createReaderModal(ports)` 返回 `class ReaderModal extends Modal`（Modal 基类注入），772 行移出；65 个端口 | 完成，`tests/reader-modal.test.mjs`；`main.js` 11,848 → 11,144 行 |
+| M2.4b-4 | `LibraryModal`（573）、`AiChatView`（406）、`AiExplainModal`（374）、`ReadSettingsModal`（333）同样按工厂模式抽离 | 下一步 |
 
 ## 12. 打包与发布进度
 

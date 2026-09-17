@@ -11,6 +11,7 @@ import { foliateElements } from "../scripts/foliate-elements.mjs";
 const root = path.resolve(import.meta.dirname, "..");
 const source = fs.readFileSync(path.join(root, "packages", "reader", "src", "main.js"), "utf8");
 const viewSource = fs.readFileSync(path.join(root, "packages", "reader", "src", "reader-view.js"), "utf8");
+const modalSource = fs.readFileSync(path.join(root, "packages", "reader", "src", "reader-modal.js"), "utf8");
 const selectionSource = fs.readFileSync(path.join(root, "packages", "reader", "src", "selection-actions.js"), "utf8");
 function sliceFunction(text, name, indent = "") {
   const start = text.indexOf(`function ${name}(`);
@@ -354,7 +355,7 @@ test("closing an unfinished PDF never replaces the last saved position with page
 });
 
 test("pending highlight restoration cannot paint the next book in either reader", async () => {
-  const methods = [...(source + "\n" + viewSource).matchAll(/  _renderEngineHighlights\(\) \{[\s\S]*?\n  \}/g)];
+  const methods = [...(viewSource + "\n" + modalSource).matchAll(/  _renderEngineHighlights\(\) \{[\s\S]*?\n  \}/g)];
   assert.equal(methods.length, 2);
   for (const [method] of methods) {
     const render = vm.runInNewContext(`({${method}})._renderEngineHighlights`, {
@@ -372,10 +373,10 @@ test("pending highlight restoration cannot paint the next book in either reader"
 });
 
 test("mobile TOC passes ebook hrefs to the engine instead of the empty PDF pager", () => {
-  const start = source.indexOf("  _buildTocPanel() {", source.indexOf("const ReaderModal"));
-  const end = source.indexOf("\n  }", start) + 4;
+  const start = modalSource.indexOf("  _buildTocPanel() {");
+  const end = modalSource.indexOf("\n  }", start) + 4;
   let jump; const targets = [];
-  const method = vm.runInNewContext(`({${source.slice(start, end)}})._buildTocPanel`, {
+  const method = vm.runInNewContext(`({${modalSource.slice(start, end)}})._buildTocPanel`, {
     buildTocPanelFor: (_view, _panel, options) => { jump = options.jump; },
     navigateEngineToc: (view, target) => view.engine.goToTocItem(target),
   });

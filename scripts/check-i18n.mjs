@@ -9,6 +9,8 @@ import { QIAOMU_READER_ZH_CN } from "../packages/reader/src/i18n-zh.js";
 const source = await fs.readFile(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
 const selectionSource = await fs.readFile(new URL("../packages/reader/src/selection-actions.js", import.meta.url), "utf8");
 const viewSource = await fs.readFile(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
+const modalSource = await fs.readFile(new URL("../packages/reader/src/reader-modal.js", import.meta.url), "utf8");
+const readerSources = source + viewSource + modalSource;
 const readingNoteSource = await fs.readFile(new URL("../packages/reader/src/reading-note.js", import.meta.url), "utf8");
 const packageJson = JSON.parse(await fs.readFile(new URL("../package.json", import.meta.url), "utf8"));
 
@@ -127,7 +129,7 @@ if (source.includes("const READING_HIGHLIGHTS_START") || source.includes("const 
 if (source.includes('> **${qiaomuReaderTranslate("comment-on-a-highlight")}')) {
   errors.push("Highlight comments still render inside the quote block");
 }
-if (((source + viewSource).match(/await persistCurrentReaderPosition\(this\)/g) || []).length < 2) {
+if ((readerSources.match(/await persistCurrentReaderPosition\(this\)/g) || []).length < 2) {
   errors.push("Desktop and mobile readers do not flush the final automatic reading position on close");
 }
 if (!source.includes("pager.flow.isConnected") || !source.includes("pager.clip.isConnected")) {
@@ -143,10 +145,10 @@ if (runtimeSource.includes("saveNow(") || runtimeSource.includes("snap.manual"))
 if (!source.includes('await reader.plugin.saveProgress(reader.file.path, current, total, block)')) {
   errors.push("Automatic reading progress is not flushed when the reader closes");
 }
-if (!source.includes("openOrCreateBookNoteBeside")
+if (!readerSources.includes("openOrCreateBookNoteBeside")
   || !viewSource.includes('trayButton("reading-note", "the-book-note", () => openOrCreateBookNoteBeside(this.plugin, this.file))')
-  || !source.includes('add("the-book-note", "file-text", () => openOrCreateBookNoteBeside(this.plugin, this.file))')
-  || !source.includes('{ mode: "split" }')) {
+  || !readerSources.includes('add("the-book-note", "file-text", () => openOrCreateBookNoteBeside(this.plugin, this.file))')
+  || !readerSources.includes('{ mode: "split" }')) {
   errors.push("The reader chrome does not create or open the reading note beside the book");
 }
 if (!source.includes('let body = "";') || !source.includes("stripGeneratedReadingNoteTitle") || !source.includes("readingNoteTitlesMigratedV4") || !source.includes("markedInText") || !source.includes("bookNoteFiles(this.app)")) {

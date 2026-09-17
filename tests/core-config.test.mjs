@@ -24,6 +24,11 @@ import { composeAiAnswerNote } from "../packages/reader/src/ai-note.js";
 import { deriveAiSetupState } from "../packages/reader/src/ai-setup-state.js";
 import { isChineseSourceText, translateUiText } from "../packages/reader/src/i18n-runtime.js";
 import { EmbeddedPdfBinaryDataFactory, PDF_CMAP_OPTIONS } from "../packages/reader/src/pdf-cmaps.js";
+
+const mainSource = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
+const modalSource = fs.readFileSync(new URL("../packages/reader/src/reader-modal.js", import.meta.url), "utf8");
+const readerSources = mainSource + viewSource + modalSource;
 import { EMBEDDED_PDF_CMAPS } from "../packages/reader/src/pdf-cmaps-data.js";
 import { PDF_AI_CONTEXT_MAX_CHARS, READER_BLOCK_SELECTOR, packPdfDocumentContext, pdfPageKind, pdfPageShell, pdfPageTextFallback, pdfPageTextForAi } from "../packages/reader/src/pdf-page-mode.js";
 import { PDF_ZOOM_MAX, PDF_ZOOM_MIN, clampPdfZoom, pdfZoomFromWheel, pdfZoomPercent, pdfZoomShortcut, stepPdfZoom } from "../packages/reader/src/pdf-zoom.js";
@@ -147,7 +152,6 @@ test("PDF AI context keeps page boundaries and represents the whole document", (
 
 test("PDF zoom stays bounded and supports buttons, gestures, and shortcuts", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
-const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
   assert.equal(clampPdfZoom(0.1), PDF_ZOOM_MIN);
   assert.equal(clampPdfZoom(8), PDF_ZOOM_MAX);
   assert.equal(clampPdfZoom("bad"), 1);
@@ -181,7 +185,6 @@ test("saving an AI response keeps the answer as the note body", () => {
 
 test("PDF extraction renders every page image and overlays PDF.js text instead of reflowing it", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
-const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
   assert.match(source, /pdfjs-dist\/legacy\/build\/pdf\.mjs/);
   assert.match(source, /new pdfjsLib\.TextLayer/);
   assert.match(source, /page\.cleanup\?\.\(\)/);
@@ -197,7 +200,7 @@ const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.j
   assert.match(source, /wireReaderChrome\(view, root\)[\s\S]{0,120}setupPdfZoomInteractions\(view\)/);
   assert.match(source, /--qiaomu-reader-pdf-zoom/);
   assert.match(source, /data-pdf-page-kind"\) !== "text"\) return null/);
-  assert.match(source, /resolveHighlightAnchor\(blocks, hl, this\.file\.extension === "pdf"\)/);
+  assert.match(modalSource, /resolveHighlightAnchor\(blocks, hl, this\.file\.extension === "pdf"\)/);
   assert.doesNotMatch(source, /const alsoFigOnText/);
   assert.doesNotMatch(source, /setName\(qiaomuReaderTranslate\("show-pictures-from-the-book"\)\)/);
 });
@@ -303,7 +306,6 @@ test("empty synced JSON placeholders stay blocked until the user restores or rem
 
 test("reader persistence refuses to overwrite unreadable stores and reports real save failures", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
-const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
   const selection = fs.readFileSync(new URL("../packages/reader/src/selection-actions.js", import.meta.url), "utf8");
   assert.match(source, /this\._blockedStores\.add\(path5\)/);
   assert.match(source, /this\._unreadableStores\.set\(path5/);
@@ -319,7 +321,6 @@ const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.j
 
 test("fixed-layout PDF pages show a reserved loading state instead of a blank sheet", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
-const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
   const styles = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   assert.match(source, /const FIGURE_RENDERING_CLASS = "qiaomu-reader-pdf-rendering"/);
   assert.match(source, /surface\) surface\.addClass\(FIGURE_RENDERING_CLASS\)/);
@@ -329,7 +330,7 @@ const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.j
   const hud = fs.readFileSync(new URL("../packages/reader/src/reader-hud.js", import.meta.url), "utf8");
   assert.match(hud, /function markSlowLayout\(view, delay = 3000\)/);
   assert.match(hud, /async function paintVeil\(view\)/);
-  assert.match(source, /await readerHud\.paintVeil\(this\);/);
+  assert.match(readerSources, /await readerHud\.paintVeil\(this\);/);
   assert.match(source, /function readerPaginationMappingCollapsed\(pager\)/);
   assert.match(viewSource, /if \(readerPaginationMappingCollapsed\(pager\)\)/);
   assert.match(hud, /this-document-has-many-pages-layout-is-still-in-progress/);
@@ -338,7 +339,6 @@ const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.j
 
 test("runtime diagnostics use the maintained plugin identity", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
-const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
   assert.doesNotMatch(source, /console\.(?:error|warn|log)\("Book Reader:/);
   assert.match(source, /const VIEW_TYPE = "qiaomu-reader"/);
   assert.match(source, /const LIB_VIEW_TYPE = "qiaomu-reader-library"/);
@@ -364,7 +364,6 @@ test("Russian UI never leaks Chinese-first source keys", () => {
 
 test("translation target labels follow the plugin interface language", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
-const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
   assert.match(source, /const TRANSLATION_LANGUAGE_CHOICES = Object\.freeze/);
   assert.match(source, /\["zh-CN", "simplified-chinese"\]/);
   assert.match(source, /TRANSLATION_LANGUAGE_CHOICES\.forEach\(\(\[value, label\]\) => dropdown\.addOption\(value, qiaomuReaderTranslate\(label\)\)\)/);
@@ -696,7 +695,6 @@ test("public README presents the standalone desktop app and preserved notices", 
 
 test("AI prompt and context are Chinese-first", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
-const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
   const start = source.indexOf("function aiSystemChat");
   const end = source.indexOf("const TranslateModal", start);
   const aiSource = source.slice(start, end);
@@ -727,7 +725,6 @@ test("selection popup keeps primary actions compact and moves note tools into Mo
 
 test("AI dialog uses built-in quick prompts and keeps reasoning separate", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
-const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
   const chinese = fs.readFileSync(new URL("../packages/reader/src/i18n-zh.js", import.meta.url), "utf8");
   for (const label of ["解释一下", "举个例子", "总结要点", "对我有什么用", "换个角度看", "出题考考我"]) {
     assert.match(chinese, new RegExp(label));
@@ -747,7 +744,6 @@ const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.j
 
 test("desktop AI chat keeps per-book threads and structured document or selection context", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
-const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
   const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   assert.match(source, /const AI_CHAT_VIEW_TYPE = "qiaomu-book-reader-ai-chat"/);
   assert.match(source, /\[AI_CHAT_VIEW_TYPE, AiChatView\]/); // view registrations are table-driven in _registerReaderViews
@@ -851,17 +847,16 @@ const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.j
 
 test("reader lifecycle cancels stale loads and releases PDF resources", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
-const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
   assert.match(source, /async function extractPdf\(file, app, _settings = \{\}, onProgress, options = \{\}\)/);
   assert.match(source, /const signal = options\.signal/);
   assert.match(source, /throwIfReaderLoadAborted\(signal\)/);
   assert.match(source, /async function loadReaderDocument\(file, app, settings, onProgress, options = \{\}\)/);
   assert.match(source, /extractPdf\(file, app, settings, onProgress, options\)/);
-  assert.match(source, /const loadToken = this\._loadCoordinator\.begin\(\)/);
-  assert.match(source, /loadReaderDocument\(this\.file, this\.app, this\.plugin\.settings,[\s\S]*signal: loadToken\.signal/);
-  assert.match(source, /if \(!this\._loadCoordinator\.isCurrent\(loadToken\)\) \{[\s\S]*lazy\?\.destroy\?\.\(\)/);
-  assert.equal(((source + viewSource).match(/this\._loadCoordinator\.cancel\(\);/g) || []).length, 2);
-  assert.match(source, /this\._pdfLazy\?\.destroy\?\.\(\)/);
+  assert.match(readerSources, /const loadToken = this\._loadCoordinator\.begin\(\)/);
+  assert.match(readerSources, /loadReaderDocument\(this\.file, this\.app, this\.plugin\.settings,[\s\S]*signal: loadToken\.signal/);
+  assert.match(readerSources, /if \(!this\._loadCoordinator\.isCurrent\(loadToken\)\) \{[\s\S]*lazy\?\.destroy\?\.\(\)/);
+  assert.equal((readerSources.match(/this\._loadCoordinator\.cancel\(\);/g) || []).length, 2);
+  assert.match(readerSources, /this\._pdfLazy\?\.destroy\?\.\(\)/);
   assert.match(source, /_loadingTask: loadingTask/);
   assert.match(source, /try \{ void loadingTask\.destroy\(\); \} catch/);
   assert.match(source, /async makePdfThumb\(pdfFile\)[\s\S]*return this\._renderPdfCover\(bytes\)/); // thumbnail delegates to the shared PDF cover renderer
@@ -871,7 +866,6 @@ const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.j
 
 test("AI settings explain and verify provider-specific ACP instead of a generic install", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
-const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
   assert.match(source, /cliAcpSupport\(s\.aiProvider\)/);
   assert.match(source, /probeCliAcp\(s\.aiProvider/);
   assert.doesNotMatch(source, /warmCliAiSession\(cfg\.id/); // Opening a book must not initialize a model session.
@@ -891,7 +885,6 @@ const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.j
 
 test("book-note append asks to open only once", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
-const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
   const start = source.indexOf("async function exportHighlightsToBookNote");
   const end = source.indexOf("const HighlightExportModal", start);
   const exportSource = source.slice(start, end);
@@ -910,7 +903,6 @@ test("reader chrome stays white and removes only the reader's redundant host hea
 
 test("immersive reader chrome overlays the page and retracts without reserving rows", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
-const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
   const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   const chinese = fs.readFileSync(new URL("../packages/reader/src/i18n-zh.js", import.meta.url), "utf8");
   assert.match(css, /\.qiaomu-reader-top \{[^}]*position:absolute;[^}]*height:40px;[^}]*border-radius:0/s);
@@ -927,7 +919,7 @@ const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.j
   assert.match(source, /root\.addEventListener\("focusin", reveal\)/);
   assert.match(source, /event\.clientY <= rect\.top \+ 64/);
   assert.match(source, /\.qiaomu-reader-panel-open,\.qiaomu-reader-overlay-on,\.qiaomu-reader-hl-popup-on/);
-  assert.equal(((source + viewSource).match(/wireReaderChrome\(this, root\);/g) || []).length, 2); // both views delegate chrome wiring to the shared helper
+  assert.equal((readerSources.match(/wireReaderChrome\(this, root\);/g) || []).length, 2); // both views delegate chrome wiring to the shared helper
   assert.match(source, /function wireReaderChrome\(view, root\)/);
   assert.equal((source.match(/setupImmersiveChrome\(view, root\);/g) || []).length, 1);
   assert.match(source, /function setReaderTitle\(el, value, limit = 18\)/);
@@ -944,7 +936,6 @@ const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.j
 
 test("settings use task tabs, concise intros, and Chinese-first copy", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
-const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
   const chinese = fs.readFileSync(new URL("../packages/reader/src/i18n-zh.js", import.meta.url), "utf8");
   assert.match(source, /qiaomu-reader-settings-head/);
   assert.match(source, /qiaomu-reader-settings-intro/);
@@ -981,7 +972,6 @@ const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.j
 
 test("folder and template settings use searchable vault pickers", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
-const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
   const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   const chinese = fs.readFileSync(new URL("../packages/reader/src/i18n-zh.js", import.meta.url), "utf8");
   assert.match(source, /const FolderPicker = class extends FuzzySuggestModal/);
@@ -1006,7 +996,6 @@ const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.j
 
 test("quote template is language-neutral and migrates the old Russian fragment", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
-const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
   assert.match(source, /const QUOTE_TEMPLATE_DEFAULT = "> \{text\}\\n\\n— \[\[\{book\}\]\]\{page\}\{link\}"/);
   assert.doesNotMatch(source, /— из \[\[\{book\}\]\]/i);
   assert.match(source, /quoteTemplate\.replace\(\/\u2014\\s\+из/);
@@ -1023,7 +1012,6 @@ test("reading settings own their scroll area without horizontal overflow", () =>
 
 test("reading settings split reading and AI assistance without exposing secrets", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
-const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
   const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   const start = source.indexOf("const ReadSettingsModal");
   const end = source.indexOf("function parseNoteTags", start);
@@ -1052,7 +1040,6 @@ const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.j
 
 test("AI setup uses one status-driven flow and enables only after a successful test", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
-const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
   const start = source.indexOf("_tabTranslate(");
   const end = source.indexOf("_tabData(c)", start);
   const tabSource = source.slice(start, end);
@@ -1069,7 +1056,6 @@ const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.j
 
 test("confirming AI settings automatically prepares, tests, and enables the selected provider", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
-const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
   const modalStart = source.indexOf("const SettingsGroupModal");
   const modalEnd = source.indexOf("const SettingsTab", modalStart);
   const modalSource = source.slice(modalStart, modalEnd);
