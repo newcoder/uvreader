@@ -12,6 +12,7 @@ const viewSource = await fs.readFile(new URL("../packages/reader/src/reader-view
 const modalSource = await fs.readFile(new URL("../packages/reader/src/reader-modal.js", import.meta.url), "utf8");
 const librarySource = await fs.readFile(new URL("../packages/reader/src/library-modal.js", import.meta.url), "utf8");
 const readerSources = source + viewSource + modalSource + librarySource;
+const readSettingsSource = await fs.readFile(new URL("../packages/reader/src/read-settings-modal.js", import.meta.url), "utf8");
 const readingNoteSource = await fs.readFile(new URL("../packages/reader/src/reading-note.js", import.meta.url), "utf8");
 const packageJson = JSON.parse(await fs.readFile(new URL("../package.json", import.meta.url), "utf8"));
 
@@ -183,10 +184,10 @@ for (const font of ["Georgia", "Lora", "Inter"]) {
     errors.push(`English font label has an unnecessary Chinese suffix: ${font}`);
   }
 }
-if (!source.includes('body.createDiv("qiaomu-reader-rs-card qiaomu-reader-rs-theme-card")')
-  || !source.includes('createEl("input", {')
-  || !source.includes('type: "range"')
-  || !source.includes('label: qiaomuReaderTranslate("more-settings")')) {
+if (!readSettingsSource.includes('body.createDiv("qiaomu-reader-rs-card qiaomu-reader-rs-theme-card")')
+  || !readSettingsSource.includes('createEl("input", {')
+  || !readSettingsSource.includes('type: "range"')
+  || !readSettingsSource.includes('label: qiaomuReaderTranslate("more-settings")')) {
   errors.push("Reading settings do not use primary controls with progressive disclosure");
 }
 if (/\bname:\s*qiaomuReaderTranslate\("(?:yellow|green|blue|pink)"\)/.test(source)) {

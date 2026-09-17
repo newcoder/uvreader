@@ -956,7 +956,7 @@ test("settings use task tabs, concise intros, and Chinese-first copy", () => {
   assert.match(source, /aiModels: \{\}/);
   assert.match(source, /aiThinking: \{\}/);
   assert.match(source, /aiCliEfforts: \{\}/);
-  assert.match(source, /setName\(qiaomuReaderTranslate\("reasoning-effort"\)\)/);
+  assert.match(fs.readFileSync(new URL("../packages/reader/src/read-settings-modal.js", import.meta.url), "utf8"), /setName\(qiaomuReaderTranslate\("reasoning-effort"\)\)/);
   assert.match(source, /_aiThinkingRow\(host, s\)[\s\S]{0,260}"thinking-mode"/); // thinking toggle rides the shared _readingToggle builder via _aiThinkingRow
   assert.match(source, /this\._settingsDisclosure\(advanced, "ai-connection-settings"\)/);
   assert.match(source, /createEl\("details", \{ cls: "qiaomu-reader-settings-disclosure" \}\)/);
@@ -1015,9 +1015,7 @@ test("reading settings own their scroll area without horizontal overflow", () =>
 test("reading settings split reading and AI assistance without exposing secrets", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
   const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
-  const start = source.indexOf("const ReadSettingsModal");
-  const end = source.indexOf("function parseNoteTags", start);
-  const modalSource = source.slice(start, end);
+  const modalSource = fs.readFileSync(new URL("../packages/reader/src/read-settings-modal.js", import.meta.url), "utf8");
   assert.match(modalSource, /initialTab = "reading"/);
   assert.match(modalSource, /\[\["reading", qiaomuReaderTranslate\("text-and-background"\)\], \["layout", qiaomuReaderTranslate\("turning-and-layout"\)\], \["ai", qiaomuReaderTranslate\("ai-reading"\)\]\]/);
   assert.match(modalSource, /_drawAi\(c\)/);
