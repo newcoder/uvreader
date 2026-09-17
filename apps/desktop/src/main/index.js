@@ -1,0 +1,228 @@
+import { BrowserWindow, Menu, app, dialog, ipcMain, safeStorage, shell } from "electron";
+import fs from "node:fs";
+import path from "node:path";
+
+import { BOOK_EXTENSIONS, isBookFile } from "../shared/books.js";
+
+if (process.env.QBR_USER_DATA) app.setPath("userData", process.env.QBR_USER_DATA);
+const userData = app.getPath("userData");
+const dataRoot = path.join(userData, "data");
+const vaultRoot = path.join(userData, "library");
+const secretsPath = path.join(userData, "secrets.json");
+const smoke = process.argv.includes("--qbr-smoke");
+if (!app.isPackaged) process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "true";
+
+process.env.QBR_DATA_ROOT = dataRoot;
+process.env.QBR_VAULT_ROOT = vaultRoot;
+process.env.QBR_SMOKE = smoke ? "1" : "";
+fs.mkdirSync(dataRoot, { recursive: true });
+fs.mkdirSync(vaultRoot, { recursive: true });
+
+let mainWindow = null;
+let launchFile = "";
+let smokeTimer = null;
+
+function bookFromArgv(argv) {
+  return (argv || []).find((arg) => isBookFile(arg) && fs.existsSync(arg)) || "";
+}
+
+function sendOpen(filePath) {
+  if (!filePath) return;
+  if (mainWindow) mainWindow.webContents.send("qbr:open-book", filePath);
+  else launchFile = filePath;
+}
+
+async function openBookDialog() {
+  const options = {
+    title: "打开书籍",
+    properties: ["openFile"],
+    filters: [
+      { name: "电子书", extensions: [...BOOK_EXTENSIONS] },
+      { name: "所有文件", extensions: ["*"] },
+    ],
+  };
+  const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+  if (result.canceled || !result.filePaths.length) return "";
+  const filePath = result.filePaths[0];
+  if (!isBookFile(filePath)) {
+    dialog.showErrorBox("不支持的格式", `“${path.basename(filePath)}”不是受支持的电子书格式。\n支持：${BOOK_EXTENSIONS.join("、")}`);
+    return "";
+  }
+  app.addRecentDocument(filePath);
+  return filePath;
+}
+
+function readSecrets() {
+  try {
+    return JSON.parse(fs.readFileSync(secretsPath, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+function writeSecrets(value) {
+  fs.mkdirSync(path.dirname(secretsPath), { recursive: true });
+  fs.writeFileSync(secretsPath, JSON.stringify(value, null, 2));
+}
+
+function encryptSecret(value) {
+  if (safeStorage.isEncryptionAvailable()) return `enc:${safeStorage.encryptString(value).toString("base64")}`;
+  return `plain:${Buffer.from(value, "utf8").toString("base64")}`;
+}
+
+function decryptSecret(value) {
+  if (typeof value !== "string") return "";
+  if (value.startsWith("enc:")) {
+    try {
+      return safeStorage.decryptString(Buffer.from(value.slice(4), "base64"));
+    } catch {
+      return "";
+    }
+  }
+  if (value.startsWith("plain:")) return Buffer.from(value.slice(6), "base64").toString("utf8");
+  return value;
+}
+
+function buildMenu() {
+  const template = [
+    {
+      label: "文件",
+      submenu: [
+        { label: "打开书籍…", accelerator: "CmdOrCtrl+O", click: async () => sendOpen(await openBookDialog()) },
+        { type: "separator" },
+        { role: "quit", label: "退出" },
+      ],
+    },
+    {
+      label: "编辑",
+      submenu: [
+        { role: "undo", label: "撤销" },
+        { role: "redo", label: "重做" },
+        { type: "separator" },
+        { role: "cut", label: "剪切" },
+        { role: "copy", label: "复制" },
+        { role: "paste", label: "粘贴" },
+        { role: "selectAll", label: "全选" },
+      ],
+    },
+    {
+      label: "视图",
+      submenu: [
+        { role: "reload", label: "重新加载" },
+        { role: "toggleDevTools", label: "开发者工具" },
+        { type: "separator" },
+        { role: "zoomIn", label: "放大" },
+        { role: "zoomOut", label: "缩小" },
+        { role: "resetZoom", label: "重置缩放" },
+        { type: "separator" },
+        { role: "togglefullscreen", label: "全屏" },
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1280,
+    height: 860,
+    minWidth: 900,
+    minHeight: 600,
+    title: "UV Reader",
+    backgroundColor: "#1e1e1e",
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.cjs"),
+      nodeIntegration: true,
+      contextIsolation: false,
+      sandbox: false,
+      webSecurity: false,
+      spellcheck: false,
+    },
+  });
+  mainWindow.once("ready-to-show", () => mainWindow.show());
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
+  mainWindow.webContents.on("console-message", (...args) => {
+    const details = args[1];
+    if (details && typeof details === "object" && "message" in details) {
+      console.log(`[renderer:${details.level ?? "log"}] ${details.message}`);
+    } else {
+      console.log(`[renderer] ${args[2]}`);
+    }
+  });
+  void mainWindow.loadFile(path.join(__dirname, "index.html"));
+}
+
+ipcMain.handle("qbr:launch-file", () => launchFile);
+ipcMain.handle("qbr:open-book-dialog", () => openBookDialog());
+ipcMain.handle("qbr:open-path", (_event, target) => (target ? shell.openPath(String(target)) : ""));
+ipcMain.handle("qbr:boot", (_event, payload = {}) => {
+  const status = payload.ok ? "ok" : "failed";
+  console.log(`[qbr] boot ${status}${payload.file ? ` (${payload.file})` : ""}${payload.detail ? ` ${payload.detail}` : ""}`);
+  if (payload.error) console.error(`[qbr] ${payload.error}`);
+  if (smoke) {
+    clearTimeout(smokeTimer);
+    setTimeout(() => app.exit(payload.ok ? 0 : 1), 50);
+  }
+  return true;
+});
+ipcMain.handle("qbr:show-item", (_event, filePath) => {
+  if (filePath) shell.showItemInFolder(filePath);
+});
+ipcMain.on("qbr:secret-sync", (event, id) => {
+  const store = readSecrets();
+  event.returnValue = id && store[id] ? decryptSecret(store[id]) : null;
+});
+ipcMain.handle("qbr:secret", (_event, action, id, value) => {
+  const store = readSecrets();
+  if (action === "get") return store[id] ? decryptSecret(store[id]) : null;
+  if (action === "set") {
+    store[id] = encryptSecret(String(value ?? ""));
+    writeSecrets(store);
+    return true;
+  }
+  if (action === "delete") {
+    delete store[id];
+    writeSecrets(store);
+    return true;
+  }
+  if (action === "list") return Object.keys(store);
+  return null;
+});
+
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  launchFile = bookFromArgv(process.argv.slice(1));
+  app.on("second-instance", (_event, argv) => {
+    const file = bookFromArgv(argv);
+    if (file) sendOpen(file);
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+  app.on("open-file", (event, filePath) => {
+    event.preventDefault();
+    sendOpen(filePath);
+  });
+  app.whenReady().then(() => {
+    buildMenu();
+    createWindow();
+    if (smoke) {
+      smokeTimer = setTimeout(() => {
+        console.error("[qbr] boot timed out");
+        app.exit(2);
+      }, 60_000);
+    }
+  });
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") app.quit();
+  });
+  app.on("activate", () => {
+    if (!BrowserWindow.getAllWindows().length) createWindow();
+  });
+}

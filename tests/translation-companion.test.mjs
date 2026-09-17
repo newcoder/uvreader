@@ -83,7 +83,7 @@ test('reader companion entry renders an icon and opens setup before configuratio
   let opened=0;
   const view={plugin:{openAiChat:()=>opened++}};
   const helper=source.slice(source.indexOf('    const trayButton ='),source.indexOf('    trayButton("reading-note"'));
-  const entry=source.slice(source.indexOf('    this.aiBtn = trayButton('),source.indexOf('    this.focusBtn = trayButton('));
+  const entry=source.slice(source.indexOf('    this.aiBtn = trayButton('),source.indexOf('    this.fitBtn = trayButton('));
   vm.runInNewContext(`(function(){${helper}${entry}}).call(view)`,{view,tray,svgIcon:()=>{},setIcon:(el,name)=>{assert.equal(name,'sparkles');el.append(document.createElementNS('http://www.w3.org/2000/svg','svg'));},qiaomuReaderTranslate:x=>x,readerAiPanelContext:()=>({})});
   assert.ok(view.aiBtn.querySelector('svg'));
   assert.equal(view.aiBtn.hidden,false);

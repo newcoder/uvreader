@@ -1,10 +1,10 @@
 # 正式版本截图 / Release screenshot evidence
 
-日期：2026-09-10。环境：macOS、Obsidian 1.13.7、正式发布的 **Qiaomu Reader 4.2.4**。插件 ID：`qiaomu-reader`。
+日期：2026-09-10。环境：macOS、Obsidian 1.13.7、正式发布的 **UV Reader（柚肥阅读）4.2.4**。插件 ID：`qiaomu-reader`。
 
 ## 版本核验
 
-截图使用 [4.2.4 GitHub Release](https://github.com/joeseesun/qiaomu-reader/releases/tag/4.2.4) 的安装文件，安装在独立 QA 仓库中。已核对安装版本及 `main.js` 与下载的正式 Release 文件 SHA-256 一致：
+截图使用 [4.2.4 GitHub Release](https://github.com/newcoder/uvreader/releases/tag/4.2.4) 的安装文件，安装在独立 QA 仓库中。已核对安装版本及 `main.js` 与下载的正式 Release 文件 SHA-256 一致：
 
 ```text
 e6b3899c9448f43040457e133d7c1ee387a891639c8b2db3e3d4b877487e2198
@@ -35,4 +35,4 @@ e6b3899c9448f43040457e133d7c1ee387a891639c8b2db3e3d4b877487e2198
 
 ## English
 
-These five unretouched captures show the published Qiaomu Reader 4.2.4 release running in an isolated Obsidian 1.13.7 desktop vault. The installed main.js matches the SHA-256 of the official release asset above. The library contains the six bundled public-domain EPUBs with their packaged covers; reading progress and highlights are demonstration state. The sample PDF is original demonstration material, not an additional bundled book. The real plugin created the highlighted passage, annotation and linked Markdown note. The AI view renders a clearly labeled seeded conversation without a model request. These images demonstrate desktop UI, not mobile-device coverage, streaming performance or model quality. Third-party book, cover and Obsidian rights remain with their respective owners and licenses.
+These five unretouched captures show the published UV Reader 4.2.4 release running in an isolated Obsidian 1.13.7 desktop vault. The installed main.js matches the SHA-256 of the official release asset above. The library contains the six bundled public-domain EPUBs with their packaged covers; reading progress and highlights are demonstration state. The sample PDF is original demonstration material, not an additional bundled book. The real plugin created the highlighted passage, annotation and linked Markdown note. The AI view renders a clearly labeled seeded conversation without a model request. These images demonstrate desktop UI, not mobile-device coverage, streaming performance or model quality. Third-party book, cover and Obsidian rights remain with their respective owners and licenses.

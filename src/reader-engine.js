@@ -1,7 +1,7 @@
 import { HIGHLIGHT_PAINTS } from "./highlight-colors.js";
 import { createBookCover, isGeneratedBookCover } from "./book-cover.js";
 export { HIGHLIGHT_PAINTS } from "./highlight-colors.js";
-// Qiaomu Reader — e-book rendering engine.
+// UV Reader — e-book rendering engine.
 //
 // A thin adapter over foliate-js (MIT, https://github.com/johnfactotum/foliate-js)
 // exposing the small interface the reader view needs: open a book from bytes,
@@ -35,11 +35,18 @@ export const SEARCH_PREFIX = "foliate-search:";
 const VIEW_TAG = typeof __QBR_ENGINE_VIEW_TAG__ === "string" ? __QBR_ENGINE_VIEW_TAG__ : "foliate-view";
 
 export function engineLayout(settings = {}, width = 0) {
+    const scrolled = settings.readMode === "scroll";
+    const fit = settings.fitPage === true;
     const columns = settings.columns === "1" || width <= 700 ? 1 : 2;
+    // Scrolling mode renders one continuous column, so the inline size must
+    // span the viewport instead of a single paginated column.
+    const columnWidth = Math.floor(width / (scrolled ? 1 : columns));
     return {
-        flow: settings.readMode === "scroll" ? "scrolled" : "paginated",
+        flow: scrolled ? "scrolled" : "paginated",
         "max-column-count": String(columns),
-        "max-inline-size": `${Math.max(1, Math.min(720, Math.floor(width / columns)))}px`,
+        margin: fit ? "16px" : "48px",
+        gap: fit ? "2%" : "7%",
+        "max-inline-size": `${Math.max(1, fit ? columnWidth : Math.min(720, columnWidth))}px`,
     };
 }
 
@@ -140,7 +147,7 @@ export class EpubEngine {
             this.#keyCleanup?.();
             this.#keyCleanup = bindEngineKeys(doc, (direction) => {
                 if (this.#hooks.onNavigate) this.#hooks.onNavigate(direction);
-                else void this[direction]().catch(error => console.warn("Qiaomu Reader: page turn failed", error));
+                else void this[direction]().catch(error => console.warn("UV Reader: page turn failed", error));
             }, () => this.#layout.readMode === "scroll");
             if (this.#extraCss) this.#injectCss(doc, this.#extraCss);
             this.#hooks.onDocLoaded?.({ doc, index });
@@ -280,7 +287,7 @@ export class EpubEngine {
     }
 
     setLayout(settings) {
-        this.#layout = { columns: settings.columns, readMode: settings.readMode };
+        this.#layout = { columns: settings.columns, readMode: settings.readMode, fitPage: settings.fitPage === true };
         const renderer = this.#view?.renderer;
         const width = this.#host.clientWidth;
         if (!renderer || this.#view.isFixedLayout || !width || !this.#host.clientHeight) return;

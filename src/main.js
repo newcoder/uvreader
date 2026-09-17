@@ -5,7 +5,7 @@ import { createStarterLibraryInstaller, findStarterBook } from "./starter-librar
 import { isNonChineseSource } from "./ai-source-language.js";
 import { HL_COLOR_SWATCHES } from "./highlight-colors.js";
 /*
- * Qiaomu Reader — source.
+ * UV Reader — source.
  *
  * Reads EPUB and PDF inside Obsidian and turns highlights into notes. Third
  * party libraries (pdf.js, epub.js, JSZip) come from npm and are bundled by
@@ -151,7 +151,7 @@ const DEFAULT_READING_FLOW = {
   bookNoteAppendPromptSeen: false,
   languagePicked: false, readMode: "pages", pageTurnAnimation: true,
   progressToFrontmatter: false, quoteTemplate: "", quoteBacklinks: true,
-  quoteBacklinkLabel: "", noteOpenMode: "split", maxLineCh: 0,
+  quoteBacklinkLabel: "", noteOpenMode: "split", maxLineCh: 0, fitPage: false,
   notesNextToBook: false, perDevice: false, deviceProfiles: {},
   lastSeenVersion: "", whatsNewNote: true,
 };
@@ -307,7 +307,7 @@ function buildCustomFontInput(host, plugin, apply) {
   const actions = wrap.createDiv("qiaomu-reader-font-actions");
   const system = actions.createEl("button", { text: qiaomuReaderTranslate("choose-installed-font"), attr: { type: "button" } });
   const upload = actions.createEl("button", { text: qiaomuReaderTranslate("import-font-file"), attr: { type: "button" } });
-  actions.createEl("a", { text: qiaomuReaderTranslate("download-more-fonts"), href: "https://github.com/joeseesun/qiaomu-reader/blob/main/fonts/README.md", attr: { target: "_blank", rel: "noopener noreferrer" } });
+  actions.createEl("a", { text: qiaomuReaderTranslate("download-more-fonts"), href: "https://github.com/newcoder/uvreader/blob/main/fonts/README.md", attr: { target: "_blank", rel: "noopener noreferrer" } });
   const files = wrap.createEl("input", { type: "file", attr: { accept: FONT_FILE_ACCEPT, "aria-label": qiaomuReaderTranslate("import-font-file") } });
   files.hidden = true;
   const saved = wrap.createDiv("qiaomu-reader-imported-fonts");
@@ -785,6 +785,48 @@ function attachEngineChrome(view, doc, index) {
       clientX: event.clientX + frame.left,
     })) event.preventDefault();
   });
+  doc.addEventListener("wheel", (event) => handleReaderWheel(view, event), { passive: false });
+}
+// Wheel paging: in paged layout any wheel gesture turns the page; in scrolling
+// layout the wheel scrolls normally and only turns once the reader reaches the
+// top or bottom edge of the current screen.
+const WHEEL_TURN_COOLDOWN_MS = 450;
+function engineWheelScroller(doc) {
+  try {
+    const root = doc?.defaultView?.frameElement?.getRootNode?.();
+    return root?.getElementById?.("container") || null;
+  } catch {
+    return null;
+  }
+}
+function handleReaderWheel(view, event) {
+  if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || !event.deltaY) return;
+  if (!view.bookHtml || view._openingBook || view._closed || readerIsPdf(view)) return;
+  if (view.panelOpen || view._selectionMenuOpen || view._commentEditing) return;
+  if (view.hlPopup?.classList.contains("qiaomu-reader-hl-popup-on")) return;
+  if (event.target?.closest?.(".qiaomu-reader-panel,.qiaomu-reader-hl-popup,.menu,.modal-container")) return;
+  const dir = event.deltaY > 0 ? "next" : "prev";
+  const scrolled = view.engine
+    ? view.plugin.settings.readMode === "scroll"
+    : view.pager?.scrollMode === true;
+  if (scrolled) {
+    const scroller = view.engine
+      ? engineWheelScroller(event.target?.ownerDocument || docOf(view.areaEl))
+      : view.pager?.clip;
+    if (!scroller) return;
+    const atEnd = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2;
+    const atStart = scroller.scrollTop <= 2;
+    if ((dir === "next" && !atEnd) || (dir === "prev" && !atStart)) return;
+    event.preventDefault();
+  }
+  const now = Date.now();
+  if (view._wheelTurnAt && now - view._wheelTurnAt < WHEEL_TURN_COOLDOWN_MS) {
+    event.preventDefault();
+    return;
+  }
+  view._wheelTurnAt = now;
+  event.preventDefault();
+  view.nav(dir);
 }
 // Reader chrome lives above the page rather than reserving rows around it. In
 // immersive mode it retracts after a short pause and returns through several
@@ -906,7 +948,7 @@ function buildReaderBotNav(view, root, bot, opts = {}) {
   next.addEventListener("click", () => turn("next"));
   view._pageButtons = { root, toolbar: bot, previous: prev, next };
   syncPageButtons(view);
-  addReaderNavigation(view, bot, opts.findBtn, opts.tocBtn);
+  addReaderNavigation(view, bot, opts.findBtn, opts.tocBtn, opts.showTools !== false);
 }
 
 // Overlay plus the four slide-in panels and the highlight popup.
@@ -1433,7 +1475,7 @@ async function setupWorker(app) {
     workerReady = true;
     return;
   } catch (e) {
-    console.error("Qiaomu Reader: could not start the embedded pdf.worker", e);
+    console.error("UV Reader: could not start the embedded pdf.worker", e);
     new Notice(qiaomuReaderTranslate("could-not-prepare-pdf-reading-please-reinstall-the-plugin"));
   }
   workerReady = true;
@@ -1485,7 +1527,7 @@ const QiaomuBookReader = class extends Plugin {
     this.app.workspace.onLayoutReady(() => {
       this._watchBookFiles();
       // Note metadata and the plugin instance must exist before rendering links.
-      void this._repairCfiBacklinks().catch((error) => console.warn("Qiaomu Reader: backlink upgrade failed", error));
+      void this._repairCfiBacklinks().catch((error) => console.warn("UV Reader: backlink upgrade failed", error));
     });
     this._scheduleFirstRunFlow();
   }
@@ -1515,7 +1557,7 @@ const QiaomuBookReader = class extends Plugin {
     if (this._companionWasVisible && !this.app.workspace.rightSplit?.collapsed) return;
     this._openingCompanion = true;
     try { await this.openAiChat(readerAiPanelContext(view), { automatic: true }); }
-    catch (error) { console.warn("Qiaomu Reader: companion could not open", error); }
+    catch (error) { console.warn("UV Reader: companion could not open", error); }
     finally { this._openingCompanion = false; }
   }
   _watchQuietUiDocument(doc) {
@@ -1577,15 +1619,15 @@ const QiaomuBookReader = class extends Plugin {
     for (const ext of ENGINE_EXTENSIONS) {
       if (ext === "epub") continue;
       try { this.registerExtensions([ext], VIEW_TYPE); }
-      catch (e) { console.warn(`Qiaomu Reader: could not register .${ext}`, e); }
+      catch (e) { console.warn(`UV Reader: could not register .${ext}`, e); }
     }
     // PDFs open in the reader too, falling back to the right-click menu when
     // another plugin has claimed the extension.
     try { this.registerExtensions(["pdf"], VIEW_TYPE); }
-    catch (e) { console.warn("Qiaomu Reader: could not register .pdf; use the file menu to open it in Qiaomu Reader", e); }
+    catch (e) { console.warn("UV Reader: could not register .pdf; use the file menu to open it in UV Reader", e); }
   }
   _addRibbonEntry() {
-    const libraryLabel = `Qiaomu Reader — ${qiaomuReaderTranslate("library")}`;
+    const libraryLabel = `UV Reader — ${qiaomuReaderTranslate("library")}`;
     this.addRibbonIcon("book-open", libraryLabel, () => this.openLibrary()).addClass("qiaomu-reader-ribbon");
   }
   _registerCommandsAndSettings() {
@@ -1832,7 +1874,7 @@ const QiaomuBookReader = class extends Plugin {
       const pageNum = Number(page);
       if (Number.isInteger(pageNum) && pageNum >= 1) view.jumpToPdfPageWhenReady(pageNum);
     } catch (error) {
-      console.warn("Qiaomu Reader: backlink navigation failed", error);
+      console.warn("UV Reader: backlink navigation failed", error);
       new Notice(qiaomuReaderTranslate("highlight-not-found"));
     }
   }
@@ -1957,7 +1999,7 @@ const QiaomuBookReader = class extends Plugin {
     if (settingsMigrated) await this._saveLocalData();
   }
   _applyLanguageDefaults() {
-    // Qiaomu Reader is Chinese-first. Existing explicit language choices
+    // UV Reader is Chinese-first. Existing explicit language choices
     // stay untouched; every fresh install and every legacy install that never
     // chose a language starts in Simplified Chinese, regardless of OS locale.
     if (!this.settings.languagePicked) this.settings.language = "zh";
@@ -2070,7 +2112,7 @@ const QiaomuBookReader = class extends Plugin {
       lastBookPath: this._lastBookPath || "",
     });
     return this._localDataQueue.run(() => this.saveData(snapshot)).then(() => true).catch((error) => {
-      console.error("Qiaomu Reader: could not save plugin data", error);
+      console.error("UV Reader: could not save plugin data", error);
       const now = Date.now();
       if (!this._lastLocalDataErrorNotice || now - this._lastLocalDataErrorNotice > 15000) {
         this._lastLocalDataErrorNotice = now;
@@ -2089,14 +2131,14 @@ const QiaomuBookReader = class extends Plugin {
         if (j?.artworkVersion !== 1) await this._saveThumbCache();
         return;
       }
-    } catch (e) { console.warn("Qiaomu Reader: thumb cache load failed", e); }
+    } catch (e) { console.warn("UV Reader: thumb cache load failed", e); }
     this.thumbCache = ((d == null ? void 0 : d.thumbCacheVer) === 2 && (d == null ? void 0 : d.thumbCache)) ? migrateCoverCache(d.thumbCache) : {};
     if (Object.keys(this.thumbCache).length) this._saveThumbCache();
   }
   _saveThumbCache() {
     this._thumbSaveChain = (this._thumbSaveChain || Promise.resolve()).then(
       () => this.app.vault.adapter.write(this._thumbCachePath(), JSON.stringify({ ver: 2, artworkVersion: 1, cache: this.thumbCache }))
-    ).catch((e) => console.warn("Qiaomu Reader: thumb cache save failed", e));
+    ).catch((e) => console.warn("UV Reader: thumb cache save failed", e));
     return this._thumbSaveChain;
   }
   _todayKey() { return readerTodayKey(); }
@@ -2228,7 +2270,7 @@ const QiaomuBookReader = class extends Plugin {
       await this.saveAll(); await writeBookProperty(this.app, note.path, file);
       return note;
     } catch (error) {
-      console.error("Qiaomu Reader: create book note failed", error);
+      console.error("UV Reader: create book note failed", error);
       new Notice(qiaomuReaderTranslate("could-not-create-the-note"));
       return null;
     }
@@ -2241,7 +2283,7 @@ const QiaomuBookReader = class extends Plugin {
     let body = ""; const tplFile = tplPath && this.app.vault.getAbstractFileByPath(tplPath);
     if (tplFile instanceof TFile) body = await this._applyBookNoteTemplate(tplFile, noteName);
     return this.app.vault.create(notePath, body).catch((failure) => {
-      console.error("Qiaomu Reader: create book note failed", failure);
+      console.error("UV Reader: create book note failed", failure);
       return null;
     });
   }
@@ -2318,7 +2360,7 @@ const QiaomuBookReader = class extends Plugin {
       this._corruptStoreNotices.delete(path5);
       return result.value;
     }
-    console.error(`Qiaomu Reader: could not load ${label}`, result.error);
+    console.error(`UV Reader: could not load ${label}`, result.error);
     this._blockedStores.add(path5);
     this._unreadableStores.set(path5, {
       path: path5,
@@ -2345,7 +2387,7 @@ const QiaomuBookReader = class extends Plugin {
       this.progress = mergeReadingProgress(value, this.progress);
       try { return await this._saveProgressToVault(); }
       catch (error) {
-        console.error("Qiaomu Reader: recovered progress could not be saved", error);
+        console.error("UV Reader: recovered progress could not be saved", error);
         return false;
       }
     }
@@ -2379,7 +2421,7 @@ const QiaomuBookReader = class extends Plugin {
       const dataPath = qiaomuReaderPath(`${this.manifest.dir}/data.json`);
       if (await ad.exists(dataPath)) await ad.write(qiaomuReaderPath(`${dir}/plugin-data.json`), await ad.read(dataPath));
     } catch (e) {
-      console.error("Qiaomu Reader: rescue backup failed", e);
+      console.error("UV Reader: rescue backup failed", e);
     }
   }
   saveProgress(bookPath, spread, total, block, cfi) {
@@ -2406,7 +2448,7 @@ const QiaomuBookReader = class extends Plugin {
       if (stores.some((store) => store === false)) throw new Error("reading progress store is locked");
       return true;
     }).catch((error) => {
-      console.error("Qiaomu Reader: could not save reading progress", error);
+      console.error("UV Reader: could not save reading progress", error);
       const marked = Date.now();
       if (!this._lastProgressErrorNotice || marked - this._lastProgressErrorNotice > 15000) {
         this._lastProgressErrorNotice = marked;
@@ -2441,7 +2483,7 @@ const QiaomuBookReader = class extends Plugin {
           fm["reading-updated"] = new Date(snap.lastRead || Date.now()).toISOString().slice(0, 10);
         });
       } catch (e) {
-        console.warn("Qiaomu Reader: could not write progress into the book note", e);
+        console.warn("UV Reader: could not write progress into the book note", e);
       }
     }, 4000);
   }
@@ -2550,7 +2592,7 @@ const QiaomuBookReader = class extends Plugin {
     const operation = (this._hlChain || Promise.resolve()).then(() => this._writeHighlightStore(bookPath, applyFn));
     this._hlChain = operation.catch(() => {});
     return operation.catch((e) => {
-      console.error("Qiaomu Reader: highlight persist failed", e);
+      console.error("UV Reader: highlight persist failed", e);
       return false;
     });
   }
@@ -2662,9 +2704,10 @@ const PdfPaginator = class {
     return { width, height };
   }
   _columnMetrics(box, cfg) {
+    const fit = cfg.fitPage === true;
     const colCount = cfg.columns === "2" && box.width > 700 ? 2 : 1;
     const colGap = colCount === 2 ? 48 : 0;
-    const edgePad = colCount === 2 ? 48 : (box.width <= 600 ? 26 : box.width <= 820 ? 42 : 60);
+    const edgePad = fit ? 16 : (colCount === 2 ? 48 : (box.width <= 600 ? 26 : box.width <= 820 ? 42 : 60));
     const padTop = Math.min(edgePad, 40);
     const slotWidth = box.width / colCount;
     const colWidth = this.scrollMode ? box.width : slotWidth - colGap;
@@ -2683,6 +2726,7 @@ const PdfPaginator = class {
     };
   }
   _sidePad(cfg, colWidth, edgePad) {
+    if (cfg.fitPage === true) return edgePad;
     let pad = edgePad;
     const target = comfortableLineWidth(Number(cfg.fontSize) || 18, Number(cfg.maxLineCh) || 0, this._isCjkLayout(cfg));
     if (target > 0 && target < colWidth - edgePad * 2) pad = Math.round((colWidth - target) / 2);
@@ -3350,6 +3394,7 @@ function updateEngineLocation(view, detail) {
   if (view.pbarFill) view.pbarFill.style.width = `${pct}%`;
   view.pctEl?.setText(`${pct}%`);
   view.locEl?.setText(detail.tocItem?.label || qiaomuReaderTranslate("reading-position"));
+  if (view.pageInputEl) updateReaderPageJump(view);
   syncReaderAiCapability(view);
   if (!view._openingBook) {
     syncOpenAiReaderContext(view);
@@ -3390,7 +3435,8 @@ function rememberReaderJump(view) {
   const anchor = captureReadingAnchor(view.pager);
   showFootnoteReturn(view, anchor);
 }
-function addReaderNavigation(view, bot, findBtn, tocBtn) {
+function addReaderNavigation(view, bot, findBtn, tocBtn, showTools = true) {
+  if (showTools === false) return;
   bot.addClass("qiaomu-reader-navigation");
   const toggle = (name) => (view.togglePanel || view._togglePanel).call(view, name);
   const tools = bot.createDiv("qiaomu-reader-navigation-tools");
@@ -3743,6 +3789,105 @@ function openReaderPagePicker(view) {
     void view.plugin.saveProgress(view.file.path, pager.spread, pager.total, pager.currentBlockIndex());
   }).open();
 }
+// Page position for the inline top-bar jump control: engine books count foliate
+// locations, PDFs count original pages, flow books count spreads.
+function readerPageInfo(view) {
+  if (view.engine) {
+    const detail = view._engineLocation || view.engine.currentLocation?.();
+    const total = Number(detail?.location?.total) || 0;
+    const current = Number(detail?.location?.current);
+    return { current: Number.isFinite(current) ? current + 1 : 1, total };
+  }
+  if (readerIsPdf(view)) {
+    const pages = readerPdfPages(view);
+    return { current: view.pager?.currentPdfPageNumber?.() || 1, total: pages.length || view.pager?.total || 0 };
+  }
+  return { current: (view.pager?.spread || 0) + 1, total: view.pager?.total || 0 };
+}
+function updateReaderPageJump(view) {
+  const input = view.pageInputEl;
+  const label = view.pageTotalEl;
+  if (!input || !label) return;
+  const { current, total } = readerPageInfo(view);
+  if (docOf(input).activeElement !== input) input.value = total ? String(current) : "";
+  label.setText(`/ ${total || 0}`);
+  input.disabled = !total;
+}
+function jumpToReaderPage(view, page) {
+  const { total } = readerPageInfo(view);
+  if (!total || !view.file) return;
+  const n = Math.max(1, Math.min(total, Math.round(page)));
+  rememberReaderJump(view);
+  if (view.engine) {
+    const fraction = total > 1 ? (n - 1) / (total - 1) : 0;
+    void view.engine.goTo({ fraction }).catch((error) => {
+      console.warn("UV Reader: could not jump to the requested page", error);
+    });
+    return;
+  }
+  const pager = view.pager;
+  if (readerIsPdf(view)) {
+    const pages = readerPdfPages(view);
+    if (pages.length) {
+      if (pager.scrollMode) {
+        pager.clip.scrollTop += pages[n - 1].getBoundingClientRect().top - pager.clip.getBoundingClientRect().top;
+        pager.spread = Math.min(pager.total - 1, Math.floor(pager.clip.scrollTop / Math.max(1, pager.clip.clientHeight)));
+      } else {
+        const x = pages[n - 1].getBoundingClientRect().left - pager.flow.getBoundingClientRect().left;
+        pager.jumpTo(Math.floor(Math.round(x / (pager.sw / (pager.cols || 1))) / (pager.cols || 1)));
+      }
+    }
+  } else pager.jumpTo(n - 1);
+  (view.updateUI || view._updateUI).call(view, pager.spread, pager.total);
+  void view.plugin.saveProgress(view.file.path, pager.spread, pager.total, pager.currentBlockIndex());
+}
+function buildReaderPageJump(view, tray) {
+  const topBar = tray?.parentElement;
+  if (!topBar) return;
+  const wrap = topBar.createDiv("qiaomu-reader-pagejump");
+  const prev = wrap.createEl("button", {
+    cls: "qiaomu-reader-pagejump-nav",
+    attr: { type: "button", "aria-label": qiaomuReaderTranslate("back-3") },
+  });
+  svgIcon(prev, "chevron-left");
+  prev.addEventListener("click", () => view.nav("prev"));
+  const input = wrap.createEl("input", {
+    cls: "qiaomu-reader-pageinput",
+    attr: { type: "text", inputmode: "numeric", autocomplete: "off", "aria-label": qiaomuReaderTranslate("go-to-page") },
+  });
+  const total = wrap.createSpan({ cls: "qiaomu-reader-pagetotal" });
+  const next = wrap.createEl("button", {
+    cls: "qiaomu-reader-pagejump-nav",
+    attr: { type: "button", "aria-label": qiaomuReaderTranslate("next-2") },
+  });
+  svgIcon(next, "chevron-right");
+  next.addEventListener("click", () => view.nav("next"));
+  topBar.insertBefore(wrap, tray);
+  view.pageInputEl = input;
+  view.pageTotalEl = total;
+  const commit = () => {
+    const value = Number(input.value.trim());
+    if (!Number.isFinite(value) || value < 1) {
+      updateReaderPageJump(view);
+      return;
+    }
+    jumpToReaderPage(view, value);
+  };
+  input.addEventListener("focus", () => input.select());
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.isComposing && event.keyCode !== 229) {
+      event.preventDefault();
+      commit();
+      input.blur();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      updateReaderPageJump(view);
+      input.blur();
+    }
+  });
+  input.addEventListener("blur", commit);
+  updateReaderPageJump(view);
+}
 function syncPdfZoomControls(view) {
   const isPdf = readerIsPdf(view);
   const zoom = clampPdfZoom(view?.pdfZoom);
@@ -3829,6 +3974,16 @@ function fitPdfWidth(view) {
   const figure = page?.querySelector(".qiaomu-reader-pdf-native-page");
   const width = parseFloat(figure?.style.getPropertyValue("--qiaomu-reader-pdf-fit-width"));
   if (width) applyPdfZoom(view, Math.max(1, (page.clientWidth - 4) / width), null, "width");
+}
+// "Fit page" for PDFs: zoom until the page width covers the given share of its
+// reading slot (portrait pages fill the window instead of leaving empty sides).
+function fitPdfPageWidth(view, ratio = 0.9) {
+  const page = view.pager?.currentPdfPageElement?.();
+  const figure = page?.querySelector(".qiaomu-reader-pdf-native-page");
+  const width = parseFloat(figure?.style.getPropertyValue("--qiaomu-reader-pdf-fit-width"));
+  const slot = page?.clientWidth || view.areaEl?.clientWidth || 0;
+  if (!width || !slot) return;
+  applyPdfZoom(view, (slot * ratio) / width, null, "fit-page-width");
 }
 function setPdfPanMode(view, enabled) {
   view.pdfPanMode = enabled;
@@ -4291,7 +4446,7 @@ const TranslateModal = class extends Modal {
       tr = await translateText(this.text, this.plugin.settings.translateTo || "zh-CN");
       outEl.setText(tr || qiaomuReaderTranslate("the-translator-returned-nothing"));
     } catch (e) {
-      console.error("Qiaomu Reader: translate failed", e);
+      console.error("UV Reader: translate failed", e);
       outEl.setText(this._failureText(e));
       return;
     }
@@ -4365,7 +4520,7 @@ const TranslateModal = class extends Modal {
       this.saveStatus.createSpan({ text: qiaomuReaderTranslate("translation-saved", file.basename) });
       this.saveStatus.createEl("button", { text: qiaomuReaderTranslate("translation-open-note") }).addEventListener("click", () => void openNoteBesideBook(this.app, this.plugin, file));
     } catch (error) {
-      console.error("Qiaomu Reader: translation save failed", error);
+      console.error("UV Reader: translation save failed", error);
       if (!this._closed) { this.saveStatus.setAttribute("role", "alert"); this.saveStatus.setText(qiaomuReaderTranslate("translation-save-failed")); }
     } finally { this._saving = false; this.saveButtons?.forEach(button => button.disabled = false); }
   }
@@ -5113,7 +5268,7 @@ async function renderAiMarkdown(owner, element, markdown, sourcePath = "") {
     await MarkdownRenderer.render(owner.app, String(markdown || ""), element, sourcePath, owner);
     enhanceAiMarkdown(element);
   } catch (error) {
-    console.error("Qiaomu Reader: Markdown rendering failed", error);
+    console.error("UV Reader: Markdown rendering failed", error);
     element.addClass("qiaomu-reader-ai-markdown-fallback");
     element.setText(String(markdown || ""));
   }
@@ -5189,7 +5344,7 @@ function createAiStreamingMarkdownRenderer(owner, element, sourcePath = "", opti
         await MarkdownRenderer.render(owner.app, snapshot, element, sourcePath, component);
         if (!disposed) enhanceAiMarkdown(element);
       } catch (error) {
-        console.error("Qiaomu Reader: streaming Markdown rendering failed", error);
+        console.error("UV Reader: streaming Markdown rendering failed", error);
         if (!disposed) {
           element.addClass("qiaomu-reader-ai-markdown-fallback");
           element.setText(snapshot);
@@ -5840,7 +5995,7 @@ const AiExplainModal = class extends Modal {
     } catch (e) {
       const followTail = aiLogFollowsTail(this.log);
       const why = e && e.qiaomuReaderReason;
-      if (why !== "cancelled") console.error("Qiaomu Reader: AI chat failed", e);
+      if (why !== "cancelled") console.error("UV Reader: AI chat failed", e);
       // A partial answer is still useful reading material. Keep its Markdown,
       // source and actions, but rebuild ACP next time after an interrupted turn.
       this.aiSessionKey = newAiSessionKey();
@@ -6409,7 +6564,7 @@ async function pdfTextLayerElement(page, textContent, ownerDocument = document) 
     });
     await layer.render();
   } catch (error) {
-    console.warn(`Qiaomu Reader: PDF text layer unavailable on page ${page.pageNumber}`, error);
+    console.warn(`UV Reader: PDF text layer unavailable on page ${page.pageNumber}`, error);
     return null;
   }
   return container.textContent.trim() ? container : null;
@@ -6598,7 +6753,7 @@ async function extractPdf(file, app, _settings = {}, onProgress, options = {}) {
     try {
       await collectPdfOutlineInto(doc, outline);
     } catch (e) {
-      console.warn("Qiaomu Reader: PDF outline unavailable", e);
+      console.warn("UV Reader: PDF outline unavailable", e);
     }
     return {
       html: parts.join("\n"),
@@ -6765,7 +6920,7 @@ function buildFindPanelFor(view, panel, { close }) {
             });
             update();
           }
-        } catch (e) { console.warn("Qiaomu Reader: book search failed", e); }
+        } catch (e) { console.warn("UV Reader: book search failed", e); }
         if (view._findInput === input && !panel.hasClass("qiaomu-reader-find-browsing")) update();
       })();
       return;
@@ -7154,7 +7309,7 @@ function markFigureUnavailable(img, surface, error) {
     surface.addClass(FIGURE_ERROR_CLASS);
     surface.setAttribute(FIGURE_ERROR_ATTR, message);
   }
-  console.error(`Qiaomu Reader: could not render PDF page ${pageNumber}`, error);
+  console.error(`UV Reader: could not render PDF page ${pageNumber}`, error);
 }
 
 async function drawFigure(img, lazy, current = () => true) {
@@ -7544,7 +7699,7 @@ const CreateFolderModal = class extends Modal {
             this._onCreated(path);
             new Notice(qiaomuReaderTranslate("folder-created-0", path));
           } catch (error) {
-            console.warn("Qiaomu Reader: could not create folder", error);
+            console.warn("UV Reader: could not create folder", error);
             errorEl.setText(qiaomuReaderTranslate("could-not-create-the-folder-check-the-path-and-try-again"));
           }
         }));
@@ -7618,7 +7773,7 @@ function attachFolderSuggest(app, textComp) {
   try {
     if (FolderSuggest && textComp && textComp.inputEl) new FolderSuggest(app, textComp.inputEl);
   } catch (e) {
-    console.warn("Qiaomu Reader: folder suggest unavailable", e);
+    console.warn("UV Reader: folder suggest unavailable", e);
   }
 }
 function attachPathInput(app, field, commit) {
@@ -7719,7 +7874,7 @@ async function appendLinkToBookNote(app, plugin, bookFile, newFile, headingOverr
     };
     await writeNoteText(app, noteFile, attach);
   } catch (e) {
-    console.error("Qiaomu Reader: append to book note failed", e);
+    console.error("UV Reader: append to book note failed", e);
   }
 }
 const RESERVED_NAMES = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i;
@@ -8322,7 +8477,7 @@ async function writeBookProperty(app, noteName, bookFile) {
       fm["book-reader-note"] = true;
     });
   } catch (e) {
-    console.warn("Qiaomu Reader: could not write the book property into the note", e);
+    console.warn("UV Reader: could not write the book property into the note", e);
   }
 }
 function flattenSelectionText(raw) {
@@ -8460,7 +8615,7 @@ async function createNoteFromSelection(app, plugin, selText, bookFile, opts = {}
     }
     return made;
   } catch (e) {
-    console.error("Qiaomu Reader: note creation failed", e);
+    console.error("UV Reader: note creation failed", e);
     if (!silent) say("could-not-create-the-note");
     return null;
   }
@@ -8500,7 +8655,7 @@ async function appendAnswerToBookNote(app, plugin, bookFile, answer, title) {
     new Notice(qiaomuReaderTranslate("ai-reply-appended-to-the-book-note"));
     return note;
   } catch (error) {
-    console.error("Qiaomu Reader: answer append failed", error);
+    console.error("UV Reader: answer append failed", error);
     new Notice(qiaomuReaderTranslate("could-not-append-the-reply-existing-notes-were-not-overwritten-c"));
     return null;
   }
@@ -8560,6 +8715,7 @@ async function openOrCreateBookNoteBeside(plugin, bookFile) {
     plugin.app.workspace.revealLeaf(openLeaf);
     return openLeaf;
   }
+  if (typeof plugin.app.qbrDesktopOpenNote === "function") return plugin.app.qbrDesktopOpenNote(note, plugin);
   return openNoteBesideBook(plugin.app, plugin, note, null, { mode: "split" });
 }
 function addBookFileMenu(app, menu, file) {
@@ -8594,7 +8750,7 @@ function deleteBookFromVault(app, plugin, file, onDone) {
       new Notice(qiaomuReaderTranslate("book-deleted-0", file.basename));
       if (typeof onDone === "function") onDone();
     } catch (e) {
-      console.error("Qiaomu Reader: delete book failed", e);
+      console.error("UV Reader: delete book failed", e);
       new Notice(qiaomuReaderTranslate("could-not-delete-the-book"));
     }
   };
@@ -8668,7 +8824,7 @@ async function syncHighlightsToReadingNote(app, plugin, bookPath, highlights, op
     if (typeof app.vault.process === "function") await app.vault.process(note, update);
     else await app.vault.modify(note, update(await app.vault.read(note)));
   } catch (e) {
-    console.error("Qiaomu Reader: reading-note sync failed", e);
+    console.error("UV Reader: reading-note sync failed", e);
   }
 }
 async function exportHighlightsSeparate(app, plugin, bookFile, highlights) {
@@ -8853,7 +9009,7 @@ async function exportHighlightsToBookNote(app, plugin, bookFile, highlights) {
       ask.open();
     }
   } catch (e) {
-    console.error("Qiaomu Reader: append quotes to book note failed", e);
+    console.error("UV Reader: append quotes to book note failed", e);
     say("could-not-add-quotes-to-the-book-note");
   }
 }
@@ -8969,7 +9125,7 @@ const InfoModal = class extends Modal {
     const { contentEl, modalEl } = this;
     modalEl.addClass("qiaomu-reader-info-modal");
     contentEl.empty();
-    contentEl.createDiv("qiaomu-reader-info-title").setText(`Qiaomu Reader · ${qiaomuReaderTranslate("plugin-guide")}`);
+    contentEl.createDiv("qiaomu-reader-info-title").setText(`UV Reader · ${qiaomuReaderTranslate("plugin-guide")}`);
     contentEl.createDiv("qiaomu-reader-info-sub").setText(qiaomuReaderTranslate("what-each-button-does-and-why"));
     const groups = [
       { head: qiaomuReaderTranslate("top-bar"), rows: [
@@ -9178,7 +9334,7 @@ function whatsNewSince(lastSeen, current, log) {
 async function writeWhatsNewNote(app, plugin, releases) {
   try {
     if (!releases || !releases.length) return null;
-    const title = sanitizeNoteTitle(`Qiaomu Reader ${plugin.manifest.version} — ${qiaomuReaderTranslate("what-s-new")}`);
+    const title = sanitizeNoteTitle(`UV Reader ${plugin.manifest.version} — ${qiaomuReaderTranslate("what-s-new")}`);
     const path = inboxNotePath(app, title, null);
     const exist = app.vault.getAbstractFileByPath(path);
     if (exist instanceof TFile) return exist;
@@ -9192,7 +9348,7 @@ ${body}
 `);
     return f instanceof TFile ? f : null;
   } catch (e) {
-    console.warn("Qiaomu Reader: could not write the what's-new note", e);
+    console.warn("UV Reader: could not write the what's-new note", e);
     return null;
   }
 }
@@ -9210,7 +9366,7 @@ const WhatsNewModal = class extends Modal {
     const card = c.createDiv("qiaomu-reader-onb-card qiaomu-reader-wn-card");
     card.createDiv("qiaomu-reader-onb-emoji").setText("✨");
     card.createDiv("qiaomu-reader-onb-title").setText(qiaomuReaderTranslate("what-s-new"));
-    card.createDiv("qiaomu-reader-wn-sub").setText(`Qiaomu Reader · ${this.plugin.manifest.version}`);
+    card.createDiv("qiaomu-reader-wn-sub").setText(`UV Reader · ${this.plugin.manifest.version}`);
     const wrap = card.createDiv("qiaomu-reader-wn-wrap");
     for (const r of this.releases) {
       const grp = wrap.createDiv("qiaomu-reader-wn-rel");
@@ -9473,7 +9629,7 @@ async function navigateEngineToc(reader, href) {
   try { await engine.goToTocItem(href); }
   catch (error) {
     if (reader.engine !== engine || reader._closed) return;
-    console.warn("Qiaomu Reader: could not navigate to chapter", error);
+    console.warn("UV Reader: could not navigate to chapter", error);
     new Notice(qiaomuReaderTranslate("could-not-open-this-book"));
   }
 }
@@ -9494,7 +9650,7 @@ async function restoreEngineHistory(reader, snap) {
     new Notice(qiaomuReaderTranslate("jumped-back-to-0", snap.percent));
   } catch (error) {
     if (!current()) return;
-    console.warn("Qiaomu Reader: could not restore reading history", error);
+    console.warn("UV Reader: could not restore reading history", error);
     new Notice(qiaomuReaderTranslate("could-not-open-this-book"));
   }
 }
@@ -9532,7 +9688,7 @@ async function persistCurrentReaderPosition(reader) {
   try {
     await reader.plugin.saveProgress(reader.file.path, current, total, block);
   } catch (error) {
-    console.warn("Qiaomu Reader: could not save the final reading position", error);
+    console.warn("UV Reader: could not save the final reading position", error);
   }
 }
 async function loadReaderDocument(file, app, settings, onProgress, options = {}) {
@@ -9597,7 +9753,7 @@ const ReaderView = class extends ItemView {
   }
   getDisplayText() {
     let _a, _b;
-    return (_b = (_a = this.file) == null ? void 0 : _a.basename) != null ? _b : "Qiaomu Reader";
+    return (_b = (_a = this.file) == null ? void 0 : _a.basename) != null ? _b : "UV Reader";
   }
   getIcon() {
     return "book-open";
@@ -9684,7 +9840,7 @@ const ReaderView = class extends ItemView {
       await this._loadBookIntoView(file, loadToken, statusLabel);
     } catch (e) {
       if (isReaderLoadAbort(e, loadToken.signal) || !this._loadCoordinator.isCurrent(loadToken)) return;
-      console.error("Qiaomu Reader: could not open file", e);
+      console.error("UV Reader: could not open file", e);
       qiaomuReaderHideVeil(this);
       this.areaEl.removeClass("qiaomu-reader-booting");
       renderReaderLoadError(this, e, () => this.openFile(file));
@@ -9788,6 +9944,8 @@ const ReaderView = class extends ItemView {
     const todaySeconds = this.plugin.getTodaySeconds();
     this._goalNotified = todaySeconds >= this.plugin.getGoalSeconds();
     updateGoalBar(this); updateTimerBtn(this); syncOpenAiReaderContext(this);
+    // Remembered "fit page" also applies when a PDF is opened again.
+    if (readerIsPdf(this) && this.plugin.settings.fitPage === true) this._applyFitPage();
   }
   async _mountEngine(result, file, saved, loadToken) {
     // foliate-js renders into its own element; the surrounding chrome (panels,
@@ -9805,7 +9963,7 @@ const ReaderView = class extends ItemView {
         // Each section lives in an iframe the page stylesheet cannot reach:
         // load the selected reading font into it directly.
         try { void ensureSelectedReaderFont(doc, plugin, plugin.settings); }
-        catch (e) { console.warn("Qiaomu Reader: could not load the reading font into a book document", e); }
+        catch (e) { console.warn("UV Reader: could not load the reading font into a book document", e); }
         // Selections live inside the iframe too; forward them so the highlight
         // popup works for engine formats.
         try {
@@ -9817,7 +9975,7 @@ const ReaderView = class extends ItemView {
           };
           doc.addEventListener("pointerup", notify);
           doc.addEventListener("selectionchange", notify);
-        } catch (e) { console.warn("Qiaomu Reader: could not watch selections in a book document", e); }
+        } catch (e) { console.warn("UV Reader: could not watch selections in a book document", e); }
       },
       onRelocate: (detail) => {
         if (this.file?.path !== file.path || this.engine !== engine || loadToken.signal.aborted) return;
@@ -9872,7 +10030,7 @@ const ReaderView = class extends ItemView {
         : { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height, x: r.left, y: r.top };
       this._showHlPopup(rect);
       syncOpenAiSelectionContext(this, range);
-    } catch (e) { console.warn("Qiaomu Reader: could not place the highlight popup", e); }
+    } catch (e) { console.warn("UV Reader: could not place the highlight popup", e); }
   }
   // Re-paint stored CFI highlights after reopen; block-anchored highlights
   // from the previous pipeline are intentionally not drawn here.
@@ -9936,14 +10094,14 @@ const ReaderView = class extends ItemView {
     let [, total] = await pager.build(
       this.areaEl,
       this.bookHtml,
-      this.plugin.settings,
+      this._readerLayoutSettings(),
       0
     );
     if (!current()) return;
     if (readerPaginationMappingCollapsed(pager)) {
       await new Promise((resolve) => window.setTimeout(resolve, 180));
       if (!current()) return;
-      [, total] = await pager.build(this.areaEl, this.bookHtml, this.plugin.settings, 0);
+      [, total] = await pager.build(this.areaEl, this.bookHtml, this._readerLayoutSettings(), 0);
       if (!current()) return;
     }
     this._laidOutWidth = pager.builtWidth || w;
@@ -10036,13 +10194,14 @@ const ReaderView = class extends ItemView {
     try {
       await waitForReaderFrame(docOf(this.areaEl).defaultView);
       this.areaEl.empty(); const pager = this.pager;
-      await pager.build(this.areaEl, this.bookHtml, this.plugin.settings, 0);
+      await pager.build(this.areaEl, this.bookHtml, this._readerLayoutSettings(), 0);
       if (pager !== this.pager || !this.bookHtml || this._closed) return;
       this._recordLaidOutWidth();
       this._renderFlowHighlights(); // re-wrap markers on the fresh blocks
       const [cur, tot] = restoreReadingAnchor(this.pager, anchor);
       restoreAiSource(this);
-      if (this.pdfZoomMode === "width") fitPdfWidth(this);
+      if (this.pdfZoomMode === "fit-page-width") fitPdfPageWidth(this);
+      else if (this.pdfZoomMode === "width") fitPdfWidth(this);
       this._readingAnchor = anchor;
       this.updateUI(cur, tot); if (this._tocRender) this._tocRender();
       this._findCorpus = null; if (this._foundQuery) this._markFound(this._foundQuery);
@@ -10066,7 +10225,7 @@ const ReaderView = class extends ItemView {
     this.pbarFill = pb.createDiv("qiaomu-reader-pbar-fill");
     const tray = buildReaderTopBar(this, {
       backAttr: { "aria-label": qiaomuReaderTranslate("library") },
-      title: "Qiaomu Reader",
+      title: "UV Reader",
       onBack: () => this.plugin.openLibrary(),
     });
     createPdfZoomControls(tray, this);
@@ -10086,23 +10245,31 @@ const ReaderView = class extends ItemView {
     this.aiBtn = trayButton(null, "ai-reading", () => {
       void this.plugin.openAiChat(readerAiPanelContext(this));
     }, { lucide: "sparkles" });
-    this.focusBtn = trayButton(null, "focus-reading", () => setReadingFocus(this, !this._focusRestore), {
-      cls: "qiaomu-reader-ibtn qiaomu-reader-focus-toggle",
-      attr: { type: "button", "aria-pressed": "false" },
+    this.fitBtn = trayButton(null, "fit-page", () => {
+      this.plugin.settings.fitPage = this.plugin.settings.fitPage !== true;
+      void this.plugin.saveAll();
+      this._applyFitPage();
+    }, {
+      cls: "qiaomu-reader-ibtn qiaomu-reader-fit-toggle",
+      attr: { type: "button", "aria-pressed": String(this.plugin.settings.fitPage === true) },
       lucide: "maximize",
     });
     const findBtn = trayButton("search", "search-the-book", () => {
       this.togglePanel("find"); if (this._findInput) qiaomuReaderAutoFocus(this._findInput, 60);
     });
-    const tocBtn = trayButton("list", "table-of-contents", () => this.togglePanel("toc"));
-    trayButton("sliders", "reading-settings", () => new ReadSettingsModal(this.app, this).open());
-    buildReaderMoreButton(tray, this, (list, add) => {
-      add("highlights", "highlighter", () => this.togglePanel("highlights"));
-      add("reset-timer", "rotate-ccw", () => resetTimerSession(this));
+    this.tocBtn = trayButton("list", "table-of-contents", () => {
+      if (typeof this.plugin.app.qbrDesktopOpenToc === "function") {
+        void this.plugin.app.qbrDesktopOpenToc(this);
+        return;
+      }
+      this.togglePanel("toc");
     });
+    this.findBtn = findBtn;
+    trayButton("highlighter", "highlights", () => this.togglePanel("highlights"));
+    trayButton("sliders", "reading-settings", () => new ReadSettingsModal(this.app, this).open());
+    trayButton("rotate-ccw", "reset-timer", () => resetTimerSession(this));
+    buildReaderPageJump(this, tray);
     buildReaderPageArea(this, root, "qiaomu-reader-area");
-    const navBar = root.createDiv("qiaomu-reader-bot");
-    buildReaderBotNav(this, root, navBar, { findBtn, tocBtn });
     buildReaderPanels(this, root, {
       dismiss: () => this.closePanel(),
       buildPanelContents: () => {
@@ -10114,6 +10281,7 @@ const ReaderView = class extends ItemView {
     this.registerDomEvent(docOf(this.containerEl), "selectionchange", () => this._scheduleSelCheck());
     const flagSelection = () => this._scheduleSelCheck();
     this.areaEl.addEventListener("mouseup", flagSelection);
+    this.areaEl.addEventListener("wheel", (event) => handleReaderWheel(this, event), { passive: false });
     attachReaderContentClick(this);
     const hidePopup = () => this._hideHlPopup();
     this.registerDomEvent(docOf(this.containerEl), "mousedown", (ev) => {
@@ -10168,8 +10336,36 @@ const ReaderView = class extends ItemView {
       this.engine.setExtraCss(this._engineAppearanceCss());
       try {
         for (const { doc } of this.engine.contents()) void ensureSelectedReaderFont(doc, this.plugin, this.plugin.settings);
-      } catch (e) { console.warn("Qiaomu Reader: could not refresh the engine font", e); }
+      } catch (e) { console.warn("UV Reader: could not refresh the engine font", e); }
     }
+  }
+  _readerLayoutSettings() {
+    const settings = this.plugin.settings;
+    // A PDF fitted to the page width reads as one page per screen: the spread
+    // would otherwise squeeze each page back into half the reading area.
+    if (readerIsPdf(this) && settings.fitPage === true && settings.columns !== "1") {
+      return { ...settings, columns: "1" };
+    }
+    return settings;
+  }
+  _applyFitPage() {
+    const fit = this.plugin.settings.fitPage === true;
+    this.contentEl?.toggleClass("qiaomu-reader-fit-page", fit);
+    this.fitBtn?.setAttribute("aria-pressed", String(fit));
+    if (readerIsPdf(this)) {
+      if (!this.bookHtml) return;
+      const apply = () => {
+        if (fit) fitPdfPageWidth(this, 0.9);
+        else applyPdfZoom(this, PDF_ZOOM_DEFAULT, null, "page");
+      };
+      void this.repaginate().then(apply, apply);
+      return;
+    }
+    if (this.engine) {
+      this.engine.setLayout(this.plugin.settings);
+      return;
+    }
+    if (this.bookHtml) void this.repaginate();
   }
   nav(dir) {
     if (!this.bookHtml)
@@ -10180,7 +10376,7 @@ const ReaderView = class extends ItemView {
       this._lastNavTs = engineNow;
       this._lastActive = engineNow;
       void (dir === "next" ? this.engine.next() : this.engine.prev()).catch(error => {
-        console.warn("Qiaomu Reader: page turn failed", error);
+        console.warn("UV Reader: page turn failed", error);
       });
       return;
     }
@@ -10225,9 +10421,10 @@ const ReaderView = class extends ItemView {
     this.pbarFill.style.width = `${pct}%`;
     const bookPage = currentBookPage(this);
     const where = this.ext === "pdf" ? qiaomuReaderTranslate("spread-0-of-1", cur + 1, total) : `${cur + 1} / ${total}`;
-    this.locEl.setText(bookPage ? qiaomuReaderTranslate("p-0", bookPage) + " \xB7 " + where : where);
-    if (readerIsPdf(this)) this.locEl.setText(qiaomuReaderTranslate("page-0-of-1", pdfVisiblePageLabel(this, bookPage || 1), readerPdfPages(this).length || total));
-    this.pctEl.setText(`${pct}%`);
+    if (this.locEl) this.locEl.setText(bookPage ? qiaomuReaderTranslate("p-0", bookPage) + " \xB7 " + where : where);
+    if (this.locEl && readerIsPdf(this)) this.locEl.setText(qiaomuReaderTranslate("page-0-of-1", pdfVisiblePageLabel(this, bookPage || 1), readerPdfPages(this).length || total));
+    if (this.pctEl) this.pctEl.setText(`${pct}%`);
+    if (this.pageInputEl) updateReaderPageJump(this);
     syncReaderAiCapability(this);
     syncPdfZoomControls(this);
     renderVisibleFigures(this);
@@ -10723,7 +10920,7 @@ const LibraryModal = class extends Modal {
     const { input } = this._buildLibTools(hdr);
     try { await this.plugin.ensureStarterBooks(); }
     catch (error) {
-      console.warn("Qiaomu Reader: starter books could not be installed", error);
+      console.warn("UV Reader: starter books could not be installed", error);
       new Notice(qiaomuReaderTranslate("starter-books-failed"));
     }
     if (!contentEl.isConnected || this._libraryRender !== render) return;
@@ -10991,7 +11188,7 @@ const LibraryModal = class extends Modal {
         return `${label} [${seen}${mimeNote}]`;
       };
       const detail = rejected.slice(0, 5).map(describeRejected).join("; ");
-      console.warn("Qiaomu Reader: rejected on import —", rejected.map((f) => ({
+      console.warn("UV Reader: rejected on import —", rejected.map((f) => ({
         name: f && f.name,
         path: f && f.path,
         type: f && f.type,
@@ -11017,7 +11214,7 @@ const LibraryModal = class extends Modal {
         ok += 1;
       } catch (error) {
         errors.push(item.name);
-        console.warn("Qiaomu Reader: could not import", item && item.name, error);
+        console.warn("UV Reader: could not import", item && item.name, error);
       }
     }
     if (ok) new Notice(qiaomuReaderTranslate("books-added-0", ok) + (rejected.length ? " · " + qiaomuReaderTranslate("skipped-0", rejected.length) : ""));
@@ -11154,7 +11351,7 @@ const LibraryModal = class extends Modal {
         this.plugin.thumbCache[bookFile.path] = url; this._thumbDirty = true;
         await this.showImg(coverEl, placeholder, url);
       } catch (e) {
-        console.warn("Qiaomu Reader: cover failed for", bookFile.path, e);
+        console.warn("UV Reader: cover failed for", bookFile.path, e);
       }
     }).then(() => this._scheduleThumbFlush());
     const queued = this._thumbQueue;
@@ -11533,7 +11730,7 @@ const ReaderModal = class extends Modal {
       this._buildSettPanel(); this._maybePromptBookNote(this.file);
     } catch (e) {
       if (isReaderLoadAbort(e, loadToken.signal) || !this._loadCoordinator.isCurrent(loadToken)) return;
-      console.error("Qiaomu Reader: could not open file in the mobile reader", e);
+      console.error("UV Reader: could not open file in the mobile reader", e);
       qiaomuReaderHideVeil(this);
       this.areaEl.removeClass("qiaomu-reader-booting");
       renderReaderLoadError(this, e, () => this._loadBook());
@@ -11681,7 +11878,7 @@ const ReaderModal = class extends Modal {
       this._lastNavTs = engineNow;
       this._lastActive = engineNow;
       void (dir === "next" ? this.engine.next() : this.engine.prev()).catch(error => {
-        console.warn("Qiaomu Reader: page turn failed", error);
+        console.warn("UV Reader: page turn failed", error);
       });
       return;
     }
@@ -11709,7 +11906,7 @@ const ReaderModal = class extends Modal {
       onDocLoaded: ({ doc, index }) => {
         attachEngineChrome(this, doc, index);
         try { void ensureSelectedReaderFont(doc, plugin, plugin.settings); }
-        catch (e) { console.warn("Qiaomu Reader: could not load the reading font into a book document", e); }
+        catch (e) { console.warn("UV Reader: could not load the reading font into a book document", e); }
         try {
           const notify = () => {
             window.clearTimeout(this._engineSelTimer);
@@ -11717,7 +11914,7 @@ const ReaderModal = class extends Modal {
           };
           doc.addEventListener("pointerup", notify);
           doc.addEventListener("selectionchange", notify);
-        } catch (e) { console.warn("Qiaomu Reader: could not watch selections in a book document", e); }
+        } catch (e) { console.warn("UV Reader: could not watch selections in a book document", e); }
       },
       onRelocate: (detail) => {
         if (this.file?.path !== file.path || this.engine !== engine || loadToken.signal.aborted) return;
@@ -11773,7 +11970,7 @@ const ReaderModal = class extends Modal {
         : { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height, x: r.left, y: r.top };
       this._showHlPopup(rect);
       syncOpenAiSelectionContext(this, range);
-    } catch (e) { console.warn("Qiaomu Reader: could not place the highlight popup", e); }
+    } catch (e) { console.warn("UV Reader: could not place the highlight popup", e); }
   }
   _renderEngineHighlights() {
     if (!this.engine || !this.file) return;
@@ -12348,7 +12545,7 @@ const SettingsTab = class extends PluginSettingTab {
     if (!this._tab || !tabs.some((t) => t.id === this._tab)) { this._tab = "look"; }
     const head = root.createDiv("qiaomu-reader-settings-head");
     const headText = head.createDiv("qiaomu-reader-settings-head-text");
-    headText.createEl("h2", { text: "Qiaomu Reader" });
+    headText.createEl("h2", { text: "UV Reader" });
 
     const language = head.createEl("select", { cls: "dropdown qiaomu-reader-settings-language" });
     for (const { id: value, label } of UI_LANGUAGES) {
@@ -13441,7 +13638,7 @@ const SettingsTab = class extends PluginSettingTab {
       .setName(qiaomuReaderTranslate("feedback-and-bugs"))
       .setDesc(qiaomuReaderTranslate("report-a-bug-or-suggest-a-feature-and-we-will-follow-up-on-githu"))
       .addButton((b) => b.setCta().setButtonText(qiaomuReaderTranslate("open-github-issues")).onClick(() => {
-        window.open("https://github.com/joeseesun/qiaomu-reader/issues", "_blank");
+        window.open("https://github.com/newcoder/uvreader/issues", "_blank");
       }));
     new Setting(c)
       .setName(qiaomuReaderTranslate("plugin-guide"))
@@ -13454,7 +13651,7 @@ const SettingsTab = class extends PluginSettingTab {
         new WhatsNewModal(this.app, this.plugin, WHATS_NEW.slice(0, 4)).open();
       }));
     const about = c.createEl("div", { cls: "qiaomu-reader-set-note" });
-    about.createEl("b", { text: "Qiaomu Reader" });
+    about.createEl("b", { text: "UV Reader" });
     about.appendText(qiaomuReaderTranslate("version-0-adapted-and-maintained-by-qiaomu", this.plugin.manifest.version));
     about.createEl("br");
     about.createEl("a", { text: "qiaomu.ai", href: "https://qiaomu.ai" });

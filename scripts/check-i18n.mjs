@@ -79,7 +79,7 @@ if (!manifest.description || /[\u3400-\u9fff]|obsidian/i.test(manifest.descripti
 if (!/[\u3400-\u9fff]/.test(packageJson.description || "")) {
   errors.push("package.json description is not Chinese");
 }
-if (!source.includes('"book-reader-updated-to-0": "Qiaomu Reader has been updated to {0}"') && !QIAOMU_READER_ZH_CN["book-reader-updated-to-0"].startsWith("Qiaomu Reader")) {
+if (!source.includes('"book-reader-updated-to-0": "UV Reader has been updated to {0}"') && !QIAOMU_READER_ZH_CN["book-reader-updated-to-0"].startsWith("柚肥阅读")) {
   errors.push("The update notice is not branded and translated for Chinese users");
 }
 if (!source.includes("of UI_LANGUAGES") || !UI_LANGUAGES.some((language) => language.id === "zh")) {

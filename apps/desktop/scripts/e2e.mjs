@@ -1,0 +1,620 @@
+// End-to-end checks for the desktop shell. EPUB: open, page turn, select text in
+// the book iframe, highlight from the popup, verify the store and reading note.
+// PDF: open, select text in the pdf.js text layer, highlight, verify the store.
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import http from "node:http";
+import { createRequire } from "node:module";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { _electron as electron } from "playwright-core";
+
+const require = createRequire(import.meta.url);
+const here = path.dirname(fileURLToPath(import.meta.url));
+const appRoot = path.resolve(here, "..");
+const repoRoot = path.resolve(appRoot, "../..");
+const book = path.resolve(process.argv[2] || path.join(repoRoot, "assets/starter-books/11.epub"));
+const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, "manifest.json"), "utf8"));
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function waitFor(label, check, timeoutMs = 15_000) {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  while (Date.now() < deadline) {
+    try {
+      last = await check();
+      if (last) return last;
+    } catch (error) {
+      last = error?.message || String(error);
+    }
+    await sleep(150);
+  }
+  throw new Error(`timed out waiting for ${label}; last value: ${JSON.stringify(last)}`);
+}
+
+function writeMinimalPdf(file) {
+  const objects = [
+    "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+    "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n",
+  ];
+  const stream = "BT /F1 24 Tf 72 700 Td (Hello PDF highlight test) Tj ET";
+  objects.push(`4 0 obj\n<< /Length ${stream.length} >>\nstream\n${stream}\nendstream\nendobj\n`);
+  objects.push("5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n");
+  let output = "%PDF-1.4\n";
+  const offsets = [0];
+  for (const object of objects) {
+    offsets.push(output.length);
+    output += object;
+  }
+  const xref = output.length;
+  output += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (let index = 1; index <= objects.length; index += 1) {
+    output += `${String(offsets[index]).padStart(10, "0")} 00000 n \n`;
+  }
+  output += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  fs.writeFileSync(file, output, "latin1");
+}
+
+async function launch(target, options = {}) {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-e2e-"));
+  options.seed?.(userData);
+  const app = await electron.launch({
+    executablePath: require("electron"),
+    args: [".", target],
+    cwd: appRoot,
+    env: { ...process.env, QBR_USER_DATA: userData },
+  });
+  const page = await app.firstWindow();
+  return { app, page, userData };
+}
+
+function safeChatId(id) {
+  return String(id || "chat").replace(/[^a-z0-9._-]+/gi, "-").slice(0, 120);
+}
+
+function startMockAi() {
+  const state = { requests: 0, auth: "" };
+  const server = http.createServer((request, response) => {
+    let body = "";
+    request.on("data", (chunk) => {
+      body += chunk;
+    });
+    request.on("end", () => {
+      state.requests += 1;
+      state.auth = request.headers.authorization || "";
+      let payload = {};
+      try {
+        payload = JSON.parse(body || "{}");
+      } catch {}
+      const cors = { "Access-Control-Allow-Origin": "*" };
+      if (payload.stream) {
+        response.writeHead(200, { ...cors, "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+        const chunks = ["MOCK ", "STREAM ", "ANSWER"];
+        let index = 0;
+        const timer = setInterval(() => {
+          if (index < chunks.length) {
+            response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: chunks[index++] } }] })}\n\n`);
+          } else {
+            clearInterval(timer);
+            response.write("data: [DONE]\n\n");
+            response.end();
+          }
+        }, 30);
+      } else {
+        response.writeHead(200, { ...cors, "Content-Type": "application/json" });
+        response.end(JSON.stringify({ choices: [{ message: { content: "MOCK CONNECTION OK" } }] }));
+      }
+    });
+  });
+  return new Promise((resolve) => {
+    server.listen(0, "127.0.0.1", () => resolve({ server, state, port: server.address().port }));
+  });
+}
+
+function readerReady(page) {
+  return page.evaluate(() => {
+    const view = window.__qbrApp?.workspace?.getLeavesOfType("qiaomu-reader")[0]?.view;
+    return Boolean(view?.engine?.currentLocation?.() || view?.pager?.total > 0);
+  });
+}
+
+async function highlightFromPopup(page, highlightsPath, bookKey, expected) {
+  await waitFor("highlight popup", () => page.evaluate(() => {
+    const view = window.__qbrApp?.workspace?.getLeavesOfType("qiaomu-reader")[0]?.view;
+    return view?.hlPopup?.classList.contains("qiaomu-reader-hl-popup-on") ? "on" : "";
+  }), 15_000);
+  await page.click(".qiaomu-reader-hl-highlight");
+  const stored = await waitFor("reading-highlights.json", () => {
+    if (!fs.existsSync(highlightsPath)) return "";
+    const data = JSON.parse(fs.readFileSync(highlightsPath, "utf8"));
+    return data[bookKey]?.length ? data[bookKey] : "";
+  });
+  if (expected.cfi !== undefined) {
+    if (expected.cfi) {
+      if (!stored[0].cfi) throw new Error("expected a CFI highlight");
+    } else if (stored[0].cfi) {
+      throw new Error("expected a block-anchored highlight");
+    }
+  }
+  return stored[0];
+}
+
+function clickTopButton(page, label) {
+  return page.evaluate((text) => {
+    const buttons = [...document.querySelectorAll(".qiaomu-reader-top .qiaomu-reader-ibtn")];
+    const target = buttons.find((button) => {
+      const labelEl = document.getElementById(button.getAttribute("aria-labelledby") || "");
+      return (labelEl?.textContent || "").includes(text);
+    });
+    target?.click();
+    return Boolean(target);
+  }, label);
+}
+
+async function wheelInBook(page, deltaY) {
+  for (const frame of page.frames()) {
+    if (frame === page.mainFrame()) continue;
+    try {
+      const sent = await frame.evaluate((delta) => {
+        const frameRect = document.defaultView?.frameElement?.getBoundingClientRect();
+        if (!frameRect || frameRect.width < 50 || frameRect.height < 50) return false;
+        const x = document.documentElement.clientWidth / 2;
+        const y = document.documentElement.clientHeight / 2;
+        const target = document.elementFromPoint(x, y) || document.body;
+        target.dispatchEvent(new WheelEvent("wheel", { deltaY: delta, bubbles: true, cancelable: true }));
+        return true;
+      }, deltaY);
+      if (sent) return true;
+    } catch {}
+  }
+  return false;
+}
+
+async function runEbookScenario() {
+  const { app, page, userData } = await launch(book);
+  try {
+    const bookKey = book.replace(/\\/g, "/");
+    await page.waitForSelector(".qiaomu-reader-view", { timeout: 30_000 });
+    await waitFor("reader ready", () => readerReady(page), 30_000);
+    console.log("epub: reader ready");
+
+    const locationOf = () => page.evaluate(() => JSON.stringify(
+      window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view.engine.currentLocation(),
+    ));
+    const before = await locationOf();
+    await page.click(".qiaomu-reader-area", { position: { x: 24, y: 24 } });
+    const after = await waitFor("page turn", async () => {
+      await page.evaluate(() => document.activeElement?.blur?.());
+      await page.keyboard.press("ArrowRight");
+      await sleep(500);
+      const current = await locationOf();
+      return current !== before ? current : "";
+    }, 15_000);
+    console.log("epub: page turn ok", after.slice(0, 80));
+
+    const beforeWheel = await locationOf();
+    const afterWheel = await waitFor("wheel page turn", async () => {
+      await wheelInBook(page, 160);
+      await sleep(700);
+      const current = await locationOf();
+      return current !== beforeWheel ? current : "";
+    }, 15_000);
+    console.log("epub: wheel page turn ok", afterWheel.slice(0, 80));
+
+    assert.equal(await clickTopButton(page, "阅读设置"), true);
+    await page.waitForSelector(".modal-container.mod-open .modal-close-button", { timeout: 10_000 });
+    await page.click(".modal-container.mod-open .modal-close-button");
+    await waitFor("settings modal closed", () => page.evaluate(() => !document.querySelector(".modal-container.mod-open")), 8_000);
+    console.log("epub: reading settings modal opens and closes");
+
+    assert.equal(await clickTopButton(page, "适合页面"), true);
+    await waitFor("fit page applied", () => page.evaluate(() => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view;
+      const pressed = view?.fitBtn?.getAttribute("aria-pressed");
+      const marked = view?.contentEl?.classList.contains("qiaomu-reader-fit-page");
+      return view?.plugin?.settings?.fitPage === true && pressed === "true" && marked ? "ok" : "";
+    }), 10_000);
+    console.log("epub: fit page toggles the reader layout");
+
+    assert.equal(await clickTopButton(page, "目录"), true);
+    await page.waitForSelector(".qbr-toc-panel", { timeout: 15_000 });
+    const tocItems = await waitFor("toc panel on the left", () => page.evaluate(() => {
+      const reader = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view;
+      const toc = window.__qbrApp.workspace.getLeavesOfType("qbr-toc")[0]?.view;
+      const items = toc?.contentEl?.querySelectorAll(".qbr-toc-item").length || 0;
+      const readerVisible = Boolean(reader && !reader.containerEl.hidden);
+      const tocVisible = Boolean(toc && !toc.containerEl.hidden && !window.__qbrApp.workspace.leftSplit.collapsed);
+      return readerVisible && tocVisible && items ? String(items) : "";
+    }), 15_000);
+    console.log("epub: toc panel opens on the left", tocItems, "items");
+    const tocCloseIsIcon = await page.evaluate(() => Boolean(document.querySelector(".qbr-toc-head button svg")));
+    if (!tocCloseIsIcon) throw new Error("the toc close control must be an icon button");
+    await page.evaluate(() => {
+      const toc = window.__qbrApp.workspace.getLeavesOfType("qbr-toc")[0];
+      toc?.view?.contentEl?.querySelector(".qbr-toc-head button")?.click();
+    });
+    await waitFor("toc panel closed", () => page.evaluate(() => !window.__qbrApp.workspace.getLeavesOfType("qbr-toc").length), 8_000);
+
+    assert.equal(await clickTopButton(page, "笔记"), true);
+    await page.waitForSelector(".qbr-note-panel", { timeout: 15_000 });
+    const notePanel = await waitFor("note panel beside the reader", () => page.evaluate(() => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view;
+      const note = window.__qbrApp.workspace.getLeavesOfType("qbr-note")[0]?.view;
+      const body = note?.contentEl?.querySelector(".qbr-note-body");
+      return view && !view.containerEl.hidden && note && !note.containerEl.hidden && body ? (body.textContent || "").length : 0;
+    }), 15_000);
+    console.log("epub: note panel opens beside the reader", notePanel, "chars");
+    await page.evaluate(() => {
+      const note = window.__qbrApp.workspace.getLeavesOfType("qbr-note")[0];
+      note?.view?.contentEl?.querySelector(".qbr-note-actions button:last-child")?.click();
+    });
+    await waitFor("note panel closed", () => page.evaluate(() => !window.__qbrApp.workspace.getLeavesOfType("qbr-note").length), 8_000);
+
+    const selected = await waitFor("highlightable selection", async () => {
+      for (const frame of page.frames()) {
+        if (frame === page.mainFrame()) continue;
+        try {
+          const text = await frame.evaluate(() => {
+            const frameRect = document.defaultView?.frameElement?.getBoundingClientRect();
+            if (!frameRect || frameRect.width < 50 || frameRect.height < 50) return "";
+            const nodes = [...document.querySelectorAll("p, h1, h2, h3, blockquote, li")].filter((el) => {
+              const length = el.textContent.trim().length;
+              if (length <= 30 || length >= 400) return false;
+              const rect = el.getBoundingClientRect();
+              const inViewport = rect.bottom > 0 && rect.top < innerHeight && rect.right > 0 && rect.left < innerWidth;
+              return rect.width > 0 && rect.height > 0 && inViewport;
+            });
+            const el = nodes[0];
+            if (!el) return "";
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            const selection = document.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            document.dispatchEvent(new Event("selectionchange", { bubbles: true }));
+            el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true }));
+            return selection.toString().replace(/\s+/g, " ").trim();
+          });
+          if (!text) continue;
+          await sleep(300);
+          const popupOn = await page.evaluate(() => {
+            const view = window.__qbrApp?.workspace?.getLeavesOfType("qiaomu-reader")[0]?.view;
+            return view?.hlPopup?.classList.contains("qiaomu-reader-hl-popup-on");
+          });
+          if (popupOn) return text;
+        } catch {}
+      }
+      return "";
+    }, 25_000);
+    console.log("epub: selected", selected.slice(0, 40));
+
+    const highlightsPath = path.join(userData, "library", "plugin", "reading-highlights.json");
+    const stored = await highlightFromPopup(page, highlightsPath, bookKey, { cfi: true });
+    console.log("epub: highlight stored", stored.id, stored.color);
+
+    const notePath = path.join(userData, "library", "notes", `${path.basename(book, path.extname(book))}.md`);
+    const needle = selected.slice(0, 12);
+    const note = await waitFor("reading note", () => {
+      if (!fs.existsSync(notePath)) return "";
+      const text = fs.readFileSync(notePath, "utf8");
+      return text.includes(needle) ? text : "";
+    }, 20_000);
+    console.log("epub: note updated", note.length, "bytes");
+
+    const beforeLibrary = await page.evaluate(() => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view?.file?.path || "");
+    await page.evaluate(() => {
+      document.querySelector(".qiaomu-reader-top .qiaomu-reader-ibtn")?.click();
+    });
+    await page.waitForSelector(".qiaomu-reader-lib-card", { timeout: 15_000 });
+    const cards = await page.evaluate(() => document.querySelectorAll(".qiaomu-reader-lib-card").length);
+    await page.evaluate(() => {
+      document.querySelector(".qiaomu-reader-lib-card")?.click();
+    });
+    const libraryBook = await waitFor("reader switched from the library", () => page.evaluate((previous) => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view;
+      const library = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader-library")[0]?.view;
+      const ready = Boolean(view && !view.containerEl.hidden && (view.engine?.currentLocation?.() || view.pager?.total));
+      const libraryHidden = !library || library.containerEl.hidden;
+      const path = view?.file?.path || "";
+      return ready && libraryHidden && path && path !== previous ? path : "";
+    }, beforeLibrary), 30_000);
+    console.log("epub: library card opens the reader", cards, "cards ->", libraryBook);
+    const expectedTitle = libraryBook.split("/").pop().replace(/\.[^.]+$/, "");
+    const windowTitle = await waitFor("window title follows the book", () => page.evaluate((expected) => (
+      document.title.includes(expected) ? document.title : ""
+    ), expectedTitle), 10_000);
+    console.log("epub: window title follows the book:", windowTitle);
+  } finally {
+    await app.close().catch(() => {});
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+}
+
+async function runPdfScenario() {
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-pdf-"));
+  const fixture = path.join(fixtureDir, "sample.pdf");
+  writeMinimalPdf(fixture);
+  const { app, page, userData } = await launch(fixture);
+  try {
+    const bookKey = fixture.replace(/\\/g, "/");
+    await page.waitForSelector(".qiaomu-reader-view", { timeout: 30_000 });
+    await waitFor("pdf ready", () => readerReady(page), 30_000);
+    console.log("pdf: reader ready");
+
+    const selected = await waitFor("pdf selection", () => page.evaluate(() => {
+      const spans = [...document.querySelectorAll(".qiaomu-reader-pdf-text-layer span")]
+        .filter((span) => span.textContent.trim().length > 3);
+      const el = spans[0];
+      if (!el) return "";
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const selection = document.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.dispatchEvent(new Event("selectionchange", { bubbles: true }));
+      el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true }));
+      return selection.toString().trim();
+    }), 20_000);
+    console.log("pdf: selected", selected.slice(0, 40));
+
+    const highlightsPath = path.join(userData, "library", "plugin", "reading-highlights.json");
+    const stored = await highlightFromPopup(page, highlightsPath, bookKey, { cfi: false });
+    console.log("pdf: highlight stored", stored.id, stored.color);
+
+    assert.equal(await clickTopButton(page, "适合页面"), true);
+    const fitShare = await waitFor("pdf fit page fills the width", () => page.evaluate(() => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view;
+      const page = view?.pager?.currentPdfPageElement?.();
+      const figure = page?.querySelector(".qiaomu-reader-pdf-native-page");
+      const width = Number.parseFloat(figure?.style.getPropertyValue("--qiaomu-reader-pdf-fit-width"));
+      const slot = page?.clientWidth || 0;
+      if (view?.plugin?.settings?.fitPage !== true || !width || !slot) return "";
+      const share = (width * view.pdfZoom) / slot;
+      return share > 0.85 && share < 0.95 ? String(Math.round(share * 100)) : "";
+    }), 10_000);
+    console.log("pdf: fit page fills the slot width", fitShare, "%");
+  } finally {
+    await app.close().catch(() => {});
+    fs.rmSync(userData, { recursive: true, force: true });
+    fs.rmSync(fixtureDir, { recursive: true, force: true });
+  }
+}
+
+async function runAiScenario() {
+  const mock = await startMockAi();
+  const base = `http://127.0.0.1:${mock.port}/v1`;
+  const { app, page, userData } = await launch(book, {
+    seed: (dir) => {
+      fs.mkdirSync(path.join(dir, "data"), { recursive: true });
+      fs.writeFileSync(path.join(dir, "data", "data.json"), JSON.stringify({
+        settings: {
+          onboarded: true,
+          language: "zh",
+          bookNotesFolder: "notes",
+          dataFolder: "plugin",
+          lastSeenVersion: manifest.version,
+          aiProvider: "custom",
+          aiBases: { custom: base },
+          aiModels: { custom: "mock-model" },
+          aiEnabled: false,
+          aiNeedsVerification: false,
+          aiCompanionVisible: true,
+        },
+      }, null, 2));
+    },
+  });
+  try {
+    await page.waitForSelector(".qiaomu-reader-view", { timeout: 30_000 });
+    await waitFor("reader ready", () => readerReady(page), 30_000);
+    if (!(await page.$(".qiaomu-reader-companion-setup"))) {
+      await page.evaluate(async () => {
+        try {
+          await window.__qbrPlugin.openAiChat();
+        } catch {}
+      });
+    }
+    await waitFor("companion setup", async () => Boolean(await page.$(".qiaomu-reader-companion-start")), 20_000);
+    console.log("ai: setup panel ready");
+
+    await page.click(".qiaomu-reader-companion-start");
+    await page.waitForSelector(".qiaomu-reader-ai-input", { timeout: 20_000 });
+    console.log("ai: connection test passed, composer ready");
+
+    await page.fill(".qiaomu-reader-ai-input", "MOCK QUESTION");
+    await page.press(".qiaomu-reader-ai-input", "Enter");
+    await waitFor("streamed answer", () => page.evaluate(() => {
+      const bubbles = [...document.querySelectorAll(".qiaomu-reader-ai-msg-ai")];
+      return bubbles.some((bubble) => bubble.textContent.includes("MOCK STREAM ANSWER")) ? "yes" : "";
+    }), 20_000);
+    console.log("ai: answer streamed");
+
+    const chatIndex = path.join(userData, "data", "chat", "index.json");
+    const record = await waitFor("chat history file", () => {
+      if (!fs.existsSync(chatIndex)) return "";
+      const index = JSON.parse(fs.readFileSync(chatIndex, "utf8"));
+      if (!index.length) return "";
+      const file = path.join(userData, "data", "chat", `${safeChatId(index[0].id)}.json`);
+      if (!fs.existsSync(file)) return "";
+      const chat = JSON.parse(fs.readFileSync(file, "utf8"));
+      return chat.turns?.some((turn) => String(turn.content).includes("MOCK STREAM ANSWER")) ? chat : "";
+    }, 20_000);
+    if (mock.state.requests < 2) throw new Error(`expected a connection test and a chat request, saw ${mock.state.requests}`);
+    console.log("ai: chat persisted", record.id, `(${mock.state.requests} requests)`);
+  } finally {
+    await app.close().catch(() => {});
+    fs.rmSync(userData, { recursive: true, force: true });
+    mock.server.close();
+  }
+}
+
+async function runApiKeyScenario() {
+  const mock = await startMockAi();
+  const base = `http://127.0.0.1:${mock.port}/v1`;
+  const { app, page, userData } = await launch(book, {
+    seed: (dir) => {
+      fs.mkdirSync(path.join(dir, "data"), { recursive: true });
+      fs.writeFileSync(path.join(dir, "data", "data.json"), JSON.stringify({
+        settings: {
+          onboarded: true,
+          language: "zh",
+          bookNotesFolder: "notes",
+          dataFolder: "plugin",
+          lastSeenVersion: manifest.version,
+          aiProvider: "deepseek",
+          aiBases: { deepseek: base },
+          aiModels: { deepseek: "deepseek-chat" },
+          aiEnabled: false,
+          aiNeedsVerification: false,
+          aiCompanionVisible: true,
+        },
+      }, null, 2));
+    },
+  });
+  try {
+    await page.waitForSelector(".qiaomu-reader-view", { timeout: 30_000 });
+    await waitFor("reader ready", () => readerReady(page), 30_000);
+    if (!(await page.$(".qiaomu-reader-companion-setup"))) {
+      await page.evaluate(async () => {
+        try {
+          await window.__qbrPlugin.openAiChat();
+        } catch {}
+      });
+    }
+    await waitFor("companion setup", async () => Boolean(await page.$(".qiaomu-reader-companion-setup")), 20_000);
+    const keyInput = page.locator('.qiaomu-reader-companion-setup input[type="password"]');
+    await keyInput.waitFor({ timeout: 10_000 });
+    await keyInput.fill("sk-test-123");
+    await keyInput.dispatchEvent("change");
+    await sleep(400);
+    await page.click(".qiaomu-reader-companion-start");
+    await sleep(4000);
+    const diag = await page.evaluate(() => {
+      const plugin = window.__qbrPlugin;
+      const feedback = document.querySelector(".qiaomu-reader-ai-setup-feedback");
+      const setup = document.querySelector(".qiaomu-reader-companion-setup");
+      return {
+        secretId: plugin.settings.aiSecrets?.deepseek || "",
+        keyValue: (() => {
+          try { return String(plugin.app.secretStorage.getSecret(plugin.settings.aiSecrets?.deepseek || "") || ""); } catch (error) { return `error: ${error.message}`; }
+        })(),
+        aiEnabled: plugin.settings.aiEnabled,
+        feedback: feedback?.textContent || "",
+        hasComposer: Boolean(document.querySelector(".qiaomu-reader-ai-input")),
+        hasSetup: Boolean(setup),
+      };
+    });
+    console.log("apikey diag:", JSON.stringify(diag), "mock:", JSON.stringify(mock.state));
+    await page.waitForSelector(".qiaomu-reader-ai-input", { timeout: 20_000 });
+    if (mock.state.auth !== "Bearer sk-test-123") throw new Error(`unexpected Authorization header: ${JSON.stringify(mock.state.auth)}`);
+    console.log("apikey: connection test used the stored key");
+
+    await page.fill(".qiaomu-reader-ai-input", "MOCK QUESTION");
+    await page.press(".qiaomu-reader-ai-input", "Enter");
+    await waitFor("streamed answer", () => page.evaluate(() => {
+      const bubbles = [...document.querySelectorAll(".qiaomu-reader-ai-msg-ai")];
+      return bubbles.some((bubble) => bubble.textContent.includes("MOCK STREAM ANSWER")) ? "yes" : "";
+    }), 20_000);
+
+    const settings = JSON.parse(fs.readFileSync(path.join(userData, "data", "data.json"), "utf8")).settings;
+    if (!settings.aiSecrets?.deepseek) throw new Error("the secret id was not persisted in settings");
+    if (!fs.existsSync(path.join(userData, "secrets.json"))) throw new Error("secrets.json was not written");
+    console.log("apikey: key stored, answer streamed, secret persisted");
+  } finally {
+    await app.close().catch(() => {});
+    fs.rmSync(userData, { recursive: true, force: true });
+    mock.server.close();
+  }
+}
+
+async function runScrollScenario() {
+  const { app, page, userData } = await launch(book, {
+    seed: (dir) => {
+      fs.mkdirSync(path.join(dir, "data"), { recursive: true });
+      fs.writeFileSync(path.join(dir, "data", "data.json"), JSON.stringify({
+        settings: {
+          onboarded: true,
+          language: "zh",
+          bookNotesFolder: "notes",
+          dataFolder: "plugin",
+          lastSeenVersion: manifest.version,
+          readMode: "scroll",
+        },
+      }, null, 2));
+    },
+  });
+  try {
+    await page.waitForSelector(".qiaomu-reader-view", { timeout: 30_000 });
+    await waitFor("reader ready", () => readerReady(page), 30_000);
+    const pageInfo = await page.evaluate(() => {
+      const input = document.querySelector(".qiaomu-reader-pageinput");
+      const total = document.querySelector(".qiaomu-reader-pagetotal");
+      return { value: input?.value || "", total: total?.textContent || "", disabled: Boolean(input?.disabled) };
+    });
+    if (!pageInfo.value || !pageInfo.total.includes("/")) throw new Error(`page jump control missing: ${JSON.stringify(pageInfo)}`);
+    const chrome = await page.evaluate(() => ({
+      bottomBar: document.querySelectorAll(".qiaomu-reader-bot").length,
+      navButtons: document.querySelectorAll(".qiaomu-reader-navbtn").length,
+    }));
+    if (chrome.navButtons || chrome.bottomBar) throw new Error(`reader chrome still shows the bottom bar: ${JSON.stringify(chrome)}`);
+    console.log("scroll: top page jump", pageInfo.value, pageInfo.total, "| bottom bar removed");
+
+    const locationOf = () => page.evaluate(() => JSON.stringify(
+      window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view.engine.currentLocation(),
+    ));
+    const before = await locationOf();
+    const jumped = await waitFor("page jump", async () => {
+      await page.fill(".qiaomu-reader-pageinput", "6");
+      await page.press(".qiaomu-reader-pageinput", "Enter");
+      await sleep(700);
+      const current = await locationOf();
+      return current !== before ? current : "";
+    }, 15_000);
+    console.log("scroll: page jump moved the view", jumped.slice(0, 60));
+  } finally {
+    await app.close().catch(() => {});
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+}
+
+async function runHomeScenario() {
+  const { app, page, userData } = await launch("");
+  try {
+    await page.waitForSelector(".qbr-home-view", { timeout: 30_000 });
+    const cards = await waitFor("home cards", async () => {
+      const count = await page.evaluate(() => document.querySelectorAll(".qbr-home-card").length);
+      return count ? String(count) : "";
+    }, 20_000);
+    const clicked = await page.evaluate(() => {
+      const card = [...document.querySelectorAll(".qbr-home-card")]
+        .find((entry) => entry.textContent.includes("Alice in Wonderland"));
+      card?.click();
+      return Boolean(card);
+    });
+    if (!clicked) throw new Error("the home page has no Alice in Wonderland card");
+    await waitFor("reader opened from the home page", () => readerReady(page), 30_000);
+    console.log("home: opened a book from the home page", cards, "cards");
+  } finally {
+    await app.close().catch(() => {});
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+}
+
+let failed = false;
+try {
+  await runHomeScenario();
+  await runEbookScenario();
+  await runPdfScenario();
+  await runAiScenario();
+  await runApiKeyScenario();
+  await runScrollScenario();
+  console.log("E2E OK");
+} catch (error) {
+  failed = true;
+  console.error("E2E FAILED:", error?.stack || error);
+} finally {
+  process.exit(failed ? 1 : 0);
+}

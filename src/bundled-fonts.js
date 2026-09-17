@@ -10,7 +10,7 @@ export async function ensureBundledReaderFont(doc, fontId) {
     const faces = await doc.fonts.load(`16px "${BUNDLED_FONT_FAMILIES.zhuque}"`);
     return faces.length > 0;
   } catch (error) {
-    console.error("Qiaomu Reader: could not load the bundled font", error);
+    console.error("UV Reader: could not load the bundled font", error);
     return false;
   }
 }

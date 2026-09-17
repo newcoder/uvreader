@@ -1,0 +1,24 @@
+{
+  "name": "qiaomu-reader-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Standalone Electron shell for UV Reader.",
+  "main": "dist/main.cjs",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs --watch",
+    "start": "electron .",
+    "smoke": "node scripts/smoke.mjs",
+    "e2e": "node build.mjs && node scripts/e2e.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "electron": "^38.0.0",
+    "esbuild": "0.28.1",
+    "playwright-core": "^1.63.0"
+  },
+  "dependencies": {
+    "marked": "^18.0.13"
+  }
+}

@@ -1,23 +1,23 @@
-# Qiaomu Reader
+# UV Reader（柚肥阅读）
 
-**中文** · [English](#english) · [官方插件页 · 安装](https://community.obsidian.md/plugins/qiaomu-reader) · [问题反馈](https://github.com/joeseesun/qiaomu-reader/issues)
+**中文** · [English](#english) · [官方插件页 · 安装](https://community.obsidian.md/plugins/qiaomu-reader) · [问题反馈](https://github.com/newcoder/uvreader/issues)
 
 > 不离开书页，读懂一个观点，留下一条真正有用的笔记。
 > Read, ask, and keep what matters — without leaving your book in Obsidian.
 
-**已上架 Obsidian 社区插件市场。** 打开 [Qiaomu Reader 官方插件页](https://community.obsidian.md/plugins/qiaomu-reader)，点击 **Add to Obsidian**，在 Obsidian 中点击 **安装 → 启用**。
+**已上架 Obsidian 社区插件市场。** 打开 [UV Reader 官方插件页](https://community.obsidian.md/plugins/qiaomu-reader)，点击 **Add to Obsidian**，在 Obsidian 中点击 **安装 → 启用**。
 
-也可以在 Obsidian 中进入 **设置 → 第三方插件 → 浏览**，搜索 **Qiaomu Reader**，选择作者为 **向阳乔木** 的插件。首次使用第三方插件时，先按提示开启社区插件。[完整安装步骤](#安装)
+也可以在 Obsidian 中进入 **设置 → 第三方插件 → 浏览**，搜索 **UV Reader**，选择作者为 **向阳乔木** 的插件。首次使用第三方插件时，先按提示开启社区插件。[完整安装步骤](#安装)
 
-![Qiaomu Reader 4.2.4 内置书库：六本中英文公版电子书，包含真实封面、继续阅读、划线数量与阅读笔记入口](docs/assets/showcase-4.2.4-library.jpg)
+![UV Reader 4.2.4 内置书库：六本中英文公版电子书，包含真实封面、继续阅读、划线数量与阅读笔记入口](docs/assets/showcase-4.2.4-library.jpg)
 
 **安装后，书架里就有六本书。** 从《道德经》《唐诗三百首》《世说新语》或三本英文经典开始，直接体验阅读、划线和做笔记，无需先找书或配置 AI。
 
-Qiaomu Reader 是中文优先的 Obsidian EPUB、PDF、FB2、MOBI、AZW3 和 CBZ 阅读器。它把**舒适阅读 → 就地提问 → 保存笔记 → 返回原文**放在同一个工作流里，减少在阅读器、聊天窗口和笔记应用之间来回复制。
+UV Reader（柚肥阅读）是中文优先的 Obsidian EPUB、PDF、FB2、MOBI、AZW3 和 CBZ 阅读器。它把**舒适阅读 → 就地提问 → 保存笔记 → 返回原文**放在同一个工作流里，减少在阅读器、聊天窗口和笔记应用之间来回复制。
 
 阅读本身完全离线，每本书关联一篇 Markdown 阅读笔记；AI 是可选能力，由你选择服务并主动启用。
 
-[安装与快速开始](#安装) · [功能导览](#功能导览) · [构建验证](https://github.com/joeseesun/qiaomu-reader/actions) · [GPL-3.0 许可](LICENSE)
+[安装与快速开始](#安装) · [功能导览](#功能导览) · [构建验证](https://github.com/newcoder/uvreader/actions) · [GPL-3.0 许可](LICENSE)
 
 **截图版本：4.2.4。** 以下五张截图均来自安装正式 Release 文件的 Obsidian 1.13.7，展示内置书架、选文操作、划线笔记、AI 伴读和 PDF 原页。使用隔离演示仓库、公版示例书与原创 PDF；AI 对话明确标注为界面演示，未调用模型。详见[截图与版本核验](docs/showcase.md)。
 
@@ -87,20 +87,20 @@ PDF 保留原始版式，支持独立缩放。有可靠文字层时，可选择�
 ### 从 Obsidian 社区插件市场安装（推荐）
 
 1. 打开 Obsidian，进入 **设置 → 第三方插件（Community plugins）**。首次使用时，点击 **开启社区插件（Turn on community plugins）**。
-2. 点击 **浏览（Browse）**，搜索 **Qiaomu Reader**。
-3. 选择 **Qiaomu Reader**，确认作者为 **向阳乔木**，点击 **安装（Install）**。
+2. 点击 **浏览（Browse）**，搜索 **UV Reader**。
+3. 选择 **UV Reader**，确认作者为 **向阳乔木**，点击 **安装（Install）**。
 4. 安装完成后点击 **启用（Enable）**，打开左侧工具栏的书库图标，开始阅读。
 
 也可以打开 [官方插件页](https://community.obsidian.md/plugins/qiaomu-reader)，点击 **Add to Obsidian** 并允许浏览器打开 Obsidian，再完成安装与启用。如果浏览器没有唤起应用，使用上面的应用内搜索步骤即可。桌面和移动端都可以从第三方插件市场安装；本机 CLI 助读仅限桌面。
 
 阅读、划线和笔记无需配置 AI；首次打开书库即可体验内置公版书，也可以添加自己的图书。需要 AI 时，再进入插件设置选择服务并测试连接。
 
-**更新插件：**进入 **设置 → 第三方插件 → 检查更新（Check for updates）**，找到 Qiaomu Reader 后点击更新。社区插件不会自动更新。
+**更新插件：**进入 **设置 → 第三方插件 → 检查更新（Check for updates）**，找到 UV Reader 后点击更新。社区插件不会自动更新。
 
 <details>
 <summary>旧版 Qiaomu Book Reader 用户迁移</summary>
 
-新版插件 ID 为 `qiaomu-reader`，请搜索 **Qiaomu Reader**。先备份仓库并禁用旧版 Qiaomu Book Reader，再启用新版，避免两个阅读器同时注册同一文件类型。书籍与 Markdown 笔记保留在原位置。
+新版插件 ID 为 `qiaomu-reader`，请搜索 **UV Reader**。先备份仓库并禁用旧版 Qiaomu Book Reader，再启用新版，避免两个阅读器同时注册同一文件类型。书籍与 Markdown 笔记保留在原位置。
 
 需要保留旧设置和阅读数据时，在两个插件均禁用的情况下，将 `.obsidian/plugins/qiaomu-book-reader/` 中的 JSON 数据文件复制到 `.obsidian/plugins/qiaomu-reader/`，**不要复制旧版 `manifest.json`**，并保留原件作为备份。旧笔记中的 `obsidian://qiaomu-book-reader` 回跳链接仍受支持。
 
@@ -111,8 +111,8 @@ PDF 保留原始版式，支持独立缩放。有可靠文字层时，可选择�
 
 1. 在 Obsidian 第三方插件市场安装并启用 **BRAT**。
 2. 打开 BRAT → **Add beta plugin**。
-3. 输入 `joeseesun/qiaomu-reader`。
-4. 在“第三方插件”中启用 **Qiaomu Reader**。
+3. 输入 `newcoder/uvreader`。
+4. 在“第三方插件”中启用 **UV Reader**。
 
 此方式使用 GitHub Releases，后续更新由 BRAT 管理。一般用户使用上面的官方社区安装即可。
 
@@ -121,7 +121,7 @@ PDF 保留原始版式，支持独立缩放。有可靠文字层时，可选择�
 <details>
 <summary>手动安装</summary>
 
-从 [最新版本](https://github.com/joeseesun/qiaomu-reader/releases/latest) 下载 `main.js`、`manifest.json` 和 `styles.css`，放入：
+从 [最新版本](https://github.com/newcoder/uvreader/releases/latest) 下载 `main.js`、`manifest.json` 和 `styles.css`，放入：
 
 ```text
 <你的仓库>/.obsidian/plugins/qiaomu-reader/
@@ -213,7 +213,7 @@ npm run build:community
 
 ## 作者
 
-Qiaomu Reader 由 [向阳乔木](https://qiaomu.ai) 维护：
+UV Reader（柚肥阅读）由 [向阳乔木](https://qiaomu.ai) 维护：
 
 - X：[@vista8](https://x.com/vista8)
 - GitHub：[@joeseesun](https://github.com/joeseesun)
@@ -229,18 +229,18 @@ Qiaomu Reader 由 [向阳乔木](https://qiaomu.ai) 维护：
 
 ### Install from Obsidian Community Plugins
 
-**Available in the official directory:** open [Qiaomu Reader](https://community.obsidian.md/plugins/qiaomu-reader), select **Add to Obsidian**, then **Install → Enable** in Obsidian. If your browser does not open the app, install from inside Obsidian:
+**Available in the official directory:** open [UV Reader](https://community.obsidian.md/plugins/qiaomu-reader), select **Add to Obsidian**, then **Install → Enable** in Obsidian. If your browser does not open the app, install from inside Obsidian:
 
 1. Open **Settings → Community plugins**. Select **Turn on community plugins** if prompted.
-2. Select **Browse** and search for **Qiaomu Reader**.
-3. Choose **Qiaomu Reader** by **向阳乔木**, then select **Install → Enable**.
+2. Select **Browse** and search for **UV Reader**.
+3. Choose **UV Reader** by **向阳乔木**, then select **Install → Enable**.
 4. Open the library from the left ribbon to try the bundled public-domain books or add your own. AI setup is optional.
 
-For updates, use **Settings → Community plugins → Check for updates**, then update Qiaomu Reader. Community plugins do not update automatically. If you used Qiaomu Book Reader before, back up your vault and disable it before enabling the new plugin; see the [migration instructions](#安装).
+For updates, use **Settings → Community plugins → Check for updates**, then update UV Reader. Community plugins do not update automatically. If you used Qiaomu Book Reader before, back up your vault and disable it before enabling the new plugin; see the [migration instructions](#安装).
 
 ### Read, highlight and keep notes
 
-Qiaomu Reader is a Chinese-first reader for Obsidian supporting EPUB, PDF, FB2, MOBI, AZW3 and CBZ. PDF files retain their original fixed page layout; pages with a reliable text layer support selection, search, highlights, annotations and full-document or selected-text AI context, while scan-only pages provide original-page reading, progress and one book-level note without pretending OCR is available. The plugin keeps one dedicated Markdown reading note per book inside your vault.
+UV Reader is a Chinese-first reader for Obsidian supporting EPUB, PDF, FB2, MOBI, AZW3 and CBZ. PDF files retain their original fixed page layout; pages with a reliable text layer support selection, search, highlights, annotations and full-document or selected-text AI context, while scan-only pages provide original-page reading, progress and one book-level note without pretending OCR is available. The plugin keeps one dedicated Markdown reading note per book inside your vault.
 
 ### A reading workflow, not just a chat window
 
@@ -270,7 +270,7 @@ Reading works fully offline. In-reader settings are split into Reading and AI As
 
 **New in 4.2.6:** Selection actions use icons by default, with translation shown when enabled. Configure labels, visibility and order under Settings → Page turning → Selection toolbar. Hidden actions remain in More and the context menu. AI source links can reopen the correct book and navigate across chapters.
 
-Saving an AI reply preserves its complete Markdown body with the source below it, either in a separate note or appended to the book's reading note. An editable title is extracted locally from the reply's topic, emphasis or content, with no extra model request. Saving keeps the chat open, and the saved action opens the existing note. Unsent drafts are persisted locally for up to 30 books (20,000 characters each) and survive sidebar closure/restarts; third-party syncing of the plugin folder may also copy them. Deleting conversations requires confirmation. Screenshots above were captured with the published [4.2.4 release](https://github.com/joeseesun/qiaomu-reader/releases/tag/4.2.4); see the [official listing](https://community.obsidian.md/plugins/qiaomu-reader) for installation.
+Saving an AI reply preserves its complete Markdown body with the source below it, either in a separate note or appended to the book's reading note. An editable title is extracted locally from the reply's topic, emphasis or content, with no extra model request. Saving keeps the chat open, and the saved action opens the existing note. Unsent drafts are persisted locally for up to 30 books (20,000 characters each) and survive sidebar closure/restarts; third-party syncing of the plugin folder may also copy them. Deleting conversations requires confirmation. Screenshots above were captured with the published [4.2.4 release](https://github.com/newcoder/uvreader/releases/tag/4.2.4); see the [official listing](https://community.obsidian.md/plugins/qiaomu-reader) for installation.
 
 ### Verification and limits
 

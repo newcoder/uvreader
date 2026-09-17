@@ -1,0 +1,14 @@
+{
+  "name": "@qiaomu/host-shim",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Obsidian API compatibility layer for the UV Reader desktop shell.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  }
+}

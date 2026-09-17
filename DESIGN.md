@@ -1,4 +1,4 @@
-# Qiaomu Reader · Reader HUD and AI Reading
+# UV Reader · Reader HUD and AI Reading
 
 ## 1. Visual theme and atmosphere
 

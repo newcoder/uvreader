@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' 'unsafe-inline' data: blob: file:; connect-src *; img-src 'self' data: blob: file:; font-src 'self' data:;"
+    />
+    <title>UV Reader</title>
+    <link rel="stylesheet" href="base.css" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="theme-dark">
+    <div id="app-nav">
+      <div class="qbr-nav-brand">UV Reader</div>
+      <div class="qbr-nav-routes">
+        <button type="button" data-route="home" class="qbr-nav-btn">首页</button>
+        <button type="button" data-route="library" class="qbr-nav-btn">书库</button>
+      </div>
+      <div class="qbr-nav-spacer"></div>
+      <button type="button" data-route="settings" class="qbr-nav-btn">设置</button>
+    </div>
+    <div id="workspace"></div>
+    <div id="opening" hidden>
+      <div class="qbr-opening-card">
+        <div class="qbr-opening-spinner"></div>
+        <div class="qbr-opening-name" data-name></div>
+        <div class="qbr-opening-hint">正在打开…</div>
+      </div>
+    </div>
+    <div id="toast" hidden></div>
+    <script src="renderer.js"></script>
+  </body>
+</html>
