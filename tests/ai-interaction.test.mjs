@@ -13,6 +13,7 @@ const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.
 const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
 const modalSource = fs.readFileSync(new URL("../packages/reader/src/reader-modal.js", import.meta.url), "utf8");
 const explainModalSource = fs.readFileSync(new URL("../packages/reader/src/ai-explain-modal.js", import.meta.url), "utf8");
+const chatViewSource = fs.readFileSync(new URL("../packages/reader/src/ai-chat-view.js", import.meta.url), "utf8");
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 function dom() {
@@ -376,7 +377,11 @@ function sidebarHarness() {
   class File { constructor(path) { this.path = path; this.basename = path; } }
   const files = new Map(["a.epub", "b.epub"].map((path) => [path, new File(path)]));
   const normalize = source.slice(source.indexOf("function normalizeAiChatHistory("), source.indexOf("function normalizeAiTurnContext("));
-  const cls = source.slice(source.indexOf("const AiChatView = class"), source.indexOf('for (const method of ["_setSending"'));
+  // The chat view lives in its own module now: evaluate its factory with the
+  // same stubs, reusing the sliced helpers as ports.
+  const chatViewFactory = chatViewSource.slice(chatViewSource.indexOf("export function createAiChatView(")).replace("export function", "function");
+  const chatPortNames = chatViewFactory.slice(chatViewFactory.indexOf("{") + 1, chatViewFactory.indexOf("})")).split(",").map((name) => name.trim()).filter(Boolean);
+  const chatPorts = `{ ${chatPortNames.map((name) => `${name}: typeof ${name} === "undefined" ? undefined : ${name}`).join(", ")} }`;
   const context = {
     window, ItemView: class {}, TFile: File, qiaomuReaderTranslate: (s) => s, Notice: class {},
     normalizeAiTurnContext: (value) => value?.text ? { kind: value.kind, text: value.text } : null,
@@ -385,7 +390,7 @@ function sidebarHarness() {
     bookNoteLinkFor: () => "", aiTurnsHaveDocumentContext: (turns) => turns.some((turn) => turn.context?.kind === "document"),
     readerDefaultAiContext: () => ({ kind: "page", text: "当前页" }),
   };
-  const { Chat, normalizeHistory } = vm.runInNewContext(`${normalize}\n${cls}\n({ Chat: AiChatView, normalizeHistory: normalizeAiChatHistory })`, context);
+  const { Chat, normalizeHistory } = vm.runInNewContext(`${normalize}\n${chatViewFactory}\n({ Chat: createAiChatView(${chatPorts}), normalizeHistory: normalizeAiChatHistory })`, context);
   const texts = new Map();
   const chat = new Chat({}, { settings: { aiChatHistory: [] }, aiDraftStore: { texts, set: (key, text) => texts.set(key, text) }, async saveAll() {} });
   chat.app = { vault: { getAbstractFileByPath: (path) => files.get(path) } };

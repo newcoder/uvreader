@@ -8,6 +8,7 @@ import { createReaderHud } from "../packages/reader/src/reader-hud.js";
 
 const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
 const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
+const chatViewSource = fs.readFileSync(new URL("../packages/reader/src/ai-chat-view.js", import.meta.url), "utf8");
 const selectionSource = fs.readFileSync(new URL("../packages/reader/src/selection-actions.js", import.meta.url), "utf8");
 const readerHud = createReaderHud({ translate: (key) => key, notice() {}, window: globalThis, platform: { isMobile: false }, isPdf: () => false, jumpToHighlight: async () => {} });
 const tick = () => new Promise((resolve) => setImmediate(resolve));
@@ -338,13 +339,17 @@ test("PDF pan mode drags its scroller and consumes the following click", () => {
 });
 
 test("sidebar source refresh preserves composer and history DOM; pinned and removed states survive", async () => {
-  const cls = source.slice(source.indexOf("const AiChatView = class"), source.indexOf('for (const method of ["_setSending"'));
+  // The chat view lives in its own module now: evaluate its factory with the
+  // same stubs, reusing the sliced helpers as ports.
+  const chatViewFactory = chatViewSource.slice(chatViewSource.indexOf("export function createAiChatView(")).replace("export function", "function");
+  const chatPortNames = chatViewFactory.slice(chatViewFactory.indexOf("{") + 1, chatViewFactory.indexOf("})")).split(",").map((name) => name.trim()).filter(Boolean);
+  const chatPorts = `{ ${chatPortNames.map((name) => `${name}: typeof ${name} === "undefined" ? undefined : ${name}`).join(", ")} }`;
   const context = { ItemView: class {}, shouldFollowContext, clearAiSource() {},
     normalizeAiTurnContext: (value) => value?.text ? { kind: value.kind, text: value.text, page: value.page } : null,
     aiTurnsHaveDocumentContext: () => false, bookNoteLinkFor: () => "book", newAiSessionKey: () => "new",
     readerHud: { autoFocus() {} }, Notice: class {}, qiaomuReaderTranslate: (s) => s,
   };
-  const Chat = vm.runInNewContext(`${cls}\nAiChatView`, context);
+  const Chat = vm.runInNewContext(`${chatViewFactory}\ncreateAiChatView(${chatPorts})`, context);
   const chat = Object.create(Chat.prototype);
   const bookFile = { path: "book.epub" };
   const input = { value: "未发送草稿" }, log = { scrollTop: 123 };
