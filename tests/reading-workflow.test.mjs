@@ -11,6 +11,7 @@ import { bindAiComposer } from "../packages/reader/src/ai-composer.js";
 
 const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
 const historySource = fs.readFileSync(new URL("../packages/reader/src/ai-chat-history-modal.js", import.meta.url), "utf8");
+const findPanelSource = fs.readFileSync(new URL("../packages/reader/src/find-panel.js", import.meta.url), "utf8");
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 test("search supports single Han, literal metacharacters and original Unicode offsets", () => {
@@ -145,8 +146,9 @@ test("real search controller handles IME, wraps hits, preserves one return point
   // The shared navigation chrome and the IME-composing search binding are
   // extracted helpers directly above buildFindPanelFor; include them so the
   // controller's debounce/IME logic runs for real.
-  const code = source.slice(source.indexOf("function prepareNavigationPanel("), source.indexOf("function buildTocPanelFor("));
-  const build = vm.runInNewContext(`${code}; buildFindPanelFor`, {
+  const code = source.slice(source.indexOf("function prepareNavigationPanel("), source.indexOf("const buildFindPanelFor = createBuildFindPanelFor({"));
+  const findFactory = findPanelSource.slice(findPanelSource.indexOf("export function createBuildFindPanelFor(")).replace("export function", "function");
+  const build = vm.runInNewContext(`${code}\n${findFactory}\ncreateBuildFindPanelFor({ bindComposingSearch, chapterForBlock, clearFoundIn, markFoundIn, pageForBlock, prepareNavigationPanel, qiaomuReaderTranslate, readerIsPdf, readerSearchTexts, rememberReaderJump, Notice: class {}, searchableQuery, searchBookBlocks, nextSearchIndex, restoreReadingAnchor })`, {
     window, qiaomuReaderTranslate: (s) => s, searchableQuery, searchBookBlocks, nextSearchIndex,
     clearFoundIn() {}, markFoundIn() {}, readerSearchTexts: () => ["书中有书"],
     pageForBlock: () => "", readerIsPdf: () => false, chapterForBlock: () => "第一章",
