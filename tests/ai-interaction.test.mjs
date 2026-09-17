@@ -620,7 +620,7 @@ test("mobile modal renders a real answer without Component methods and unloads r
 });
 
 test("mobile AI requests leave the busy state after a stalled network call", async () => {
-  const helperSource = source.slice(source.indexOf("function aiRequestWithTimeout("), source.indexOf("async function aiExplainStream("));
+  const helperSource = source.slice(source.indexOf("function aiRequestWithTimeout("), source.indexOf("const { aiExplainStream, aiExplain } = createAiTransport({"));
   const withTimeout = vm.runInNewContext(`${helperSource}\naiRequestWithTimeout`, {
     window: { setTimeout, clearTimeout },
   });

@@ -34,6 +34,7 @@ const chatViewSource = fs.readFileSync(new URL("../packages/reader/src/ai-chat-v
 const readSettingsSource = fs.readFileSync(new URL("../packages/reader/src/read-settings-modal.js", import.meta.url), "utf8");
 const noteTitleSource = fs.readFileSync(new URL("../packages/reader/src/note-title-modal.js", import.meta.url), "utf8");
 const historySource = fs.readFileSync(new URL("../packages/reader/src/ai-chat-history-modal.js", import.meta.url), "utf8");
+const transportSource = fs.readFileSync(new URL("../packages/reader/src/ai-transport.js", import.meta.url), "utf8");
 const bookSetupSource = fs.readFileSync(new URL("../packages/reader/src/book-setup-modal.js", import.meta.url), "utf8");
 const highlightExportSource = fs.readFileSync(new URL("../packages/reader/src/highlight-export-modal.js", import.meta.url), "utf8");
 const settingsGroupSource = fs.readFileSync(new URL("../packages/reader/src/settings-group-modal.js", import.meta.url), "utf8");
@@ -751,7 +752,7 @@ test("AI dialog uses built-in quick prompts and keeps reasoning separate", () =>
   assert.match(source, /button\.addEventListener\("click", \(\) => \{[\s\S]*chat\._send\(item\.prompt\)/);
   assert.match(explainSource, /createEl\("details", \{ cls: "qiaomu-reader-ai-reason" \}\)/);
   assert.match(explainSource, /reasoningBox\.open = false/);
-  assert.match(source, /onDelta/);
+  assert.match(transportSource, /onDelta/);
   assert.match(source, /createAiStreamingMarkdownRenderer/);
   assert.match(explainSource, /markdownRenderer\.update\(answer\)/);
   assert.match(explainSource, /await markdownRenderer\.finish\(answer\)/);
