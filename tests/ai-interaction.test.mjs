@@ -14,6 +14,7 @@ const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.j
 const modalSource = fs.readFileSync(new URL("../packages/reader/src/reader-modal.js", import.meta.url), "utf8");
 const explainModalSource = fs.readFileSync(new URL("../packages/reader/src/ai-explain-modal.js", import.meta.url), "utf8");
 const chatViewSource = fs.readFileSync(new URL("../packages/reader/src/ai-chat-view.js", import.meta.url), "utf8");
+const noteTitleSource = fs.readFileSync(new URL("../packages/reader/src/note-title-modal.js", import.meta.url), "utf8");
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 function dom() {
@@ -502,12 +503,15 @@ test("note-saving integration uses the answer topic, never the generic question"
 function titleModal() {
   const window = dom();
   const results = [];
-  const cls = source.slice(source.indexOf("const NoteTitleModal = class"), source.indexOf("function processTemplateManually("));
   class Modal {
     constructor() { this.contentEl = window.document.querySelector("main"); }
     close() { this.onClose(); }
   }
-  const NoteModal = vm.runInNewContext(`${cls}\nNoteTitleModal`, {
+  // The note title modal lives in its own module now.
+  const noteTitleFactory = noteTitleSource.slice(noteTitleSource.indexOf("export function createNoteTitleModal(")).replace("export function", "function");
+  const noteTitlePorts = noteTitleFactory.slice(noteTitleFactory.indexOf("{") + 1, noteTitleFactory.indexOf("})")).split(",").map((name) => name.trim()).filter(Boolean);
+  const noteTitlePortExpr = `{ ${noteTitlePorts.map((name) => `${name}: typeof ${name} === \"undefined\" ? undefined : ${name}`).join(", ")} }`;
+  const NoteModal = vm.runInNewContext(`${noteTitleFactory}\ncreateNoteTitleModal(${noteTitlePortExpr})`, {
     Modal, qiaomuReaderTranslate: (s) => s, sanitizeNoteTitle: (s) => s, suggestNoteTitle: (s) => s,
     notesFolderPath: () => "", allVaultTags: () => [], FolderSuggest: null,
     parseNoteTags: () => [], qiaomuReaderPath: (s) => s, readerHud: { autoFocus() {} },

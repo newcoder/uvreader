@@ -31,6 +31,14 @@ const modalSource = fs.readFileSync(new URL("../packages/reader/src/reader-modal
 const librarySource = fs.readFileSync(new URL("../packages/reader/src/library-modal.js", import.meta.url), "utf8");
 const explainSource = fs.readFileSync(new URL("../packages/reader/src/ai-explain-modal.js", import.meta.url), "utf8");
 const chatViewSource = fs.readFileSync(new URL("../packages/reader/src/ai-chat-view.js", import.meta.url), "utf8");
+const readSettingsSource = fs.readFileSync(new URL("../packages/reader/src/read-settings-modal.js", import.meta.url), "utf8");
+const noteTitleSource = fs.readFileSync(new URL("../packages/reader/src/note-title-modal.js", import.meta.url), "utf8");
+const folderSource = fs.readFileSync(new URL("../packages/reader/src/create-folder-modal.js", import.meta.url), "utf8");
+const infoSource = fs.readFileSync(new URL("../packages/reader/src/info-modal.js", import.meta.url), "utf8");
+const gotoSource = fs.readFileSync(new URL("../packages/reader/src/goto-page-modal.js", import.meta.url), "utf8");
+const whatsNewSource = fs.readFileSync(new URL("../packages/reader/src/whats-new-modal.js", import.meta.url), "utf8");
+const onboardingSource = fs.readFileSync(new URL("../packages/reader/src/onboarding-modal.js", import.meta.url), "utf8");
+const confirmSource = fs.readFileSync(new URL("../packages/reader/src/confirm-modal.js", import.meta.url), "utf8");
 const paginatorSource = fs.readFileSync(new URL("../packages/reader/src/pdf-paginator.js", import.meta.url), "utf8");
 const readerSources = mainSource + viewSource + modalSource + librarySource;
 import { EMBEDDED_PDF_CMAPS } from "../packages/reader/src/pdf-cmaps-data.js";
@@ -771,7 +779,7 @@ test("desktop AI chat keeps per-book threads and structured document or selectio
   assert.match(source, /createNoteFromAiAnswer[\s\S]*?open: false/);
   assert.match(explainSource, /savedNote = note/);
   assert.doesNotMatch(source, /if \(note && typeof this\.close === "function"\) this\.close\(\)/);
-  assert.match(source, /qiaomuReaderTranslate\(asAnswer \? "save-to-note" : "create-note"\)/);
+  assert.match(noteTitleSource, /qiaomuReaderTranslate\(asAnswer \? "save-to-note" : "create-note"\)/);
   assert.match(source, /bookLinkHeading: qiaomuReaderTranslate\("ai-reading-notes"\)/);
   assert.doesNotMatch(source, /extra: "\\n\\n" \+ answer/);
   assert.match(chatViewSource, /new ReadSettingsModal\(this\.app, this\.readerView, "ai"\)\.open\(\)/);
@@ -979,7 +987,7 @@ test("folder and template settings use searchable vault pickers", () => {
   const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   const chinese = fs.readFileSync(new URL("../packages/reader/src/i18n-zh.js", import.meta.url), "utf8");
   assert.match(source, /const FolderPicker = class extends FuzzySuggestModal/);
-  assert.match(source, /const CreateFolderModal = class extends Modal/);
+  assert.match(folderSource, /class CreateFolderModal extends Modal/);
   assert.match(source, /file instanceof TFolder && qiaomuReaderPath\(file\.path\)/);
   assert.match(source, /\{ kind: "root", path: "", label: qiaomuReaderTranslate\("vault-root"\) \}/);
   assert.match(source, /\{ kind: "create", path: "", label: qiaomuReaderTranslate\("create-new-folder"\) \}/);
@@ -990,7 +998,7 @@ test("folder and template settings use searchable vault pickers", () => {
   assert.equal((source.match(/pickFolder\(new Setting\(c\)/g) || []).length, 2);
   assert.equal((source.match(/pickFile\(new Setting\(c\)/g) || []).length, 2); // both note-path rows ride the pickFile wrapper
   assert.match(source, /target instanceof TFolder/);
-  assert.match(source, /await this\.app\.vault\.createFolder\(path\)/);
+  assert.match(folderSource, /await this\.app\.vault\.createFolder\(path\)/);
   assert.match(css, /\.qiaomu-reader-folder-setting \.setting-item-control \{[^}]*grid-template-columns:minmax\(180px,1fr\) 32px/s);
   assert.match(css, /\.qiaomu-reader-folder-path-input\[aria-invalid="true"\]/);
   assert.match(css, /@media \(pointer:coarse\) \{[^}]*\.qiaomu-reader-folder-setting \.setting-item-control/s);
