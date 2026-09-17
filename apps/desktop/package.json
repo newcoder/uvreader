@@ -14,7 +14,8 @@
     "e2e": "node build.mjs && node scripts/e2e.mjs",
     "dist": "node build.mjs --production && electron-builder --config electron-builder.config.cjs --publish never",
     "dist:dir": "node build.mjs --production && electron-builder --config electron-builder.config.cjs --publish never --dir",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "test:cli": "node scripts/test-claude-cli.mjs"
   },
   "devDependencies": {
     "electron": "^38.0.0",

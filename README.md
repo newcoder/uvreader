@@ -61,6 +61,13 @@ npx eslint packages/reader/src/ --max-warnings=0
 
 CI（`.github/workflows/ci.yml`）按上述顺序执行，并在 xvfb 下跑一次桌面冒烟。
 
+本机已安装并登录 CLI（Claude Code / Codex / Grok / Kimi / ZCode）时，可以手动验证 AI 伴读的 CLI 链路（不依赖 ACP 适配器，未安装时自动走兼容模式）：
+
+```bash
+npm run desktop:test:cli              # 默认 claude-cli，自动探测可执行文件
+npm run desktop:test:cli -- codex-cli # 指定 provider；第三个参数可传二进制路径
+```
+
 ## 架构
 
 ```text
