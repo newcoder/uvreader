@@ -57,6 +57,9 @@ import { createSelectionActions } from "./selection-actions.js";
 import { createReaderTimer } from "./reader-timer.js";
 import { createReaderHud } from "./reader-hud.js";
 import { createReaderView } from "./reader-view.js";
+import { createAiStreamingMarkdownRendererFactory } from "./ai-streaming-markdown.js";
+import { createBuildCustomFontInput } from "./custom-font-input.js";
+import { createWhatsNew } from "./whats-new.js";
 import { createTranslateModal } from "./translate-modal.js";
 import { createAiChatHistoryModal } from "./ai-chat-history-modal.js";
 import { createSettingsGroupModal } from "./settings-group-modal.js";
@@ -374,109 +377,11 @@ const ReaderFontPicker = class extends FuzzySuggestModal {
   }
   onChooseItem(font) { void this.choose(font); }
 };
-function buildCustomFontInput(host, plugin, apply) {
-  const settings = plugin.settings;
-  const wrap = host.createDiv("qiaomu-reader-custom-font");
-  const actions = wrap.createDiv("qiaomu-reader-font-actions");
-  const system = actions.createEl("button", { text: qiaomuReaderTranslate("choose-installed-font"), attr: { type: "button" } });
-  const upload = actions.createEl("button", { text: qiaomuReaderTranslate("import-font-file"), attr: { type: "button" } });
-  actions.createEl("a", { text: qiaomuReaderTranslate("download-more-fonts"), href: "https://github.com/newcoder/uvreader/blob/main/fonts/README.md", attr: { target: "_blank", rel: "noopener noreferrer" } });
-  const files = wrap.createEl("input", { type: "file", attr: { accept: FONT_FILE_ACCEPT, "aria-label": qiaomuReaderTranslate("import-font-file") } });
-  files.hidden = true;
-  const saved = wrap.createDiv("qiaomu-reader-imported-fonts");
-  const selected = wrap.createDiv("qiaomu-reader-font-selected");
-  const status = wrap.createDiv({ cls: "qiaomu-reader-font-status", attr: { role: "status" } });
-  const advanced = wrap.createEl("details");
-  advanced.createEl("summary", { text: qiaomuReaderTranslate("enter-font-name-manually") });
-  const label = advanced.createEl("label", { text: qiaomuReaderTranslate("font-name-font-family") });
-  const input = label.createEl("input", { type: "text", cls: "qiaomu-reader-panel-input" });
-  input.value = settings.customFontFamily || "";
-  input.placeholder = '"georgia", serif';
-  advanced.createDiv({ cls: "qiaomu-reader-pan-hint", text: qiaomuReaderTranslate("enter-an-installed-font-name-or-a-comma-separated-fallback-list") });
-  const error = advanced.createDiv({ cls: "qiaomu-reader-custom-font-error", attr: { role: "status" } });
-  let busy = false;
-  const setBusy = (value) => {
-    busy = value;
-    system.disabled = upload.disabled = input.disabled = value;
-    saved.querySelectorAll("button").forEach((button) => { button.disabled = value; });
-  };
-  const commit = async (family, imported = null) => {
-    const previous = { customFontFamily: settings.customFontFamily, customFontId: settings.customFontId, importedFonts: settings.importedFonts };
-    if (imported) {
-      await readerFontStore(plugin).load(docOf(wrap), imported);
-      settings.importedFonts = [...importedReaderFonts(settings).filter((font) => font.id !== imported.id), imported];
-    }
-    settings.customFontId = imported?.id || "";
-    settings.customFontFamily = family;
-    if (await plugin._saveLocalData() === false) {
-      Object.assign(settings, previous);
-      throw new Error("save");
-    }
-    refresh();
-    await apply();
-  };
-  const choose = async (font) => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await commit(font.family || "", font.id ? font : null);
-      status.setText(font.id ? qiaomuReaderTranslate("the-font-is-saved-in-the-vault-and-syncs-with-vault-files") : qiaomuReaderTranslate("installed-fonts-are-available-only-on-devices-where-they-are-ins"));
-    } catch { status.setText(qiaomuReaderTranslate("could-not-apply-the-font-check-the-font-file-and-vault-write-acc")); }
-    finally { setBusy(false); }
-  };
-  const refresh = () => {
-    wrap.hidden = settings.fontFamily !== "custom";
-    const font = importedReaderFonts(settings).find((item) => item.id === settings.customFontId);
-    selected.setText(font?.name || settings.customFontFamily || qiaomuReaderTranslate("no-custom-font-selected"));
-    selected.style.fontFamily = resolveReaderFont(settings, FONTS);
-    input.value = settings.customFontFamily || "";
-    saved.empty();
-    for (const item of importedReaderFonts(settings)) {
-      const button = saved.createEl("button", { text: item.name, attr: { type: "button", "aria-pressed": String(item.id === settings.customFontId) } });
-      button.disabled = busy;
-      button.addEventListener("click", () => { void choose(item); });
-    }
-  };
-  system.addEventListener("click", async () => {
-    if (busy) return;
-    setBusy(true);
-    status.setText(qiaomuReaderTranslate("reading-installed-fonts"));
-    try {
-      const fonts = await listSystemFonts(winOf(wrap));
-      if (!wrap.isConnected) return;
-      status.setText(fonts.length ? qiaomuReaderTranslate("found-0-installed-font-families", fonts.length) : qiaomuReaderTranslate("no-installed-fonts-were-returned-import-a-font-file-instead"));
-      if (fonts.length) new ReaderFontPicker(plugin.app, fonts, choose).open();
-    } catch {
-      status.setText(qiaomuReaderTranslate("this-device-cannot-list-installed-fonts-or-access-was-denied-use"));
-    } finally { setBusy(false); }
-  });
-  upload.addEventListener("click", () => { if (!busy) files.click(); });
-  files.addEventListener("change", async () => {
-    const file = files.files?.[0];
-    files.value = "";
-    if (!file || busy) return;
-    setBusy(true);
-    status.setText(qiaomuReaderTranslate("importing-font"));
-    try {
-      const font = await readerFontStore(plugin).importFile(docOf(wrap), file);
-      await commit("", font);
-      status.setText(qiaomuReaderTranslate("the-font-is-saved-in-the-vault-and-syncs-with-vault-files"));
-    } catch (cause) {
-      status.setText(cause?.message === "format" ? qiaomuReaderTranslate("choose-a-valid-ttf-otf-woff-or-woff2-font-file")
-        : cause?.message === "size" ? qiaomuReaderTranslate("font-files-must-not-be-empty-or-larger-than-64-mb")
-          : qiaomuReaderTranslate("font-import-failed-check-that-the-font-is-valid-and-the-vault-is"));
-    } finally { setBusy(false); }
-  });
-  input.addEventListener("change", async () => {
-    const value = normalizeCustomFontFamily(input.value);
-    input.setAttribute("aria-invalid", String(value === null));
-    error.setText(value === null ? qiaomuReaderTranslate("enter-font-names-separated-by-commas-not-css-rules") : "");
-    if (value === null || busy) return;
-    await choose({ family: value });
-  });
-  refresh();
-  return refresh;
-}
+const buildCustomFontInput = createBuildCustomFontInput({
+  FONTS,
+  ReaderFontPicker,
+  qiaomuReaderTranslate,
+});
 function buildPageButtonsSetting(host, plugin) {
   new Setting(host)
     .setName(qiaomuReaderTranslate("page-turn-buttons"))
@@ -3898,99 +3803,12 @@ function createAiChatLog(host, chat) {
   return log;
 }
 
-function createAiStreamingMarkdownRenderer(owner, element, sourcePath = "", options = {}) {
-  const lifecycle = owner._markdownComponent || owner;
-  element.addClass("qiaomu-reader-ai-markdown");
-  let source = "";
-  let requestedVersion = 0;
-  let renderedVersion = 0;
-  let lastRenderedAt = 0;
-  let timer = null;
-  let running = null;
-  let renderComponent = null;
-  let disposed = false;
-
-  const removeRenderComponent = () => {
-    if (!renderComponent) return;
-    try { lifecycle.removeChild(renderComponent); }
-    catch { try { renderComponent.unload(); } catch { /* already unloaded */ } }
-    renderComponent = null;
-  };
-  const renderNow = async (forceLatest = false) => {
-    if (disposed) return;
-    if (running) {
-      await running;
-      if (!disposed && renderedVersion < requestedVersion) {
-        if (forceLatest) await renderNow(true);
-        else schedule();
-      }
-      return;
-    }
-    const version = requestedVersion;
-    const snapshot = source;
-    const renderState = options.beforeRender?.();
-    running = (async () => {
-      removeRenderComponent();
-      const component = new Component();
-      lifecycle.addChild(component);
-      renderComponent = component;
-      element.removeClass("qiaomu-reader-ai-markdown-fallback");
-      element.empty();
-      try {
-        await MarkdownRenderer.render(owner.app, snapshot, element, sourcePath, component);
-        if (!disposed) enhanceAiMarkdown(element);
-      } catch (error) {
-        console.error("UV Reader: streaming Markdown rendering failed", error);
-        if (!disposed) {
-          element.addClass("qiaomu-reader-ai-markdown-fallback");
-          element.setText(snapshot);
-        }
-      }
-      renderedVersion = version;
-      lastRenderedAt = Date.now();
-      if (!disposed) options.afterRender?.(renderState);
-    })();
-    try { await running; }
-    finally { running = null; }
-    if (!disposed && renderedVersion < requestedVersion) {
-      if (forceLatest) await renderNow(true);
-      else schedule();
-    }
-  };
-  const schedule = (immediate = false) => {
-    if (disposed || timer !== null || running) return;
-    const elapsed = Date.now() - lastRenderedAt;
-    const wait = immediate ? 0 : Math.max(0, AI_MARKDOWN_RENDER_INTERVAL_MS - elapsed);
-    timer = window.setTimeout(() => {
-      timer = null;
-      void renderNow(false);
-    }, wait);
-  };
-  const setSource = (markdown) => {
-    source = String(markdown || "");
-    requestedVersion += 1;
-  };
-  return {
-    update(markdown) {
-      setSource(markdown);
-      schedule(renderedVersion === 0);
-    },
-    async finish(markdown) {
-      setSource(markdown);
-      if (timer !== null) {
-        window.clearTimeout(timer);
-        timer = null;
-      }
-      await renderNow(true);
-    },
-    dispose() {
-      disposed = true;
-      if (timer !== null) window.clearTimeout(timer);
-      timer = null;
-      removeRenderComponent();
-    },
-  };
-}
+const createAiStreamingMarkdownRenderer = createAiStreamingMarkdownRendererFactory({
+  Component,
+  MarkdownRenderer,
+  AI_MARKDOWN_RENDER_INTERVAL_MS,
+  enhanceAiMarkdown,
+});
 
 function renderAiContextQuote(host, value, options = {}) {
   const context = normalizeAiTurnContext(value);
@@ -6265,140 +6083,9 @@ function bookNoteAction(settings, bookPath) {
   if (s.autoBookNote) return asked[bookPath] ? "prompted" : "auto";
   return asked[bookPath] ? "prompted" : "ask";
 }
-const WHATS_NEW = [
-  { v: "4.0.1", items: [
-    qiaomuReaderTranslate("ai-assistance-now-binds-to-the-newly-opened-book-immediately-so"),
-    qiaomuReaderTranslate("fixed-blank-first-screens-collapsed-pagination-during-sidebar-ch"),
-    qiaomuReaderTranslate("cli-setup-now-establishes-a-real-acp-session-and-sends-a-minimal"),
-    qiaomuReaderTranslate("unreadable-or-empty-synced-json-files-are-protected-with-recover")
-  ]},
-  { v: "4.0.0", items: [
-    qiaomuReaderTranslate("pdfs-now-retain-their-original-pages-with-50-300-zoom-text-pages"),
-    qiaomuReaderTranslate("ai-assistance-now-provides-a-separate-chat-for-each-book-live-ma"),
-    qiaomuReaderTranslate("codex-claude-grok-kimi-and-zcode-now-use-persistent-acp-sessions"),
-    qiaomuReaderTranslate("expired-acp-sessions-or-interrupted-processes-are-safely-rebuilt"),
-    qiaomuReaderTranslate("five-redistributable-chinese-fonts-are-now-bundled-with-refined")
-  ]},
-  { v: "3.9.1", items: [
-    qiaomuReaderTranslate("manually-appended-excerpts-are-no-longer-overwritten-by-later-hi"),
-    qiaomuReaderTranslate("traditional-chinese-pdfs-from-taiwan-and-hong-kong-now-use-bundl")
-  ]},
-  { v: "3.8.0", items: [
-    qiaomuReaderTranslate("reading-progress-settings-and-highlights-now-save-in-order-so-ra"),
-    qiaomuReaderTranslate("unreadable-reading-data-is-no-longer-overwritten-and-the-origina"),
-    qiaomuReaderTranslate("book-opening-failures-now-show-a-retryable-error-page-instead-of"),
-    qiaomuReaderTranslate("primary-library-and-reader-actions-are-keyboard-focusable-and-ob")
-  ]},
-  { v: "3.7.0", items: [
-    qiaomuReaderTranslate("cli-ai-now-remembers-model-and-reasoning-effort-separately-for-c"),
-    qiaomuReaderTranslate("claude-code-and-grok-now-stream-token-by-token-with-reasoning-ke"),
-    qiaomuReaderTranslate("removed-the-leftover-russian-word-from-the-default-copied-excerp"),
-    qiaomuReaderTranslate("reading-settings-no-longer-scrolls-horizontally-or-lets-its-scro"),
-    qiaomuReaderTranslate("the-appearance-page-now-includes-theme-font-size-and-line-spacin")
-  ]},
-  { v: "3.6.0", items: [
-    qiaomuReaderTranslate("after-appending-an-excerpt-the-reader-asks-whether-to-open-the-r"),
-    qiaomuReaderTranslate("ai-quick-prompts-can-now-be-added-edited-deleted-and-restored-to"),
-    qiaomuReaderTranslate("the-ai-dialog-now-links-directly-to-prompt-settings-and-includes")
-  ] },
-  { v: "3.5.1", items: [
-    qiaomuReaderTranslate("the-selection-toolbar-now-has-a-more-menu-for-excerpt-notes-addi"),
-    qiaomuReaderTranslate("comments-now-stay-beside-the-passage-showing-a-three-line-expand"),
-    qiaomuReaderTranslate("ai-setup-now-shows-only-essentials-by-default-with-model-and-end"),
-    qiaomuReaderTranslate("english-font-names-no-longer-carry-redundant-chinese-suffixes-an")
-  ] },
-  { v: "3.5.0", items: [
-    qiaomuReaderTranslate("ai-answers-now-stream-live-reasoning-is-shown-separately-and-col"),
-    qiaomuReaderTranslate("ai-chat-now-includes-six-common-reading-prompts-and-remains-open"),
-    qiaomuReaderTranslate("reading-themes-now-affect-only-the-page-the-top-toolbar-and-bott"),
-    qiaomuReaderTranslate("plugin-settings-have-been-regrouped-with-clearer-chinese-copy-ma"),
-    qiaomuReaderTranslate("fixed-api-requests-failing-to-include-an-already-saved-key")
-  ] },
-  { v: "3.4.0", items: [
-    qiaomuReaderTranslate("added-codex-cli-claude-code-cli-and-grok-cli-using-existing-loca"),
-    qiaomuReaderTranslate("cli-requests-run-in-isolated-temporary-directories-with-tools-fi"),
-    qiaomuReaderTranslate("settings-can-auto-detect-cli-paths-check-login-status-and-send-a"),
-    qiaomuReaderTranslate("cli-generation-can-be-stopped-at-any-time-and-the-full-subproces")
-  ] },
-  { v: "3.3.0", items: [
-    qiaomuReaderTranslate("added-provider-presets-for-deepseek-kimi-qwen-glm-minimax-silico"),
-    qiaomuReaderTranslate("api-keys-now-use-obsidian-secretstorage-with-a-built-in-connecti"),
-    qiaomuReaderTranslate("redesigned-reading-themes-paper-white-warm-paper-celadon-night-a"),
-    qiaomuReaderTranslate("rebuilt-the-ai-reading-prompt-for-chinese-readers-and-removed-th")
-  ] },
-  { v: "3.2.3", items: [
-    qiaomuReaderTranslate("fixed-reading-note-title-migration-when-legacy-link-names-differ")
-  ] },
-  { v: "3.2.2", items: [
-    qiaomuReaderTranslate("fixed-migration-of-duplicate-book-title-headings-in-existing-rea")
-  ] },
-  { v: "3.2.1", items: [
-    qiaomuReaderTranslate("simplified-chinese-is-now-the-default-interface-for-new-installs"),
-    qiaomuReaderTranslate("reading-progress-is-saved-automatically-the-redundant-restore-po"),
-    qiaomuReaderTranslate("the-reader-now-has-a-reading-note-button-it-creates-the-note-whe"),
-    qiaomuReaderTranslate("automatically-created-reading-notes-no-longer-repeat-the-book-ti")
-  ] },
-  { v: "3.2.0", items: [
-    qiaomuReaderTranslate("a-new-chinese-interface-plus-source-han-serif-and-source-han-san"),
-    qiaomuReaderTranslate("links-from-notes-back-to-the-book-now-use-one-quiet-icon-without"),
-    qiaomuReaderTranslate("the-library-now-has-a-calm-editorial-layout-without-emoji-glow-e"),
-    qiaomuReaderTranslate("the-plugin-is-now-qiaomu-book-reader-maintained-by-qiaomu")
-  ] },
-  { v: "3.1.0", items: [
-    qiaomuReaderTranslate("the-plugin-loads-again-where-it-used-to-say-failed-to-load-older"),
-    qiaomuReaderTranslate("quotes-can-pile-up-in-one-book-note-the-title-dialog-now-has-an"),
-    qiaomuReaderTranslate("the-wording-of-the-to-this-spot-in-the-book-link-is-yours-now-se"),
-    qiaomuReaderTranslate("tapping-a-highlight-in-the-list-takes-you-to-its-place-in-the-bo"),
-    qiaomuReaderTranslate("the-selection-bar-no-longer-jumps-to-empty-space-at-the-start-of"),
-    qiaomuReaderTranslate("on-android-the-top-bar-no-longer-slides-under-the-clock-if-the-p"),
-    qiaomuReaderTranslate("what-s-new-is-saved-as-a-note-in-your-vault-so-there-is-nothing")
-  ] },
-  { v: "3.0.2", items: [
-    qiaomuReaderTranslate("report-a-bug-or-suggest-a-feature-and-we-will-follow-up-on-githu"),
-    qiaomuReaderTranslate("explaining-a-passage-is-a-conversation-now-your-own-question-you"),
-    qiaomuReaderTranslate("the-reader-adapts-to-the-device-phone-tablet-and-desktop-each-ge"),
-    qiaomuReaderTranslate("reader-and-library-themes-switch-instantly-and-can-follow-your-o"),
-    qiaomuReaderTranslate("the-pdf-engine-has-been-updated-opening-books-is-more-reliable")
-  ] },
-  { v: "2.0.1", items: [
-    qiaomuReaderTranslate("pdf-paragraphs-are-kept-as-in-the-original-the-text-no-longer-gl"),
-    qiaomuReaderTranslate("library-an-add-a-book-button-and-drag-and-drop-of-files-pdf-epub"),
-    qiaomuReaderTranslate("the-pdf-engine-is-now-bundled-in-books-open-offline-nothing-is-f"),
-    qiaomuReaderTranslate("in-the-highlights-list-a-comment-no-longer-breaks-the-quote-it-s")
-  ] },
-  { v: "2.0.0", items: [
-    qiaomuReaderTranslate("search-the-whole-book-magnifier-icon-at-the-top-with-a-match-lis"),
-    qiaomuReaderTranslate("the-matched-word-is-painted-right-in-the-text-so-you-don-t-have"),
-    qiaomuReaderTranslate("comment-on-a-highlight-a-short-thought-stays-with-the-quote-inst"),
-    qiaomuReaderTranslate("contents-finally-works-it-had-the-data-but-never-showed-it-fixed"),
-    qiaomuReaderTranslate("quote-export-now-groups-by-chapter-and-labels-the-page-number"),
-    qiaomuReaderTranslate("pictures-now-show-up-straight-away-previously-you-had-to-open-an"),
-    qiaomuReaderTranslate("a-note-made-from-a-highlight-can-go-straight-into-the-folder-you"),
-    qiaomuReaderTranslate("highlights-are-exported-selectively-tick-boxes-select-all-new-on"),
-    qiaomuReaderTranslate("e-ink-reader-mode-no-animations-or-shadows-pure-black-on-white-b"),
-    qiaomuReaderTranslate("the-guide-has-grown-it-now-walks-through-every-setting-with-exam"),
-    qiaomuReaderTranslate("open-a-book-by-command-each-book-gets-its-own-command-and-hotkey"),
-    qiaomuReaderTranslate("reading-stats-all-time-total-day-streak-and-a-two-week-chart"),
-    qiaomuReaderTranslate("page-turns-go-straight-sideways-instead-of-drifting-into-the-cor"),
-    qiaomuReaderTranslate("lines-fill-the-page-to-the-bottom-no-more-blank-gaps-at-the-foot"),
-    qiaomuReaderTranslate("re-layout-when-sidebars-open-or-close-now-fades-instead-of-jumpi"),
-    qiaomuReaderTranslate("new-format-fb2-including-older-files-in-windows-1251-encoding"),
-    qiaomuReaderTranslate("technical-books-read-properly-code-tables-and-formulas-no-longer"),
-    qiaomuReaderTranslate("code-listings-are-recognised-even-where-the-book-declares-no-mon"),
-    qiaomuReaderTranslate("margin-notes-are-no-longer-glued-into-the-middle-of-code-lines"),
-    qiaomuReaderTranslate("contents-pages-with-dot-leaders-come-out-as-a-tidy-list"),
-    qiaomuReaderTranslate("a-short-page-can-be-centred-vertically-instead-of-pinned-to-the"),
-    qiaomuReaderTranslate("contents-are-taken-from-the-pdf-itself-and-on-desktop-it-finally"),
-    qiaomuReaderTranslate("pdfs-show-the-illustrations-themselves-rather-than-a-screenshot"),
-    qiaomuReaderTranslate("translation-of-a-selected-passage-switched-on-in-the-settings"),
-    qiaomuReaderTranslate("library-categories-by-genre-and-folder-plus-a-reading-finished-f"),
-    qiaomuReaderTranslate("on-a-book-s-first-open-you-can-now-create-its-note-not-only-pick"),
-    qiaomuReaderTranslate("settings-are-split-across-tabs-with-the-rarely-used-ones-tucked"),
-    qiaomuReaderTranslate("the-text-re-flows-by-itself-when-panels-open-without-losing-your"),
-    qiaomuReaderTranslate("fixed-typing-a-path-in-the-settings-created-a-folder-per-keystro"),
-    qiaomuReaderTranslate("the-plugin-is-nearly-4-mb-lighter")
-  ] }
-];
+const WHATS_NEW = createWhatsNew({
+  qiaomuReaderTranslate,
+});
 function cmpVer(a, b) {
   const pa = String(a || "0").split(".").map((n) => parseInt(n, 10) || 0);
   const pb = String(b || "0").split(".").map((n) => parseInt(n, 10) || 0);

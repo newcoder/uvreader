@@ -7,6 +7,7 @@ import { FONT_FILE_ACCEPT, importedReaderFonts } from "../packages/reader/src/re
 import { normalizeCustomFontFamily, resolveReaderFont, readerTextCss, syncPageButtons } from "../packages/reader/src/reader-appearance.js";
 
 const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+const fontInputSource = fs.readFileSync(new URL("../packages/reader/src/custom-font-input.js", import.meta.url), "utf8");
 
 test("custom fonts accept Chinese names, spaces, quoted commas and generic fallbacks", () => {
   assert.equal(normalizeCustomFontFamily("  思源宋体, PingFang SC, sans-serif "), '"思源宋体", "PingFang SC", sans-serif');
@@ -88,8 +89,8 @@ test("custom font editor reveals on selection, commits on change and preserves l
   HTMLElement.prototype.createDiv = function(options) { return this.createEl("div", typeof options === "string" ? { cls: options } : options); };
   HTMLElement.prototype.empty = function() { this.replaceChildren(); };
   HTMLElement.prototype.setText = function(value) { this.textContent = value; };
-  const code = source.slice(source.indexOf("function buildCustomFontInput("), source.indexOf("function buildPageButtonsSetting("));
-  const build = vm.runInNewContext(`${code}\nbuildCustomFontInput`, { qiaomuReaderTranslate: (s) => s, normalizeCustomFontFamily, FONT_FILE_ACCEPT, importedReaderFonts, resolveReaderFont, FONTS: { georgia: "Georgia,serif" } });
+  const code = fontInputSource.slice(fontInputSource.indexOf("export function createBuildCustomFontInput(")).replace("export function", "function");
+  const build = vm.runInNewContext(`${code}\ncreateBuildCustomFontInput({ FONTS: { georgia: "Georgia,serif" }, ReaderFontPicker: undefined, qiaomuReaderTranslate: (s) => s })`, { qiaomuReaderTranslate: (s) => s, normalizeCustomFontFamily, FONT_FILE_ACCEPT, importedReaderFonts, resolveReaderFont, listSystemFonts: async () => [], readerFontStore: () => ({}), docOf: (el) => el.ownerDocument, winOf: (el) => el.ownerDocument.defaultView, FONTS: { georgia: "Georgia,serif" } });
   const settings = { fontFamily: "georgia", customFontFamily: "" };
   let applies = 0;
   const host = document.getElementById("host");

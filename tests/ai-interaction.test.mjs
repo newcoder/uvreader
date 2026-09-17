@@ -15,6 +15,7 @@ const modalSource = fs.readFileSync(new URL("../packages/reader/src/reader-modal
 const explainModalSource = fs.readFileSync(new URL("../packages/reader/src/ai-explain-modal.js", import.meta.url), "utf8");
 const chatViewSource = fs.readFileSync(new URL("../packages/reader/src/ai-chat-view.js", import.meta.url), "utf8");
 const noteTitleSource = fs.readFileSync(new URL("../packages/reader/src/note-title-modal.js", import.meta.url), "utf8");
+const streamingSource = fs.readFileSync(new URL("../packages/reader/src/ai-streaming-markdown.js", import.meta.url), "utf8");
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 function dom() {
@@ -198,7 +199,7 @@ function chatHarness(explain, overrides = {}) {
     }),
     ...overrides,
   };
-  const helpers = source.slice(source.indexOf("function aiLogFollowsTail("), source.indexOf("function createAiStreamingMarkdownRenderer("));
+  const helpers = source.slice(source.indexOf("function aiLogFollowsTail("), source.indexOf("const createAiStreamingMarkdownRenderer = createAiStreamingMarkdownRendererFactory({"));
   // The explain modal lives in its own module now: evaluate its factory with
   // the same stubs, reusing the sliced chat helpers as ports.
   const explainFactory = explainModalSource.slice(explainModalSource.indexOf("export function createAiExplainModal(")).replace("export function", "function");
@@ -600,11 +601,8 @@ test("mobile modal renders a real answer without Component methods and unloads r
     removeChild(child) { this.children.delete(child); child.unload(); }
   }
   const win = dom();
-  const rendererSource = source.slice(source.indexOf("function createAiStreamingMarkdownRenderer("), source.indexOf("function renderAiContextQuote("));
-  const render = vm.runInNewContext(`${rendererSource}\ncreateAiStreamingMarkdownRenderer`, {
-    window: win, Component, AI_MARKDOWN_RENDER_INTERVAL_MS: 50, console,
-    MarkdownRenderer: { async render(_app, text, el) { el.setText(text); } }, enhanceAiMarkdown() {},
-  });
+  const rendererFactory = streamingSource.slice(streamingSource.indexOf("export function createAiStreamingMarkdownRendererFactory(")).replace("export function", "function");
+  const render = vm.runInNewContext(`${rendererFactory}\ncreateAiStreamingMarkdownRendererFactory({ Component, MarkdownRenderer: { async render(_app, text, el) { el.setText(text); } }, AI_MARKDOWN_RENDER_INTERVAL_MS: 50, enhanceAiMarkdown() {} })`, { window: win, Component, console, Date, Math, String });
   const { chat, window } = chatHarness(async () => "这首诗写的是幽居自省。", { Component, createAiStreamingMarkdownRenderer: render });
   // Modal is not a Component, unlike the desktop ItemView.
   assert.equal(chat.addChild, undefined);
