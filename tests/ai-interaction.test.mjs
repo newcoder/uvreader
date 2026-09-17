@@ -69,7 +69,8 @@ test("quick prompts send immediately, preserve existing drafts, and remain visib
     }
     showAtMouseEvent() {}
   }
-  const runtimeIcon = vm.runInNewContext(source.slice(source.indexOf("function icon(n)"), source.indexOf("// Reader layout and UI timing tunables.")) + "\nicon");
+  const iconsSource = fs.readFileSync(new URL("../packages/reader/src/reader-icons.js", import.meta.url), "utf8");
+  const runtimeIcon = vm.runInNewContext(iconsSource.slice(iconsSource.indexOf("function icon(n)")) + "\nicon");
   const sandbox = { isNonChineseSource, docOf: el => el.ownerDocument, aiQuickPrompts: () => items, qiaomuReaderTranslate: (s) => s, Menu, svgIcon(host, name) { host.innerHTML = runtimeIcon(name); } };
   const helpers = vm.runInNewContext(`${renderSource}\n({renderAiComposerPrompts})`, sandbox);
   const render = helpers.renderAiComposerPrompts;

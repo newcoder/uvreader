@@ -159,7 +159,8 @@ test("PDF zoom stays bounded and supports buttons, gestures, and shortcuts", () 
   assert.equal(pdfZoomShortcut({ metaKey: false, ctrlKey: true, altKey: false, key: "-" }), "out");
   assert.equal(pdfZoomShortcut({ metaKey: true, ctrlKey: false, altKey: false, key: "0" }), "reset");
   assert.equal(pdfZoomShortcut({ metaKey: false, ctrlKey: false, altKey: false, key: "+" }), null);
-  assert.match(source, /"minus": `<svg[^`]+<line x1="5" y1="12" x2="19" y2="12"\/><\/svg>`/);
+  const icons = fs.readFileSync(new URL("../packages/reader/src/reader-icons.js", import.meta.url), "utf8");
+  assert.match(icons, /"minus": `<svg[^`]+<line x1="5" y1="12" x2="19" y2="12"\/><\/svg>`/);
   assert.match(source, /svgIcon\(out, "minus"\)/);
 });
 
@@ -920,7 +921,8 @@ test("immersive reader chrome overlays the page and retracts without reserving r
   assert.match(source, /glyphs\.slice\(0, limit\)\.join\(""\).*…/);
   assert.match(source, /setReaderTitle\(view\.titleEl, opts\.title\)/); // top-bar factory sets titles for both readers
   assert.equal((source.match(/setReaderTitle\(/g) || []).length, 3); // definition + factory + one direct call
-  assert.match(source, /"reading-note": `<svg[^`]+<path[^`]+<path[^`]+<path/s);
+  const icons = fs.readFileSync(new URL("../packages/reader/src/reader-icons.js", import.meta.url), "utf8");
+  assert.match(icons, /"reading-note": `<svg[^`]+<path[^`]+<path[^`]+<path/s);
   assert.match(source, /trayButton\("reading-note"/); // note button rides the data-driven top-bar tray
   assert.match(source, /trayButton\("sliders"/); // settings button rides the data-driven tray
   assert.equal((source.match(/addBookFileMenu\(this\.app, menu, this\.file\);/g) || []).length, 1);

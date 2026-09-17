@@ -142,3 +142,16 @@ AI 会话拆文件在 shim 的 `loadData/saveData` 完成，`src/main.js` 无感
 ## 10. M2 预告
 
 将 `ReaderView`、选文/HUD、PDF 装配从 `main.js` 抽到 `packages/reader-ui`，通过 ports 注入宿主；插件退化为 Obsidian adapter。在此之前先完成 M1 验证复用率。
+
+## 11. M2 进度
+
+插件外壳已删除（`583991c`），`src/` 已迁到 `packages/reader/src/`；抽离按“小簇 + 工厂注入依赖 + 单测锁定”的方式推进。
+
+| 步骤 | 内容 | 状态 |
+| --- | --- | --- |
+| M2.1 | `reader-dom.js`（`docOf/winOf/selOf`）与 `reader-icons.js`（icon 表、`ensureSvgNamespace/parseSvgRoot/svgIcon/iconLabel`，`DOMParser` 从宿主 window 取） | 完成，`tests/reader-icons.test.mjs` |
+| M2.2 | `page-jump.js`（`createPageJump({ translate, svgIcon, docOf, isPdf, pdfPages, rememberJump })`：`pageInfo/update/jump/build`） | 完成，`tests/page-jump.test.mjs` |
+| M2.3 | PDF 缩放簇：`syncPdfZoomControls`、`createPdfZoomControls`（`main.js:3819`、`3943` 附近） | 下一步 |
+| M2.4 | 选文/HUD、`ReaderView` 装配拆到 ports 注入 | 计划 |
+
+注意事项：新模块导出的符号必须显式 `export`（构建期缺失只会让 esbuild 降级成 `(void 0)`，`npm test` 抓不到，靠 smoke/E2E 兜底）；测试用 `jsdom` + `installDomExtensions(window)` 补 Obsidian DOM 扩展。
