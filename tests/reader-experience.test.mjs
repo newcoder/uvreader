@@ -301,7 +301,7 @@ test("PDF page picker uses original pages even when zoom creates more screenfuls
   const pager = { flow: { querySelectorAll: () => pages }, clip, total: 77, spread: 0, scrollMode: true,
     currentPdfPageNumber: () => 1, currentBlockIndex: () => 7,
   };
-  const fn = source.slice(source.indexOf("function readerPdfPages("), source.indexOf("function syncPdfZoomControls("));
+  const fn = source.slice(source.indexOf("function readerPdfPages("), source.indexOf("function showPdfZoomMenu("));
   const open = vm.runInNewContext(`${fn}\nopenReaderPagePicker`, {
     readerIsPdf: () => true, rememberReaderJump() {},
     GoToPageModal: class { constructor(_app, total, _at, go) { count = total; pick = go; } open() {} },

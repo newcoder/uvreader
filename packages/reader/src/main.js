@@ -52,6 +52,7 @@ import { createReaderLoadCoordinator, isReaderLoadAbort, throwIfReaderLoadAborte
 import { docOf, selOf, winOf } from "./reader-dom.js";
 import { iconLabel, svgIcon } from "./reader-icons.js";
 import { createPageJump } from "./page-jump.js";
+import { createPdfZoomUi } from "./pdf-zoom-ui.js";
 
 
 // Interface language is local to this plugin; dictionaries are bundled offline.
@@ -65,6 +66,8 @@ const pageJump = createPageJump({
   pdfPages: readerPdfPages,
   rememberJump: rememberReaderJump,
 });
+
+const pdfZoom = createPdfZoomUi({ translate: qiaomuReaderTranslate, isPdf: readerIsPdf });
 
 function qiaomuReaderTranslate(s){
   const lang = qiaomuReaderLanguage || 'zh';
@@ -3726,109 +3729,6 @@ function openReaderPagePicker(view) {
     void view.plugin.saveProgress(view.file.path, pager.spread, pager.total, pager.currentBlockIndex());
   }).open();
 }
-function syncPdfZoomControls(view) {
-  const isPdf = readerIsPdf(view);
-  const zoom = clampPdfZoom(view?.pdfZoom);
-  if (view?.contentEl) view.contentEl.toggleClass("qiaomu-reader-pdf-document", isPdf);
-  if (view?.pdfZoomLabelEl) {
-    const label = pdfZoomPercent(zoom);
-    view.pdfZoomLabelEl.setText(label);
-    view.pdfZoomLabelEl.setAttribute("aria-label", qiaomuReaderTranslate("pdf-zoom-options-0", label));
-    view.pdfZoomLabelEl.setAttribute("title", qiaomuReaderTranslate(view.pdfZoomMode === "width" ? "fit-width" : "pdf-zoom-options-0", label));
-  }
-  if (view?.pdfZoomSettingsLabelEl) view.pdfZoomSettingsLabelEl.setText(pdfZoomPercent(zoom));
-  if (view?.pdfZoomOutEl) view.pdfZoomOutEl.disabled = !isPdf || zoom <= PDF_ZOOM_MIN + 0.001;
-  if (view?.pdfZoomInEl) view.pdfZoomInEl.disabled = !isPdf || zoom >= PDF_ZOOM_MAX - 0.001;
-}
-function visiblePdfPageScrollers(view) {
-  const flow = view?.pager?.flow;
-  const clip = view?.pager?.clip;
-  if (!flow || !clip) return [];
-  const viewport = clip.getBoundingClientRect();
-  return [...flow.querySelectorAll(".qiaomu-reader-pdf-page-break")].filter((page) => {
-    const rect = page.getBoundingClientRect();
-    return rect.right > viewport.left + 1 && rect.left < viewport.right - 1
-      && rect.bottom > viewport.top + 1 && rect.top < viewport.bottom - 1;
-  });
-}
-function applyPdfZoom(view, value, point = null, mode = "custom") {
-  if (!readerIsPdf(view)) return;
-  const pager = view?.pager;
-  const flow = pager?.flow;
-  const next = clampPdfZoom(value);
-  const previous = clampPdfZoom(view.pdfZoom);
-  view.pdfZoomMode = mode;
-  if (Math.abs(next - previous) < 0.0005) {
-    syncPdfZoomControls(view);
-    return;
-  }
-
-  const ratio = next / previous;
-  const clip = pager?.clip;
-  const pageScrollers = flow && clip ? visiblePdfPageScrollers(view).map((page) => {
-    const surface = page.querySelector(".qiaomu-reader-pdf-page-surface");
-    const bounds = page.getBoundingClientRect();
-    const viewport = clip.getBoundingClientRect();
-    const x = point?.clientX ?? (Math.max(bounds.left, viewport.left) + Math.min(bounds.right, viewport.right)) / 2;
-    const y = point?.clientY ?? (Math.max(bounds.top, viewport.top) + Math.min(bounds.bottom, viewport.bottom)) / 2;
-    return { page, surface, old: surface?.getBoundingClientRect(), x, y };
-  }).filter((anchor) => anchor.old && (!point || (anchor.x >= anchor.old.left && anchor.x <= anchor.old.right && anchor.y >= anchor.old.top && anchor.y <= anchor.old.bottom))) : [];
-
-  view.pdfZoom = next;
-  if (pager) pager.pdfZoom = next;
-  if (flow) {
-    flow.style.setProperty("--qiaomu-reader-pdf-zoom", String(next));
-    // Read once after the custom property update so the following scroll
-    // offsets use the new page geometry rather than a stale layout frame.
-    void flow.offsetHeight;
-    if (pager.scrollMode && clip) {
-      const anchor = pageScrollers[0];
-      if (anchor) {
-        const nextRect = anchor.surface.getBoundingClientRect();
-        clip.scrollTop += zoomAnchorOffset(anchor.old.top, nextRect.top, anchor.y, ratio);
-        clip.scrollLeft += zoomAnchorOffset(anchor.old.left, nextRect.left, anchor.x, ratio);
-      }
-      const viewHeight = clip.clientHeight || 1;
-      pager.total = Math.max(1, Math.ceil((clip.scrollHeight || viewHeight) / viewHeight));
-      pager.spread = Math.max(0, Math.min(Math.round(clip.scrollTop / viewHeight), pager.total - 1));
-    } else {
-      for (const anchor of pageScrollers) {
-        const nextRect = anchor.surface.getBoundingClientRect();
-        anchor.page.scrollLeft += zoomAnchorOffset(anchor.old.left, nextRect.left, anchor.x, ratio);
-        anchor.page.scrollTop += zoomAnchorOffset(anchor.old.top, nextRect.top, anchor.y, ratio);
-      }
-    }
-  }
-  syncPdfZoomControls(view);
-  if (view?.bookHtml && pager) {
-    (view.updateUI || view._updateUI)?.call(view, pager.spread, pager.total);
-  }
-}
-function changePdfZoom(view, direction) {
-  applyPdfZoom(view, stepPdfZoom(view?.pdfZoom, direction));
-}
-function fitPdfWidth(view) {
-  const page = view.pager?.currentPdfPageElement?.();
-  const figure = page?.querySelector(".qiaomu-reader-pdf-native-page");
-  const width = parseFloat(figure?.style.getPropertyValue("--qiaomu-reader-pdf-fit-width"));
-  if (width) applyPdfZoom(view, Math.max(1, (page.clientWidth - 4) / width), null, "width");
-}
-// "Fit page" for PDFs: zoom until the page width covers the given share of its
-// reading slot (portrait pages fill the window instead of leaving empty sides).
-function fitPdfPageWidth(view, ratio = 0.9) {
-  const page = view.pager?.currentPdfPageElement?.();
-  const figure = page?.querySelector(".qiaomu-reader-pdf-native-page");
-  const width = parseFloat(figure?.style.getPropertyValue("--qiaomu-reader-pdf-fit-width"));
-  const slot = page?.clientWidth || view.areaEl?.clientWidth || 0;
-  if (!width || !slot) return;
-  applyPdfZoom(view, (slot * ratio) / width, null, "fit-page-width");
-}
-function setPdfPanMode(view, enabled) {
-  view.pdfPanMode = enabled;
-  view.contentEl?.toggleClass("qiaomu-reader-pdf-pan", enabled);
-  view.pdfPanButton?.setAttribute("aria-pressed", String(enabled));
-  view._hideHlPopup?.();
-}
 function showPdfZoomMenu(view, event) {
   const menu = new Menu();
   addPdfZoomMenuItems(menu, view);
@@ -3842,7 +3742,7 @@ class PdfZoomModal extends Modal {
     input.value = String(Math.round(clampPdfZoom(this.view.pdfZoom) * 100));
     const apply = () => {
       if (!input.checkValidity() || !input.value) { input.reportValidity(); return; }
-      applyPdfZoom(this.view, Number(input.value) / 100);
+      pdfZoom.apply(this.view, Number(input.value) / 100);
       this.close();
     };
     this.contentEl.createEl("button", { text: qiaomuReaderTranslate("apply"), cls: "mod-cta" }).addEventListener("click", apply);
@@ -3865,18 +3765,18 @@ function createPdfZoomControls(parent, view) {
     attr: { type: "button", "aria-label": qiaomuReaderTranslate("zoom-pdf-in") },
   });
   svgIcon(input, "plus");
-  out.addEventListener("click", () => changePdfZoom(view, -1));
+  out.addEventListener("click", () => pdfZoom.change(view, -1));
   label.addEventListener("click", (event) => showPdfZoomMenu(view, event));
-  input.addEventListener("click", () => changePdfZoom(view, 1));
+  input.addEventListener("click", () => pdfZoom.change(view, 1));
   view.pdfZoomControlEl = group;
   view.pdfZoomOutEl = out;
   view.pdfZoomLabelEl = label;
   view.pdfZoomInEl = input;
   const pan = group.createEl("button", { cls: "qiaomu-reader-pdf-zoom-step", attr: { type: "button", "aria-label": qiaomuReaderTranslate("pan-pdf"), "aria-pressed": "false" } });
   setIcon(pan, "hand");
-  pan.addEventListener("click", () => setPdfPanMode(view, !view.pdfPanMode));
+  pan.addEventListener("click", () => pdfZoom.setPanMode(view, !view.pdfPanMode));
   view.pdfPanButton = pan;
-  syncPdfZoomControls(view);
+  pdfZoom.syncControls(view);
   return group;
 }
 function createPdfZoomSettings(parent, view) {
@@ -3895,11 +3795,11 @@ function createPdfZoomSettings(parent, view) {
     attr: { type: "button", "aria-label": qiaomuReaderTranslate("zoom-pdf-in") },
   });
   svgIcon(input, "plus");
-  out.addEventListener("click", () => changePdfZoom(view, -1));
+  out.addEventListener("click", () => pdfZoom.change(view, -1));
   label.addEventListener("click", (event) => showPdfZoomMenu(view, event));
-  input.addEventListener("click", () => changePdfZoom(view, 1));
+  input.addEventListener("click", () => pdfZoom.change(view, 1));
   view.pdfZoomSettingsLabelEl = label;
-  syncPdfZoomControls(view);
+  pdfZoom.syncControls(view);
   parent.createDiv("qiaomu-reader-pan-hint").setText(qiaomuReaderTranslate("100-fits-the-page-pan-or-scroll-after-zooming-in"));
 }
 function addPdfZoomMenuItems(menu, view) {
@@ -3910,20 +3810,20 @@ function addPdfZoomMenuItems(menu, view) {
     .setTitle(qiaomuReaderTranslate("zoom-pdf-out-0", pdfZoomPercent(zoom)))
     .setIcon("zoom-out")
     .setDisabled(zoom <= PDF_ZOOM_MIN + 0.001)
-    .onClick(() => changePdfZoom(view, -1)));
+    .onClick(() => pdfZoom.change(view, -1)));
   menu.addItem((item) => item
     .setTitle(qiaomuReaderTranslate("fit-page-100"))
     .setIcon("scan")
     .setDisabled(Math.abs(zoom - PDF_ZOOM_DEFAULT) < 0.001)
-    .onClick(() => applyPdfZoom(view, PDF_ZOOM_DEFAULT, null, "page")));
-  menu.addItem((item) => item.setTitle(qiaomuReaderTranslate("fit-width")).setIcon("move-horizontal").onClick(() => fitPdfWidth(view)));
+    .onClick(() => pdfZoom.apply(view, PDF_ZOOM_DEFAULT, null, "page")));
+  menu.addItem((item) => item.setTitle(qiaomuReaderTranslate("fit-width")).setIcon("move-horizontal").onClick(() => pdfZoom.fitWidth(view)));
   menu.addItem((item) => item.setTitle(qiaomuReaderTranslate("custom-pdf-zoom")).setIcon("percent").onClick(() => new PdfZoomModal(view.app, view).open()));
-  menu.addItem((item) => item.setTitle(qiaomuReaderTranslate("pan-pdf")).setIcon("hand").setChecked(!!view.pdfPanMode).onClick(() => setPdfPanMode(view, !view.pdfPanMode)));
+  menu.addItem((item) => item.setTitle(qiaomuReaderTranslate("pan-pdf")).setIcon("hand").setChecked(!!view.pdfPanMode).onClick(() => pdfZoom.setPanMode(view, !view.pdfPanMode)));
   menu.addItem((item) => item
     .setTitle(qiaomuReaderTranslate("zoom-pdf-in-0", pdfZoomPercent(zoom)))
     .setIcon("zoom-in")
     .setDisabled(zoom >= PDF_ZOOM_MAX - 0.001)
-    .onClick(() => changePdfZoom(view, 1)));
+    .onClick(() => pdfZoom.change(view, 1)));
 }
 function setupPdfZoomInteractions(view) {
   const area = view?.areaEl;
@@ -3956,7 +3856,7 @@ function setupPdfZoomInteractions(view) {
   area.addEventListener("wheel", (event) => {
     if (!readerIsPdf(view) || (!event.ctrlKey && !event.metaKey)) return;
     event.preventDefault();
-    applyPdfZoom(view, pdfZoomFromWheel(view.pdfZoom, event.deltaY), event);
+    pdfZoom.apply(view, pdfZoomFromWheel(view.pdfZoom, event.deltaY), event);
   }, { passive: false });
 
   let pinchDistance = 0;
@@ -3973,7 +3873,7 @@ function setupPdfZoomInteractions(view) {
   area.addEventListener("touchmove", (event) => {
     if (!readerIsPdf(view) || event.touches.length !== 2 || pinchDistance <= 0) return;
     event.preventDefault();
-    applyPdfZoom(view, pinchZoom * distance(event.touches) / pinchDistance, {
+    pdfZoom.apply(view, pinchZoom * distance(event.touches) / pinchDistance, {
       clientX: (event.touches[0].clientX + event.touches[1].clientX) / 2,
       clientY: (event.touches[0].clientY + event.touches[1].clientY) / 2,
     });
@@ -9669,7 +9569,7 @@ const ReaderView = class extends ItemView {
     this._readingAnchor = null;
     this._layoutAgain = false;
     this.pdfZoomMode = "page";
-    setPdfPanMode(this, false);
+    pdfZoom.setPanMode(this, false);
     this._releaseEngine();
     this._resetBookState(file);
     const statusLabel = this._showLoadingCard();
@@ -9704,7 +9604,7 @@ const ReaderView = class extends ItemView {
     this.pdfZoom = PDF_ZOOM_DEFAULT;
     this.pager.pdfZoom = this.pdfZoom;
     if (this.aiBtn) this.aiBtn.hidden = true;
-    syncPdfZoomControls(this);
+    pdfZoom.syncControls(this);
     setReaderTitle(this.titleEl, file.basename);
     this.applyVars(); qiaomuReaderHideVeil(this);
     this.areaEl.removeClass("qiaomu-reader-booting");
@@ -10038,8 +9938,8 @@ const ReaderView = class extends ItemView {
       this._renderFlowHighlights(); // re-wrap markers on the fresh blocks
       const [cur, tot] = restoreReadingAnchor(this.pager, anchor);
       restoreAiSource(this);
-      if (this.pdfZoomMode === "fit-page-width") fitPdfPageWidth(this);
-      else if (this.pdfZoomMode === "width") fitPdfWidth(this);
+      if (this.pdfZoomMode === "fit-page-width") pdfZoom.fitPageWidth(this);
+      else if (this.pdfZoomMode === "width") pdfZoom.fitWidth(this);
       this._readingAnchor = anchor;
       this.updateUI(cur, tot); if (this._tocRender) this._tocRender();
       this._findCorpus = null; if (this._foundQuery) this._markFound(this._foundQuery);
@@ -10140,8 +10040,8 @@ const ReaderView = class extends ItemView {
       const zoom = readerIsPdf(this) && pdfZoomShortcut(ev);
       if (zoom) {
         ev.preventDefault();
-        if (zoom === "reset") applyPdfZoom(this, PDF_ZOOM_DEFAULT);
-        else changePdfZoom(this, zoom === "in" ? 1 : -1);
+        if (zoom === "reset") pdfZoom.apply(this, PDF_ZOOM_DEFAULT);
+        else pdfZoom.change(this, zoom === "in" ? 1 : -1);
         return;
       }
       const toNext = ["ArrowRight", "ArrowDown", " "];
@@ -10193,8 +10093,8 @@ const ReaderView = class extends ItemView {
     if (readerIsPdf(this)) {
       if (!this.bookHtml) return;
       const apply = () => {
-        if (fit) fitPdfPageWidth(this, 0.9);
-        else applyPdfZoom(this, PDF_ZOOM_DEFAULT, null, "page");
+        if (fit) pdfZoom.fitPageWidth(this, 0.9);
+        else pdfZoom.apply(this, PDF_ZOOM_DEFAULT, null, "page");
       };
       void this.repaginate().then(apply, apply);
       return;
@@ -10264,7 +10164,7 @@ const ReaderView = class extends ItemView {
     if (this.pctEl) this.pctEl.setText(`${pct}%`);
     if (this.pageInputEl) pageJump.update(this);
     syncReaderAiCapability(this);
-    syncPdfZoomControls(this);
+    pdfZoom.syncControls(this);
     renderVisibleFigures(this);
   }
   buildSettPanel() {
@@ -11397,13 +11297,13 @@ const ReaderModal = class extends Modal {
   _registerPdfZoomKeys() {
     const zoomBy = (delta) => (event) => {
       if (!readerIsPdf(this)) { return; }
-      event.preventDefault(); changePdfZoom(this, delta);
+      event.preventDefault(); pdfZoom.change(this, delta);
     };
     this.scope.register(["Mod"], "=", zoomBy(1));
     this.scope.register(["Mod"], "-", zoomBy(-1));
     this.scope.register(["Mod"], "0", (event) => {
       if (!readerIsPdf(this)) { return; }
-      event.preventDefault(); applyPdfZoom(this, PDF_ZOOM_DEFAULT);
+      event.preventDefault(); pdfZoom.apply(this, PDF_ZOOM_DEFAULT);
     });
   }
   _applyTopInset(contentEl) {
@@ -11529,7 +11429,7 @@ const ReaderModal = class extends Modal {
     this._renderFlowHighlights();
     const [cur, tot] = restoreReadingAnchor(this.pager, anchor);
     restoreAiSource(this);
-    if (this.pdfZoomMode === "width") fitPdfWidth(this);
+    if (this.pdfZoomMode === "width") pdfZoom.fitWidth(this);
     this._readingAnchor = anchor;
     qiaomuReaderRevealWhenSettled(this);
     this._updateUI(cur, tot);
@@ -11839,7 +11739,7 @@ const ReaderModal = class extends Modal {
     if (readerIsPdf(this)) this.locEl.setText(qiaomuReaderTranslate("page-0-of-1", pdfVisiblePageLabel(this, bookPage || 1), readerPdfPages(this).length || total));
     this.pctEl.setText(`${pct}%`);
     syncReaderAiCapability(this);
-    syncPdfZoomControls(this);
+    pdfZoom.syncControls(this);
     renderVisibleFigures(this);
   }
   _buildSettPanel() {
