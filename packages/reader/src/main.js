@@ -57,6 +57,9 @@ import { createSelectionActions } from "./selection-actions.js";
 import { createReaderTimer } from "./reader-timer.js";
 import { createReaderHud } from "./reader-hud.js";
 import { createReaderView } from "./reader-view.js";
+import { createSettingsGroupModal } from "./settings-group-modal.js";
+import { createHighlightExportModal } from "./highlight-export-modal.js";
+import { createBookSetupModal } from "./book-setup-modal.js";
 import { createCreateFolderModal } from "./create-folder-modal.js";
 import { createNoteTitleModal } from "./note-title-modal.js";
 import { createWhatsNewModal } from "./whats-new-modal.js";
@@ -6399,91 +6402,13 @@ async function exportHighlightsToBookNote(app, plugin, bookFile, highlights) {
     say("could-not-add-quotes-to-the-book-note");
   }
 }
-const HighlightExportModal = class extends Modal {
-  constructor(app, plugin, bookFile, highlights, noteText, noteName) {
-    super(app);
-    this.plugin = plugin;
-    this.bookFile = bookFile;
-    this.noteName = noteName || "";
-    const split = splitExportedHighlights(noteText, highlights);
-    this.already = new Set(split.already);
-    this.items = highlights.map((hl) => ({ hl, on: !split.already.includes(hl) }));
-    this.newCount = split.fresh.length;
-  }
-  onOpen() {
-    const body = this.contentEl;
-    body.addClass("qiaomu-reader-exp-modal");
-    body.createDiv("qiaomu-reader-info-title").setText(qiaomuReaderTranslate("what-to-copy-into-the-note"));
-    body.createDiv("qiaomu-reader-info-sub").setText(this._exportSubtitle());
-    const bar = body.createDiv("qiaomu-reader-exp-bar");
-    const counter = bar.createSpan({ cls: "qiaomu-reader-exp-count" });
-    const link = (label, apply) => {
-      const el = bar.createSpan({ cls: "qiaomu-reader-exp-link", text: label });
-      el.addEventListener("click", () => { apply(); sync(); });
-      return el;
-    };
-    link(qiaomuReaderTranslate("select-all"), () => this.items.forEach((entry) => entry.on = true));
-    link(qiaomuReaderTranslate("clear-all"), () => this.items.forEach((entry) => entry.on = false));
-    if (this.already.size) link(qiaomuReaderTranslate("new-only"), () => this.items.forEach((entry) => entry.on = !this.already.has(entry.hl)));
-    const list = body.createDiv("qiaomu-reader-exp-list");
-    const rows = this.items.map((entry) => {
-      const rowEl = list.createDiv("qiaomu-reader-exp-row");
-      const checkbox = rowEl.createEl("input", { type: "checkbox" });
-      checkbox.addClass("qiaomu-reader-exp-box");
-      checkbox.checked = entry.on;
-      const cell = rowEl.createDiv("qiaomu-reader-exp-body");
-      const snippet = (entry.hl.text || "").replace(/\s+/g, " ").trim();
-      cell.createDiv("qiaomu-reader-exp-text").setText(snippet.length > 220 ? snippet.slice(0, 220) + "…" : snippet);
-      if (this.already.has(entry.hl)) {
-        rowEl.addClass("qiaomu-reader-exp-done");
-        cell.createDiv("qiaomu-reader-exp-tag").setText(qiaomuReaderTranslate("already-in-the-note"));
-      }
-      const flip = () => {
-        entry.on = !entry.on;
-        checkbox.checked = entry.on;
-        sync();
-      };
-      checkbox.addEventListener("click", (e) => {
-        e.stopPropagation(); entry.on = checkbox.checked;
-        sync();
-      });
-      rowEl.addEventListener("click", flip);
-      return { entry, checkbox };
-    });
-    const sync = () => {
-      for (const r of rows) r.checkbox.checked = r.entry.on;
-      const n = this.items.filter((entry) => entry.on).length;
-      counter.setText(qiaomuReaderTranslate("ticked-0-of-1", n, this.items.length));
-      toBookNote.disabled = !n || !this.noteName;
-      toSeparate.disabled = !n;
-    };
-    const foot = body.createDiv("qiaomu-reader-setup-foot");
-    const toBookNote = foot.createEl("button", { text: qiaomuReaderTranslate("into-the-book-s-note") });
-    toBookNote.addClass("qiaomu-reader-setup-btn", "qiaomu-reader-setup-btn-primary");
-    const toSeparate = foot.createEl("button", { text: qiaomuReaderTranslate("as-separate-notes") });
-    toSeparate.addClass("qiaomu-reader-setup-btn");
-    const picked = () => this.items.filter((entry) => entry.on).map((entry) => entry.hl);
-    toBookNote.addEventListener("click", () => {
-      const selection = picked();
-      this.close();
-      exportHighlightsToBookNote(this.app, this.plugin, this.bookFile, selection);
-    });
-    toSeparate.addEventListener("click", () => {
-      const selection = picked();
-      this.close();
-      exportHighlightsSeparate(this.app, this.plugin, this.bookFile, selection);
-    });
-    sync();
-  }
-  _exportSubtitle() {
-    if (!this.noteName) return qiaomuReaderTranslate("no-book-note-linked-separate-notes-only");
-    if (this.already.size) return qiaomuReaderTranslate("note-0-1-already-there-2-new-ones-ticked", this.noteName, this.already.size, this.newCount);
-    return qiaomuReaderTranslate("note-0-none-of-the-1-are-there-yet", this.noteName, this.items.length);
-  }
-  onClose() {
-    this.contentEl.empty();
-  }
-};
+const HighlightExportModal = createHighlightExportModal({
+  Modal,
+  exportHighlightsSeparate,
+  exportHighlightsToBookNote,
+  qiaomuReaderTranslate,
+  splitExportedHighlights,
+});
 async function exportHighlightsMenu(app, plugin, bookFile, highlights, evt) {
   if (!highlights || !highlights.length) {
     new Notice(qiaomuReaderTranslate("no-highlights-to-export"));
@@ -6691,144 +6616,21 @@ ${body}
   }
 }
 
-const BookSetupModal = class extends Modal {
-  constructor(app, plugin, file, onDone) {
-    super(app);
-    this.plugin = plugin;
-    this.file = file;
-    this.onDone = onDone || (() => {
-    });
-    this._answered = false;
-    this._step = 1;
-  }
-  onOpen() {
-    this.modalEl.addClass("qiaomu-reader-setup-modal");
-    this._renderStep();
-  }
-  _renderStep() {
-    this.contentEl.empty(); if (this._step === 1) this._renderPick(); else this._renderCreate();
-  }
-  _renderPick() { // step 1: link an existing note
-    const host = this.contentEl;
-    this._setupHead("a-note-for-this-book", "quotes-and-thoughts-from-this-book-will-link-to-this-note");
-    const search = host.createEl("input", { type: "text" });
-    search.addClass("qiaomu-reader-setup-input");
-    search.placeholder = qiaomuReaderTranslate("search-notes");
-    const listEl = host.createDiv("qiaomu-reader-setup-list");
-    const notes = bookNoteFiles(this.app);
-    const redraw = (query) => {
-      listEl.empty(); const needle = (query || "").trim().toLowerCase();
-      const pool = needle ? notes.filter((f) => f.basename.toLowerCase().includes(needle)) : notes;
-      const shown = pool.slice(0, 200);
-      if (notes.length === 0) {
-        listEl.createDiv("qiaomu-reader-setup-empty").setText(qiaomuReaderTranslate("no-notes-in-the-vault-yet-create-one-below"));
-        return;
-      }
-      if (shown.length === 0) {
-        listEl.createDiv("qiaomu-reader-setup-empty").setText(qiaomuReaderTranslate("nothing-found"));
-        return;
-      }
-      for (const note of shown) {
-        const rowEl = listEl.createDiv("qiaomu-reader-setup-row");
-        rowEl.createDiv("qiaomu-reader-setup-row-name").setText(note.basename);
-        const dir = note.parent && note.parent.path && note.parent.path !== "/" ? note.parent.path : "";
-        if (dir) rowEl.createDiv("qiaomu-reader-setup-row-path").setText(dir);
-        rowEl.addEventListener("click", async () => {
-          this.plugin.settings.bookNoteLinks[this.file.path] = note.path;
-          await this.plugin.saveAll(); await writeBookProperty(this.app, note.path, this.file);
-          this._finish(qiaomuReaderTranslate("book-note-0", note.basename));
-        });
-      }
-    };
-    search.addEventListener("input", () => redraw(search.value));
-    redraw("");
-    const foot = host.createDiv("qiaomu-reader-setup-foot");
-    const create = this._setupButton(foot, "create-a-note", "qiaomu-reader-setup-btn-primary");
-    create.addEventListener("click", () => {
-      this._step = 2; this._renderStep();
-    });
-    const skipBtn = this._setupButton(foot, "read-without-a-note", "qiaomu-reader-setup-btn-quiet");
-    skipBtn.addEventListener("click", () => this._finish(""));
-    this._setupFocus(search);
-  }
-  _renderCreate() { // step 2: make a fresh note
-    const host = this.contentEl;
-    const backLink = host.createDiv("qiaomu-reader-setup-back");
-    backLink.setText(qiaomuReaderTranslate("back"));
-    backLink.addEventListener("click", () => {
-      this._step = 1; this._renderStep();
-    });
-    this._setupHead("create-note");
-    const inputRow = (label, initial, hint) => {
-      const wrap = host.createDiv("qiaomu-reader-setup-field");
-      wrap.createDiv("qiaomu-reader-setup-label").setText(label);
-      const el = wrap.createEl("input", { type: "text" });
-      el.addClass("qiaomu-reader-setup-input");
-      if (initial) el.value = initial; if (hint) el.placeholder = hint;
-      return el;
-    };
-    const nameInput = inputRow(qiaomuReaderTranslate("note-name"), sanitizeNoteTitle(this.file.basename));
-    const folderInput = inputRow(qiaomuReaderTranslate("folder"), bookNotesFolderPath(this.app) || notesFolderPath(this.app) || "", qiaomuReaderTranslate("vault-root"));
-    try {
-      if (FolderSuggest) { new FolderSuggest(this.app, folderInput); }
-    } catch { /* suggester is optional */ }
-    const tagsInput = inputRow(qiaomuReaderTranslate("category"), bookTagsOf(this.plugin.settings, this.file.path).join(", "), qiaomuReaderTranslate("e-g-psychology-business"));
-    const knownTags = allBookTags(this.plugin.settings);
-    if (knownTags.length > 0) {
-      const dl = host.createEl("datalist");
-      dl.id = "qiaomu-reader-setup-tags-" + Math.random().toString(36).slice(2, 8);
-      knownTags.forEach((tag) => dl.createEl("option", { value: tag }));
-      tagsInput.setAttribute("list", dl.id);
-    }
-    host.createDiv("qiaomu-reader-setup-hint").setText(qiaomuReaderTranslate("genre-or-topic-books-are-grouped-by-it-in-the-library-separate-s"));
-    const foot = host.createDiv("qiaomu-reader-setup-foot");
-    const submitBtn = this._setupButton(foot, "create-and-start-reading", "qiaomu-reader-setup-btn-primary");
-    submitBtn.addEventListener("click", async () => {
-      submitBtn.disabled = true;
-      const created = await this.plugin.createBookNote(this.file, nameInput.value, folderInput.value);
-      if (!created) {
-        submitBtn.disabled = false;
-        return;
-      }
-      const tags = parseBookTags(tagsInput.value);
-      await this.plugin.setBookTags(this.file.path, tags);
-      this._finish(qiaomuReaderTranslate("book-note-created-0", created.basename));
-    });
-    for (const el of [nameInput, folderInput, tagsInput]) el.addEventListener("keydown", (e) => {
-      if (e.key !== "Enter") return; e.preventDefault(); submitBtn.click();
-    });
-    this._setupFocus(nameInput);
-  }
-  _setupHead(titleKey, leadKey) {
-    this.contentEl.createDiv("qiaomu-reader-info-title").setText(qiaomuReaderTranslate(titleKey));
-    const sub = this.contentEl.createDiv("qiaomu-reader-info-sub");
-    sub.setText(this.file.basename);
-    if (leadKey) this.contentEl.createDiv("qiaomu-reader-setup-lead").setText(qiaomuReaderTranslate(leadKey));
-  }
-  _setupButton(foot, labelKey, modifier) {
-    const btn = foot.createEl("button", { text: qiaomuReaderTranslate(labelKey) });
-    btn.addClass("qiaomu-reader-setup-btn", modifier);
-    return btn;
-  }
-  _setupFocus(el) {
-    readerHud.autoFocus(el, 30);
-    readerHud.blurOnTapOutside(this.contentEl, el);
-  }
-  async _finish(msg) {
-    this._answered = true;
-    const s = this.plugin.settings;
-    if (!s.bookNotePrompted) s.bookNotePrompted = {};
-    s.bookNotePrompted[this.file.path] = true;
-    await this.plugin.saveAll();
-    if (msg) new Notice(msg);
-    this.close();
-    this.onDone();
-  }
-  onClose() {
-    this.contentEl.empty();
-    if (!this._answered) this.onDone();
-  }
-};
+const BookSetupModal = createBookSetupModal({
+  Modal,
+  Notice,
+  FolderSuggest,
+  allBookTags,
+  bookNoteFiles,
+  bookNotesFolderPath,
+  bookTagsOf,
+  notesFolderPath,
+  parseBookTags,
+  qiaomuReaderTranslate,
+  readerHud,
+  sanitizeNoteTitle,
+  writeBookProperty,
+});
 const OnboardingModal = createOnboardingModal({
   Modal,
   setIcon,
@@ -7321,45 +7123,10 @@ const ReaderModal = createReaderModal({
   wireReaderChrome,
   wrapBlockRange,
 });
-const SettingsGroupModal = class extends Modal {
-  constructor(app, title, build, options = {}) {
-    super(app);
-    this.title = title;
-    this.build = build;
-    this.options = options;
-  }
-  onOpen() {
-    this.modalEl.addClass("qiaomu-reader-settings-group");
-    this.draw();
-  }
-  draw() {
-    const c = this.contentEl;
-    const was = this.bodyEl ? this.bodyEl.scrollTop : 0;
-    c.empty();
-    c.createEl("h3", { text: this.title });
-    this.bodyEl = c.createDiv("qiaomu-reader-group-body");
-    this.build(this.bodyEl, () => this.draw());
-    const row = c.createDiv("qiaomu-reader-group-actions");
-    const doneText = () => this.options.doneText?.() || qiaomuReaderTranslate("confirm");
-    const done = row.createEl("button", { cls: "mod-cta", text: doneText() });
-    done.addEventListener("click", async () => {
-      done.disabled = true;
-      this.bodyEl.inert = true;
-      try {
-        const shouldClose = typeof this.options.onDone === "function"
-          ? await this.options.onDone((text) => done.setText(text))
-          : true;
-        if (shouldClose !== false) this.close();
-      } finally {
-        done.disabled = false;
-        this.bodyEl.inert = false;
-        done.setText(doneText());
-      }
-    });
-    if (was) this.bodyEl.scrollTop = was;
-  }
-  onClose() { this.contentEl.empty(); }
-};
+const SettingsGroupModal = createSettingsGroupModal({
+  Modal,
+  qiaomuReaderTranslate,
+});
 function pluginAcpInstallRoot(plugin, providerId, version) {
   try {
     const relative = qiaomuReaderPath(`${plugin.manifest.dir}/acp-runtime/${providerId}/${version || "current"}`);

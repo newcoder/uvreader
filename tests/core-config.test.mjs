@@ -1066,9 +1066,9 @@ test("AI setup uses one status-driven flow and enables only after a successful t
 
 test("confirming AI settings automatically prepares, tests, and enables the selected provider", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
-  const modalStart = source.indexOf("const SettingsGroupModal");
-  const modalEnd = source.indexOf("const SettingsTab", modalStart);
-  const modalSource = source.slice(modalStart, modalEnd);
+  // The settings group modal lives in its own module; the readiness helpers
+  // it drives stay in main.js, so both sources are asserted together.
+  const modalSource = fs.readFileSync(new URL("../packages/reader/src/settings-group-modal.js", import.meta.url), "utf8") + source;
   assert.match(modalSource, /constructor\(app, title, build, options = \{\}\)/);
   assert.match(modalSource, /typeof this\.options\.onDone === "function"/);
   assert.match(modalSource, /async function ensureAiCliReady\(plugin, onStage = \(\) => \{\}\)/);
