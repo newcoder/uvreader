@@ -11,6 +11,7 @@ import { foliateElements } from "../scripts/foliate-elements.mjs";
 const root = path.resolve(import.meta.dirname, "..");
 const source = fs.readFileSync(path.join(root, "packages", "reader", "src", "main.js"), "utf8");
 const viewSource = fs.readFileSync(path.join(root, "packages", "reader", "src", "reader-view.js"), "utf8");
+const paginatorSource = fs.readFileSync(new URL("../packages/reader/src/pdf-paginator.js", import.meta.url), "utf8");
 const modalSource = fs.readFileSync(path.join(root, "packages", "reader", "src", "reader-modal.js"), "utf8");
 const selectionSource = fs.readFileSync(path.join(root, "packages", "reader", "src", "selection-actions.js"), "utf8");
 function sliceFunction(text, name, indent = "") {
@@ -25,7 +26,7 @@ function functionSource(name) {
 const translate = (key) => key;
 
 test("switching a reused PDF flow between paged and scroll modes clears stale geometry", () => {
-  const method = source.slice(source.indexOf("  _styleFlow(cfg, geo, cjk) {"), source.indexOf("  _mountBookHtml("));
+  const method = paginatorSource.slice(paginatorSource.indexOf("  _styleFlow(cfg, geo, cjk) {"), paginatorSource.indexOf("  _mountBookHtml("));
   const style = vm.runInNewContext(`({${method}})._styleFlow`, { resolveReaderFont: () => "serif", FONTS: {} });
   const flow = new JSDOM("<div></div>").window.document.querySelector("div");
   const pager = { flow, scrollMode: false };
@@ -529,8 +530,7 @@ test("visible PDF pages gain selectable text and offscreen pages collapse back t
 });
 
 test("the PDF paginator rejects ebook HTML before layout or parsing", async () => {
-  const start = source.indexOf('const PdfPaginator = class');
-  const end = source.indexOf('function createPdfPaginator(', start);
-  const PdfPaginator = vm.runInNewContext(`${source.slice(start, end)}\nPdfPaginator`, { PDF_ZOOM_DEFAULT: 1 });
+const paginatorFactory = paginatorSource.slice(paginatorSource.indexOf("export function createPdfPaginatorClass(")).replace("export function", "function");
+const PdfPaginator = vm.runInNewContext(`${paginatorFactory}\ncreatePdfPaginatorClass({ FONTS: {}, READER_FONTS: {}, SHORT_PAGE_GAP: 0, getLanguage: () => "zh" })`, { PDF_ZOOM_DEFAULT: 1, READER_BLOCK_SELECTOR: "p,h1", clampPdfZoom: (value) => value, comfortableLineWidth: () => 0, docOf: (el) => el.ownerDocument, ensureBundledReaderFont: async () => {}, resolveReaderFont: () => "serif", uiLanguageMetadata: () => ({ cjk: false }) });
   await assert.rejects(new PdfPaginator().build({}, '<p>ebook text</p>', {}, 0), /PDF page surfaces required/);
 });

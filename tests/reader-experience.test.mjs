@@ -8,6 +8,7 @@ import { createReaderHud } from "../packages/reader/src/reader-hud.js";
 
 const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
 const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
+const paginatorSource = fs.readFileSync(new URL("../packages/reader/src/pdf-paginator.js", import.meta.url), "utf8");
 const chatViewSource = fs.readFileSync(new URL("../packages/reader/src/ai-chat-view.js", import.meta.url), "utf8");
 const selectionSource = fs.readFileSync(new URL("../packages/reader/src/selection-actions.js", import.meta.url), "utf8");
 const readerHud = createReaderHud({ translate: (key) => key, notice() {}, window: globalThis, platform: { isMobile: false }, isPdf: () => false, jumpToHighlight: async () => {} });
@@ -163,7 +164,7 @@ test("initial layout and reflow scroll events cannot overwrite the saved reading
 test("scroll anchors do not inherit smooth scrolling from CSS", () => {
   const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   assert.doesNotMatch(css, /scroll-behavior:\s*smooth/);
-  assert.match(source, /behavior: animate \? "smooth" : "auto"/);
+  assert.match(paginatorSource, /behavior: animate \? "smooth" : "auto"/);
 });
 
 test("focus mode restores both sidebar states and is idempotent", () => {
