@@ -13,7 +13,7 @@ test("reader engine module exposes its interface under a DOM global environment"
   globalThis.DOMParser = dom.window.DOMParser;
 
   try {
-    const engine = await import("../src/reader-engine.js");
+    const engine = await import("../packages/reader/src/reader-engine.js");
     assert.equal(typeof engine.EpubEngine, "function");
     assert.equal(typeof engine.SEARCH_PREFIX, "string");
     assert.ok(engine.SEARCH_PREFIX.length > 0);

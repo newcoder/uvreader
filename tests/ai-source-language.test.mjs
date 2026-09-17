@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isNonChineseSource } from "../src/ai-source-language.js";
-import { HIGHLIGHT_PAINTS, HL_COLOR_SWATCHES } from "../src/highlight-colors.js";
+import { isNonChineseSource } from "../packages/reader/src/ai-source-language.js";
+import { HIGHLIGHT_PAINTS, HL_COLOR_SWATCHES } from "../packages/reader/src/highlight-colors.js";
 
 test("translation is offered for foreign-language prose but not Chinese, numbers, or punctuation", () => {
   for (const text of ["Hello", "Reading changes how we understand the world.", "吾輩は猫である。名前はまだ無い。", "책을 읽고 있습니다.", "Чтение помогает нам думать.", "Bonjour le monde", "This passage includes 中文 but is mostly English."]) assert.equal(isNonChineseSource(text), true, text);

@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
-import { cloneJson, createSerialTaskQueue, isPlainRecord, mergeReadingProgress, parseJsonRecord, readJsonRecordStore, writeVerifiedJsonRecord } from "../src/storage.js";
+import { cloneJson, createSerialTaskQueue, isPlainRecord, mergeReadingProgress, parseJsonRecord, readJsonRecordStore, writeVerifiedJsonRecord } from "../packages/reader/src/storage.js";
 
-const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
 const primary = "reading-progress.json";
 const recovery = ".obsidian/plugins/reader/reading-progress-recovery.json";
 const previous = { book: { pct: 0.1, lastRead: 1, block: 12 } };

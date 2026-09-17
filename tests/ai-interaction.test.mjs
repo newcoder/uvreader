@@ -3,13 +3,13 @@ import fs from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
 import { JSDOM } from "jsdom";
-import { isNonChineseSource } from "../src/ai-source-language.js";
-import { bindAiComposer } from "../src/ai-composer.js";
-import { suggestAiNoteTitle } from "../src/ai-note-title.js";
-import { shouldFollowContext } from "../src/reader-experience.js";
-import { verifiedQuotes } from "../src/reading-workflow.js";
+import { isNonChineseSource } from "../packages/reader/src/ai-source-language.js";
+import { bindAiComposer } from "../packages/reader/src/ai-composer.js";
+import { suggestAiNoteTitle } from "../packages/reader/src/ai-note-title.js";
+import { shouldFollowContext } from "../packages/reader/src/reader-experience.js";
+import { verifiedQuotes } from "../packages/reader/src/reading-workflow.js";
 
-const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 function dom() {

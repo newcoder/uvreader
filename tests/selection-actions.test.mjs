@@ -4,10 +4,10 @@ import vm from "node:vm";
 import test from "node:test";
 import { parse } from "acorn";
 import { JSDOM } from "jsdom";
-import { selectionActionPreferences } from "../src/selection-preferences.js";
-import { highlightBacklink } from "../src/highlight-navigation.js";
+import { selectionActionPreferences } from "../packages/reader/src/selection-preferences.js";
+import { highlightBacklink } from "../packages/reader/src/highlight-navigation.js";
 
-const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
 const ast = parse(source, { ecmaVersion: "latest", sourceType: "module" });
 const functions = ast.body.filter(n => n.type === "FunctionDeclaration");
 const names = ["selectionActions","matchingSelectionHighlight", "selectionColor", "clearReaderSelection", "beginReaderSelection", "engineSelectionRect", "openReaderSelectionContext", "selectionFeedback", "repaintSelectionHighlights", "applySelectionColor", "closeSelectionColorDropdown", "toggleSelectionColorDropdown", "syncSelectionToolbar", "addBarButtons", "openSelectionMoreMenu", "copySelectionText", "openAiSelectionChat", "closeInlineHighlightComment", "openInlineHighlightComment", "handleAreaNavClick"];

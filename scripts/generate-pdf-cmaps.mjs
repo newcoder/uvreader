@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourceDir = path.join(root, "node_modules", "pdfjs-dist", "cmaps");
-const output = path.join(root, "src", "pdf-cmaps-data.js");
+const output = path.join(root, "packages", "reader", "src", "pdf-cmaps-data.js");
 const traditionalChineseCMap = /(?:Adobe-CNS1|B5|CNS|ETen|HK).*\.bcmap$/;
 
 const names = fs.readdirSync(sourceDir).filter((name) => traditionalChineseCMap.test(name)).sort();

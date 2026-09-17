@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { QIAOMU_READER_EN } from "../src/i18n-en.js";
-import { QIAOMU_READER_ZH_CN } from "../src/i18n-zh.js";
-import { UI_LANGUAGES, UI_TRANSLATIONS, normalizeUiLanguage, uiLanguageMetadata } from "../src/i18n-languages.js";
-import { isReadingHighlightsHeading, replaceManagedReadingHighlights } from "../src/reading-note.js";
-import { translateUiText } from "../src/i18n-runtime.js";
+import { QIAOMU_READER_EN } from "../packages/reader/src/i18n-en.js";
+import { QIAOMU_READER_ZH_CN } from "../packages/reader/src/i18n-zh.js";
+import { UI_LANGUAGES, UI_TRANSLATIONS, normalizeUiLanguage, uiLanguageMetadata } from "../packages/reader/src/i18n-languages.js";
+import { isReadingHighlightsHeading, replaceManagedReadingHighlights } from "../packages/reader/src/reading-note.js";
+import { translateUiText } from "../packages/reader/src/i18n-runtime.js";
 
 const translate = (language, source) => translateUiText(language, source, QIAOMU_READER_EN, QIAOMU_READER_ZH_CN);
 

@@ -1,20 +1,18 @@
-import obsidianmd from "eslint-plugin-obsidianmd";
+// The Obsidian plugin shell is gone, so the lint setup is now a small flat
+// config: reader sources keep browser globals and must not import node
+// builtins; tests and scripts run in Node.
+const NODE_BUILTINS = [
+  "assert", "buffer", "child_process", "crypto", "events", "fs", "http", "https",
+  "net", "os", "path", "process", "querystring", "stream", "string_decoder",
+  "tls", "url", "util", "worker_threads", "zlib",
+];
 
-// The community scanner runs this rule set against the repository and publishes
-// the result as a Scorecard, so warnings matter as much as errors here.
 export default [
   {
-    ignores: ["main.js", "pdf.worker.js", "node_modules/**", "promo-video/**"],
-  },
-  ...obsidianmd.configs.recommended,
-  // Tests execute in Node, never in the mobile plugin bundle.
-  {
-    files: ["tests/**/*.mjs"],
-    languageOptions: { globals: { setImmediate: "readonly" } },
-    rules: { "obsidianmd/no-nodejs-modules": "off" },
+    ignores: ["pdf.worker.js", "node_modules/**", "promo-video/**", "apps/desktop/dist/**"],
   },
   {
-    files: ["src/**/*.js"],
+    files: ["packages/reader/src/**/*.js"],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "module",
@@ -25,7 +23,19 @@ export default [
         __QBR_ENGINE_VIEW_TAG__: "readonly",
         // CSS Custom Highlight API, used for the in-book search paint.
         Highlight: "readonly",
-        // Provided by Obsidian at runtime rather than imported.
+        CSS: "readonly",
+        AbortController: "readonly",
+        atob: "readonly",
+        btoa: "readonly",
+        navigator: "readonly",
+        File: "readonly",
+        TextEncoder: "readonly",
+        TextDecoder: "readonly",
+        ReadableStream: "readonly",
+        MutationObserver: "readonly",
+        Option: "readonly",
+        queueMicrotask: "readonly",
+        // Provided by the desktop host at runtime rather than imported.
         activeDocument: "readonly",
         activeWindow: "readonly",
         document: "readonly",
@@ -51,10 +61,18 @@ export default [
       },
     },
     rules: {
-      "obsidianmd/ui/sentence-case": ["warn", {
-        mode: "loose",
-        brands: ["UV Reader", "Obsidian Sync", "Remotely Save"],
-      }],
+      "no-undef": "error",
+      "no-empty": ["error", { allowEmptyCatch: true }],
+      "no-control-regex": "error",
+      "no-restricted-imports": ["error", { paths: NODE_BUILTINS.map((name) => ({ name, message: "Reader sources must stay host-agnostic; use the host ports instead." })) }],
+    },
+  },
+  {
+    files: ["tests/**/*.mjs", "scripts/**/*.mjs", "packages/host-shim/**/*.mjs", "apps/desktop/**/*.mjs"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "module",
+      globals: { setImmediate: "readonly", process: "readonly", console: "readonly", Buffer: "readonly", URL: "readonly", __dirname: "readonly" },
     },
   },
 ];

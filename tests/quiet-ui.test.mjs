@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM } from "jsdom";
-import { watchQuietUi } from "../src/quiet-ui.js";
+import { watchQuietUi } from "../packages/reader/src/quiet-ui.js";
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
 test("quiet plugin controls preserve accessible names without muting host tooltips", async () => {

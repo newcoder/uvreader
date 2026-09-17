@@ -4,8 +4,8 @@ import test from 'node:test';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { JSDOM } from 'jsdom';
 import { footnotePdfBytes } from './fixtures/pdf-footnotes.mjs';
-import { pdfPageShell } from '../src/pdf-page-mode.js';
-import { getPdfTextContent } from '../src/pdf-text-content.js';
+import { pdfPageShell } from '../packages/reader/src/pdf-page-mode.js';
+import { getPdfTextContent } from '../packages/reader/src/pdf-text-content.js';
 
 test('PDF superscript references and footnotes preserve original page geometry', async () => {
   const task = getDocument({ data: footnotePdfBytes(), isEvalSupported: false, useSystemFonts: true });
@@ -29,7 +29,7 @@ test('PDF superscript references and footnotes preserve original page geometry',
     dom.window.close();
     // Both desktop and mobile dispatch through this extractor. Prevent a later
     // typography feature from routing PDFs back through the old reflow path.
-    const source = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+    const source = fs.readFileSync(new URL('../packages/reader/src/main.js', import.meta.url), 'utf8');
     const extractor = source.slice(source.indexOf('async function extractPdf('), source.indexOf('async function extractPdf(') + 5000);
     assert.ok(extractor.includes('parts.push(pdfPageShell({'));
     assert.ok(!extractor.includes('pdfItemsToHtml('));

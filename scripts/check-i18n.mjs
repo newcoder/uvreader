@@ -1,14 +1,13 @@
-import { HL_COLOR_SWATCHES } from "../src/highlight-colors.js";
+import { HL_COLOR_SWATCHES } from "../packages/reader/src/highlight-colors.js";
 import fs from "node:fs/promises";
 import { parse } from "acorn";
-import { QIAOMU_READER_EN } from "../src/i18n-en.js";
-import { UI_LANGUAGES, UI_TRANSLATIONS } from "../src/i18n-languages.js";
-import { AI_PROVIDER_CATEGORIES, AI_PROVIDERS } from "../src/ai-providers.js";
-import { QIAOMU_READER_ZH_CN } from "../src/i18n-zh.js";
+import { QIAOMU_READER_EN } from "../packages/reader/src/i18n-en.js";
+import { UI_LANGUAGES, UI_TRANSLATIONS } from "../packages/reader/src/i18n-languages.js";
+import { AI_PROVIDER_CATEGORIES, AI_PROVIDERS } from "../packages/reader/src/ai-providers.js";
+import { QIAOMU_READER_ZH_CN } from "../packages/reader/src/i18n-zh.js";
 
-const source = await fs.readFile(new URL("../src/main.js", import.meta.url), "utf8");
-const readingNoteSource = await fs.readFile(new URL("../src/reading-note.js", import.meta.url), "utf8");
-const manifest = JSON.parse(await fs.readFile(new URL("../manifest.json", import.meta.url), "utf8"));
+const source = await fs.readFile(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+const readingNoteSource = await fs.readFile(new URL("../packages/reader/src/reading-note.js", import.meta.url), "utf8");
 const packageJson = JSON.parse(await fs.readFile(new URL("../package.json", import.meta.url), "utf8"));
 
 function placeholders(value) {
@@ -72,9 +71,6 @@ if (source.includes("getLanguage")) {
 if (!source.includes('import { translateUiText } from "./i18n-runtime.js"')
   || !source.includes("translateUiText(lang, s, QIAOMU_READER_EN, QIAOMU_READER_ZH_CN)")) {
   errors.push("Russian UI does not use the safe fallback for Chinese-first source strings");
-}
-if (!manifest.description || /[\u3400-\u9fff]|obsidian/i.test(manifest.description) || !/[.!?]$/.test(manifest.description)) {
-  errors.push("manifest.json needs a concise English directory description without the redundant host name");
 }
 if (!/[\u3400-\u9fff]/.test(packageJson.description || "")) {
   errors.push("package.json description is not Chinese");

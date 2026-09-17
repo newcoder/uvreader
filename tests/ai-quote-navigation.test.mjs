@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 import { JSDOM } from "jsdom";
-import { jumpToEngineHighlight } from "../src/highlight-navigation.js";
+import { jumpToEngineHighlight } from "../packages/reader/src/highlight-navigation.js";
 
-const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
 const code = source.slice(source.indexOf("async function jumpToAiQuote("), source.indexOf("\nfunction showLocationMarks"));
 function setup() {
   const dom = new JSDOM('<input>');
@@ -83,7 +83,7 @@ test("missing source produces a recoverable notice without opening a different b
   assert.match(f.notices[0], /cannot-locate/); f.close();
 });
 
-const engineSource = fs.readFileSync(new URL("../src/reader-engine.js", import.meta.url), "utf8");
+const engineSource = fs.readFileSync(new URL("../packages/reader/src/reader-engine.js", import.meta.url), "utf8");
 const searchMethod = engineSource.slice(engineSource.indexOf("    async *search("), engineSource.indexOf("    async clearSearchHits("));
 test("citation search is bounded, cancellable, and leaves existing search annotations alone", async () => {
   const visited = [], painted = [];

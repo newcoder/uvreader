@@ -9,7 +9,7 @@ import { JSDOM } from "jsdom";
 import { foliateElements } from "../scripts/foliate-elements.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
-const source = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+const source = fs.readFileSync(path.join(root, "packages", "reader", "src", "main.js"), "utf8");
 function functionSource(name) {
   const start = source.indexOf(`function ${name}(`);
   const asyncStart = source.slice(start - 6, start) === "async " ? start - 6 : start;
@@ -117,7 +117,7 @@ test("AI context reads the engine's visible text and current chapter without leg
 
 async function bundle(elements) {
   const result = await build({ absWorkingDir: root, stdin: {
-    contents: 'export * from "./src/reader-engine.js"; import "foliate-js/paginator.js"; import "foliate-js/fixed-layout.js";',
+    contents: 'export * from "./packages/reader/src/reader-engine.js"; import "foliate-js/paginator.js"; import "foliate-js/fixed-layout.js";',
     resolveDir: root,
   }, bundle: true, format: "cjs", write: false, plugins: [elements.plugin], define: elements.define });
   return result.outputFiles[0].text;
@@ -430,7 +430,7 @@ test("engine reopening releases the previous parser; invalid navigation cannot c
 });
 
 test("ebook bookmarks capture the engine CFI without requiring a PDF flow", async () => {
-  const { normalizeLocationMarks } = await import('../src/reading-workflow.js');
+  const { normalizeLocationMarks } = await import('../packages/reader/src/reading-workflow.js');
   let save;
   const add = vm.runInNewContext(`${functionSource("addLocationMark")}\naddLocationMark`, {
     ReaderNameModal: class { constructor(_app, _title, _label, callback) { save = callback; } open() {} },
@@ -450,7 +450,7 @@ test("ebook bookmarks capture the engine CFI without requiring a PDF flow", asyn
 });
 
 test("background frame waits finish and clear callbacks even when RAF is suspended", async () => {
-  const { waitForReaderFrame } = await import('../src/reader-load.js');
+  const { waitForReaderFrame } = await import('../packages/reader/src/reader-load.js');
   for (const visible of [true, false]) {
     let tick, paint; const cancelled = [], cleared = [];
     const pending = waitForReaderFrame({ setTimeout: fn => { tick = fn; return 1; },

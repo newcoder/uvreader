@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 
-import { AI_PROVIDERS, aiProviderFor, buildAiRequestBody, buildAiRequestOptions, classifyAiHttpStatus, normalizeAiBase } from "../src/ai-providers.js";
+import { AI_PROVIDERS, aiProviderFor, buildAiRequestBody, buildAiRequestOptions, classifyAiHttpStatus, normalizeAiBase } from "../packages/reader/src/ai-providers.js";
 import {
   buildCliInvocation,
   buildCliPrompt,
@@ -17,19 +17,19 @@ import {
   isCliAiProvider,
   retryAcpFailureOnce,
   shouldRetryAcpFailure,
-} from "../src/ai-cli.js";
-import { READER_THEMES, READER_THEME_CHOICES, migrateReaderTheme } from "../src/reader-themes.js";
-import { createOpenAiSseParser } from "../src/ai-stream.js";
-import { composeAiAnswerNote } from "../src/ai-note.js";
-import { deriveAiSetupState } from "../src/ai-setup-state.js";
-import { isChineseSourceText, translateUiText } from "../src/i18n-runtime.js";
-import { EmbeddedPdfBinaryDataFactory, PDF_CMAP_OPTIONS } from "../src/pdf-cmaps.js";
-import { EMBEDDED_PDF_CMAPS } from "../src/pdf-cmaps-data.js";
-import { PDF_AI_CONTEXT_MAX_CHARS, READER_BLOCK_SELECTOR, packPdfDocumentContext, pdfPageKind, pdfPageShell, pdfPageTextFallback, pdfPageTextForAi } from "../src/pdf-page-mode.js";
-import { PDF_ZOOM_MAX, PDF_ZOOM_MIN, clampPdfZoom, pdfZoomFromWheel, pdfZoomPercent, pdfZoomShortcut, stepPdfZoom } from "../src/pdf-zoom.js";
-import { appendReadingNoteExcerpts, migrateAndReplaceReadingHighlights, replaceManagedReadingHighlights } from "../src/reading-note.js";
-import { corruptBackupPath, createSerialTaskQueue, parseJsonRecord, readJsonRecordStore } from "../src/storage.js";
-import { createReaderLoadCoordinator, isReaderLoadAbort, throwIfReaderLoadAborted } from "../src/reader-load.js";
+} from "../packages/reader/src/ai-cli.js";
+import { READER_THEMES, READER_THEME_CHOICES, migrateReaderTheme } from "../packages/reader/src/reader-themes.js";
+import { createOpenAiSseParser } from "../packages/reader/src/ai-stream.js";
+import { composeAiAnswerNote } from "../packages/reader/src/ai-note.js";
+import { deriveAiSetupState } from "../packages/reader/src/ai-setup-state.js";
+import { isChineseSourceText, translateUiText } from "../packages/reader/src/i18n-runtime.js";
+import { EmbeddedPdfBinaryDataFactory, PDF_CMAP_OPTIONS } from "../packages/reader/src/pdf-cmaps.js";
+import { EMBEDDED_PDF_CMAPS } from "../packages/reader/src/pdf-cmaps-data.js";
+import { PDF_AI_CONTEXT_MAX_CHARS, READER_BLOCK_SELECTOR, packPdfDocumentContext, pdfPageKind, pdfPageShell, pdfPageTextFallback, pdfPageTextForAi } from "../packages/reader/src/pdf-page-mode.js";
+import { PDF_ZOOM_MAX, PDF_ZOOM_MIN, clampPdfZoom, pdfZoomFromWheel, pdfZoomPercent, pdfZoomShortcut, stepPdfZoom } from "../packages/reader/src/pdf-zoom.js";
+import { appendReadingNoteExcerpts, migrateAndReplaceReadingHighlights, replaceManagedReadingHighlights } from "../packages/reader/src/reading-note.js";
+import { corruptBackupPath, createSerialTaskQueue, parseJsonRecord, readJsonRecordStore } from "../packages/reader/src/storage.js";
+import { createReaderLoadCoordinator, isReaderLoadAbort, throwIfReaderLoadAborted } from "../packages/reader/src/reader-load.js";
 
 test("reader loads cancel stale work and only let the latest result commit", () => {
   const coordinator = createReaderLoadCoordinator();
@@ -146,7 +146,7 @@ test("PDF AI context keeps page boundaries and represents the whole document", (
 });
 
 test("PDF zoom stays bounded and supports buttons, gestures, and shortcuts", () => {
-  const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
   assert.equal(clampPdfZoom(0.1), PDF_ZOOM_MIN);
   assert.equal(clampPdfZoom(8), PDF_ZOOM_MAX);
   assert.equal(clampPdfZoom("bad"), 1);
@@ -178,7 +178,7 @@ test("saving an AI response keeps the answer as the note body", () => {
 });
 
 test("PDF extraction renders every page image and overlays PDF.js text instead of reflowing it", () => {
-  const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
   assert.match(source, /pdfjs-dist\/legacy\/build\/pdf\.mjs/);
   assert.match(source, /new pdfjsLib\.TextLayer/);
   assert.match(source, /page\.cleanup\?\.\(\)/);
@@ -299,7 +299,7 @@ test("empty synced JSON placeholders stay blocked until the user restores or rem
 });
 
 test("reader persistence refuses to overwrite unreadable stores and reports real save failures", () => {
-  const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
   assert.match(source, /this\._blockedStores\.add\(path5\)/);
   assert.match(source, /this\._unreadableStores\.set\(path5/);
   assert.match(source, /async retryUnreadableStore\(path5\)/);
@@ -313,8 +313,8 @@ test("reader persistence refuses to overwrite unreadable stores and reports real
 });
 
 test("fixed-layout PDF pages show a reserved loading state instead of a blank sheet", () => {
-  const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
-  const styles = fs.readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const styles = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   assert.match(source, /const FIGURE_RENDERING_CLASS = "qiaomu-reader-pdf-rendering"/);
   assert.match(source, /surface\) surface\.addClass\(FIGURE_RENDERING_CLASS\)/);
   assert.match(source, /surface\.removeClass\(FIGURE_RENDERING_CLASS\)/);
@@ -330,7 +330,7 @@ test("fixed-layout PDF pages show a reserved loading state instead of a blank sh
 });
 
 test("runtime diagnostics use the maintained plugin identity", () => {
-  const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
   assert.doesNotMatch(source, /console\.(?:error|warn|log)\("Book Reader:/);
   assert.match(source, /const VIEW_TYPE = "qiaomu-reader"/);
   assert.match(source, /const LIB_VIEW_TYPE = "qiaomu-reader-library"/);
@@ -355,7 +355,7 @@ test("Russian UI never leaks Chinese-first source keys", () => {
 });
 
 test("translation target labels follow the plugin interface language", () => {
-  const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
   assert.match(source, /const TRANSLATION_LANGUAGE_CHOICES = Object\.freeze/);
   assert.match(source, /\["zh-CN", "simplified-chinese"\]/);
   assert.match(source, /TRANSLATION_LANGUAGE_CHOICES\.forEach\(\(\[value, label\]\) => dropdown\.addOption\(value, qiaomuReaderTranslate\(label\)\)\)/);
@@ -516,7 +516,7 @@ test("CLI reasoning options are provider-specific", () => {
 });
 
 test("CLI chat uses persistent, tool-free ACP sessions", () => {
-  const source = fs.readFileSync(new URL("../src/ai-cli.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/ai-cli.js", import.meta.url), "utf8");
   assert.match(source, /args\.push\("--no-auto-update", "agent", "--no-leader"\)/);
   assert.match(source, /\["--no-auto-update", "--version"\]/);
   assert.match(source, /args: \["--no-auto-update", "models"\]/);
@@ -673,19 +673,20 @@ test("reading themes migrate legacy names and meet WCAG AA contrast", () => {
   }
 });
 
-test("public README uses Qiaomu branding and links to preserved third-party notices", () => {
+test("public README presents the standalone desktop app and preserved notices", () => {
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
   assert.doesNotMatch(readme, /fork 上架授权/i);
+  assert.match(readme, /UV Reader/);
+  assert.match(readme, /柚肥阅读/);
   assert.match(readme, /DeepSeek/);
-  assert.match(readme, /Codex CLI/);
-  assert.match(readme, /Claude Code CLI/);
-  assert.match(readme, /Grok CLI/);
-  assert.match(readme, /CLI 模式仅支持桌面版 Obsidian/);
-  assert.match(readme, /Obsidian 的密钥库/);
+  assert.match(readme, /Codex/);
+  assert.match(readme, /GPL-3\.0-only/);
+  assert.match(readme, /NOTICE\.md/);
+  assert.match(readme, /desktop:build/);
 });
 
 test("AI prompt and context are Chinese-first", () => {
-  const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
   const start = source.indexOf("function aiSystemChat");
   const end = source.indexOf("const TranslateModal", start);
   const aiSource = source.slice(start, end);
@@ -695,8 +696,8 @@ test("AI prompt and context are Chinese-first", () => {
 });
 
 test("selection popup keeps primary actions compact and moves note tools into More", () => {
-  const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
-  const css = fs.readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   const start = source.indexOf("function selectionActions");
   const end = source.indexOf("const AiExplainModal", start);
   const popupSource = source.slice(start, end);
@@ -717,8 +718,8 @@ test("selection popup keeps primary actions compact and moves note tools into Mo
 });
 
 test("AI dialog uses built-in quick prompts and keeps reasoning separate", () => {
-  const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
-  const chinese = fs.readFileSync(new URL("../src/i18n-zh.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const chinese = fs.readFileSync(new URL("../packages/reader/src/i18n-zh.js", import.meta.url), "utf8");
   for (const label of ["解释一下", "举个例子", "总结要点", "对我有什么用", "换个角度看", "出题考考我"]) {
     assert.match(chinese, new RegExp(label));
   }
@@ -736,8 +737,8 @@ test("AI dialog uses built-in quick prompts and keeps reasoning separate", () =>
 });
 
 test("desktop AI chat keeps per-book threads and structured document or selection context", () => {
-  const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
-  const css = fs.readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   assert.match(source, /const AI_CHAT_VIEW_TYPE = "qiaomu-book-reader-ai-chat"/);
   assert.match(source, /\[AI_CHAT_VIEW_TYPE, AiChatView\]/); // view registrations are table-driven in _registerReaderViews
   assert.match(source, /registerView\(viewType, \(leaf\) => new ViewClass\(leaf, this\)\)/);
@@ -839,7 +840,7 @@ test("desktop AI chat keeps per-book threads and structured document or selectio
 });
 
 test("reader lifecycle cancels stale loads and releases PDF resources", () => {
-  const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
   assert.match(source, /async function extractPdf\(file, app, _settings = \{\}, onProgress, options = \{\}\)/);
   assert.match(source, /const signal = options\.signal/);
   assert.match(source, /throwIfReaderLoadAborted\(signal\)/);
@@ -858,7 +859,7 @@ test("reader lifecycle cancels stale loads and releases PDF resources", () => {
 });
 
 test("AI settings explain and verify provider-specific ACP instead of a generic install", () => {
-  const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
   assert.match(source, /cliAcpSupport\(s\.aiProvider\)/);
   assert.match(source, /probeCliAcp\(s\.aiProvider/);
   assert.doesNotMatch(source, /warmCliAiSession\(cfg\.id/); // Opening a book must not initialize a model session.
@@ -877,7 +878,7 @@ test("AI settings explain and verify provider-specific ACP instead of a generic 
 });
 
 test("book-note append asks to open only once", () => {
-  const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
   const start = source.indexOf("async function exportHighlightsToBookNote");
   const end = source.indexOf("const HighlightExportModal", start);
   const exportSource = source.slice(start, end);
@@ -888,16 +889,16 @@ test("book-note append asks to open only once", () => {
 });
 
 test("reader chrome stays white and removes only the reader's redundant host header", () => {
-  const css = fs.readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   assert.match(css, /\.qiaomu-reader-top, \.qiaomu-reader-bot \{ background:#fff/);
   assert.match(css, /\.workspace-leaf-content\[data-type="qiaomu-reader"\] > \.view-header \{ display:none; \}/);
   assert.match(css, /\.qiaomu-reader-area \{[^}]*background:var\(--qiaomu-reader-bg/s);
 });
 
 test("immersive reader chrome overlays the page and retracts without reserving rows", () => {
-  const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
-  const css = fs.readFileSync(new URL("../styles.css", import.meta.url), "utf8");
-  const chinese = fs.readFileSync(new URL("../src/i18n-zh.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
+  const chinese = fs.readFileSync(new URL("../packages/reader/src/i18n-zh.js", import.meta.url), "utf8");
   assert.match(css, /\.qiaomu-reader-top \{[^}]*position:absolute;[^}]*height:40px;[^}]*border-radius:0/s);
   assert.match(css, /\.qiaomu-reader-bot \{[^}]*position:absolute;[^}]*height:40px;[^}]*border-radius:0/s);
   assert.match(css, /\.qiaomu-reader-ibtn \{[^}]*width:36px;[^}]*height:36px;[^}]*border-radius:10px/s);
@@ -927,8 +928,8 @@ test("immersive reader chrome overlays the page and retracts without reserving r
 });
 
 test("settings use task tabs, concise intros, and Chinese-first copy", () => {
-  const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
-  const chinese = fs.readFileSync(new URL("../src/i18n-zh.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const chinese = fs.readFileSync(new URL("../packages/reader/src/i18n-zh.js", import.meta.url), "utf8");
   assert.match(source, /qiaomu-reader-settings-head/);
   assert.match(source, /qiaomu-reader-settings-intro/);
   assert.match(source, /body\.dataset\.tab = this\._tab/);
@@ -963,9 +964,9 @@ test("settings use task tabs, concise intros, and Chinese-first copy", () => {
 });
 
 test("folder and template settings use searchable vault pickers", () => {
-  const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
-  const css = fs.readFileSync(new URL("../styles.css", import.meta.url), "utf8");
-  const chinese = fs.readFileSync(new URL("../src/i18n-zh.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
+  const chinese = fs.readFileSync(new URL("../packages/reader/src/i18n-zh.js", import.meta.url), "utf8");
   assert.match(source, /const FolderPicker = class extends FuzzySuggestModal/);
   assert.match(source, /const CreateFolderModal = class extends Modal/);
   assert.match(source, /file instanceof TFolder && qiaomuReaderPath\(file\.path\)/);
@@ -987,14 +988,14 @@ test("folder and template settings use searchable vault pickers", () => {
 });
 
 test("quote template is language-neutral and migrates the old Russian fragment", () => {
-  const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
   assert.match(source, /const QUOTE_TEMPLATE_DEFAULT = "> \{text\}\\n\\n— \[\[\{book\}\]\]\{page\}\{link\}"/);
   assert.doesNotMatch(source, /— из \[\[\{book\}\]\]/i);
   assert.match(source, /quoteTemplate\.replace\(\/\u2014\\s\+из/);
 });
 
 test("reading settings own their scroll area without horizontal overflow", () => {
-  const css = fs.readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   assert.match(css, /\.qiaomu-reader-rs-modal \.modal-content\.qiaomu-reader-rs \{[^}]*overflow-x:hidden;[^}]*overflow-y:auto;[^}]*scrollbar-gutter:stable/s);
   assert.match(css, /\.qiaomu-reader-rs > \*, \.qiaomu-reader-rs-card, \.qiaomu-reader-rs-col, \.qiaomu-reader-rs-grid \{[^}]*min-width:0/s);
   assert.match(css, /\.qiaomu-reader-rs-modal \.modal-content\.qiaomu-reader-rs \{[^}]*padding-right:calc\(var\(--qiaomu-reader-pad\) \+ 8px\)/s);
@@ -1003,8 +1004,8 @@ test("reading settings own their scroll area without horizontal overflow", () =>
 });
 
 test("reading settings split reading and AI assistance without exposing secrets", () => {
-  const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
-  const css = fs.readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   const start = source.indexOf("const ReadSettingsModal");
   const end = source.indexOf("function parseNoteTags", start);
   const modalSource = source.slice(start, end);
@@ -1031,7 +1032,7 @@ test("reading settings split reading and AI assistance without exposing secrets"
 });
 
 test("AI setup uses one status-driven flow and enables only after a successful test", () => {
-  const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
   const start = source.indexOf("_tabTranslate(");
   const end = source.indexOf("_tabData(c)", start);
   const tabSource = source.slice(start, end);
@@ -1047,7 +1048,7 @@ test("AI setup uses one status-driven flow and enables only after a successful t
 });
 
 test("confirming AI settings automatically prepares, tests, and enables the selected provider", () => {
-  const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
   const modalStart = source.indexOf("const SettingsGroupModal");
   const modalEnd = source.indexOf("const SettingsTab", modalStart);
   const modalSource = source.slice(modalStart, modalEnd);
@@ -1066,7 +1067,7 @@ test("confirming AI settings automatically prepares, tests, and enables the sele
 });
 
 test("recovered Codex transport diagnostics do not become saved answer text", async () => {
-  const { stripCodexTransportNotice } = await import('../src/ai-cli.js');
+  const { stripCodexTransportNotice } = await import('../packages/reader/src/ai-cli.js');
   const warning = 'Warning: Falling back from WebSockets to HTTPS transport. stream disconnected before completion: Connection reset by peer (os error 54)';
   assert.equal(stripCodexTransportNotice(warning + '\n\n正式回答'), '正式回答');
   assert.equal(stripCodexTransportNotice('作者写道：Warning: keep this quotation'), '作者写道：Warning: keep this quotation');

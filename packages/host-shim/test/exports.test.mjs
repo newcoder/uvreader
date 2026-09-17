@@ -4,7 +4,7 @@ import test from "node:test";
 
 import * as shim from "../src/index.js";
 
-const mainSource = fs.readFileSync(new URL("../../../src/main.js", import.meta.url), "utf8");
+const mainSource = fs.readFileSync(new URL("../../../packages/reader/src/main.js", import.meta.url), "utf8");
 
 test("the shim exports every symbol src/main.js imports from obsidian", () => {
   const match = /import\s*\{([^{}]*)\}\s*from\s*"obsidian";/.exec(mainSource);

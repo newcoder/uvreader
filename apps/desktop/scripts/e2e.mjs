@@ -16,7 +16,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(here, "..");
 const repoRoot = path.resolve(appRoot, "../..");
 const book = path.resolve(process.argv[2] || path.join(repoRoot, "assets/starter-books/11.epub"));
-const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, "manifest.json"), "utf8"));
+const appPackage = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -396,7 +396,7 @@ async function runAiScenario() {
           language: "zh",
           bookNotesFolder: "notes",
           dataFolder: "plugin",
-          lastSeenVersion: manifest.version,
+          lastSeenVersion: appPackage.version,
           aiProvider: "custom",
           aiBases: { custom: base },
           aiModels: { custom: "mock-model" },
@@ -463,7 +463,7 @@ async function runApiKeyScenario() {
           language: "zh",
           bookNotesFolder: "notes",
           dataFolder: "plugin",
-          lastSeenVersion: manifest.version,
+          lastSeenVersion: appPackage.version,
           aiProvider: "deepseek",
           aiBases: { deepseek: base },
           aiModels: { deepseek: "deepseek-chat" },
@@ -540,7 +540,7 @@ async function runScrollScenario() {
           language: "zh",
           bookNotesFolder: "notes",
           dataFolder: "plugin",
-          lastSeenVersion: manifest.version,
+          lastSeenVersion: appPackage.version,
           readMode: "scroll",
         },
       }, null, 2));

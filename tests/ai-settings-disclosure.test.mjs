@@ -3,8 +3,8 @@ import fs from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
 import { JSDOM } from "jsdom";
-import { AI_PROVIDERS, AI_PROVIDER_CATEGORIES } from "../src/ai-providers.js";
-const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+import { AI_PROVIDERS, AI_PROVIDER_CATEGORIES } from "../packages/reader/src/ai-providers.js";
+const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
 function setup(provider, model = "", key = "") {
   const { window } = new JSDOM("<main></main>"), { document, HTMLElement } = window;
   HTMLElement.prototype.addClass = function (...names) { this.classList.add(...names); };

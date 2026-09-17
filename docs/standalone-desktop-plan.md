@@ -1,10 +1,12 @@
 # 独立桌面版（Electron）实施方案
 
-> 状态：M1 进行中。本文是 P0/P1 的施工依据；插件本体与 CI 在 M1 期间保持不变。
+> 状态：产品定位为**独立桌面应用**（UV Reader / 柚肥阅读），不再作为 Obsidian 插件开发与发布。
 > 关联约束见根 `AGENTS.md`；设计契约见 `DESIGN.md`。
 
 ## 0. 当前进度（2026-09）
 
+- 插件外壳已移除：删除 `manifest.json`、`versions.json`、根 `main.js`/`styles.css`、插件构建（`esbuild.config.mjs`）与发布校验（`scripts/verify-release.mjs`、`scripts/build-profile.mjs`）；CI 改为桌面端门禁（单测 → shim → 桌面 → i18n → eslint → 桌面构建 → xvfb 冒烟）。
+- 包边界建立（M2 起步）：`src/` 迁移为 `packages/reader/src/`，测试、i18n 检查、eslint 与桌面构建路径同步更新；下一步把 `packages/reader/src/main.js` 里的阅读 UI（ReaderView、选文、HUD、PDF 装配）抽成宿主无关模块，逐步去掉对 `packages/host-shim` 的依赖。
 - P0 完成：`apps/desktop/` 脚手架与三产物构建（`renderer.js`/`main.cjs`/`preload.cjs` + `base.css`/`styles.css`），不触碰根产物。
 - P1 完成：`packages/host-shim` 实现 Plugin/ItemView/Workspace/Vault/Modal/Setting/Notice/Menu/Scope/DOM 扩展/requestUrl/secrets/MarkdownRenderer；27 项契约测试通过（含 `src/main.js` 导入符号对齐）。
 - P2 已跑通：`npm run smoke` 在 Electron 中实际启动插件，EPUB（`assets/starter-books/11.epub`）与 PDF 均可打开并达到就绪状态；进度写入 `library/plugin/reading-progress.json`，阅读笔记写入 `library/notes/<书名>.md`，AI 会话拆分到 `data/chat/`。

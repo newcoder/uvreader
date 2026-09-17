@@ -1,7 +1,7 @@
 import { configureHost, createApp, installDomExtensions } from "obsidian";
 import { marked } from "marked";
 
-import QiaomuBookReader from "../../../../src/main.js";
+import QiaomuBookReader from "../../../../packages/reader/src/main.js";
 import { isBookFile } from "../shared/books.js";
 import { iconResolver } from "./icons.js";
 import { createHomeView, createNoteView, createSettingsView, createTocView } from "./views.js";

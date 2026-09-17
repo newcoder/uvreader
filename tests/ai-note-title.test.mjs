@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { suggestAiNoteTitle } from "../src/ai-note-title.js";
+import { suggestAiNoteTitle } from "../packages/reader/src/ai-note-title.js";
 
 const cases = [
   ["heading", "## 重要性如何放大紧张\n\n买房决策…", "重要性如何放大紧张"],

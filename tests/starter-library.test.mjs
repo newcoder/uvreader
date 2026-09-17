@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import JSZip from "jszip";
 import { JSDOM } from "jsdom";
-import { createStarterLibraryInstaller } from "../src/starter-library.js";
+import { createStarterLibraryInstaller } from "../packages/reader/src/starter-library.js";
 
 function setup(initialState) {
   const files = new Map(); let state = initialState; let failPath; let savesFail = false;

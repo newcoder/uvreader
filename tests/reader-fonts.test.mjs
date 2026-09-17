@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
 import test from 'node:test';
-import { MAX_FONT_BYTES, ReaderFontStore, fontFileFormat, importedReaderFonts, listSystemFonts } from '../src/reader-fonts.js';
-import { resolveReaderFont } from '../src/reader-appearance.js';
+import { MAX_FONT_BYTES, ReaderFontStore, fontFileFormat, importedReaderFonts, listSystemFonts } from '../packages/reader/src/reader-fonts.js';
+import { resolveReaderFont } from '../packages/reader/src/reader-appearance.js';
 
 const data = (signature = [0, 1, 0, 0]) => new Uint8Array([...signature, 1, 2, 3, 4]).buffer;
 const upload = (bytes = data(), name = '阅读字体.ttf') => ({ name, size: bytes.byteLength, arrayBuffer: async () => bytes });

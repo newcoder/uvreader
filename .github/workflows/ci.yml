@@ -19,11 +19,16 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - run: npm run test:shim
+      - run: npm run test:desktop
       - run: npm run check:i18n
-      - run: npm run build
-      - run: npm run verify:release
-      - run: npx eslint src/ --max-warnings=0
-      - name: Verify committed build artifact
-        run: git diff --exit-code -- main.js styles.css
-      - name: Verify community candidate excludes the ACP installer
-        run: npm run build:community
+      - run: npx eslint packages/reader/src/ --max-warnings=0
+      - name: Build the desktop bundles
+        run: |
+          cd apps/desktop
+          npm ci
+          npm run build
+      - name: Smoke the desktop shell (virtual display)
+        run: xvfb-run -a npm run desktop:smoke
+        env:
+          CI: "1"

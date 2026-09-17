@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import fs from "node:fs";
 import vm from "node:vm";
-import { createBookCover, coverAuthor, coverPalette } from "../src/book-cover.js";
+import { createBookCover, coverAuthor, coverPalette } from "../packages/reader/src/book-cover.js";
 
 test("cover metadata is inert XML, including hostile titles and structured authors", () => {
   const title = '<script>alert("x")</script> & Books';
@@ -34,7 +34,7 @@ test("starter books have distinct stable palettes and covers are reproducible", 
 });
 
 test("existing books get metadata covers without rewriting bytes, and embedded covers retain priority", async () => {
-  const source = fs.readFileSync(new URL("../src/reader-engine.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/reader-engine.js", import.meta.url), "utf8");
   const method = source.slice(source.indexOf("export async function coverFromBytes")).replace("export ", "");
   for (const kind of ["missing", "broken", "embedded"]) {
     const embedded = new Blob(["cover"], { type: "image/png" });
@@ -56,7 +56,7 @@ test("existing books get metadata covers without rewriting bytes, and embedded c
 });
 
 test("old generated cover cache migrates once without removing real artwork", async () => {
-  const { migrateCoverCache } = await import("../src/book-cover.js");
+  const { migrateCoverCache } = await import("../packages/reader/src/book-cover.js");
   const svg = createBookCover({ title: "道德经" });
   const cache = { generated: "data:image/svg+xml;base64," + Buffer.from(svg).toString("base64"), original: "data:image/jpeg;base64,YQ==", customSvg: "data:image/svg+xml;base64," + btoa('<svg><circle/></svg>') };
   assert.deepEqual(Object.keys(migrateCoverCache(cache)), ["original", "customSvg"]);
@@ -65,12 +65,12 @@ test("old generated cover cache migrates once without removing real artwork", as
 });
 
 test("curated cover upgrades only starter identities and missing/generated artwork", async () => {
-  const { findStarterBook } = await import("../src/starter-library.js");
-  const { isGeneratedBookCover } = await import("../src/book-cover.js");
+  const { findStarterBook } = await import("../packages/reader/src/starter-library.js");
+  const { isGeneratedBookCover } = await import("../packages/reader/src/book-cover.js");
   const books = [{ id: "7337" }];
   assert.equal(findStarterBook({ identifier: "urn:qbr:starter:7337" }, books), books[0]);
   assert.equal(findStarterBook({ title: "道德经", identifier: "some-other-edition" }, books), undefined);
-  const source = fs.readFileSync(new URL("../src/reader-engine.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/reader-engine.js", import.meta.url), "utf8");
   const method = source.slice(source.indexOf("export async function coverFromBytes")).replace("export ", "");
   for (const kind of ["missing", "generated", "jpeg", "custom-svg", "resolver-failure"]) {
     let resolved = 0, destroyed = 0;

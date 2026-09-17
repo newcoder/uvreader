@@ -16,7 +16,7 @@ const prod = process.argv.includes("--production");
 
 const shim = path.join(repoRoot, "packages/host-shim/src/index.js");
 const stub = path.join(repoRoot, "build-stubs/empty.js");
-const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, "manifest.json"), "utf8"));
+const appPackage = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
 const foliate = foliateElements(repoRoot);
 
 const fontLicense = fs.readFileSync(path.join(repoRoot, "fonts/OFL.txt"), "utf8");
@@ -83,7 +83,7 @@ const rendererConfig = {
   },
   define: {
     __PDF_WORKER_CODE__: JSON.stringify(workerCode),
-    __QBR_VERSION__: JSON.stringify(manifest.version),
+    __QBR_VERSION__: JSON.stringify(appPackage.version),
     ...foliate.define,
   },
   plugins: [foliate.plugin],
@@ -115,7 +115,7 @@ const preloadConfig = {
 
 function writeAssets() {
   fs.mkdirSync(dist, { recursive: true });
-  const css = fs.readFileSync(path.join(repoRoot, "src/styles.css"), "utf8")
+  const css = fs.readFileSync(path.join(repoRoot, "packages/reader/src/styles.css"), "utf8")
     + `\n/* Bundled reading subset: SIL OFL 1.1\n${fontLicense}\n*/\n`
     + `@font-face { font-family: 'QBR Zhuque Fangsong'; src: url('data:font/woff2;base64,${fontData}') format('woff2'); font-style: normal; font-weight: 400; font-display: swap; }\n`;
   fs.writeFileSync(path.join(dist, "styles.css"), css);

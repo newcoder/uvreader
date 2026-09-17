@@ -3,9 +3,9 @@ import fs from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
 import { JSDOM } from "jsdom";
-import { textPoint, captureReadingAnchor, restoreReadingAnchor, queueReadingLayout, shouldFollowContext, comfortableLineWidth, zoomAnchorOffset } from "../src/reader-experience.js";
+import { textPoint, captureReadingAnchor, restoreReadingAnchor, queueReadingLayout, shouldFollowContext, comfortableLineWidth, zoomAnchorOffset } from "../packages/reader/src/reader-experience.js";
 
-const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const rect = (left, top, width = 400, height = 500) => ({ left, top, width, height, right: left + width, bottom: top + height });
 
@@ -156,7 +156,7 @@ test("initial layout and reflow scroll events cannot overwrite the saved reading
 });
 
 test("scroll anchors do not inherit smooth scrolling from CSS", () => {
-  const css = fs.readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   assert.doesNotMatch(css, /scroll-behavior:\s*smooth/);
   assert.match(source, /behavior: animate \? "smooth" : "auto"/);
 });

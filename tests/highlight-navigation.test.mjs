@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
-import { addMissingQuoteLinks, highlightBacklink, jumpToEngineHighlight } from "../src/highlight-navigation.js";
+import { addMissingQuoteLinks, highlightBacklink, jumpToEngineHighlight } from "../packages/reader/src/highlight-navigation.js";
 
 const cfi = "epubcfi(/6/30!/4/26,/1:351,/1:357)";
 
@@ -58,7 +58,7 @@ test("existing notes get only missing exact quote links, preserving manual edits
 });
 
 test("protocol dispatch waits for its opened view and keeps CFI ahead of legacy page fields", async () => {
-  const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
   const code = source.slice(source.indexOf("  async openBookAt("), source.indexOf("  _dataFolder()"));
   class TFile { constructor(path) { this.path = path; } }
   const file = new TFile("书籍/a.mobi");
@@ -85,7 +85,7 @@ test("protocol dispatch waits for its opened view and keeps CFI ahead of legacy 
 });
 
 test("new and existing note protocols dispatch to the same book location", async () => {
-  const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
   const code = source.slice(source.indexOf("  _registerBookProtocol() {"), source.indexOf("  _registerReaderExtensions() {"));
   const register = vm.runInNewContext(`({${code}})._registerBookProtocol`);
   const handlers = new Map();
@@ -99,7 +99,7 @@ test("new and existing note protocols dispatch to the same book location", async
 });
 
 test("reading-note paths resolve settings from the new plugin identity", () => {
-  const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
   const code = source.slice(source.indexOf("function _readerSettings(app)"), source.indexOf("function inboxNotePath("));
   const resolve = vm.runInNewContext(`(()=>{${code};return bookNotesFolderPath})()`, { qiaomuReaderPath: (s) => s });
   const app = { plugins: { plugins: { "qiaomu-reader": { settings: { bookNotesFolder: "阅读笔记" } }, "qiaomu-book-reader": { settings: { bookNotesFolder: "旧路径" } } } } };

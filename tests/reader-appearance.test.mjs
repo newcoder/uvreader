@@ -3,10 +3,10 @@ import fs from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
 import { JSDOM } from "jsdom";
-import { FONT_FILE_ACCEPT, importedReaderFonts } from "../src/reader-fonts.js";
-import { normalizeCustomFontFamily, resolveReaderFont, readerTextCss, syncPageButtons } from "../src/reader-appearance.js";
+import { FONT_FILE_ACCEPT, importedReaderFonts } from "../packages/reader/src/reader-fonts.js";
+import { normalizeCustomFontFamily, resolveReaderFont, readerTextCss, syncPageButtons } from "../packages/reader/src/reader-appearance.js";
 
-const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
 
 test("custom fonts accept Chinese names, spaces, quoted commas and generic fallbacks", () => {
   assert.equal(normalizeCustomFontFamily("  思源宋体, PingFang SC, sans-serif "), '"思源宋体", "PingFang SC", sans-serif');

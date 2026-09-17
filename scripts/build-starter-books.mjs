@@ -66,4 +66,4 @@ for (const book of catalog) {
   console.log(`${book.title}: ${epub.length} bytes (${sections.length} sections)`);
 }
 await fs.writeFile(new URL("editions.json", dir), JSON.stringify(output, null, 2) + "\n");
-await fs.writeFile(new URL("../src/starter-book-data.js", import.meta.url), output.map(b => `import book${b.id} from "../assets/starter-books/${b.id}.epub";`).join("\n") + "\nexport const STARTER_BOOKS = [\n" + output.sort((a,b)=>a.epubBytes-b.epubBytes).map(b=>`  { id: "${b.id}", filename: ${JSON.stringify(b.title+'.epub')}, data: book${b.id} },`).join("\n") + "\n];\n");
+await fs.writeFile(new URL("../packages/reader/src/starter-book-data.js", import.meta.url), output.map(b => `import book${b.id} from "../../../assets/starter-books/${b.id}.epub";`).join("\n") + "\nexport const STARTER_BOOKS = [\n" + output.sort((a,b)=>a.epubBytes-b.epubBytes).map(b=>`  { id: "${b.id}", filename: ${JSON.stringify(b.title+'.epub')}, data: book${b.id} },`).join("\n") + "\n];\n");

@@ -9,8 +9,10 @@ const appRoot = path.resolve(here, "..");
 const repoRoot = path.resolve(appRoot, "../..");
 const book = process.argv[2] || path.join(repoRoot, "assets/starter-books/11.epub");
 const electronCli = path.join(appRoot, "node_modules/electron/cli.js");
+// Chromium sandboxes need kernel support that CI containers usually lack.
+const extraArgs = process.env.CI ? ["--no-sandbox"] : [];
 
-const child = spawn(process.execPath, [electronCli, ".", "--qbr-smoke", book], {
+const child = spawn(process.execPath, [electronCli, ".", "--qbr-smoke", book, ...extraArgs], {
   cwd: appRoot,
   stdio: "inherit",
 });

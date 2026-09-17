@@ -3,9 +3,9 @@ import fs from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
 import { JSDOM } from "jsdom";
-import { coverPalette } from "../src/book-cover.js";
+import { coverPalette } from "../packages/reader/src/book-cover.js";
 
-const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
 function setup() {
   const { window } = new JSDOM("<main></main>");
   const { document, HTMLElement } = window;

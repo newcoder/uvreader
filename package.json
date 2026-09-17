@@ -1,36 +1,39 @@
 {
-  "name": "qiaomu-reader",
+  "name": "uvreader",
   "version": "4.2.15",
-  "description": "中文优先的 Obsidian EPUB 与 PDF 阅读器，支持划线、批注、阅读笔记和进度同步。",
-  "main": "main.js",
+  "description": "中文优先的独立桌面阅读器，支持 EPUB、PDF、FB2、MOBI、AZW3 与 CBZ，含划线、批注、阅读笔记和可选 AI 伴读。",
   "type": "module",
   "scripts": {
     "postinstall": "node patch-pdfjs.cjs",
-    "dev": "node esbuild.config.mjs",
-    "build": "node scripts/generate-pdf-cmaps.mjs && node esbuild.config.mjs production && node patch-pdfjs.cjs",
-    "build:community": "node scripts/generate-pdf-cmaps.mjs && node esbuild.config.mjs production --profile=community && node scripts/verify-release.mjs --profile=community",
-    "check:i18n": "node scripts/check-i18n.mjs",
     "test": "node --test tests/*.test.mjs",
-    "verify:release": "node scripts/verify-release.mjs",
-    "build:books": "node scripts/build-starter-books.mjs"
+    "test:shim": "node --test packages/host-shim/test/*.test.mjs",
+    "test:desktop": "node --test apps/desktop/test/*.test.mjs",
+    "check:i18n": "node scripts/check-i18n.mjs",
+    "build:books": "node scripts/build-starter-books.mjs",
+    "desktop:install": "npm --prefix apps/desktop install",
+    "desktop:build": "npm --prefix apps/desktop run build",
+    "desktop:dev": "npm --prefix apps/desktop run dev",
+    "desktop:start": "npm --prefix apps/desktop run start",
+    "desktop:smoke": "npm --prefix apps/desktop run smoke",
+    "desktop:e2e": "npm --prefix apps/desktop run e2e"
   },
   "keywords": [
-    "obsidian",
-    "obsidian-plugin",
-    "epub",
-    "fb2",
-    "pdf",
     "reader",
-    "highlights"
+    "epub",
+    "pdf",
+    "fb2",
+    "mobi",
+    "azw3",
+    "cbz",
+    "electron",
+    "desktop"
   ],
   "author": "向阳乔木",
   "license": "GPL-3.0-only",
   "devDependencies": {
     "esbuild": "0.28.1",
     "eslint": "^9.39.5",
-    "eslint-plugin-obsidianmd": "^0.4.1",
-    "jsdom": "^29.1.1",
-    "obsidian": "latest"
+    "jsdom": "^29.1.1"
   },
   "dependencies": {
     "foliate-js": "^1.0.1",

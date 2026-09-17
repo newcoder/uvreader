@@ -4,12 +4,12 @@ import fs from "node:fs";
 import vm from "node:vm";
 import { webcrypto } from "node:crypto";
 import { JSDOM } from "jsdom";
-import { searchBookBlocks, searchableQuery, nextSearchIndex } from "../src/reader-search.js";
-import { loadAiDrafts, normalizeDrafts } from "../src/ai-drafts.js";
-import { aiAnswerMarker, appendAiAnswer, verifiedQuotes, normalizeLocationMarks } from "../src/reading-workflow.js";
-import { bindAiComposer } from "../src/ai-composer.js";
+import { searchBookBlocks, searchableQuery, nextSearchIndex } from "../packages/reader/src/reader-search.js";
+import { loadAiDrafts, normalizeDrafts } from "../packages/reader/src/ai-drafts.js";
+import { aiAnswerMarker, appendAiAnswer, verifiedQuotes, normalizeLocationMarks } from "../packages/reader/src/reading-workflow.js";
+import { bindAiComposer } from "../packages/reader/src/ai-composer.js";
 
-const source = fs.readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 test("search supports single Han, literal metacharacters and original Unicode offsets", () => {
