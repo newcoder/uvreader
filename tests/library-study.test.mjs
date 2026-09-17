@@ -5,7 +5,11 @@ import test from "node:test";
 import { JSDOM } from "jsdom";
 import { coverPalette } from "../packages/reader/src/book-cover.js";
 
-const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+// The library modal lives in its own module now; the test evaluates the
+// factory with stub ports so the class keeps running against jsdom.
+const modalSource = fs.readFileSync(new URL("../packages/reader/src/library-modal.js", import.meta.url), "utf8");
+const modalFactory = modalSource.slice(modalSource.indexOf("export function createLibraryModal(")).replace("export function", "function");
+
 function setup() {
   const { window } = new JSDOM("<main></main>");
   const { document, HTMLElement } = window;
@@ -26,11 +30,19 @@ function setup() {
   let reads = 0, notes = 0, menus = 0, panels = 0;
   const reader = { file: { path: "Books/example.epub" }, hlPan: {}, togglePanel(name) { this.panelOpen = name; panels++; } };
   const plugin = { settings: {}, getProgress: () => ({ percent: 12 }), getHighlights: () => [{ text: "A useful idea" }], openFile: async () => { reads++; return reader; } };
-  const code = source.slice(source.indexOf("const LibraryModal = class"), source.indexOf("// ── Mobile full-screen reader modal", source.indexOf("const LibraryModal = class")));
-  const Library = vm.runInNewContext(`${code}; LibraryModal`, { Modal: class { close() {} }, window,
-    qiaomuReaderTranslate: (key, n) => n === undefined ? key : `${key}:${n}`, svgIcon() {},
-    bookNoteLinkFor: () => "linked", resolveBookNote: () => ({}), openOrCreateBookNoteBeside: async () => { notes++; },
-    Notice: class {}, Date, qiaomuReaderPath: value => value, coverPalette,
+  const Library = vm.runInNewContext(`${modalFactory}\ncreateLibraryModal({
+    Modal, Notice, window, qiaomuReaderTranslate, svgIcon, docOf, bookNoteLinkFor,
+    resolveBookNote, openOrCreateBookNoteBeside, qiaomuReaderPath, coverPalette,
+    coverFromBytes: () => null, STARTER_BOOKS: [], findStarterBook: () => null,
+    pdfjsLib: {}, BOOK_EXTENSIONS: __bookExtensions,
+  })`, {
+    Modal: class { close() {} }, window, Date, console,
+    qiaomuReaderTranslate: (key, n) => n === undefined ? key : `${key}:${n}`,
+    svgIcon() {}, docOf: (el) => el.ownerDocument,
+    bookNoteLinkFor: () => "linked", resolveBookNote: () => ({}),
+    openOrCreateBookNoteBeside: async () => { notes++; },
+    Notice: class {}, qiaomuReaderPath: value => value, coverPalette,
+    __bookExtensions: new Set(["epub", "pdf"]),
   });
   const library = new Library({}, plugin);
   library.loadThumb = async () => {};

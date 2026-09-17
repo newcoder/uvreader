@@ -10,7 +10,8 @@ const source = await fs.readFile(new URL("../packages/reader/src/main.js", impor
 const selectionSource = await fs.readFile(new URL("../packages/reader/src/selection-actions.js", import.meta.url), "utf8");
 const viewSource = await fs.readFile(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
 const modalSource = await fs.readFile(new URL("../packages/reader/src/reader-modal.js", import.meta.url), "utf8");
-const readerSources = source + viewSource + modalSource;
+const librarySource = await fs.readFile(new URL("../packages/reader/src/library-modal.js", import.meta.url), "utf8");
+const readerSources = source + viewSource + modalSource + librarySource;
 const readingNoteSource = await fs.readFile(new URL("../packages/reader/src/reading-note.js", import.meta.url), "utf8");
 const packageJson = JSON.parse(await fs.readFile(new URL("../package.json", import.meta.url), "utf8"));
 
@@ -105,7 +106,7 @@ if (!source.includes("iconBacklinksMigrated") || !source.includes("await syncHig
 if (source.includes('.setName(qiaomuReaderTranslate("wording-of-that-link"))')) {
   errors.push("The retired text-label setting for reading-note backlinks is still visible");
 }
-if (!source.includes('svgIcon(mark, "qiaomu-library")') || source.includes('brand.createDiv("qiaomu-reader-lib-logo").setText("\\u{1F4DA}")')) {
+if (!librarySource.includes('svgIcon(mark, "qiaomu-library")') || librarySource.includes('brand.createDiv("qiaomu-reader-lib-logo").setText("\\u{1F4DA}")')) {
   errors.push("The library still uses the old emoji logo instead of the Qiaomu book mark");
 }
 if (!source.includes("autoBookNote: true") || !source.includes("quotesToBookNote: true")) {

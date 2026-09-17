@@ -28,7 +28,8 @@ import { EmbeddedPdfBinaryDataFactory, PDF_CMAP_OPTIONS } from "../packages/read
 const mainSource = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
 const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
 const modalSource = fs.readFileSync(new URL("../packages/reader/src/reader-modal.js", import.meta.url), "utf8");
-const readerSources = mainSource + viewSource + modalSource;
+const librarySource = fs.readFileSync(new URL("../packages/reader/src/library-modal.js", import.meta.url), "utf8");
+const readerSources = mainSource + viewSource + modalSource + librarySource;
 import { EMBEDDED_PDF_CMAPS } from "../packages/reader/src/pdf-cmaps-data.js";
 import { PDF_AI_CONTEXT_MAX_CHARS, READER_BLOCK_SELECTOR, packPdfDocumentContext, pdfPageKind, pdfPageShell, pdfPageTextFallback, pdfPageTextForAi } from "../packages/reader/src/pdf-page-mode.js";
 import { PDF_ZOOM_MAX, PDF_ZOOM_MIN, clampPdfZoom, pdfZoomFromWheel, pdfZoomPercent, pdfZoomShortcut, stepPdfZoom } from "../packages/reader/src/pdf-zoom.js";
@@ -859,8 +860,8 @@ test("reader lifecycle cancels stale loads and releases PDF resources", () => {
   assert.match(readerSources, /this\._pdfLazy\?\.destroy\?\.\(\)/);
   assert.match(source, /_loadingTask: loadingTask/);
   assert.match(source, /try \{ void loadingTask\.destroy\(\); \} catch/);
-  assert.match(source, /async makePdfThumb\(pdfFile\)[\s\S]*return this\._renderPdfCover\(bytes\)/); // thumbnail delegates to the shared PDF cover renderer
-  assert.match(source, /async _renderPdfCover\(bytes\)[\s\S]*const loadingTask = pdfjsLib\.getDocument\([\s\S]*finally \{[\s\S]*await loadingTask\.destroy\(\)/);
+  assert.match(readerSources, /async makePdfThumb\(pdfFile\)[\s\S]*return this\._renderPdfCover\(bytes\)/); // thumbnail delegates to the shared PDF cover renderer
+  assert.match(readerSources, /async _renderPdfCover\(bytes\)[\s\S]*const loadingTask = pdfjsLib\.getDocument\([\s\S]*finally \{[\s\S]*await loadingTask\.destroy\(\)/);
   assert.doesNotMatch(source, /doc\.destroy\(\)/);
 });
 
