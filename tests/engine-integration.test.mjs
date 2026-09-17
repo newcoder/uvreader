@@ -10,6 +10,7 @@ import { foliateElements } from "../scripts/foliate-elements.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const source = fs.readFileSync(path.join(root, "packages", "reader", "src", "main.js"), "utf8");
+const viewSource = fs.readFileSync(path.join(root, "packages", "reader", "src", "reader-view.js"), "utf8");
 const selectionSource = fs.readFileSync(path.join(root, "packages", "reader", "src", "selection-actions.js"), "utf8");
 function sliceFunction(text, name, indent = "") {
   const start = text.indexOf(`function ${name}(`);
@@ -45,7 +46,7 @@ test("switching a reused PDF flow between paged and scroll modes clears stale ge
 });
 
 test("engine resize leaves layout to Foliate and never raises the legacy loading mask", () => {
-  const method = source.slice(source.indexOf("  _onAreaResized() {"), source.indexOf("  _repaginateAfterResize() {"));
+  const method = viewSource.slice(viewSource.indexOf("  _onAreaResized() {"), viewSource.indexOf("  _repaginateAfterResize() {"));
   const resize = vm.runInNewContext(`({${method}})._onAreaResized`);
   const flags = [];
   resize.call({ bookHtml: "engine", engine: {}, containerEl: { offsetParent: {} },
@@ -54,7 +55,7 @@ test("engine resize leaves layout to Foliate and never raises the legacy loading
 });
 
 test("reading panel repagination forwards changed settings to an active engine", async () => {
-  const method = source.slice(source.indexOf("  async repaginate() {"), source.indexOf("  async _repaginateAnchored(anchor) {"));
+  const method = viewSource.slice(viewSource.indexOf("  async repaginate() {"), viewSource.indexOf("  async _repaginateAnchored(anchor) {"));
   const repaginate = vm.runInNewContext(`({${method}}).repaginate`);
   const actions = [];
   await repaginate.call({ bookHtml: "engine", engine: {},
@@ -353,7 +354,7 @@ test("closing an unfinished PDF never replaces the last saved position with page
 });
 
 test("pending highlight restoration cannot paint the next book in either reader", async () => {
-  const methods = [...source.matchAll(/  _renderEngineHighlights\(\) \{[\s\S]*?\n  \}/g)];
+  const methods = [...(source + "\n" + viewSource).matchAll(/  _renderEngineHighlights\(\) \{[\s\S]*?\n  \}/g)];
   assert.equal(methods.length, 2);
   for (const [method] of methods) {
     const render = vm.runInNewContext(`({${method}})._renderEngineHighlights`, {

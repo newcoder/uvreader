@@ -5,6 +5,7 @@ import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { highlightBacklink } from '../packages/reader/src/highlight-navigation.js';
 const source = fs.readFileSync(new URL('../packages/reader/src/main.js', import.meta.url), 'utf8');
+const viewSource = fs.readFileSync(new URL('../packages/reader/src/reader-view.js', import.meta.url), 'utf8');
 class TFile { constructor(path) { this.path = path; this.extension = path.split('.').at(-1); this.basename = path.split('/').at(-1).replace(/\.[^.]+$/, ''); } }
 class MarkdownView {}
 function harness() {
@@ -82,8 +83,8 @@ test('reader companion entry renders an icon and opens setup before configuratio
   tray.createEl=(tag,spec)=>{const el=document.createElement(tag);el.className=spec.cls;for(const [key,value] of Object.entries(spec.attr))el.setAttribute(key,value);tray.append(el);return el;};
   let opened=0;
   const view={plugin:{openAiChat:()=>opened++}};
-  const helper=source.slice(source.indexOf('    const trayButton ='),source.indexOf('    trayButton("reading-note"'));
-  const entry=source.slice(source.indexOf('    this.aiBtn = trayButton('),source.indexOf('    this.fitBtn = trayButton('));
+  const helper=viewSource.slice(viewSource.indexOf('    const trayButton ='),viewSource.indexOf('    trayButton("reading-note"'));
+  const entry=viewSource.slice(viewSource.indexOf('    this.aiBtn = trayButton('),viewSource.indexOf('    this.fitBtn = trayButton('));
   vm.runInNewContext(`(function(){${helper}${entry}}).call(view)`,{view,tray,svgIcon:()=>{},setIcon:(el,name)=>{assert.equal(name,'sparkles');el.append(document.createElementNS('http://www.w3.org/2000/svg','svg'));},qiaomuReaderTranslate:x=>x,readerAiPanelContext:()=>({})});
   assert.ok(view.aiBtn.querySelector('svg'));
   assert.equal(view.aiBtn.hidden,false);

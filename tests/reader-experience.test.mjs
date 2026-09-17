@@ -7,6 +7,7 @@ import { textPoint, captureReadingAnchor, restoreReadingAnchor, queueReadingLayo
 import { createReaderHud } from "../packages/reader/src/reader-hud.js";
 
 const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
 const selectionSource = fs.readFileSync(new URL("../packages/reader/src/selection-actions.js", import.meta.url), "utf8");
 const readerHud = createReaderHud({ translate: (key) => key, notice() {}, window: globalThis, platform: { isMobile: false }, isPdf: () => false, jumpToHighlight: async () => {} });
 const tick = () => new Promise((resolve) => setImmediate(resolve));
@@ -220,8 +221,8 @@ test("focus mode restores both sidebar states and is idempotent", () => {
 test("opening AI and activating its right dock preserve focus without restoring the file tree", async () => {
   // onOpen registers `(leaf) => this._onLeafSwitch(leaf)`; extract the handler
   // body and drive it through that same delegation.
-  const methodStart = source.indexOf("  _onLeafSwitch(leaf) {");
-  const method = source.slice(methodStart, source.indexOf("  async openFile(file) {", methodStart));
+  const methodStart = viewSource.indexOf("  _onLeafSwitch(leaf) {");
+  const method = viewSource.slice(methodStart, viewSource.indexOf("  async openFile(file) {", methodStart));
   let cleared = 0, exited = 0;
   const workspace = {
     leftSplit: { collapsed: true }, rightSplit: { collapsed: true },

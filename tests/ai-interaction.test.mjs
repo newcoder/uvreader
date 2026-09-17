@@ -10,6 +10,7 @@ import { shouldFollowContext } from "../packages/reader/src/reader-experience.js
 import { verifiedQuotes } from "../packages/reader/src/reading-workflow.js";
 
 const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 function dom() {
@@ -571,7 +572,7 @@ test("automatic selection sync only updates an existing AI sidebar and never ope
   assert.equal(chat.options.focusInput, false);
   assert.equal(chat.options.selection, true);
   assert.equal(chat.options.silent, true);
-  assert.equal((source.match(/syncOpenAiSelectionContext\(this, range\)/g) || []).length, 2);
+  assert.equal(((source + viewSource).match(/syncOpenAiSelectionContext\(this, range\)/g) || []).length, 2);
   assert.match(source, /syncOpenAiSelectionContext\(view, range\);/);
 });
 
