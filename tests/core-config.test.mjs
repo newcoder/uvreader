@@ -301,6 +301,7 @@ test("empty synced JSON placeholders stay blocked until the user restores or rem
 
 test("reader persistence refuses to overwrite unreadable stores and reports real save failures", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const selection = fs.readFileSync(new URL("../packages/reader/src/selection-actions.js", import.meta.url), "utf8");
   assert.match(source, /this\._blockedStores\.add\(path5\)/);
   assert.match(source, /this\._unreadableStores\.set\(path5/);
   assert.match(source, /async retryUnreadableStore\(path5\)/);
@@ -308,7 +309,7 @@ test("reader persistence refuses to overwrite unreadable stores and reports real
   assert.match(source, /if \(this\._blockedStores\.has\(path5\)\) return false/);
   assert.match(source, /stores\.some\(\(store\) => store === false\)/);
   assert.match(source, /const saved = await this\._persistHighlights/);
-  assert.match(source, /if \(!saved\) \{[\s\S]*could-not-save-the-comment/);
+  assert.match(selection, /if \(!saved\) throw new Error\("Comment was not saved"\)[\s\S]*could-not-save-the-comment/);
   assert.match(source, /function renderReaderLoadError/);
   assert.match(source, /try-again/);
 });
@@ -697,25 +698,23 @@ test("AI prompt and context are Chinese-first", () => {
 });
 
 test("selection popup keeps primary actions compact and moves note tools into More", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/selection-actions.js", import.meta.url), "utf8");
+  const main = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
   const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
-  const start = source.indexOf("function selectionActions");
-  const end = source.indexOf("const AiExplainModal", start);
-  const popupSource = source.slice(start, end);
-  assert.match(popupSource, /void view\.plugin\.openAiChat\(context\)/); // Unconfigured users reach inline setup.
-  assert.match(popupSource, /ai: \["qiaomu-reader-hl-ai", "sparkles"/); // AI entry in the button descriptor table
-  assert.match(popupSource, /kind: "selection"[\s\S]*text: cur\.text[\s\S]*bookFile: view\.file/);
-  assert.match(popupSource, /button\(row, "qiaomu-reader-hl-menu", "ellipsis"/); // More entry in the button table
-  assert.match(popupSource, /add\(qiaomuReaderTranslate\("create-note"\)/);
-  assert.match(popupSource, /"delete-highlight-and-comment" : "delete-highlight"/);
-  assert.doesNotMatch(popupSource, /act\("qiaomu-reader-hl-note"/);
+  assert.match(source, /void view\.plugin\.openAiChat\(context\)/); // Unconfigured users reach inline setup.
+  assert.match(source, /ai: \["qiaomu-reader-hl-ai", "sparkles"/); // AI entry in the button descriptor table
+  assert.match(source, /kind: "selection"[\s\S]*text: cur\.text[\s\S]*bookFile: view\.file/);
+  assert.match(source, /button\(row, "qiaomu-reader-hl-menu", "ellipsis"/); // More entry in the button table
+  assert.match(source, /add\(translate\("create-note"\)/);
+  assert.match(source, /"delete-highlight-and-comment" : "delete-highlight"/);
+  assert.doesNotMatch(source, /act\("qiaomu-reader-hl-note"/);
   assert.match(source, /hlCommentQuoteBlock\(editor, current\.text\)/); // quote text comes from the active highlight
   assert.match(source, /const quote = editor\.createDiv\(\{ cls: "qiaomu-reader-hl-comment-quote", text \}\)/);
   assert.match(source, /event\.key === "Enter" && \(event\.metaKey \|\| event\.ctrlKey\) && !event\.isComposing/);
   assert.match(source, /event\.key === "Escape"[\s\S]*view\._hideHlPopup\(\)/);
   assert.match(css, /\.qiaomu-reader-hl-popup-commenting \.qiaomu-reader-hl-actions \{ display:none; \}/);
   assert.match(css, /-webkit-line-clamp:3/);
-  assert.doesNotMatch(source, /brain-circuit/);
+  assert.doesNotMatch(main, /brain-circuit/);
 });
 
 test("AI dialog uses built-in quick prompts and keeps reasoning separate", () => {

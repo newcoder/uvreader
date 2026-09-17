@@ -152,6 +152,7 @@ AI 会话拆文件在 shim 的 `loadData/saveData` 完成，`src/main.js` 无感
 | M2.1 | `reader-dom.js`（`docOf/winOf/selOf`）与 `reader-icons.js`（icon 表、`ensureSvgNamespace/parseSvgRoot/svgIcon/iconLabel`，`DOMParser` 从宿主 window 取） | 完成，`tests/reader-icons.test.mjs` |
 | M2.2 | `page-jump.js`（`createPageJump({ translate, svgIcon, docOf, isPdf, pdfPages, rememberJump })`：`pageInfo/update/jump/build`） | 完成，`tests/page-jump.test.mjs` |
 | M2.3 | `pdf-zoom-ui.js`（`createPdfZoomUi({ translate, isPdf })`：`syncControls/visiblePageScrollers/apply/change/fitWidth/fitPageWidth/setPanMode`；`Menu`/`Modal` 装配仍留在 `main.js`） | 完成，`tests/pdf-zoom-ui.test.mjs` |
-| M2.4 | 选文/HUD、`ReaderView` 装配拆到 ports 注入 | 计划 |
+| M2.4a | `selection-actions.js`（`createSelectionActions(ports)`：选文→高亮弹层→三色下拉→批注编辑器→More 菜单→AI/复制/翻译入口，21 个函数；端口为 translate/Notice/Menu/Scope/TranslateModal/setIcon/window/isPdf/hlColorCss/hlColors/positionPopup/refreshHlPanel/autoFocus/paintAiSource/copyToClipboard/quoteMarkdown/createNoteFromSelection/hlCommentMd/flowSelectionParts/raiseSelectionPopup） | 完成，`tests/selection-actions.test.mjs` 直接 import 模块 |
+| M2.4b | `ReaderView` 装配（`main.js` 约 1200 行，`this.plugin`×56）与脚注/计时 HUD | 计划 |
 
-注意事项：新模块导出的符号必须显式 `export`（构建期缺失只会让 esbuild 降级成 `(void 0)`，`npm test` 抓不到，靠 smoke/E2E 兜底）；测试用 `jsdom` + `installDomExtensions(window)` 补 Obsidian DOM 扩展。
+注意事项：新模块导出的符号必须显式 `export`（构建期缺失只会让 esbuild 降级成 `(void 0)`，`npm test` 抓不到，靠 smoke/E2E 兜底）；测试用 `jsdom` + `installDomExtensions(window)` 补 Obsidian DOM 扩展。抽离后按名字切 `main.js` 源码的测试要改读新模块（`core-config`、`engine-integration`、`reader-experience`、`check-i18n` 均已同步）；模块内函数有 2 空格缩进，按 `\n}` 切函数会切到工厂结尾，需带缩进匹配。端口命名避免与函数内局部变量重名（`HL_COLORS`→`hlColors` 就撞上了 `openSelectionMoreMenu` 里的局部 `colors`）。

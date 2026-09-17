@@ -7,6 +7,7 @@ import { AI_PROVIDER_CATEGORIES, AI_PROVIDERS } from "../packages/reader/src/ai-
 import { QIAOMU_READER_ZH_CN } from "../packages/reader/src/i18n-zh.js";
 
 const source = await fs.readFile(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+const selectionSource = await fs.readFile(new URL("../packages/reader/src/selection-actions.js", import.meta.url), "utf8");
 const readingNoteSource = await fs.readFile(new URL("../packages/reader/src/reading-note.js", import.meta.url), "utf8");
 const packageJson = JSON.parse(await fs.readFile(new URL("../package.json", import.meta.url), "utf8"));
 
@@ -150,16 +151,16 @@ if (!source.includes("openOrCreateBookNoteBeside")
 if (!source.includes('let body = "";') || !source.includes("stripGeneratedReadingNoteTitle") || !source.includes("readingNoteTitlesMigratedV4") || !source.includes("markedInText") || !source.includes("bookNoteFiles(this.app)")) {
   errors.push("Generated reading notes still repeat the filename as an H1 heading");
 }
-if (!source.includes('const QUICK_HL_COLOR_IDS = ["yellow", "green", "pink"]') || !source.includes('QUICK_HL_COLOR_IDS.includes(entry.id)')) {
+if (!selectionSource.includes('const QUICK_HL_COLOR_IDS = ["yellow", "green", "pink"]') || !selectionSource.includes('QUICK_HL_COLOR_IDS.includes(entry.id)')) {
   errors.push("Selection popup does not expose the intended three-colour palette");
 }
-if (!source.includes('comment: ["qiaomu-reader-hl-comment-btn", "message-square"') || !source.includes('createEl("textarea", { cls: "qiaomu-reader-hl-comment-textarea" })')) {
+if (!selectionSource.includes('comment: ["qiaomu-reader-hl-comment-btn", "message-square"') || !selectionSource.includes('createEl("textarea", { cls: "qiaomu-reader-hl-comment-textarea" })')) {
   errors.push("Selection popup does not provide an inline nearby comment editor");
 }
-if (!source.includes('button(row, "qiaomu-reader-hl-menu", "ellipsis"') || source.includes("qiaomu-reader-hl-note")) {
+if (!selectionSource.includes('button(row, "qiaomu-reader-hl-menu", "ellipsis"') || selectionSource.includes("qiaomu-reader-hl-note")) {
   errors.push("Selection popup must expose More and keep the separate-note action out of the primary row");
 }
-if (!source.includes('createDiv({ cls: "qiaomu-reader-hl-comment-quote", text })') || !source.includes('event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.isComposing') || !source.includes('event.key === "Escape"')) {
+if (!selectionSource.includes('createDiv({ cls: "qiaomu-reader-hl-comment-quote", text })') || !selectionSource.includes('event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.isComposing') || !selectionSource.includes('event.key === "Escape"')) {
   errors.push("Inline comments must show the selected passage and support Cmd/Ctrl+Enter to save plus Escape to dismiss");
 }
 if (!source.includes('if (cfg.id === "custom") this._aiBaseRow(c, s, p)') || !source.includes('this._settingsDisclosure(advanced, "ai-connection-settings")')) {

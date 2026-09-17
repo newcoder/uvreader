@@ -6,6 +6,7 @@ import { JSDOM } from "jsdom";
 import { textPoint, captureReadingAnchor, restoreReadingAnchor, queueReadingLayout, shouldFollowContext, comfortableLineWidth, zoomAnchorOffset } from "../packages/reader/src/reader-experience.js";
 
 const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+const selectionSource = fs.readFileSync(new URL("../packages/reader/src/selection-actions.js", import.meta.url), "utf8");
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const rect = (left, top, width = 400, height = 500) => ({ left, top, width, height, right: left + width, bottom: top + height });
 
@@ -263,8 +264,8 @@ test("selection toolbar stays hidden until mouse release and removes document li
   let checks = 0;
   const view = { areaEl: area, hlPopup: window.document.querySelector(".popup"), _hideHlPopup() { this.hlPopup.classList.remove("qiaomu-reader-hl-popup-on"); }, _scheduleSelCheck() { checks++; } };
   const fn = source.slice(source.indexOf("function setupReaderSelection("), source.indexOf("function readerPageContext("));
-  const begin = source.slice(source.indexOf("function beginReaderSelection("), source.indexOf("function engineSelectionRect("));
-  vm.runInNewContext(`${begin}\n${fn}\nsetupReaderSelection`, { window })(view);
+  const begin = selectionSource.slice(selectionSource.indexOf("function beginReaderSelection("), selectionSource.indexOf("function engineSelectionRect("));
+  vm.runInNewContext(`const selectionHud = { beginReaderSelection, openReaderSelectionContext() {} };\n${begin}\n${fn}\nsetupReaderSelection`, { window })(view);
   area.dispatchEvent(new window.PointerEvent("pointerdown", { pointerType: "mouse", button: 0 }));
   assert.equal(view._selectionDragging, true);
   assert.equal(view.hlPopup.classList.contains("qiaomu-reader-hl-popup-on"), false);

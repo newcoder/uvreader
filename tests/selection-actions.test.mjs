@@ -1,17 +1,9 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import vm from "node:vm";
 import test from "node:test";
-import { parse } from "acorn";
 import { JSDOM } from "jsdom";
+import { createSelectionActions } from "../packages/reader/src/selection-actions.js";
 import { selectionActionPreferences } from "../packages/reader/src/selection-preferences.js";
-import { highlightBacklink } from "../packages/reader/src/highlight-navigation.js";
 
-const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
-const ast = parse(source, { ecmaVersion: "latest", sourceType: "module" });
-const functions = ast.body.filter(n => n.type === "FunctionDeclaration");
-const names = ["selectionActions","matchingSelectionHighlight", "selectionColor", "clearReaderSelection", "beginReaderSelection", "engineSelectionRect", "openReaderSelectionContext", "selectionFeedback", "repaintSelectionHighlights", "applySelectionColor", "closeSelectionColorDropdown", "toggleSelectionColorDropdown", "syncSelectionToolbar", "addBarButtons", "openSelectionMoreMenu", "copySelectionText", "openAiSelectionChat", "closeInlineHighlightComment", "openInlineHighlightComment", "handleAreaNavClick"];
-const code = functions.filter(n => names.includes(n.id.name)).map(n => source.slice(n.start, n.end)).join("\n");
 const tick = () => new Promise(r => setTimeout(r, 5));
 function setup() {
   const { window } = new JSDOM('<main><article></article><div class="popup"></div></main>', { pretendToBeVisual: true });
@@ -61,15 +53,24 @@ function setup() {
   };
   class Scope { constructor() { this.bindings = []; } register(mods, key, run) { this.bindings.push({ mods, key, run }); } }
   const translations = [];
-  const context = { selectionActionPreferences, TranslateModal: class { constructor(app, plugin, text, file) { translations.push({ text, file }); } open() {} }, window, Menu, Scope, aiSetupState: () => ({ ready: true, enabled: true }), paintAiSource() {}, qiaomuReaderTranslate: k => k, setIcon() {}, highlightBacklink,
-    docOf: el => el.ownerDocument, selOf: el => el.ownerDocument.getSelection(), readerIsPdf: () => false,
-    qiaomuReaderRefreshHlPanel() {}, qiaomuReaderAutoFocus() {}, positionHlPopup() {},
-    hlCommentQuoteBlock() {}, Notice: class {},
+  const api = createSelectionActions({
+    translate: k => k,
+    Notice: class {},
+    Menu, Scope,
+    TranslateModal: class { constructor(app, plugin, text, file) { translations.push({ text, file }); } open() {} },
+    setIcon() {}, window,
+    isPdf: () => false,
+    hlColorCss: color => color,
+    hlColors: ["yellow", "green", "pink", "blue"].map(id => ({ id, label: () => id, css: id })),
+    positionPopup() {}, refreshHlPanel() {}, autoFocus() {},
+    paintAiSource() {},
     copyToClipboard: async text => { copied.push(text); return true; },
-    hlColorCss: color => color, QUICK_HL_COLOR_IDS: ["yellow", "green", "pink"],
-    HL_COLORS: ["yellow", "green", "pink", "blue"].map(id => ({ id, label: () => id })),
-  };
-  const api = vm.runInNewContext(`${code}\n({${names.join(",")}})`, context);
+    quoteMarkdown: () => "",
+    createNoteFromSelection() {},
+    hlCommentMd: () => "",
+    flowSelectionParts: () => null,
+    raiseSelectionPopup() {},
+  });
   view._showHlPopup({ left: 10, right: 210, top: 100, bottom: 120, width: 200, height: 20 });
   return { window, view, api, menus, records, copied, savedComments, translations, close: () => window.close() };
 }

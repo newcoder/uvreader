@@ -10,11 +10,15 @@ import { foliateElements } from "../scripts/foliate-elements.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const source = fs.readFileSync(path.join(root, "packages", "reader", "src", "main.js"), "utf8");
+const selectionSource = fs.readFileSync(path.join(root, "packages", "reader", "src", "selection-actions.js"), "utf8");
+function sliceFunction(text, name, indent = "") {
+  const start = text.indexOf(`function ${name}(`);
+  const asyncStart = text.slice(start - 6, start) === "async " ? start - 6 : start;
+  const end = text.indexOf(`\n${indent}}`, start) + 2 + indent.length;
+  return text.slice(asyncStart, end);
+}
 function functionSource(name) {
-  const start = source.indexOf(`function ${name}(`);
-  const asyncStart = source.slice(start - 6, start) === "async " ? start - 6 : start;
-  const end = source.indexOf("\n}", start) + 2;
-  return source.slice(asyncStart, end);
+  return sliceFunction(source, name);
 }
 const translate = (key) => key;
 
@@ -289,8 +293,8 @@ test("iframe pointer events reveal chrome and use host tap zones without hijacki
   const calls = [];
   const view = { areaEl: main, plugin: { settings: { navMode: "click" } },
     _armImmersive: () => calls.push("chrome"), nav: dir => calls.push(dir) };
-  const attach = vm.runInNewContext(`${functionSource("beginReaderSelection")}\n${functionSource("handleAreaNavClick")}\n${functionSource("attachEngineChrome")}\nattachEngineChrome`, {
-    readerIsPdf: () => false, selOf: () => null,
+  const attach = vm.runInNewContext(`const selectionHud = { beginReaderSelection, handleAreaNavClick, openReaderSelectionContext() {} };\n${sliceFunction(selectionSource, "beginReaderSelection", "  ")}\n${sliceFunction(selectionSource, "handleAreaNavClick", "  ")}\n${functionSource("attachEngineChrome")}\nattachEngineChrome`, {
+    isPdf: () => false, clampPdfZoom: (value) => value, PDF_ZOOM_DEFAULT: 1, selOf: () => null,
   });
   attach(view, doc);
   const send = (target, type, x = 1400, y = 20) => target.dispatchEvent(new doc.defaultView.MouseEvent(type, {
