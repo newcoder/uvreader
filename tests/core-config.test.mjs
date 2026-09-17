@@ -29,6 +29,7 @@ const mainSource = fs.readFileSync(new URL("../packages/reader/src/main.js", imp
 const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
 const modalSource = fs.readFileSync(new URL("../packages/reader/src/reader-modal.js", import.meta.url), "utf8");
 const librarySource = fs.readFileSync(new URL("../packages/reader/src/library-modal.js", import.meta.url), "utf8");
+const explainSource = fs.readFileSync(new URL("../packages/reader/src/ai-explain-modal.js", import.meta.url), "utf8");
 const readerSources = mainSource + viewSource + modalSource + librarySource;
 import { EMBEDDED_PDF_CMAPS } from "../packages/reader/src/pdf-cmaps-data.js";
 import { PDF_AI_CONTEXT_MAX_CHARS, READER_BLOCK_SELECTOR, packPdfDocumentContext, pdfPageKind, pdfPageShell, pdfPageTextFallback, pdfPageTextForAi } from "../packages/reader/src/pdf-page-mode.js";
@@ -734,12 +735,12 @@ test("AI dialog uses built-in quick prompts and keeps reasoning separate", () =>
   assert.doesNotMatch(source, /AiPromptLibraryModal/);
   assert.match(source, /function aiQuickPrompts\(\) \{\s+return defaultAiQuickPrompts\(\);/);
   assert.match(source, /button\.addEventListener\("click", \(\) => \{[\s\S]*chat\._send\(item\.prompt\)/);
-  assert.match(source, /createEl\("details", \{ cls: "qiaomu-reader-ai-reason" \}\)/);
-  assert.match(source, /reasoningBox\.open = false/);
+  assert.match(explainSource, /createEl\("details", \{ cls: "qiaomu-reader-ai-reason" \}\)/);
+  assert.match(explainSource, /reasoningBox\.open = false/);
   assert.match(source, /onDelta/);
   assert.match(source, /createAiStreamingMarkdownRenderer/);
-  assert.match(source, /markdownRenderer\.update\(answer\)/);
-  assert.match(source, /await markdownRenderer\.finish\(answer\)/);
+  assert.match(explainSource, /markdownRenderer\.update\(answer\)/);
+  assert.match(explainSource, /await markdownRenderer\.finish\(answer\)/);
   assert.doesNotMatch(source, /bubble\.setText\(answer\)/);
 });
 
@@ -761,12 +762,12 @@ test("desktop AI chat keeps per-book threads and structured document or selectio
   assert.match(source, /enhanceAiMarkdown/);
   assert.match(source, /qiaomu-reader-ai-table-scroll/);
   assert.match(source, /checkbox\.disabled = true/);
-  assert.match(source, /createNoteFromAiAnswer\(this\.app, this\.plugin, answer, source\.question, source\.context/);
+  assert.match(explainSource, /createNoteFromAiAnswer\(this\.app, this\.plugin, answer, source\.question, source\.context/);
   assert.match(source, /noteKind: "ai-answer"/);
   assert.match(source, /return composeAiAnswerNote\(\{\s*answer:/); // composed via the extracted excerpt composer
-  assert.match(source, /act\("note", qiaomuReaderTranslate\("save-ai-response"\)/);
+  assert.match(explainSource, /act\("note", qiaomuReaderTranslate\("save-ai-response"\)/);
   assert.match(source, /createNoteFromAiAnswer[\s\S]*?open: false/);
-  assert.match(source, /savedNote = note/);
+  assert.match(explainSource, /savedNote = note/);
   assert.doesNotMatch(source, /if \(note && typeof this\.close === "function"\) this\.close\(\)/);
   assert.match(source, /qiaomuReaderTranslate\(asAnswer \? "save-to-note" : "create-note"\)/);
   assert.match(source, /bookLinkHeading: qiaomuReaderTranslate\("ai-reading-notes"\)/);
@@ -803,7 +804,7 @@ test("desktop AI chat keeps per-book threads and structured document or selectio
   assert.match(viewSource, /syncOpenAiReaderContext\(this\);/);
   assert.match(source, /contextUnavailable/);
   assert.match(source, /function renderAiComposerPrompts\(host, chat\)/);
-  assert.equal((source.match(/renderAiComposerPrompts\(c, this\);/g) || []).length, 2);
+  assert.equal(((source + explainSource).match(/renderAiComposerPrompts\(c, this\);/g) || []).length, 2);
   assert.match(source, /function bindAiSlashPrompts\(menu, input, chat\)/);
   assert.match(source, /raw\.startsWith\("\/"\)/);
   assert.match(source, /event\.key === "ArrowDown" \|\| event\.key === "ArrowUp"/);

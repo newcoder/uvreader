@@ -12,6 +12,7 @@ import { verifiedQuotes } from "../packages/reader/src/reading-workflow.js";
 const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
 const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
 const modalSource = fs.readFileSync(new URL("../packages/reader/src/reader-modal.js", import.meta.url), "utf8");
+const explainModalSource = fs.readFileSync(new URL("../packages/reader/src/ai-explain-modal.js", import.meta.url), "utf8");
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 function dom() {
@@ -59,8 +60,8 @@ function composer() {
 
 test("quick prompts send immediately, preserve existing drafts, and remain visible while busy", () => {
   const renderSource = source.slice(source.indexOf("function contextualAiQuickPrompts("), source.indexOf("function bindAiSlashPrompts("));
-  const sendingStart = source.indexOf("  _setSending(busy) {");
-  const sendingSource = source.slice(sendingStart, source.indexOf("\n  _watchKeyboard() {", sendingStart));
+  const sendingStart = explainModalSource.indexOf("  _setSending(busy) {");
+  const sendingSource = explainModalSource.slice(sendingStart, explainModalSource.indexOf("\n  _watchKeyboard() {", sendingStart));
   const items = ["解释一下", "举个例子", "总结要点", "自定义问题"].map((name) => ({ name, prompt: `prompt:${name}` }));
   let menu;
   class Menu {
@@ -196,8 +197,12 @@ function chatHarness(explain, overrides = {}) {
     ...overrides,
   };
   const helpers = source.slice(source.indexOf("function aiLogFollowsTail("), source.indexOf("function createAiStreamingMarkdownRenderer("));
-  const cls = source.slice(source.indexOf("const AiExplainModal = class"), source.indexOf("// Desktop AI stays docked"));
-  const { Chat, createLog } = vm.runInNewContext(`${helpers}\n${cls}\n({ Chat: AiExplainModal, createLog: createAiChatLog })`, context);
+  // The explain modal lives in its own module now: evaluate its factory with
+  // the same stubs, reusing the sliced chat helpers as ports.
+  const explainFactory = explainModalSource.slice(explainModalSource.indexOf("export function createAiExplainModal(")).replace("export function", "function");
+  const portNames = explainFactory.slice(explainFactory.indexOf("{") + 1, explainFactory.indexOf("})")).split(",").map((name) => name.trim()).filter(Boolean);
+  const ports = `{ ${portNames.map((name) => `${name}: typeof ${name} === \"undefined\" ? undefined : ${name}`).join(", ")} }`;
+  const { Chat, createLog } = vm.runInNewContext(`${helpers}\n${explainFactory}\n({ Chat: createAiExplainModal(${ports}), createLog: createAiChatLog })`, context);
   const chat = Object.create(Chat.prototype);
   Object.assign(chat, { plugin: { settings: {} }, app: {}, turns: [], structuredContext: true,
     book: "测试书", bookFile: { path: "books/test.epub" },
