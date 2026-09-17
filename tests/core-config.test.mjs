@@ -322,13 +322,14 @@ test("fixed-layout PDF pages show a reserved loading state instead of a blank sh
   assert.match(source, /surface\.removeClass\(FIGURE_RENDERING_CLASS\)/);
   assert.match(styles, /\.qiaomu-reader-pdf-page-surface\.qiaomu-reader-pdf-rendering::after/);
   assert.match(styles, /prefers-reduced-motion:reduce/);
-  assert.match(source, /function qiaomuReaderMarkSlowLayout\(view, delay = 3000\)/);
-  assert.match(source, /async function qiaomuReaderPaintVeil\(view\)/);
-  assert.match(source, /await qiaomuReaderPaintVeil\(this\);/);
+  const hud = fs.readFileSync(new URL("../packages/reader/src/reader-hud.js", import.meta.url), "utf8");
+  assert.match(hud, /function markSlowLayout\(view, delay = 3000\)/);
+  assert.match(hud, /async function paintVeil\(view\)/);
+  assert.match(source, /await readerHud\.paintVeil\(this\);/);
   assert.match(source, /function readerPaginationMappingCollapsed\(pager\)/);
   assert.match(source, /if \(readerPaginationMappingCollapsed\(pager\)\)/);
-  assert.match(source, /this-document-has-many-pages-layout-is-still-in-progress/);
-  assert.doesNotMatch(source, /if \(this\.areaEl\) this\.areaEl\.removeClass\("qiaomu-reader-booting"\);\s*qiaomuReaderHideVeil\(this\);/);
+  assert.match(hud, /this-document-has-many-pages-layout-is-still-in-progress/);
+  assert.doesNotMatch(source, /if \(this\.areaEl\) this\.areaEl\.removeClass\("qiaomu-reader-booting"\);\s*readerHud\.hideVeil\(this\);/);
 });
 
 test("runtime diagnostics use the maintained plugin identity", () => {

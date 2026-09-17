@@ -54,6 +54,8 @@ import { iconLabel, svgIcon } from "./reader-icons.js";
 import { createPageJump } from "./page-jump.js";
 import { createPdfZoomUi } from "./pdf-zoom-ui.js";
 import { createSelectionActions } from "./selection-actions.js";
+import { createReaderTimer } from "./reader-timer.js";
+import { createReaderHud } from "./reader-hud.js";
 
 
 // Interface language is local to this plugin; dictionaries are bundled offline.
@@ -70,15 +72,25 @@ const pageJump = createPageJump({
 
 const pdfZoom = createPdfZoomUi({ translate: qiaomuReaderTranslate, isPdf: readerIsPdf });
 
+const readerHud = createReaderHud({
+  translate: qiaomuReaderTranslate,
+  notice: (message) => new Notice(message),
+  window,
+  platform: Platform,
+  isPdf: readerIsPdf,
+  jumpToHighlight: jumpToEngineHighlight,
+  escapeSelector: (value) => CSS.escape(value),
+});
+
 const selectionHud = createSelectionActions({
   translate: qiaomuReaderTranslate,
   Notice, Menu, Scope, TranslateModal, setIcon, window,
   isPdf: readerIsPdf,
   hlColorCss,
   hlColors: HL_COLORS,
-  positionPopup: positionHlPopup,
+  positionPopup: readerHud.positionPopup,
   refreshHlPanel: qiaomuReaderRefreshHlPanel,
-  autoFocus: qiaomuReaderAutoFocus,
+  autoFocus: readerHud.autoFocus,
   paintAiSource,
   copyToClipboard,
   quoteMarkdown,
@@ -87,6 +99,14 @@ const selectionHud = createSelectionActions({
   flowSelectionParts,
   raiseSelectionPopup,
 });
+
+const readerTimer = createReaderTimer({
+  translate: qiaomuReaderTranslate,
+  notice: (message) => new Notice(message),
+  window,
+});
+
+
 
 function qiaomuReaderTranslate(s){
   const lang = qiaomuReaderLanguage || 'zh';
@@ -518,14 +538,14 @@ function qiaomuReaderRevealWhenSettled(view) {
     const now = width();
     if (now !== last) { last = now; view._revealT = win.setTimeout(check, QIAOMU_READER_SETTLE_MS); return; }
     view.areaEl.removeClass("qiaomu-reader-booting");
-    qiaomuReaderHideVeil(view);
+    readerHud.hideVeil(view);
   };
   view._revealT = win.setTimeout(check, QIAOMU_READER_SETTLE_MS);
 }
 const QIAOMU_READER_SEL_HL = "qiaomu-reader-selection";
 function qiaomuReaderPaintSelection(view, range) {
   try {
-    if (!qiaomuReaderIsMobile(view.app)) return;
+    if (!readerHud.isMobile(view.app)) return;
     if (view.pager && view.pager.scrollMode) return;
     if (typeof CSS === "undefined" || !CSS.highlights || typeof Highlight !== "function") return;
     CSS.highlights.set(QIAOMU_READER_SEL_HL, new Highlight(range.cloneRange()));
@@ -604,95 +624,16 @@ function readingStats(dayLog, lifetimeSeconds, todayKey) {
 // Reading-time tracking. Each open reader runs one interval that accrues
 // seconds into the plugin day/lifetime logs, flushing to disk every
 // TIMER_FLUSH_TICKS ticks and once when the daily goal is first reached.
-const TIMER_TICK_MS = 1000;
-const TIMER_FLUSH_TICKS = 15;
-function timerTick(reader) {
-  const plugin = reader.plugin;
-  if (!plugin.settings.timerEnabled) { pauseTimerSession(reader); return; }
-  plugin.bumpReadingTime(1);
-  reader._sessionSec = (reader._sessionSec ?? 0) + 1;
-  reader._flushAcc = (reader._flushAcc ?? 0) + 1;
-  if (reader._flushAcc >= TIMER_FLUSH_TICKS) { reader._flushAcc = 0; plugin.flushReadingTime(); }
-  updateTimerBtn(reader);
-  updateGoalBar(reader);
-  if (!reader._goalNotified && plugin.getTodaySeconds() >= plugin.getGoalSeconds()) {
-    reader._goalNotified = true;
-    plugin.flushReadingTime();
-    const goalHitNotice = qiaomuReaderTranslate("today-s-reading-goal-reached");
-    new Notice(goalHitNotice);
-  }
-}
-function startTimerSession(reader) {
-  if (reader._timer || !reader.plugin.settings.timerEnabled) return;
-  reader._running = true; reader._timerStarted = true; reader._flushAcc = 0;
-  reader._timer = window.setInterval(() => timerTick(reader), TIMER_TICK_MS);
-  updateTimerBtn(reader);
-}
-function pauseTimerSession(reader) {
-  if (reader._timer) {
-    window.clearInterval(reader._timer);
-    reader._timer = null;
-  }
-  reader._running = false;
-  reader.plugin?.flushReadingTime();
-  updateTimerBtn(reader);
-}
-function toggleTimerSession(reader) {
-  if (!reader.plugin.settings.timerEnabled) {
-    new Notice(qiaomuReaderTranslate(
-      "timer-is-off-enable-it-in-reading-settings"));
-    return;
-  }
-  if (reader._running) pauseTimerSession(reader);
-  else startTimerSession(reader);
-}
-function stopReadingTimer(reader) {
-  pauseTimerSession(reader);
-}
-function resetTimerSession(reader) {
-  if (!reader.plugin.settings.timerEnabled) return;
-  pauseTimerSession(reader);
-  reader.plugin.resetTodaySeconds();
-  reader.plugin.flushReadingTime();
-  reader._goalNotified = false;
-  updateTimerBtn(reader);
-  updateGoalBar(reader);
-  const resetNotice = qiaomuReaderTranslate("timer-reset");
-  new Notice(resetNotice);
-}
-function updateTimerBtn(reader) {
-  const btn = reader.timerBtnEl;
-  if (!btn) return;
-  const plugin = reader.plugin;
-  const sessionActive = reader._running || reader._timerStarted;
-  if (!plugin.settings.timerEnabled || !sessionActive) { btn.addClass("qiaomu-reader-hidden"); return; }
-  btn.removeClass("qiaomu-reader-hidden");
-  const remain = Math.max(0, plugin.getGoalSeconds() - plugin.getTodaySeconds());
-  const goalDone = remain <= 0;
-  const mm = Math.floor(remain / 60);
-  const ss = remain % 60;
-  btn.classList.toggle("qiaomu-reader-timer-run", !!reader._running && !goalDone);
-  btn.classList.toggle("qiaomu-reader-timer-done", goalDone);
-  if (reader.timerIconEl) svgIcon(reader.timerIconEl, goalDone ? "check" : (reader._running ? "pause" : "play"));
-  if (reader.timerLabelEl) reader.timerLabelEl.setText(`${mm}:${String(ss).padStart(2, "0")}`);
-}
-function updateGoalBar(reader) {
-  const wrap = reader.goalWrapEl;
-  if (!wrap) return;
-  const plugin = reader.plugin;
-  if (!plugin.settings.timerEnabled) { wrap.addClass("qiaomu-reader-hidden"); return; }
-  wrap.removeClass("qiaomu-reader-hidden");
-  const done = plugin.getTodaySeconds();
-  const goal = plugin.getGoalSeconds();
-  const pct = Math.min(100, Math.round((done / goal) * 100));
-  const readMinutes = Math.floor(done / 60);
-  reader.goalFillEl.style.width = pct + "%";
-  const goalReached = done >= goal;
-  wrap.classList.toggle("qiaomu-reader-goal-done", goalReached);
-  reader.goalTxtEl.setText(goalReached
-    ? qiaomuReaderTranslate("goal-reached-0-min-today", (readMinutes))
-    : qiaomuReaderTranslate("0-of-1-min-2", (readMinutes), (plugin.settings.dailyGoalMin || 15), (pct)));
-}
+
+
+
+
+
+
+
+
+
+
 
 
 // iframe events do not bubble to the host's immersive chrome or tap zones.
@@ -828,21 +769,7 @@ function buildReaderTopBar(view, opts) {
 }
 
 // Timer pill with its inline reset affordance; identical on both hosts.
-function buildReaderTimerButton(tray, view) {
-  view.timerBtnEl = tray.createEl("button", { cls: "qiaomu-reader-timerbtn", attr: { type: "button" } });
-  view.timerIconEl = view.timerBtnEl.createDiv("qiaomu-reader-timer-ic");
-  view.timerLabelEl = view.timerBtnEl.createDiv("qiaomu-reader-timer-label");
-  view.timerResetEl = view.timerBtnEl.createDiv("qiaomu-reader-timer-reset");
-  svgIcon(view.timerResetEl, "rotate-ccw");
-  view.timerResetEl.setAttribute("aria-label", qiaomuReaderTranslate("reset-timer"));
-  view.timerResetEl.addEventListener("click", (ev) => {
-    ev.stopPropagation();
-    resetTimerSession(view);
-  });
-  view.timerBtnEl.setAttribute("aria-label", qiaomuReaderTranslate("timer-time-left-to-the-goal-start-pause"));
-  view.timerBtnEl.addEventListener("click", () => toggleTimerSession(view));
-  updateTimerBtn(view);
-}
+
 
 // Compact overflow button; the host decides which entries the menu carries.
 function buildReaderMoreButton(tray, view, fill) {
@@ -910,7 +837,7 @@ function attachReaderContentClick(view) {
     if (ref) {
       ev.preventDefault();
       ev.stopPropagation();
-      if (followFootnote(view, ref.getAttribute("data-qiaomu-reader-ref"))) return;
+      if (readerHud.follow(view, ref.getAttribute("data-qiaomu-reader-ref"))) return;
     }
     const img = el ? el.closest("img") : null;
     if (img && img.src) {
@@ -1594,7 +1521,7 @@ const QiaomuBookReader = class extends Plugin {
           if (!probe) {
             const toggle = target.togglePanel || target._togglePanel;
             toggle.call(target, "find");
-            if (target._findInput) qiaomuReaderAutoFocus(target._findInput, 80);
+            if (target._findInput) readerHud.autoFocus(target._findInput, 80);
           }
           return true;
         },
@@ -3363,13 +3290,13 @@ function settleReader(view, delay = 220) {
 function rememberReaderJump(view) {
   if (view.engine) {
     const cfi = view.engine.currentLocation()?.cfi;
-    if (cfi) showFootnoteReturn(view, { cfi });
+    if (cfi) readerHud.showReturn(view, { cfi });
     return;
   }
   if (!readerIsPdf(view) || !view.pager?.flow) return;
   if (!view.pager.scrollMode) view.pager.applyTransform(false);
   const anchor = captureReadingAnchor(view.pager);
-  showFootnoteReturn(view, anchor);
+  readerHud.showReturn(view, anchor);
 }
 function addReaderNavigation(view, bot, findBtn, tocBtn, showTools = true) {
   if (showTools === false) return;
@@ -3519,7 +3446,7 @@ function addLocationMark(view) {
 function addReadingMenuActions(menu, view) {
   menu.addItem((it) => it.setTitle(qiaomuReaderTranslate("bookmark-this-location")).setIcon("bookmark-plus").onClick(() => addLocationMark(view)));
   menu.addItem((it) => it.setTitle(qiaomuReaderTranslate("location-bookmarks")).setIcon("bookmark").onClick(() => showLocationMarks(view)));
-  if (view.plugin.settings.timerEnabled) menu.addItem((it) => it.setTitle(qiaomuReaderTranslate(view._running ? "pause-timer" : "start-timer")).setIcon(view._running ? "pause" : "play").onClick(() => toggleTimerSession(view)));
+  if (view.plugin.settings.timerEnabled) menu.addItem((it) => it.setTitle(qiaomuReaderTranslate(view._running ? "pause-timer" : "start-timer")).setIcon(view._running ? "pause" : "play").onClick(() => readerTimer.toggle(view)));
 }
 function setReadingFocus(view, enabled) {
   if (view.app.isMobile) return;
@@ -3743,7 +3670,7 @@ class PdfZoomModal extends Modal {
     };
     this.contentEl.createEl("button", { text: qiaomuReaderTranslate("apply"), cls: "mod-cta" }).addEventListener("click", apply);
     input.addEventListener("keydown", (event) => { if (event.key === "Enter") apply(); });
-    qiaomuReaderAutoFocus(input);
+    readerHud.autoFocus(input);
   }
 }
 function createPdfZoomControls(parent, view) {
@@ -4262,154 +4189,18 @@ const TranslateModal = class extends Modal {
 
 };
 // The book does not lay out instantly; the veil (qiaomu-reader-booting) hides the half-ready page
-function qiaomuReaderShowVeil(view, text) {
-  const host = view && view.areaEl && view.areaEl.parentElement;
-  if (!host) return;
-  qiaomuReaderHideVeil(view);
-  const veil = host.createDiv("qiaomu-reader-veil");
-  const sk = veil.createDiv("qiaomu-reader-veil-skel");
-  for (let i = 0; i < 8; i++) sk.createDiv("qiaomu-reader-veil-line");
-  view._veilText = veil.createDiv({ cls: "qiaomu-reader-veil-text", text: text || qiaomuReaderTranslate("laying-out-the-pages") });
-  view._veil = veil;
-}
-function qiaomuReaderMarkSlowLayout(view, delay = 3000) {
-  const veil = view?._veil;
-  if (!veil) return;
-  const win = winOf(veil);
-  win.setTimeout(() => {
-    if (view?._veil !== veil || !view._veilText?.isConnected) return;
-    view._veilText.setText(qiaomuReaderTranslate("this-document-has-many-pages-layout-is-still-in-progress"));
-  }, delay);
-}
-async function qiaomuReaderPaintVeil(view) {
-  const veil = view?._veil;
-  if (!veil) return;
-  const win = winOf(veil);
-  // A single animation frame still runs before paint. Waiting for the next
-  // frame gives Chromium one complete paint opportunity before PDF pagination
-  // occupies the main thread for a large fixed-layout document.
-  await waitForReaderFrame(win);
-  await waitForReaderFrame(win);
-}
-function qiaomuReaderHideVeil(view) {
-  if (view && view._veil) {
-    view._veil.remove();
-    view._veil = null;
-    view._veilText = null;
-  }
-}
-function qiaomuReaderBlurOnTapOutside(root, field) {
-  if (!root || !field) return;
-  root.addEventListener("pointerdown", (e) => {
-    const t = e.target;
-    if (t === field) return;
-    if (t instanceof HTMLElement && t.closest(".qiaomu-reader-ai-bar, .qiaomu-reader-find-bar, input, textarea")) return;
-    if (docOf(field).activeElement === field) field.blur();
-  });
-}
-function qiaomuReaderAutoFocus(el, delayMs) {
-  if (!el || qiaomuReaderIsMobile()) return;
-  if (delayMs) window.setTimeout(() => { try { el.focus(); } catch { /* optional step; a failure here must not interrupt reading */ } }, delayMs);
-  else { try { el.focus(); } catch { /* optional step; a failure here must not interrupt reading */ } }
-}
-function qiaomuReaderIsMobile(app) {
-  try {
-    if (Platform && typeof Platform.isMobile === "boolean") return Platform.isMobile;
-  } catch { /* optional step; a failure here must not interrupt reading */ }
-  return !!(app && app.isMobile);
-}
-function positionHlPopup(view, anchorRect, estW, estH) {
-  const { hlPopup: pop } = view;
-  const { contentEl: root } = view;
-  pop.style.maxWidth = `${Math.max(120, root.clientWidth - 16)}px`;
-  if (qiaomuReaderIsMobile(view.app)) {
-    const rootBox = root.getBoundingClientRect();
-    const popH = pop.offsetHeight || estH || 92;
-    const popW = pop.offsetWidth || estW || 260;
-    const viewport = docOf(root).defaultView?.visualViewport;
-    const visibleBottom = viewport ? Math.min(rootBox.bottom, viewport.offsetTop + viewport.height) : rootBox.bottom;
-    const floorY = visibleBottom - rootBox.top - popH - 74;
-    const anchored = false;
-    const top = Math.max(8, floorY);
-    pop.classList.add("qiaomu-reader-hl-popup-docked");
-    pop.style.removeProperty("bottom");
-    const topPx = Math.round(Math.max(8, top));
-    pop.style.top = `${topPx}px`;
-    const wantLeft = anchored
-      ? anchorRect.left - rootBox.left + anchorRect.width / 2 - popW / 2
-      : (rootBox.width - popW) / 2;
-    pop.style.left = `${Math.round(clampNum(wantLeft, 8, rootBox.width - popW - 8))}px`;
-    return;
-  }
-  pop.classList.remove("qiaomu-reader-hl-popup-docked");
-  const rootBox = root.getBoundingClientRect();
-  const popW = pop.offsetWidth || estW, popH = pop.offsetHeight || estH;
-  let left = anchorRect.left - rootBox.left + anchorRect.width / 2 - popW / 2;
-  let top = anchorRect.top - rootBox.top - popH - 10;
-  if (top < 4) top = anchorRect.bottom - rootBox.top + 10;
-  left = clampNum(left, 6, root.clientWidth - popW - 6);
-  top = clampNum(top, 6, rootBox.height - popH - 6);
-  Object.assign(pop.style, { left: `${left}px`, top: `${top}px` });
-}
-function clampNum(value, low, high) {
-  return Math.max(low, Math.min(value, high));
-}
-function followFootnote(view, ref) {
-  const flow = view.pager && view.pager.flow;
-  if (!flow || !ref) return false;
-  const target = flow.querySelector(`[data-qiaomu-reader-id="${CSS.escape(ref)}"]`);
-  if (!target) return false;
-  const from = captureReadingAnchor(view.pager);
-  const fRect = flow.getBoundingClientRect();
-  const x = target.getBoundingClientRect().left - fRect.left;
-  const spread = Math.max(0, Math.min(
-    Math.floor(Math.round(x / (view.pager.sw / (view.pager.cols || 1))) / (view.pager.cols || 1)),
-    view.pager.total - 1));
-  let cur, tot;
-  if (view.pager.scrollMode) {
-    const clip = view.pager.clip;
-    clip.scrollTop += target.getBoundingClientRect().top - clip.getBoundingClientRect().top;
-    view.pager.spread = Math.min(view.pager.total - 1, Math.floor(clip.scrollTop / Math.max(1, clip.clientHeight)));
-    [cur, tot] = [view.pager.spread, view.pager.total];
-  } else [cur, tot] = view.pager.jumpTo(spread);
-  (view.updateUI || view._updateUI).call(view, cur, tot);
-  if (view.file) void view.plugin.saveProgress(view.file.path, cur, tot, view.pager.currentBlockIndex());
-  showFootnoteReturn(view, from);
-  return true;
-}
-function showFootnoteReturn(view, spread) {
-  hideFootnoteReturn(view);
-  const host = view.contentEl;
-  if (!host) return;
-  const pill = host.createDiv("qiaomu-reader-note-back");
-  view.contentEl.addClass("qiaomu-reader-has-return");
-  iconLabel(pill, "arrow-left", qiaomuReaderTranslate("return-to-previous-reading-position"));
-  pill.setAttribute("role", "button");
-  pill.setAttribute("tabindex", "0");
-  const go = () => {
-    if (view.engine) {
-      if (!spread?.cfi) return;
-      void jumpToEngineHighlight(view, { cfi: spread.cfi })
-        .then(() => hideFootnoteReturn(view))
-        .catch(() => new Notice(qiaomuReaderTranslate("highlight-not-found")));
-      return;
-    }
-    if (!readerIsPdf(view)) return;
-    const [cur, tot] = typeof spread === "object" ? restoreReadingAnchor(view.pager, spread) : view.pager.jumpTo(spread);
-    (view.updateUI || view._updateUI).call(view, cur, tot);
-    if (view.file) void view.plugin.saveProgress(view.file.path, cur, tot, view.pager.currentBlockIndex());
-    hideFootnoteReturn(view);
-  };
-  pill.addEventListener("click", go);
-  pill.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); }
-  });
-  view._noteBackEl = pill;
-}
-function hideFootnoteReturn(view) {
-  if (view._noteBackEl) { view._noteBackEl.remove(); view._noteBackEl = null; }
-  view.contentEl?.removeClass("qiaomu-reader-has-return");
-}
+
+
+
+
+
+
+
+
+
+
+
+
 function qiaomuReaderSelectionRect(range, areaEl) {
   let rects = [];
   try {
@@ -4831,7 +4622,7 @@ const ReaderNameModal = class extends Modal {
     };
     save.addEventListener("click", submit);
     input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); void submit(); } });
-    qiaomuReaderAutoFocus(input);
+    readerHud.autoFocus(input);
   }
   onClose() { this.contentEl.empty(); }
 };
@@ -5138,8 +4929,8 @@ const AiExplainModal = class extends Modal {
     this.canCancel = true;
     bindAiSlashPrompts(slashMenu, input, this);
     this.inputController = bindReaderAiComposer(this, input, send, footer, true);
-    qiaomuReaderAutoFocus(input);
-    qiaomuReaderBlurOnTapOutside(c, input);
+    readerHud.autoFocus(input);
+    readerHud.blurOnTapOutside(c, input);
     this._watchKeyboard();
   }
   _setSending(busy) {
@@ -5605,7 +5396,7 @@ const AiChatView = class extends ItemView {
       && nextContext?.page === this.pendingContext?.page;
     if (sameContext) {
       if (!this.inputEl?.isConnected && aiSetupState(this.plugin).enabled) this._renderConversation(options);
-      if (options.focusInput !== false) qiaomuReaderAutoFocus(this.inputEl);
+      if (options.focusInput !== false) readerHud.autoFocus(this.inputEl);
       return;
     }
     if (!sameBook || context?.kind !== "selection") clearAiSource(this.readerView);
@@ -5648,7 +5439,7 @@ const AiChatView = class extends ItemView {
     }
     if (sameBook && this.pendingContextHost?.isConnected && !unavailable) {
       this._refreshPendingContext();
-      if (options.focusInput) qiaomuReaderAutoFocus(this.inputEl);
+      if (options.focusInput) readerHud.autoFocus(this.inputEl);
       return;
     }
     this._renderConversation({ focusInput: options.focusInput });
@@ -5818,8 +5609,8 @@ const AiChatView = class extends ItemView {
     this.inputController = bindReaderAiComposer(this, input, send, footer);
     input.value = this.drafts.get(this.bookFile?.path) || "";
     this.inputController.refresh();
-    if (options.focusInput !== false) qiaomuReaderAutoFocus(input);
-    qiaomuReaderBlurOnTapOutside(c, input);
+    if (options.focusInput !== false) readerHud.autoFocus(input);
+    readerHud.blurOnTapOutside(c, input);
   }
   _renderPendingContext(host) {
     const context = normalizeAiTurnContext(this.pendingContext);
@@ -7062,7 +6853,7 @@ const CreateFolderModal = class extends Modal {
       actions.controlEl.querySelector("button.mod-cta")?.click();
     };
     input && input.inputEl.addEventListener("keydown", submit);
-    qiaomuReaderAutoFocus(input && input.inputEl, 30);
+    readerHud.autoFocus(input && input.inputEl, 30);
   }
   onClose() {
     this.contentEl.empty();
@@ -7508,7 +7299,7 @@ const ReadSettingsModal = class extends Modal {
     szPlus.type = "button";
     szPlus.setAttr("aria-label", qiaomuReaderTranslate("increase-text-size"));
     const bumpSize = async (delta) => {
-      settings.fontSize = clampNum((settings.fontSize || 18) + delta, 12, 32);
+      settings.fontSize = readerHud.clampNum((settings.fontSize || 18) + delta, 12, 32);
       szLabel.setText(`${settings.fontSize}px`); await this._apply(true);
     };
     szMinus.addEventListener("click", () => bumpSize(-1));
@@ -7686,7 +7477,7 @@ const NoteTitleModal = class extends Modal {
         }
       });
     }
-    qiaomuReaderAutoFocus(titleInput, 30);
+    readerHud.autoFocus(titleInput, 30);
   }
   _textField(root, label, hint) {
     const wrap = root.createDiv("qiaomu-reader-setup-field");
@@ -8269,7 +8060,7 @@ const GoToPageModal = class extends Modal {
     const go = btns.createEl("button", { text: qiaomuReaderTranslate("go") });
     go.addClass("qiaomu-reader-confirm-yes");
     go.addEventListener("click", submit);
-    qiaomuReaderAutoFocus(input, 0);
+    readerHud.autoFocus(input, 0);
   }
   onClose() {
     this.contentEl.empty();
@@ -8874,8 +8665,8 @@ const BookSetupModal = class extends Modal {
     return btn;
   }
   _setupFocus(el) {
-    qiaomuReaderAutoFocus(el, 30);
-    qiaomuReaderBlurOnTapOutside(this.contentEl, el);
+    readerHud.autoFocus(el, 30);
+    readerHud.blurOnTapOutside(this.contentEl, el);
   }
   async _finish(msg) {
     this._answered = true;
@@ -9180,7 +8971,7 @@ const ReaderView = class extends ItemView {
     if (this._layoutPromise) await this._layoutPromise.catch(() => {});
     if (!this._loadCoordinator.isCurrent(loadToken)) return;
     clearAiSource(this);
-    hideFootnoteReturn(this);
+    readerHud.hideReturn(this);
     this._readingAnchor = null;
     this._layoutAgain = false;
     this.pdfZoomMode = "page";
@@ -9194,7 +8985,7 @@ const ReaderView = class extends ItemView {
     } catch (e) {
       if (isReaderLoadAbort(e, loadToken.signal) || !this._loadCoordinator.isCurrent(loadToken)) return;
       console.error("UV Reader: could not open file", e);
-      qiaomuReaderHideVeil(this);
+      readerHud.hideVeil(this);
       this.areaEl.removeClass("qiaomu-reader-booting");
       renderReaderLoadError(this, e, () => this.openFile(file));
     } finally {
@@ -9221,7 +9012,7 @@ const ReaderView = class extends ItemView {
     if (this.aiBtn) this.aiBtn.hidden = true;
     pdfZoom.syncControls(this);
     setReaderTitle(this.titleEl, file.basename);
-    this.applyVars(); qiaomuReaderHideVeil(this);
+    this.applyVars(); readerHud.hideVeil(this);
     this.areaEl.removeClass("qiaomu-reader-booting");
   }
   _disposePdfLazy() {
@@ -9296,7 +9087,7 @@ const ReaderView = class extends ItemView {
     this._sessionSec = 0; this._running = false;
     const todaySeconds = this.plugin.getTodaySeconds();
     this._goalNotified = todaySeconds >= this.plugin.getGoalSeconds();
-    updateGoalBar(this); updateTimerBtn(this); syncOpenAiReaderContext(this);
+    readerTimer.updateGoalBar(this); readerTimer.updateButton(this); syncOpenAiReaderContext(this);
     // Remembered "fit page" also applies when a PDF is opened again.
     if (readerIsPdf(this) && this.plugin.settings.fitPage === true) this._applyFitPage();
   }
@@ -9440,9 +9231,9 @@ const ReaderView = class extends ItemView {
     }
     if (!w) return;
     this.areaEl.addClass("qiaomu-reader-booting");
-    qiaomuReaderShowVeil(this);
-    qiaomuReaderMarkSlowLayout(this);
-    await qiaomuReaderPaintVeil(this);
+    readerHud.showVeil(this);
+    readerHud.markSlowLayout(this);
+    await readerHud.paintVeil(this);
     if (!current()) return;
     let [, total] = await pager.build(
       this.areaEl,
@@ -9526,7 +9317,7 @@ const ReaderView = class extends ItemView {
     if (flash) this._flashBlock(block);
   }
   _setRelayout(on) {
-    if (!on) qiaomuReaderHideVeil(this);
+    if (!on) readerHud.hideVeil(this);
     const root = this.contentEl;
     if (!root) return;
     if (on && !this._spinEl) {
@@ -9543,7 +9334,7 @@ const ReaderView = class extends ItemView {
     return queueReadingLayout(this, (anchor) => this._repaginateAnchored(anchor));
   }
   async _repaginateAnchored(anchor) {
-    this._setRelayout(true); qiaomuReaderShowVeil(this);
+    this._setRelayout(true); readerHud.showVeil(this);
     try {
       await waitForReaderFrame(docOf(this.areaEl).defaultView);
       this.areaEl.empty(); const pager = this.pager;
@@ -9582,7 +9373,7 @@ const ReaderView = class extends ItemView {
       onBack: () => this.plugin.openLibrary(),
     });
     createPdfZoomControls(tray, this);
-    buildReaderTimerButton(tray, this);
+    readerTimer.buildButton(tray, this);
     // Tray buttons share an icon, accessible label and click handler.
     // The companion entry stays available before service setup.
     const trayButton = (icon, label, onClick, spec = {}) => {
@@ -9608,7 +9399,7 @@ const ReaderView = class extends ItemView {
       lucide: "maximize",
     });
     const findBtn = trayButton("search", "search-the-book", () => {
-      this.togglePanel("find"); if (this._findInput) qiaomuReaderAutoFocus(this._findInput, 60);
+      this.togglePanel("find"); if (this._findInput) readerHud.autoFocus(this._findInput, 60);
     });
     this.tocBtn = trayButton("list", "table-of-contents", () => {
       if (typeof this.plugin.app.qbrDesktopOpenToc === "function") {
@@ -9620,7 +9411,7 @@ const ReaderView = class extends ItemView {
     this.findBtn = findBtn;
     trayButton("highlighter", "highlights", () => this.togglePanel("highlights"));
     trayButton("sliders", "reading-settings", () => new ReadSettingsModal(this.app, this).open());
-    trayButton("rotate-ccw", "reset-timer", () => resetTimerSession(this));
+    trayButton("rotate-ccw", "reset-timer", () => readerTimer.reset(this));
     pageJump.build(this, tray);
     buildReaderPageArea(this, root, "qiaomu-reader-area");
     buildReaderPanels(this, root, {
@@ -10022,7 +9813,7 @@ const ReaderView = class extends ItemView {
     this._hlPopupRect = rect;
     selectionHud.syncSelectionToolbar(this);
     pop.classList.add("qiaomu-reader-hl-popup-on");
-    positionHlPopup(this, rect, 320, 44);
+    readerHud.positionPopup(this, rect, 320, 44);
   }
   _hideHlPopup() {
     qiaomuReaderClearPaintedSelection();
@@ -10104,9 +9895,9 @@ const ReaderView = class extends ItemView {
     setReadingFocus(this, false);
     await persistCurrentReaderPosition(this);
     this._releaseEngine();
-    qiaomuReaderHideVeil(this);
+    readerHud.hideVeil(this);
     let _a;
-    stopReadingTimer(this);
+    readerTimer.stop(this);
     window.clearTimeout(this._immTimer);
     (_a = this._resizeObs) == null ? void 0 : _a.disconnect();
     window.clearTimeout(this._resizeTimer);
@@ -10343,8 +10134,8 @@ const LibraryModal = class extends Modal {
     drawChipRow();
     input.addEventListener("input", () => redraw(input.value));
     redraw("");
-    qiaomuReaderAutoFocus(input, 60);
-    qiaomuReaderBlurOnTapOutside(this.contentEl, input);
+    readerHud.autoFocus(input, 60);
+    readerHud.blurOnTapOutside(this.contentEl, input);
   }
   _applyLibTheme(modalEl) {
     const theme = qiaomuReaderLibTheme(this.plugin.settings);
@@ -10948,7 +10739,7 @@ const ReaderModal = class extends Modal {
     const readToday = this.plugin.getTodaySeconds();
     const goalToday = this.plugin.getGoalSeconds();
     this._goalNotified = readToday >= goalToday;
-    updateGoalBar(this); updateTimerBtn(this);
+    readerTimer.updateGoalBar(this); readerTimer.updateButton(this);
   }
   _installResizeWatch() {
     const startWidth = this.areaEl.clientWidth;
@@ -10993,13 +10784,13 @@ const ReaderModal = class extends Modal {
       title: this.file.basename,
       onBack: () => this.close(),
     });
-    buildReaderTimerButton(tray, this);
+    readerTimer.buildButton(tray, this);
     // Mobile keeps one compact overflow: every item is reader-specific, and the
     // title retains enough room to identify the current book.
     buildReaderMoreButton(tray, this, (list, add) => {
       add("the-book-note", "file-text", () => openOrCreateBookNoteBeside(this.plugin, this.file));
       add("highlights", "highlighter", () => this._togglePanel("highlights"));
-      add("reset-timer", "rotate-ccw", () => resetTimerSession(this));
+      add("reset-timer", "rotate-ccw", () => readerTimer.reset(this));
       add("reading-settings", "sliders", () => new ReadSettingsModal(this.app, this).open());
       addPdfZoomMenuItems(list, this);
       list.addSeparator();
@@ -11039,7 +10830,7 @@ const ReaderModal = class extends Modal {
   }
   async _repaginateAnchored(anchor) {
     this.areaEl.addClass("qiaomu-reader-booting");
-    qiaomuReaderShowVeil(this);
+    readerHud.showVeil(this);
     await this.pager.build(this.areaEl, this.bookHtml, this.plugin.settings, 0);
     this._renderFlowHighlights();
     const [cur, tot] = restoreReadingAnchor(this.pager, anchor);
@@ -11058,7 +10849,7 @@ const ReaderModal = class extends Modal {
     this._layoutAgain = false;
     if (this._layoutPromise) await this._layoutPromise.catch(() => {});
     if (!this._loadCoordinator.isCurrent(loadToken)) return;
-    qiaomuReaderHideVeil(this);
+    readerHud.hideVeil(this);
     this.areaEl.removeClass("qiaomu-reader-booting");
     this.areaEl.empty(); const loading = this.areaEl.createDiv("qiaomu-reader-loading");
     loading.addClass("qiaomu-reader-centered");
@@ -11084,7 +10875,7 @@ const ReaderModal = class extends Modal {
     } catch (e) {
       if (isReaderLoadAbort(e, loadToken.signal) || !this._loadCoordinator.isCurrent(loadToken)) return;
       console.error("UV Reader: could not open file in the mobile reader", e);
-      qiaomuReaderHideVeil(this);
+      readerHud.hideVeil(this);
       this.areaEl.removeClass("qiaomu-reader-booting");
       renderReaderLoadError(this, e, () => this._loadBook());
     } finally {
@@ -11132,9 +10923,9 @@ const ReaderModal = class extends Modal {
     const saved = this.plugin.getProgress(this.file.path);
     const pct = (saved == null ? void 0 : saved.pct) != null ? saved.pct : 0;
     this.areaEl.addClass("qiaomu-reader-booting");
-    qiaomuReaderShowVeil(this);
-    qiaomuReaderMarkSlowLayout(this);
-    await qiaomuReaderPaintVeil(this);
+    readerHud.showVeil(this);
+    readerHud.markSlowLayout(this);
+    await readerHud.paintVeil(this);
     if (!this._loadCoordinator.isCurrent(loadToken)) return false;
     await this.pager.build(this.areaEl, this.bookHtml, this.plugin.settings, 0);
     if (!this._loadCoordinator.isCurrent(loadToken)) return false;
@@ -11565,7 +11356,7 @@ const ReaderModal = class extends Modal {
     this._hlPopupRect = rect;
     selectionHud.syncSelectionToolbar(this);
     pop.classList.add("qiaomu-reader-hl-popup-on");
-    positionHlPopup(this, rect, 320, 44);
+    readerHud.positionPopup(this, rect, 320, 44);
   }
   _hideHlPopup() {
     qiaomuReaderClearPaintedSelection();
@@ -11613,7 +11404,7 @@ const ReaderModal = class extends Modal {
     window.clearTimeout(this._contextSettleTimer);
     clearAiSource(this);
     this._loadCoordinator.cancel();
-    await persistCurrentReaderPosition(this); stopReadingTimer(this);
+    await persistCurrentReaderPosition(this); readerTimer.stop(this);
     window.clearTimeout(this._engineSelTimer);
     this.engine?.destroy(); this.engine = null; this._engineLocation = null;
     if (this.plugin._openReaderModal === this) { this.plugin._openReaderModal = null; }
@@ -12068,8 +11859,8 @@ const SettingsTab = class extends PluginSettingTab {
         const readers = this.app.workspace.getLeavesOfType(VIEW_TYPE).map(l => l.view);
         if (this.plugin._openReaderModal) readers.push(this.plugin._openReaderModal);
         for (const reader of readers) {
-          if (!v) pauseTimerSession(reader);
-          updateGoalBar(reader); updateTimerBtn(reader);
+          if (!v) readerTimer.pause(reader);
+          readerTimer.updateGoalBar(reader); readerTimer.updateButton(reader);
         }
       });
     new Setting(c)

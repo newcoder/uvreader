@@ -153,7 +153,8 @@ AI 会话拆文件在 shim 的 `loadData/saveData` 完成，`src/main.js` 无感
 | M2.2 | `page-jump.js`（`createPageJump({ translate, svgIcon, docOf, isPdf, pdfPages, rememberJump })`：`pageInfo/update/jump/build`） | 完成，`tests/page-jump.test.mjs` |
 | M2.3 | `pdf-zoom-ui.js`（`createPdfZoomUi({ translate, isPdf })`：`syncControls/visiblePageScrollers/apply/change/fitWidth/fitPageWidth/setPanMode`；`Menu`/`Modal` 装配仍留在 `main.js`） | 完成，`tests/pdf-zoom-ui.test.mjs` |
 | M2.4a | `selection-actions.js`（`createSelectionActions(ports)`：选文→高亮弹层→三色下拉→批注编辑器→More 菜单→AI/复制/翻译入口，21 个函数；端口为 translate/Notice/Menu/Scope/TranslateModal/setIcon/window/isPdf/hlColorCss/hlColors/positionPopup/refreshHlPanel/autoFocus/paintAiSource/copyToClipboard/quoteMarkdown/createNoteFromSelection/hlCommentMd/flowSelectionParts/raiseSelectionPopup） | 完成，`tests/selection-actions.test.mjs` 直接 import 模块 |
-| M2.4b | `ReaderView` 装配（`main.js` 约 1200 行，`this.plugin`×56）与脚注/计时 HUD | 计划 |
+| M2.4b-1 | `reader-timer.js`（`createReaderTimer({ translate, notice, window })`：计时/目标条/计时胶囊）与 `reader-hud.js`（`createReaderHud({ translate, notice, window, platform, isPdf, jumpToHighlight, escapeSelector })`：启动遮罩、autoFocus/blur、footnote 弹层与回跳胶囊、`positionPopup`） | 完成，`tests/reader-timer.test.mjs`、`tests/reader-hud.test.mjs` |
+| M2.4b-2 | `ReaderView` 装配（约 1200 行，`this.plugin`×56）拆成 ports 注入 | 下一步 |
 
 ## 12. 打包与发布进度
 

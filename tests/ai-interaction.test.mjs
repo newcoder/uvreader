@@ -374,7 +374,7 @@ function sidebarHarness() {
     window, ItemView: class {}, TFile: File, qiaomuReaderTranslate: (s) => s, Notice: class {},
     normalizeAiTurnContext: (value) => value?.text ? { kind: value.kind, text: value.text } : null,
     newAiSessionKey: () => window.crypto.randomUUID(), aiChatTitle: () => "会话",
-    clearAiSource() {}, qiaomuReaderAutoFocus() {}, shouldFollowContext,
+    clearAiSource() {}, readerHud: { autoFocus() {} }, shouldFollowContext,
     bookNoteLinkFor: () => "", aiTurnsHaveDocumentContext: (turns) => turns.some((turn) => turn.context?.kind === "document"),
     readerDefaultAiContext: () => ({ kind: "page", text: "当前页" }),
   };
@@ -498,7 +498,7 @@ function titleModal() {
   const NoteModal = vm.runInNewContext(`${cls}\nNoteTitleModal`, {
     Modal, qiaomuReaderTranslate: (s) => s, sanitizeNoteTitle: (s) => s, suggestNoteTitle: (s) => s,
     notesFolderPath: () => "", allVaultTags: () => [], FolderSuggest: null,
-    parseNoteTags: () => [], qiaomuReaderPath: (s) => s, qiaomuReaderAutoFocus() {},
+    parseNoteTags: () => [], qiaomuReaderPath: (s) => s, readerHud: { autoFocus() {} },
   });
   const modal = new NoteModal({}, { settings: {}, _saveLocalData: async () => {} }, "重要性如何放大紧张", null, (value) => results.push(value), { kind: "ai-answer" });
   modal.onOpen();

@@ -4,9 +4,11 @@ import vm from "node:vm";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import { textPoint, captureReadingAnchor, restoreReadingAnchor, queueReadingLayout, shouldFollowContext, comfortableLineWidth, zoomAnchorOffset } from "../packages/reader/src/reader-experience.js";
+import { createReaderHud } from "../packages/reader/src/reader-hud.js";
 
 const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
 const selectionSource = fs.readFileSync(new URL("../packages/reader/src/selection-actions.js", import.meta.url), "utf8");
+const readerHud = createReaderHud({ translate: (key) => key, notice() {}, window: globalThis, platform: { isMobile: false }, isPdf: () => false, jumpToHighlight: async () => {} });
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const rect = (left, top, width = 400, height = 500) => ({ left, top, width, height, right: left + width, bottom: top + height });
 
@@ -283,9 +285,7 @@ test("selection toolbar is clamped inside a narrow reader viewport", () => {
   root.getBoundingClientRect = () => rect(100, 50, 260, 500);
   Object.defineProperties(root, { clientWidth: { value: 260 }, clientHeight: { value: 500 } });
   Object.defineProperties(pop, { offsetWidth: { value: 244 }, offsetHeight: { value: 70 } });
-  const start = source.indexOf("function positionHlPopup(");
-  const end = source.indexOf("function followFootnote(", start);
-  const place = vm.runInNewContext(`${source.slice(start, end)}\npositionHlPopup`, { qiaomuReaderIsMobile: () => false });
+  const place = readerHud.positionPopup;
   place({ contentEl: root, hlPopup: pop }, rect(340, 510, 100, 28), 260, 44);
   assert.ok(parseFloat(pop.style.left) >= 0);
   assert.ok(parseFloat(pop.style.left) + 244 <= 260);
@@ -341,7 +341,7 @@ test("sidebar source refresh preserves composer and history DOM; pinned and remo
   const context = { ItemView: class {}, shouldFollowContext, clearAiSource() {},
     normalizeAiTurnContext: (value) => value?.text ? { kind: value.kind, text: value.text, page: value.page } : null,
     aiTurnsHaveDocumentContext: () => false, bookNoteLinkFor: () => "book", newAiSessionKey: () => "new",
-    qiaomuReaderAutoFocus() {}, Notice: class {}, qiaomuReaderTranslate: (s) => s,
+    readerHud: { autoFocus() {} }, Notice: class {}, qiaomuReaderTranslate: (s) => s,
   };
   const Chat = vm.runInNewContext(`${cls}\nAiChatView`, context);
   const chat = Object.create(Chat.prototype);
