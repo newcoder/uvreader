@@ -33,6 +33,10 @@ const explainSource = fs.readFileSync(new URL("../packages/reader/src/ai-explain
 const chatViewSource = fs.readFileSync(new URL("../packages/reader/src/ai-chat-view.js", import.meta.url), "utf8");
 const readSettingsSource = fs.readFileSync(new URL("../packages/reader/src/read-settings-modal.js", import.meta.url), "utf8");
 const noteTitleSource = fs.readFileSync(new URL("../packages/reader/src/note-title-modal.js", import.meta.url), "utf8");
+const historySource = fs.readFileSync(new URL("../packages/reader/src/ai-chat-history-modal.js", import.meta.url), "utf8");
+const bookSetupSource = fs.readFileSync(new URL("../packages/reader/src/book-setup-modal.js", import.meta.url), "utf8");
+const highlightExportSource = fs.readFileSync(new URL("../packages/reader/src/highlight-export-modal.js", import.meta.url), "utf8");
+const settingsGroupSource = fs.readFileSync(new URL("../packages/reader/src/settings-group-modal.js", import.meta.url), "utf8");
 const folderSource = fs.readFileSync(new URL("../packages/reader/src/create-folder-modal.js", import.meta.url), "utf8");
 const infoSource = fs.readFileSync(new URL("../packages/reader/src/info-modal.js", import.meta.url), "utf8");
 const gotoSource = fs.readFileSync(new URL("../packages/reader/src/goto-page-modal.js", import.meta.url), "utf8");
@@ -786,7 +790,7 @@ test("desktop AI chat keeps per-book threads and structured document or selectio
   assert.match(source, /aiMessages\(text, settings, turns, book\)/);
   assert.match(css, /\.qiaomu-reader-ai-sidebar \{[^}]*height: 100%;[^}]*display: flex;[^}]*overflow: hidden/s);
   assert.match(css, /\.qiaomu-reader-ai-sidebar \.qiaomu-reader-ai-log \{ min-height: 0; max-height: none; \}/);
-  assert.match(source, /const AiChatHistoryModal = class extends Modal/);
+  assert.match(historySource, /class AiChatHistoryModal extends Modal/);
   assert.match(chatViewSource, /createEl\("textarea", \{ cls: "qiaomu-reader-ai-input" \}\)/);
   assert.match(chatViewSource, /this\.inputController = bindReaderAiComposer\(this, input, send, footer\)/);
   assert.match(source, /items\.slice\(0, 3\)/);
@@ -826,10 +830,10 @@ test("desktop AI chat keeps per-book threads and structured document or selectio
   assert.match(viewSource, /readerAiPanelContext\(this\)/);
   assert.doesNotMatch(source, /qiaomu-reader-pdf-note-btn|createNoteFromPdfPage|pdfNoteBtn/);
   assert.doesNotMatch(source, /bar\.createDiv\(\{ cls: "qiaomu-reader-ai-composer-hint"/);
-  assert.match(source, /\[\["book", qiaomuReaderTranslate\("this-book"\)\], \["all", qiaomuReaderTranslate\("all-2"\)\]\]/);
-  assert.match(source, /clear-all-chat-history/);
-  assert.match(source, /this\.chat\._removeHistory\(\(item\) => !clearBook \|\| item\.bookPath === bookPath\)/);
-  assert.match(source, /new ConfirmModal\(this\.app, \{/);
+  assert.match(historySource, /\[\["book", qiaomuReaderTranslate\("this-book"\)\], \["all", qiaomuReaderTranslate\("all-2"\)\]\]/);
+  assert.match(historySource, /clear-all-chat-history/);
+  assert.match(historySource, /this\.chat\._removeHistory\(\(item\) => !clearBook \|\| item\.bookPath === bookPath\)/);
+  assert.match(historySource, /new ConfirmModal\(this\.app, \{/);
   assert.doesNotMatch(source, /window\.confirm\(/);
   assert.match(css, /\.qiaomu-reader-ai-composer \{/);
   assert.match(css, /\.qiaomu-reader-ai-composer:focus-within \{/);

@@ -10,6 +10,7 @@ import { aiAnswerMarker, appendAiAnswer, verifiedQuotes, normalizeLocationMarks 
 import { bindAiComposer } from "../packages/reader/src/ai-composer.js";
 
 const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+const historySource = fs.readFileSync(new URL("../packages/reader/src/ai-chat-history-modal.js", import.meta.url), "utf8");
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 test("search supports single Han, literal metacharacters and original Unicode offsets", () => {
@@ -114,8 +115,11 @@ test("bookmarks normalize durable text and PDF anchors without keeping DOM refer
 test("history filtering never replaces Obsidian Modal's keyboard scope", () => {
   const keyboardScope = { handleKey() {} };
   const Modal = class { constructor() { this.scope = keyboardScope; } };
-  const code = source.slice(source.indexOf("const AiChatHistoryModal = class"), source.indexOf("// Mobile uses the same attached-source"));
-  const History = vm.runInNewContext(`${code}; AiChatHistoryModal`, { Modal });
+  // The history modal lives in its own module: build it through its factory.
+  const historyFactory = historySource.slice(historySource.indexOf("export function createAiChatHistoryModal(")).replace("export function", "function");
+  const historyPorts = historyFactory.slice(historyFactory.indexOf("{") + 1, historyFactory.indexOf("})")).split(",").map((name) => name.trim()).filter(Boolean);
+  const historyPortExpr = `{ ${historyPorts.map((name) => `${name}: typeof ${name} === \"undefined\" ? undefined : ${name}`).join(", ")} }`;
+  const History = vm.runInNewContext(`${historyFactory}\ncreateAiChatHistoryModal(${historyPortExpr})`, { Modal });
   const modal = new History({}, { bookFile: { path: "book.epub" } });
   assert.equal(modal.scope, keyboardScope);
   assert.equal(modal.filterScope, "book");
