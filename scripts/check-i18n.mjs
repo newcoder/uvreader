@@ -14,6 +14,8 @@ const librarySource = await fs.readFile(new URL("../packages/reader/src/library-
 const readerSources = source + viewSource + modalSource + librarySource;
 const readSettingsSource = await fs.readFile(new URL("../packages/reader/src/read-settings-modal.js", import.meta.url), "utf8");
 const settingsTabSource = await fs.readFile(new URL("../packages/reader/src/settings-tab.js", import.meta.url), "utf8");
+const bookSetupSource = await fs.readFile(new URL("../packages/reader/src/book-setup-modal.js", import.meta.url), "utf8");
+const pluginSource = await fs.readFile(new URL("../packages/reader/src/plugin.js", import.meta.url), "utf8");
 const readingNoteSource = await fs.readFile(new URL("../packages/reader/src/reading-note.js", import.meta.url), "utf8");
 const packageJson = JSON.parse(await fs.readFile(new URL("../package.json", import.meta.url), "utf8"));
 
@@ -99,10 +101,10 @@ if (!source.includes("BUNDLED_FONT_FAMILIES.zhuque")) {
 if (!source.includes('function backlinkLabel() { return "↩"; }')) {
   errors.push("Reading-note backlinks are not rendered as a quiet icon-only link");
 }
-if (!source.includes('registerObsidianProtocolHandler("qiaomu-book-reader"')) {
+if (!pluginSource.includes('registerObsidianProtocolHandler("qiaomu-book-reader"')) {
   errors.push("Qiaomu reading-note backlinks are missing");
 }
-if (!source.includes("iconBacklinksMigrated") || !source.includes("await syncHighlightsToReadingNote(this.app, this, bookPath, items)")) {
+if (!pluginSource.includes("iconBacklinksMigrated") || !pluginSource.includes("await syncHighlightsToReadingNote(this.app, this, bookPath, items)")) {
   errors.push("Existing managed reading notes are not migrated to icon-only backlinks on upgrade");
 }
 if (source.includes('.setName(qiaomuReaderTranslate("wording-of-that-link"))')) {
@@ -114,7 +116,7 @@ if (!librarySource.includes('svgIcon(mark, "qiaomu-library")') || librarySource.
 if (!source.includes("autoBookNote: true") || !source.includes("quotesToBookNote: true")) {
   errors.push("Reading notes and highlight synchronisation are not enabled by default");
 }
-if (!source.includes("const tplPath = bookNoteTemplatePath(this.app)")) {
+if (!pluginSource.includes("const tplPath = bookNoteTemplatePath(this.app)")) {
   errors.push("Reading-note creation can still reuse the standalone excerpt template");
 }
 if (!source.includes("if (!isMarkedReadingNote(app, md)) continue")) {
@@ -154,7 +156,7 @@ if (!readerSources.includes("openOrCreateBookNoteBeside")
   || !readerSources.includes('{ mode: "split" }')) {
   errors.push("The reader chrome does not create or open the reading note beside the book");
 }
-if (!source.includes('let body = "";') || !source.includes("stripGeneratedReadingNoteTitle") || !source.includes("readingNoteTitlesMigratedV4") || !source.includes("markedInText") || !source.includes("bookNoteFiles(this.app)")) {
+if (!pluginSource.includes('let body = "";') || !source.includes("stripGeneratedReadingNoteTitle") || !pluginSource.includes("readingNoteTitlesMigratedV4") || !pluginSource.includes("markedInText") || !bookSetupSource.includes("bookNoteFiles(this.app)")) {
   errors.push("Generated reading notes still repeat the filename as an H1 heading");
 }
 if (!selectionSource.includes('const QUICK_HL_COLOR_IDS = ["yellow", "green", "pink"]') || !selectionSource.includes('QUICK_HL_COLOR_IDS.includes(entry.id)')) {

@@ -7,6 +7,7 @@ import { textPoint, captureReadingAnchor, restoreReadingAnchor, queueReadingLayo
 import { createReaderHud } from "../packages/reader/src/reader-hud.js";
 
 const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+const pluginSource = fs.readFileSync(new URL("../packages/reader/src/plugin.js", import.meta.url), "utf8");
 const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
 const paginatorSource = fs.readFileSync(new URL("../packages/reader/src/pdf-paginator.js", import.meta.url), "utf8");
 const chatViewSource = fs.readFileSync(new URL("../packages/reader/src/ai-chat-view.js", import.meta.url), "utf8");
@@ -243,7 +244,7 @@ test("opening AI and activating its right dock preserve focus without restoring 
   const aiLeaf = { getRoot: () => workspace.rightSplit, view: new AiChatView() };
   workspace.getLeavesOfType = () => [aiLeaf];
   workspace.revealLeaf = (leaf) => { workspace.rightSplit.collapsed = false; onActiveLeaf(leaf); };
-  const openMethod = source.slice(source.indexOf("  async openAiChat("), source.indexOf("  async openLibrary("));
+  const openMethod = pluginSource.slice(pluginSource.indexOf("  async openAiChat("), pluginSource.indexOf("  async openLibrary("));
   const plugin = vm.runInNewContext(`({${openMethod}})`, {
     AI_CHAT_VIEW_TYPE: "ai-chat", AiChatView,
     setReadingFocus() { throw new Error("Opening AI must not exit focus"); }

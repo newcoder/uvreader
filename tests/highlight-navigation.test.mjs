@@ -4,6 +4,8 @@ import vm from "node:vm";
 import test from "node:test";
 import { addMissingQuoteLinks, highlightBacklink, jumpToEngineHighlight } from "../packages/reader/src/highlight-navigation.js";
 
+const pluginSource = fs.readFileSync(new URL("../packages/reader/src/plugin.js", import.meta.url), "utf8");
+
 const cfi = "epubcfi(/6/30!/4/26,/1:351,/1:357)";
 
 test("CFI backlinks round-trip vault, paths and ranges without breaking Markdown", () => {
@@ -59,7 +61,8 @@ test("existing notes get only missing exact quote links, preserving manual edits
 
 test("protocol dispatch waits for its opened view and keeps CFI ahead of legacy page fields", async () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
-  const code = source.slice(source.indexOf("  async openBookAt("), source.indexOf("  _dataFolder()"));
+const pluginSource = fs.readFileSync(new URL("../packages/reader/src/plugin.js", import.meta.url), "utf8");
+  const code = pluginSource.slice(pluginSource.indexOf("  async openBookAt("), pluginSource.indexOf("  _dataFolder()"));
   class TFile { constructor(path) { this.path = path; } }
   const file = new TFile("书籍/a.mobi");
   const calls = [];
@@ -86,7 +89,7 @@ test("protocol dispatch waits for its opened view and keeps CFI ahead of legacy 
 
 test("new and existing note protocols dispatch to the same book location", async () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
-  const code = source.slice(source.indexOf("  _registerBookProtocol() {"), source.indexOf("  _registerReaderExtensions() {"));
+  const code = pluginSource.slice(pluginSource.indexOf("  _registerBookProtocol() {"), pluginSource.indexOf("  _registerReaderExtensions() {"));
   const register = vm.runInNewContext(`({${code}})._registerBookProtocol`);
   const handlers = new Map();
   const calls = [];

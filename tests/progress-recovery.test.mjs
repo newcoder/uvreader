@@ -5,6 +5,7 @@ import test from "node:test";
 import { cloneJson, createSerialTaskQueue, isPlainRecord, mergeReadingProgress, parseJsonRecord, readJsonRecordStore, writeVerifiedJsonRecord } from "../packages/reader/src/storage.js";
 
 const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+const pluginSource = fs.readFileSync(new URL("../packages/reader/src/plugin.js", import.meta.url), "utf8");
 const primary = "reading-progress.json";
 const recovery = ".obsidian/plugins/reader/reading-progress-recovery.json";
 const previous = { book: { pct: 0.1, lastRead: 1, block: 12 } };
@@ -19,7 +20,7 @@ function fixture() {
     async write(file, raw) { calls.push(["write", file]); files.set(file, raw); },
     async process(file, fn) { calls.push(["process", file]); const raw = fn(await this.read(file)); files.set(file, raw); return raw; },
   };
-  const methods = source.slice(source.indexOf("  async _loadProgressFromVault()"), source.indexOf("  async _loadJsonStore("));
+  const methods = pluginSource.slice(pluginSource.indexOf("  async _loadProgressFromVault()"), pluginSource.indexOf("  async _loadJsonStore("));
   const Host = vm.runInNewContext(`(class {${methods}})`, {
     cloneJson, isPlainRecord, mergeReadingProgress, readJsonRecordStore, writeVerifiedJsonRecord,
     qiaomuReaderTranslate: (text) => text,
@@ -104,7 +105,7 @@ test("invalid snapshot values are rejected before any writes", async () => {
 });
 
 test("retry preserves newer in-memory positions and reports persistence failure", async () => {
-  const method = source.slice(source.indexOf("  async retryUnreadableStore("), source.indexOf("  async _writeRescue("));
+  const method = pluginSource.slice(pluginSource.indexOf("  async retryUnreadableStore("), pluginSource.indexOf("  async _writeRescue("));
   const Host = vm.runInNewContext(`(class {${method}})`, { mergeReadingProgress, qiaomuReaderTranslate: (text) => text, console: { error() {} } });
   const host = new Host();
   Object.assign(host, {

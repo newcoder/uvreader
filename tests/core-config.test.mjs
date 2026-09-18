@@ -26,6 +26,7 @@ import { isChineseSourceText, translateUiText } from "../packages/reader/src/i18
 import { EmbeddedPdfBinaryDataFactory, PDF_CMAP_OPTIONS } from "../packages/reader/src/pdf-cmaps.js";
 
 const mainSource = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+const pluginSource = fs.readFileSync(new URL("../packages/reader/src/plugin.js", import.meta.url), "utf8");
 const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
 const modalSource = fs.readFileSync(new URL("../packages/reader/src/reader-modal.js", import.meta.url), "utf8");
 const librarySource = fs.readFileSync(new URL("../packages/reader/src/library-modal.js", import.meta.url), "utf8");
@@ -325,13 +326,13 @@ test("empty synced JSON placeholders stay blocked until the user restores or rem
 test("reader persistence refuses to overwrite unreadable stores and reports real save failures", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
   const selection = fs.readFileSync(new URL("../packages/reader/src/selection-actions.js", import.meta.url), "utf8");
-  assert.match(source, /this\._blockedStores\.add\(path5\)/);
-  assert.match(source, /this\._unreadableStores\.set\(path5/);
-  assert.match(source, /async retryUnreadableStore\(path5\)/);
+  assert.match(pluginSource, /this\._blockedStores\.add\(path5\)/);
+  assert.match(pluginSource, /this\._unreadableStores\.set\(path5/);
+  assert.match(pluginSource, /async retryUnreadableStore\(path5\)/);
   assert.match(settingsTabSource, /to-avoid-overwriting-recoverable-data/);
-  assert.match(source, /if \(this\._blockedStores\.has\(path5\)\) return false/);
-  assert.match(source, /stores\.some\(\(store\) => store === false\)/);
-  assert.match(source, /const saved = await this\._persistHighlights/);
+  assert.match(pluginSource, /if \(this\._blockedStores\.has\(path5\)\) return false/);
+  assert.match(pluginSource, /stores\.some\(\(store\) => store === false\)/);
+  assert.match(pluginSource, /const saved = await this\._persistHighlights/);
   assert.match(selection, /if \(!saved\) throw new Error\("Comment was not saved"\)[\s\S]*could-not-save-the-comment/);
   assert.match(source, /function renderReaderLoadError/);
   assert.match(source, /try-again/);
@@ -360,7 +361,7 @@ test("runtime diagnostics use the maintained plugin identity", () => {
   assert.doesNotMatch(source, /console\.(?:error|warn|log)\("Book Reader:/);
   assert.match(source, /const VIEW_TYPE = "qiaomu-reader"/);
   assert.match(source, /const LIB_VIEW_TYPE = "qiaomu-reader-library"/);
-  assert.match(source, /const QiaomuBookReader = class extends Plugin/);
+  assert.match(pluginSource, /class QiaomuBookReader extends Plugin/);
   assert.match(source, /export default QiaomuBookReader/);
 });
 
@@ -764,9 +765,9 @@ test("desktop AI chat keeps per-book threads and structured document or selectio
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
   const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   assert.match(source, /const AI_CHAT_VIEW_TYPE = "qiaomu-book-reader-ai-chat"/);
-  assert.match(source, /\[AI_CHAT_VIEW_TYPE, AiChatView\]/); // view registrations are table-driven in _registerReaderViews
-  assert.match(source, /registerView\(viewType, \(leaf\) => new ViewClass\(leaf, this\)\)/);
-  assert.match(source, /getRightLeaf\(false\)/);
+  assert.match(pluginSource, /\[AI_CHAT_VIEW_TYPE, AiChatView\]/);
+  assert.match(pluginSource, /registerView\(viewType, \(leaf\) => new ViewClass\(leaf, this\)\)/);
+  assert.match(pluginSource, /getRightLeaf\(false\)/);
   assert.match(chatViewSource, /class AiChatView extends ItemView/);
   assert.match(chatViewSource, /setContext\(value(?:, options = \{\})?\)/);
   assert.match(chatViewSource, /find\(\(item\) => item\.bookPath && item\.bookPath === bookPath\)/);
@@ -816,7 +817,7 @@ test("desktop AI chat keeps per-book threads and structured document or selectio
   assert.match(source, /if \(!readerIsPdf\(view\)\) \{\s*return \{\s*bookFile: view\.file/);
   assert.match(chatViewSource, /nextContext\?\.text \|\| \(sameBook \? this\.text : ""\)/);
   assert.match(source, /getLeavesOfType\(AI_CHAT_VIEW_TYPE\)\[0\]/);
-  assert.match(source, /readerAiPanelContext\(target\)/);
+  assert.match(pluginSource, /readerAiPanelContext\(target\)/);
   assert.match(viewSource, /syncOpenAiReaderContext\(this\);/);
   assert.match(chatViewSource, /contextUnavailable/);
   assert.match(source, /function renderAiComposerPrompts\(host, chat\)/);
@@ -1016,7 +1017,7 @@ test("quote template is language-neutral and migrates the old Russian fragment",
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
   assert.match(source, /const QUOTE_TEMPLATE_DEFAULT = "> \{text\}\\n\\n— \[\[\{book\}\]\]\{page\}\{link\}"/);
   assert.doesNotMatch(source, /— из \[\[\{book\}\]\]/i);
-  assert.match(source, /quoteTemplate\.replace\(\/\u2014\\s\+из/);
+  assert.match(pluginSource, /quoteTemplate\.replace\(\/\u2014\\s\+из/);
 });
 
 test("reading settings own their scroll area without horizontal overflow", () => {

@@ -5,6 +5,7 @@ import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { highlightBacklink } from '../packages/reader/src/highlight-navigation.js';
 const source = fs.readFileSync(new URL('../packages/reader/src/main.js', import.meta.url), 'utf8');
+const pluginSource = fs.readFileSync(new URL("../packages/reader/src/plugin.js", import.meta.url), "utf8");
 const viewSource = fs.readFileSync(new URL('../packages/reader/src/reader-view.js', import.meta.url), 'utf8');
 class TFile { constructor(path) { this.path = path; this.extension = path.split('.').at(-1); this.basename = path.split('/').at(-1).replace(/\.[^.]+$/, ''); } }
 class MarkdownView {}
@@ -55,8 +56,8 @@ test('translation source is a stable snapshot and does not reference a highlight
   assert.ok(!text.includes('highlight='));assert.ok(text.includes('book=Books%2FA%20%26%20B.epub'));
 });
 test('automatic companion respects mobile, narrow windows, closed preference, loading and active book',async()=>{
-  const start=source.indexOf('  async _showCompanionForBook(');
-  const method=source.slice(start,source.indexOf('  _watchQuietUiDocument(',start));
+  const start=pluginSource.indexOf('  async _showCompanionForBook(');
+  const method=pluginSource.slice(start,pluginSource.indexOf('  _watchQuietUiDocument(',start));
   const p=vm.runInNewContext(`({${method}})`,{readerAiPanelContext:v=>({readerView:v,text:'page'}),console});
   let calls=0;p.openAiChat=async(_c,o)=>{assert.equal(o.automatic,true);calls++;};
   p.app={workspace:{}};p.settings={aiCompanionVisible:null};

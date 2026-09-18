@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 const source = fs.readFileSync(new URL('../packages/reader/src/main.js', import.meta.url), 'utf8');
+const pluginSource = fs.readFileSync(new URL("../packages/reader/src/plugin.js", import.meta.url), "utf8");
 class TFile {
   constructor(path) { this.path = path; this.basename = path.split('/').at(-1).replace(/\.md$/, ''); this.extension = 'md'; }
 }
@@ -27,8 +28,8 @@ test('unambiguous legacy reading-note links remain readable', () => {
 });
 test('creating same-name notes in separate folders persists and writes to each exact file', async () => {
   const { app, files } = setup(['A/笔记.md', 'B/笔记.md']);
-  const start = source.indexOf('  async createBookNote(file, title, folder) {');
-  const code = source.slice(start, source.indexOf('  async _materializeBookNote(', start));
+  const start = pluginSource.indexOf('  async createBookNote(file, title, folder) {');
+  const code = pluginSource.slice(start, pluginSource.indexOf('  async _materializeBookNote(', start));
   const writes = [];
   const create = vm.runInNewContext(`({${code}}).createBookNote`, { TFile, qiaomuReaderPath: p => p, sanitizeNoteTitle: p => p, writeBookProperty: async (app, path, book) => writes.push([path, book.path]) });
   const plugin = { app, settings: {}, saveAll: async () => {} };
@@ -39,8 +40,8 @@ test('creating same-name notes in separate folders persists and writes to each e
   assert.deepEqual(writes, [['A/笔记.md','a.epub'],['B/笔记.md','b.epub']]);
 });
 test('renaming a note or its folder updates exact links without touching similarly named paths', () => {
-  const start = source.indexOf('  _watchBookFiles() {');
-  const code = source.slice(start, source.indexOf('  _scheduleFirstRunFlow()', start));
+  const start = pluginSource.indexOf('  _watchBookFiles() {');
+  const code = pluginSource.slice(start, pluginSource.indexOf('  _scheduleFirstRunFlow()', start));
   const callbacks = {};
   let saves = 0;
   const watch = vm.runInNewContext(`({${code}})._watchBookFiles`, { window: {}, BOOK_EXTENSIONS: new Set() });
@@ -55,8 +56,8 @@ test('renaming a note or its folder updates exact links without touching similar
 });
 test('two books requesting the same note filename receive separate notes', async () => {
   const { app, files } = setup(['笔记.md']);
-  const start = source.indexOf('  async createBookNote(file, title, folder) {');
-  const code = source.slice(start, source.indexOf('  async _materializeBookNote(', start));
+  const start = pluginSource.indexOf('  async createBookNote(file, title, folder) {');
+  const code = pluginSource.slice(start, pluginSource.indexOf('  async _materializeBookNote(', start));
   const create = vm.runInNewContext(`({${code}}).createBookNote`, { TFile, qiaomuReaderPath: p => p, sanitizeNoteTitle: p => p, writeBookProperty: async () => {} });
   const plugin = { app, settings: { bookNoteLinks: { 'first.epub': '笔记.md' } }, saveAll: async () => {}, _materializeBookNote: async path => { const f = new TFile(path); files.push(f); return f; } };
   const made = await create.call(plugin, { path: 'second.epub' }, '笔记', '');
