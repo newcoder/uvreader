@@ -29,7 +29,7 @@ test('PDF superscript references and footnotes preserve original page geometry',
     dom.window.close();
     // Both desktop and mobile dispatch through this extractor. Prevent a later
     // typography feature from routing PDFs back through the old reflow path.
-    const source = fs.readFileSync(new URL('../packages/reader/src/wire.js', import.meta.url), 'utf8');
+    const source = fs.readFileSync(new URL('../packages/reader/src/pdf-document.js', import.meta.url), 'utf8');
     const extractor = source.slice(source.indexOf('async function extractPdf('), source.indexOf('async function extractPdf(') + 5000);
     assert.ok(extractor.includes('parts.push(pdfPageShell({'));
     assert.ok(!extractor.includes('pdfItemsToHtml('));

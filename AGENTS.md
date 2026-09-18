@@ -10,6 +10,7 @@ Standalone desktop reader (Electron) for EPUB/PDF/FB2/MOBI/AZW3/CBZ with highlig
   - `plugin.js` / `settings-tab.js` — the Obsidian-facing adapters, built as factories (`createPlugin`, `createSettingsTab`) with the host base class injected.
 - `packages/host-shim/` — Obsidian API compatibility layer used only by `wire.js`/`plugin.js`/`settings-tab.js`.
 - `apps/desktop/` — Electron shell (main/preload/renderer) with its own `package.json` and lockfile.
+  - `src/main/ai-runtime.js` — the pi-ai provider runtime (HTTP/OpenAI-compatible, including Ollama/LM Studio). AI traffic runs in the main process; `src/preload` exposes `qbrDesktop.ai`, and `packages/reader/src/ai-pi.js` adapts the bridge to the reader's `aiExplain` contract. Reader modules must never import `@earendil-works/pi-ai` directly.
 
 ## Commands
 

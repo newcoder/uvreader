@@ -102,9 +102,9 @@ test("new and existing note protocols dispatch to the same book location", async
 });
 
 test("reading-note paths resolve settings from the new plugin identity", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/note-paths.js", import.meta.url), "utf8");
   const code = source.slice(source.indexOf("function _readerSettings(app)"), source.indexOf("function inboxNotePath("));
-  const resolve = vm.runInNewContext(`(()=>{${code};return bookNotesFolderPath})()`, { qiaomuReaderPath: (s) => s });
+  const resolve = vm.runInNewContext(`(()=>{${code};return bookNotesFolderPath})()`, { path: (s) => s, qiaomuReaderPath: (s) => s });
   const app = { plugins: { plugins: { "qiaomu-reader": { settings: { bookNotesFolder: "阅读笔记" } }, "qiaomu-book-reader": { settings: { bookNotesFolder: "旧路径" } } } } };
   assert.equal(resolve(app), "阅读笔记");
 });

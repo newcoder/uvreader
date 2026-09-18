@@ -18,7 +18,7 @@ function harness() {
   const app = { workspace: { getLeavesOfType: () => leaves }, vault: { getName: () => '中文 & QA', getAbstractFileByPath: path => files.get(path), process: async (file, fn) => contents.set(file.path, fn(contents.get(file.path) || '')) }, fileManager: { generateMarkdownLink: f => `[[${f.path}]]` }, internalPlugins: { plugins: { 'daily-notes': { enabled: true, instance: { getDailyNote: async () => { dailyCalls++; const file = new TFile('Daily/custom-date.md'); files.set(file.path,file); contents.set(file.path,contents.get(file.path) || 'Daily template\n'); return file; } } } } } };
   const plugin = { app, settings: {}, _lastNoteLeaf: leaf };
   const sandbox = { TFile, MarkdownView, highlightBacklink, isUnsafeReadingNote: () => false };
-  const code = source.slice(source.indexOf('function currentTranslationNote('), source.indexOf('const TranslateModal'));
+  const code = source.slice(source.indexOf('function currentTranslationNote('), source.indexOf('function qiaomuReaderSelectionRect('));
   const api = vm.runInNewContext(`${code}; ({currentTranslationNote, dailyNoteProvider, translationNoteBlock, saveTranslationNote})`, sandbox);
   const book = new TFile('Books/A & B.epub'); files.set(book.path,book);
   const modal = { plugin, app, bookFile: book, text:'Original', source:{text:'Original', cfi:'epubcfi(/6/4!/4/2:0)'}, noteTarget: api.currentTranslationNote(plugin), savedTargets:new Map() };

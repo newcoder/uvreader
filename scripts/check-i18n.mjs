@@ -7,6 +7,10 @@ import { AI_PROVIDER_CATEGORIES, AI_PROVIDERS } from "../packages/reader/src/ai-
 import { QIAOMU_READER_ZH_CN } from "../packages/reader/src/i18n-zh.js";
 
 const source = await fs.readFile(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
+const aiContextSource = await fs.readFile(new URL("../packages/reader/src/ai-context.js", import.meta.url), "utf8");
+const aiRenderSource = await fs.readFile(new URL("../packages/reader/src/ai-render.js", import.meta.url), "utf8");
+const notePathsSource = await fs.readFile(new URL("../packages/reader/src/note-paths.js", import.meta.url), "utf8");
+const bookNotesSource = await fs.readFile(new URL("../packages/reader/src/book-notes.js", import.meta.url), "utf8");
 const selectionSource = await fs.readFile(new URL("../packages/reader/src/selection-actions.js", import.meta.url), "utf8");
 const viewSource = await fs.readFile(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
 const modalSource = await fs.readFile(new URL("../packages/reader/src/reader-modal.js", import.meta.url), "utf8");
@@ -98,7 +102,7 @@ if (!source.includes("BUNDLED_FONT_FAMILIES.zhuque")) {
   errors.push("The offline Zhuque Fangsong font is missing");
 }
 
-if (!source.includes('function backlinkLabel() { return "↩"; }')) {
+if (!bookNotesSource.includes('function backlinkLabel() { return "↩"; }')) {
   errors.push("Reading-note backlinks are not rendered as a quiet icon-only link");
 }
 if (!pluginSource.includes('registerObsidianProtocolHandler("qiaomu-book-reader"')) {
@@ -119,19 +123,19 @@ if (!source.includes("autoBookNote: true") || !source.includes("quotesToBookNote
 if (!pluginSource.includes("const tplPath = bookNoteTemplatePath(this.app)")) {
   errors.push("Reading-note creation can still reuse the standalone excerpt template");
 }
-if (!source.includes("if (!isMarkedReadingNote(app, md)) continue")) {
+if (!notePathsSource.includes("if (!isMarkedReadingNote(app, md)) continue")) {
   errors.push("Frontmatter inference can still capture ordinary or template notes");
 }
-if (!source.includes('fm["book-reader-note"] = true')) {
+if (!notePathsSource.includes('fm["book-reader-note"] = true')) {
   errors.push("Created reading notes are not marked explicitly");
 }
-if (!readingNoteSource.includes("function headingRanges") || !source.includes("syncHighlightsToReadingNote")) {
+if (!readingNoteSource.includes("function headingRanges") || !bookNotesSource.includes("syncHighlightsToReadingNote")) {
   errors.push("Highlights and comments are not synchronised through a heading-managed reading-note section");
 }
 if (source.includes("const READING_HIGHLIGHTS_START") || source.includes("const READING_HIGHLIGHTS_END")) {
   errors.push("Internal reading-note boundary markers are still emitted into user notes");
 }
-if (source.includes('> **${qiaomuReaderTranslate("comment-on-a-highlight")}')) {
+if (bookNotesSource.includes('> **${translate("comment-on-a-highlight")}')) {
   errors.push("Highlight comments still render inside the quote block");
 }
 if ((readerSources.match(/await persistCurrentReaderPosition\(this\)/g) || []).length < 2) {
@@ -153,7 +157,7 @@ if (!source.includes('await reader.plugin.saveProgress(reader.file.path, current
 if (!readerSources.includes("openOrCreateBookNoteBeside")
   || !viewSource.includes('trayButton("reading-note", "the-book-note", () => openOrCreateBookNoteBeside(this.plugin, this.file))')
   || !readerSources.includes('add("the-book-note", "file-text", () => openOrCreateBookNoteBeside(this.plugin, this.file))')
-  || !readerSources.includes('{ mode: "split" }')) {
+  || !bookNotesSource.includes('{ mode: "split" }')) {
   errors.push("The reader chrome does not create or open the reading note beside the book");
 }
 if (!pluginSource.includes('let body = "";') || !source.includes("stripGeneratedReadingNoteTitle") || !pluginSource.includes("readingNoteTitlesMigratedV4") || !pluginSource.includes("markedInText") || !bookSetupSource.includes("bookNoteFiles(this.app)")) {
@@ -174,12 +178,12 @@ if (!selectionSource.includes('createDiv({ cls: "qiaomu-reader-hl-comment-quote"
 if (!settingsTabSource.includes('if (cfg.id === "custom") this._aiBaseRow(c, s, p)') || !settingsTabSource.includes('this._settingsDisclosure(advanced, "ai-connection-settings")')) {
   errors.push("AI connection details must remain behind progressive disclosure except required custom endpoints");
 }
-if (!source.includes("const DEFAULT_AI_QUICK_PROMPTS")
+if (!aiContextSource.includes("const DEFAULT_AI_QUICK_PROMPTS")
   || source.includes("const AiPromptLibraryModal = class extends Modal")
-  || !source.includes("chat._send(item.prompt)")) {
+  || !aiRenderSource.includes("chat._send(item.prompt)")) {
   errors.push("AI quick prompts must stay built-in and send their full translated prompt");
 }
-if (!source.includes("bookNoteAppendPromptSeen !== true") || !source.includes("bookNoteAppendPromptSeen = true")) {
+if (!bookNotesSource.includes("bookNoteAppendPromptSeen !== true") || !bookNotesSource.includes("bookNoteAppendPromptSeen = true")) {
   errors.push("Book-note append still asks whether to open the note every time");
 }
 for (const font of ["Georgia", "Lora", "Inter"]) {

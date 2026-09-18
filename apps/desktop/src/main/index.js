@@ -3,6 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { BOOK_EXTENSIONS, isBookFile } from "../shared/books.js";
+import { createAiRuntime } from "./ai-runtime.js";
+
+const aiRuntime = createAiRuntime();
 
 if (process.env.QBR_USER_DATA) app.setPath("userData", process.env.QBR_USER_DATA);
 const userData = app.getPath("userData");
@@ -171,6 +174,12 @@ ipcMain.handle("qbr:boot", (_event, payload = {}) => {
 ipcMain.handle("qbr:show-item", (_event, filePath) => {
   if (filePath) shell.showItemInFolder(filePath);
 });
+ipcMain.handle("qbr:ai:stream", (event, payload = {}) =>
+  aiRuntime.stream(payload, (delta) => {
+    if (!event.sender.isDestroyed()) event.sender.send("qbr:ai:event", delta);
+  }));
+ipcMain.handle("qbr:ai:abort", (_event, requestId) => aiRuntime.abort(String(requestId || "")));
+ipcMain.handle("qbr:ai:test", (_event, config) => aiRuntime.test(config || {}));
 ipcMain.on("qbr:secret-sync", (event, id) => {
   const store = readSecrets();
   event.returnValue = id && store[id] ? decryptSecret(store[id]) : null;

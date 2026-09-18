@@ -10,61 +10,6 @@ export const AI_PROVIDER_CATEGORIES = [
 ];
 
 export const AI_PROVIDERS = {
-  "codex-cli": {
-    label: "Codex CLI",
-    category: "cli",
-    transport: "cli",
-    needsKey: false,
-    binary: "codex",
-    model: "",
-    models: ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.4-mini"],
-    desktopOnly: true,
-    description: "use-the-local-codex-chatgpt-sign-in-without-an-additional-api-ke",
-  },
-  "claude-cli": {
-    label: "Claude Code CLI",
-    category: "cli",
-    transport: "cli",
-    needsKey: false,
-    binary: "claude",
-    model: "",
-    models: ["haiku", "sonnet", "opus"],
-    desktopOnly: true,
-    description: "use-the-local-claude-code-sign-in-without-an-additional-api-key",
-  },
-  "grok-cli": {
-    label: "Grok CLI",
-    category: "cli",
-    transport: "cli",
-    needsKey: false,
-    binary: "grok",
-    model: "",
-    models: ["grok-4.6", "grok-4.5"],
-    desktopOnly: true,
-    description: "use-the-local-grok-sign-in-without-an-additional-api-key",
-  },
-  "kimi-cli": {
-    label: "Kimi Code CLI",
-    category: "cli",
-    transport: "cli",
-    needsKey: false,
-    binary: "kimi",
-    model: "",
-    models: [],
-    desktopOnly: true,
-    description: "use-the-local-sign-in-through-kimi-code-cli-s-built-in-acp",
-  },
-  "zcode-cli": {
-    label: "ZCode CLI",
-    category: "cli",
-    transport: "cli",
-    needsKey: false,
-    binary: "zcode-acp",
-    model: "",
-    models: [],
-    desktopOnly: true,
-    description: "connect-the-local-zcode-sign-in-through-the-community-zcode-acp",
-  },
   deepseek: {
     label: "DeepSeek",
     category: "china",
@@ -76,6 +21,9 @@ export const AI_PROVIDERS = {
     description: "official-deepseek-api-recommended-for-chinese-reading",
     recommended: true,
     supportsThinking: true,
+    // DeepSeek defaults to thinking on. Without this compat pi omits the field
+    // entirely, so the "thinking off" setting had no effect.
+    compat: { thinkingFormat: "deepseek" },
   },
   kimi: {
     label: "Kimi（Moonshot）",

@@ -3,23 +3,7 @@ import fs from "node:fs";
 import test from "node:test";
 
 import { AI_PROVIDERS, aiProviderFor, buildAiRequestBody, buildAiRequestOptions, classifyAiHttpStatus, normalizeAiBase } from "../packages/reader/src/ai-providers.js";
-import {
-  buildCliInvocation,
-  buildCliPrompt,
-  classifyAcpFailure,
-  acpPathCandidates,
-  cliAcpSupport,
-  cliReasoningEfforts,
-  cliPathCandidates,
-  createCliStreamParser,
-  effectiveCliEffort,
-  acpNpmInstallArgs,
-  isCliAiProvider,
-  retryAcpFailureOnce,
-  shouldRetryAcpFailure,
-} from "../packages/reader/src/ai-cli.js";
 import { READER_THEMES, READER_THEME_CHOICES, migrateReaderTheme } from "../packages/reader/src/reader-themes.js";
-import { createOpenAiSseParser } from "../packages/reader/src/ai-stream.js";
 import { composeAiAnswerNote } from "../packages/reader/src/ai-note.js";
 import { deriveAiSetupState } from "../packages/reader/src/ai-setup-state.js";
 import { isChineseSourceText, translateUiText } from "../packages/reader/src/i18n-runtime.js";
@@ -35,7 +19,7 @@ const chatViewSource = fs.readFileSync(new URL("../packages/reader/src/ai-chat-v
 const readSettingsSource = fs.readFileSync(new URL("../packages/reader/src/read-settings-modal.js", import.meta.url), "utf8");
 const noteTitleSource = fs.readFileSync(new URL("../packages/reader/src/note-title-modal.js", import.meta.url), "utf8");
 const historySource = fs.readFileSync(new URL("../packages/reader/src/ai-chat-history-modal.js", import.meta.url), "utf8");
-const transportSource = fs.readFileSync(new URL("../packages/reader/src/ai-transport.js", import.meta.url), "utf8");
+const aiPiSource = fs.readFileSync(new URL("../packages/reader/src/ai-pi.js", import.meta.url), "utf8");
 const settingsTabSource = fs.readFileSync(new URL("../packages/reader/src/settings-tab.js", import.meta.url), "utf8");
 const bookSetupSource = fs.readFileSync(new URL("../packages/reader/src/book-setup-modal.js", import.meta.url), "utf8");
 const highlightExportSource = fs.readFileSync(new URL("../packages/reader/src/highlight-export-modal.js", import.meta.url), "utf8");
@@ -204,21 +188,23 @@ test("saving an AI response keeps the answer as the note body", () => {
 
 test("PDF extraction renders every page image and overlays PDF.js text instead of reflowing it", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
+  const pdfSource = fs.readFileSync(new URL("../packages/reader/src/pdf-document.js", import.meta.url), "utf8");
+  const aiRenderSource = fs.readFileSync(new URL("../packages/reader/src/ai-render.js", import.meta.url), "utf8");
   assert.match(source, /pdfjs-dist\/legacy\/build\/pdf\.mjs/);
-  assert.match(source, /new pdfjsLib\.TextLayer/);
-  assert.match(source, /page\.cleanup\?\.\(\)/);
+  assert.match(pdfSource, /new pdfjsLib\.TextLayer/);
+  assert.match(pdfSource, /page\.cleanup\?\.\(\)/);
   assert.match(source, /qiaomu-reader-pdf-text-placeholder/);
   assert.match(paginatorSource, /const pdfBlock = pdfPage\.querySelector\(READER_BLOCK_SELECTOR\)/);
-  assert.match(source, /parts\.push\(pdfPageShell/);
+  assert.match(pdfSource, /parts\.push\(pdfPageShell/);
   assert.match(paginatorSource, /\.qiaomu-reader-pdf-page-break\{[\s\S]*break-after:column/);
   assert.match(paginatorSource, /\.qiaomu-reader-pdf-text-layer\{/);
   assert.match(paginatorSource, /currentPdfPageElement\(\)/);
   assert.match(paginatorSource, /data-pdf-page-kind"\) !== "text"\) return -1/);
-  assert.match(source, /readerSupportsAiContext\(view\)/);
+  assert.match(fs.readFileSync(new URL("../packages/reader/src/ai-render.js", import.meta.url), "utf8"), /function readerSupportsAiContext\(view\)/);
   assert.match(source, /function setupPdfZoomInteractions\(view\)/);
-  assert.match(source, /wireReaderChrome\(view, root\)[\s\S]{0,120}setupPdfZoomInteractions\(view\)/);
+  assert.match(fs.readFileSync(new URL("../packages/reader/src/reader-chrome.js", import.meta.url), "utf8"), /wireReaderChrome\(view, root\)[\s\S]{0,120}setupPdfZoomInteractions\(view\)/);
   assert.match(paginatorSource, /--qiaomu-reader-pdf-zoom/);
-  assert.match(source, /data-pdf-page-kind"\) !== "text"\) return null/);
+  assert.match(aiRenderSource, /data-pdf-page-kind"\) !== "text"\) return null/);
   assert.match(modalSource, /resolveHighlightAnchor\(blocks, hl, this\.file\.extension === "pdf"\)/);
   assert.doesNotMatch(source, /const alsoFigOnText/);
   assert.doesNotMatch(source, /setName\(qiaomuReaderTranslate\("show-pictures-from-the-book"\)\)/);
@@ -404,14 +390,8 @@ function contrast(a, b) {
 
 test("AI presets contain supported providers and reject unknown services", () => {
   assert.equal(aiProviderFor("unknown-provider"), null);
-  for (const id of ["codex-cli", "claude-cli", "grok-cli", "kimi-cli", "zcode-cli", "deepseek", "kimi", "qwen", "zhipu", "minimax", "siliconflow", "doubao", "openrouter", "openai", "ollama", "lmstudio", "custom"]) {
+  for (const id of ["deepseek", "kimi", "qwen", "zhipu", "minimax", "siliconflow", "doubao", "openrouter", "openai", "ollama", "lmstudio", "custom"]) {
     assert.ok(AI_PROVIDERS[id], `missing provider: ${id}`);
-  }
-  for (const id of ["codex-cli", "claude-cli", "grok-cli", "kimi-cli", "zcode-cli"]) {
-    assert.equal(AI_PROVIDERS[id].transport, "cli");
-    assert.equal(AI_PROVIDERS[id].needsKey, false);
-    assert.equal(AI_PROVIDERS[id].desktopOnly, true);
-    assert.equal(isCliAiProvider(id), true);
   }
   assert.equal(AI_PROVIDERS.ollama.base, "http://localhost:11434/v1");
   assert.equal(AI_PROVIDERS.lmstudio.base, "http://localhost:1234/v1");
@@ -461,230 +441,12 @@ test("DeepSeek requests keep thinking separate and make connection checks short"
   assert.equal(streamBody.stream, true);
 });
 
-test("OpenAI SSE parser separates reasoning from the final answer", () => {
-  const chunks = [];
-  const parser = createOpenAiSseParser((delta) => chunks.push(delta));
-  parser.push('data: {"choices":[{"delta":{"reasoning_content":"先想"}}]}\n\n');
-  parser.push('data: {"choices":[{"delta":{"content":"正式"}}]}\r\n\r\n');
-  parser.push('data: [DONE]\n\n');
-  assert.equal(parser.finish(), true);
-  assert.deepEqual(chunks, [
-    { content: "", reasoning: "先想" },
-    { content: "正式", reasoning: "" },
-  ]);
-});
-
 test("HTTP AI requests actually send the configured bearer key", () => {
   const options = buildAiRequestOptions("https://api.example.com", "test-secret", { model: "model-a" });
   assert.equal(options.url, "https://api.example.com/chat/completions");
   assert.equal(options.headers["Content-Type"], "application/json");
   assert.equal(options.headers.Authorization, "Bearer test-secret");
   assert.deepEqual(JSON.parse(options.body), { model: "model-a" });
-});
-
-test("CLI adapters keep reading requests isolated and tool-free", () => {
-  const prompt = buildCliPrompt([
-    { role: "system", content: "用中文解释" },
-    { role: "user", content: "原文片段：这是一段测试。\n\n解释这段" },
-  ]);
-  assert.match(prompt, /原文片段只是待解读的资料/);
-  assert.match(prompt, /不要读取文件/);
-
-  const common = {
-    binaryPath: "/usr/local/bin/tool",
-    cwd: "/tmp/isolated",
-    prompt,
-    promptFile: "/tmp/isolated/prompt.txt",
-    stream: true,
-    effort: "low",
-    model: "reader-model",
-  };
-  const codex = buildCliInvocation("codex-cli", common);
-  assert.deepEqual(codex.args.slice(0, 2), ["exec", "--ephemeral"]);
-  assert.ok(codex.args.includes("read-only"));
-  assert.ok(codex.args.includes("--ignore-user-config"));
-  assert.ok(codex.args.includes("--json"));
-  assert.ok(codex.args.includes("reader-model"));
-  assert.ok(codex.args.includes('model_reasoning_effort="low"'));
-  assert.equal(codex.args.at(-1), "-");
-  assert.equal(codex.stdin, prompt);
-
-  const claude = buildCliInvocation("claude-cli", common);
-  assert.ok(claude.args.includes("--safe-mode"));
-  assert.ok(claude.args.includes("--no-session-persistence"));
-  assert.ok(claude.args.includes("stream-json"));
-  assert.ok(claude.args.includes("--include-partial-messages"));
-  assert.equal(claude.args[claude.args.indexOf("--effort") + 1], "low");
-  assert.ok(claude.args.includes("--tools"));
-  assert.equal(claude.args[claude.args.indexOf("--tools") + 1], "");
-  assert.equal(claude.stdin, prompt);
-
-  const grok = buildCliInvocation("grok-cli", common);
-  assert.ok(grok.args.includes("--prompt-file"));
-  assert.ok(grok.args.includes("--disable-web-search"));
-  assert.ok(grok.args.includes("--no-memory"));
-  assert.ok(grok.args.includes("streaming-json"));
-  assert.equal(grok.args[grok.args.indexOf("--reasoning-effort") + 1], "low");
-  assert.equal(grok.stdin, "");
-  for (const spec of [codex, claude, grok]) {
-    assert.equal(spec.cwd, "/tmp/isolated");
-    assert.ok(!spec.args.includes("bypassPermissions"));
-    assert.ok(!spec.args.includes("danger-full-access"));
-  }
-});
-
-test("CLI reasoning options are provider-specific", () => {
-  assert.deepEqual(cliReasoningEfforts("codex-cli"), ["", "minimal", "low", "medium", "high", "xhigh"]);
-  assert.deepEqual(cliReasoningEfforts("claude-cli"), ["", "low", "medium", "high", "xhigh", "max"]);
-  assert.ok(!cliReasoningEfforts("grok-cli").includes("max"));
-  assert.equal(effectiveCliEffort("grok-cli", ""), "low");
-  assert.equal(effectiveCliEffort("grok-cli", "high"), "high");
-  assert.equal(effectiveCliEffort("codex-cli", ""), "");
-});
-
-test("CLI chat uses persistent, tool-free ACP sessions", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/ai-cli.js", import.meta.url), "utf8");
-  assert.match(source, /args\.push\("--no-auto-update", "agent", "--no-leader"\)/);
-  assert.match(source, /\["--no-auto-update", "--version"\]/);
-  assert.match(source, /args: \["--no-auto-update", "models"\]/);
-  assert.match(source, /args\.push\("stdio"\)/);
-  assert.match(source, /protocolVersion: 1/);
-  assert.match(source, /clientCapabilities: \{ fs: \{ readTextFile: false, writeTextFile: false \}, terminal: false \}/);
-  assert.match(source, /"session\/new", \{ cwd: this\.cwd, mcpServers: \[\] \}/);
-  assert.match(source, /"session\/prompt"/);
-  assert.match(source, /"session\/cancel"/);
-  assert.match(source, /env\.HOME = paths\.fakeHome/);
-  assert.match(source, /env\.GROK_HOME = paths\.grokHome/);
-  assert.match(source, /const CLI_PATH_CACHE = new Map\(\)/);
-  assert.equal(cliAcpSupport("grok-cli").mode, "native");
-  assert.equal(cliAcpSupport("grok-cli").binary, "grok");
-  assert.equal(cliAcpSupport("kimi-cli").mode, "native");
-  assert.equal(cliAcpSupport("codex-cli").mode, "adapter");
-  assert.equal(cliAcpSupport("claude-cli").mode, "adapter");
-  assert.equal(cliAcpSupport("zcode-cli").mode, "adapter");
-  assert.equal(cliAcpSupport("codex-cli").installCommand, "npm install -g @agentclientprotocol/codex-acp");
-  assert.equal(cliAcpSupport("claude-cli").installCommand, "npm install -g @agentclientprotocol/claude-agent-acp");
-  assert.equal(cliAcpSupport("zcode-cli").installCommand, "npm install -g zcode-acp-server");
-  assert.equal(cliAcpSupport("grok-cli").installCommand, "");
-  assert.equal(cliAcpSupport("kimi-cli").installCommand, "");
-  assert.equal(cliAcpSupport("zcode-cli").community, true);
-  assert.equal(cliAcpSupport("claude-cli").autoInstall, false);
-  assert.equal(cliAcpSupport("zcode-cli").autoInstall, false);
-  assert.equal(cliAcpSupport("codex-cli").autoInstall, false);
-  assert.deepEqual(acpNpmInstallArgs("claude-cli", "/plugin/acp/claude"), [
-    "install", "--prefix", "/plugin/acp/claude", "--omit", "dev", "--ignore-scripts",
-    "--no-package-lock", "--no-save", "--no-audit", "--no-fund", "--loglevel", "error",
-    "@agentclientprotocol/claude-agent-acp@0.73.0",
-  ]);
-  assert.deepEqual(acpNpmInstallArgs("zcode-cli", "/plugin/acp/zcode"), [
-    "install", "--prefix", "/plugin/acp/zcode", "--omit", "dev", "--ignore-scripts",
-    "--no-package-lock", "--no-save", "--no-audit", "--no-fund", "--loglevel", "error",
-    "zcode-acp-server@0.21.0",
-  ]);
-  assert.deepEqual(acpNpmInstallArgs("codex-cli", "/plugin/acp/codex"), []);
-  assert.ok(acpPathCandidates("codex-cli", { home: "/Users/test", envPath: "" }).includes("/opt/homebrew/bin/codex-acp"));
-  assert.match(source, /export async function probeCliAcp/);
-  assert.match(source, /export async function warmCliAiSession/);
-  assert.match(source, /this\.sessionPending = new Map\(\)/);
-  assert.match(source, /async probe\(sessionKey/);
-  assert.match(source, /this\.forgetSession\(sessionKey\)/);
-  assert.match(source, /evictCliAcpManager\(manager\)/);
-  const runCliSource = source.slice(source.indexOf("export async function runCliAi"));
-  assert.ok(runCliSource.indexOf("if (options.sessionKey") < runCliSource.indexOf("const prompt = buildCliPrompt"));
-});
-
-test("ACP failures distinguish login, stale sessions, and stopped transports", () => {
-  assert.equal(classifyAcpFailure({ message: "Authentication required" }), "cliauth");
-  assert.equal(classifyAcpFailure({ message: "Unknown session: abc" }), "acpsession");
-  assert.equal(classifyAcpFailure({ message: "Session id does not exist" }), "acpsession");
-  assert.equal(classifyAcpFailure({ message: "transport closed" }), "acpstopped");
-  assert.equal(classifyAcpFailure({ message: "broken pipe" }), "acpstopped");
-  assert.equal(classifyAcpFailure({ message: "provider returned an internal error" }), "cli");
-  assert.equal(shouldRetryAcpFailure({ qiaomuReaderReason: "acpsession" }), true);
-  assert.equal(shouldRetryAcpFailure({ qiaomuReaderReason: "acpstopped" }), true);
-  assert.equal(shouldRetryAcpFailure({ qiaomuReaderReason: "acpstopped", qiaomuReaderHadOutput: true }), false);
-  assert.equal(shouldRetryAcpFailure({ qiaomuReaderReason: "cli" }), false);
-});
-
-test("ACP recovery retries exactly once and never repeats partial output", async () => {
-  let attempts = 0;
-  let recoveries = 0;
-  const recovered = await retryAcpFailureOnce(
-    async () => {
-      attempts += 1;
-      if (attempts === 1) throw Object.assign(new Error("session expired"), { qiaomuReaderReason: "acpsession" });
-      return "ok";
-    },
-    async () => { recoveries += 1; },
-    "acpsession",
-  );
-  assert.equal(recovered, "ok");
-  assert.equal(attempts, 2);
-  assert.equal(recoveries, 1);
-
-  attempts = 0;
-  await assert.rejects(
-    retryAcpFailureOnce(
-      async () => {
-        attempts += 1;
-        throw Object.assign(new Error("transport closed"), { qiaomuReaderReason: "acpstopped", qiaomuReaderHadOutput: true });
-      },
-      async () => { recoveries += 1; },
-      "acpstopped",
-    ),
-    /transport closed/,
-  );
-  assert.equal(attempts, 1);
-  assert.equal(recoveries, 1);
-});
-
-test("CLI stream parsers separate thoughts from the visible answer", () => {
-  const cases = [
-    {
-      id: "codex-cli",
-      chunks: [
-        '{"type":"item.completed","item":{"type":"reasoning","text":"先想"}}\n',
-        '{"type":"item.completed","item":{"type":"agent_message","text":"正式回答"}}\n',
-      ],
-    },
-    {
-      id: "claude-cli",
-      chunks: [
-        '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"先想"}}}\n',
-        '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"正式"}}}\n',
-        '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"回答"}}}\n',
-      ],
-    },
-    {
-      id: "grok-cli",
-      chunks: [
-        '{"type":"thought","data":"先想"}\n',
-        '{"type":"text","data":"正式"}\n{"type":"text","data":"回答"}\n',
-      ],
-    },
-  ];
-  for (const sample of cases) {
-    const deltas = [];
-    const parser = createCliStreamParser(sample.id, (delta) => deltas.push(delta));
-    sample.chunks.forEach((chunk) => parser.push(chunk));
-    parser.finish();
-    assert.deepEqual(parser.result(), { answer: "正式回答", reasoning: "先想", error: "" });
-    assert.ok(deltas.some((delta) => delta.reasoning));
-    assert.ok(deltas.some((delta) => delta.content));
-  }
-});
-
-test("CLI detection includes GUI-safe common install locations", () => {
-  const candidates = cliPathCandidates("codex-cli", {
-    platform: "darwin",
-    home: "/Users/reader",
-    envPath: "/custom/bin:/usr/bin",
-    pathApi: { join: (...parts) => parts.join("/").replace(/\/{2,}/g, "/") },
-  });
-  assert.ok(candidates.includes("/custom/bin/codex"));
-  assert.ok(candidates.includes("/Users/reader/.local/bin/codex"));
-  assert.ok(candidates.includes("/opt/homebrew/bin/codex"));
-  assert.ok(candidates.indexOf("/Users/reader/.local/bin/codex") < candidates.indexOf("/custom/bin/codex"));
 });
 
 test("reading themes migrate legacy names and meet WCAG AA contrast", () => {
@@ -706,20 +468,30 @@ test("public README presents the standalone desktop app and preserved notices", 
   assert.match(readme, /UV Reader/);
   assert.match(readme, /柚肥阅读/);
   assert.match(readme, /DeepSeek/);
-  assert.match(readme, /Codex/);
+  assert.match(readme, /Ollama/);
   assert.match(readme, /GPL-3\.0-only/);
   assert.match(readme, /NOTICE\.md/);
   assert.match(readme, /desktop:build/);
 });
 
 test("AI prompt and context are Chinese-first", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/ai-context.js", import.meta.url), "utf8");
   const start = source.indexOf("function aiSystemChat");
-  const end = source.indexOf("const TranslateModal", start);
+  const end = source.indexOf("function aiMessages", start);
   const aiSource = source.slice(start, end);
   assert.match(aiSource, /你是一名克制、准确的阅读助手/);
   assert.match(aiSource, /书名：《/);
   assert.doesNotMatch(aiSource, /Из книги|Фрагмент|Перевод|По словам/);
+});
+
+test("selection factory ports are initialized before the factory runs", () => {
+  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
+  const factoryAt = source.indexOf("const selectionHud = createSelectionActions(");
+  assert.ok(factoryAt > 0);
+  for (const name of ["const HL_COLORS = ", "const TranslateModal = createTranslateModal("]) {
+    const declaredAt = source.indexOf(name);
+    assert.ok(declaredAt > 0 && declaredAt < factoryAt, `${name.trim()} must be declared before the selection factory`);
+  }
 });
 
 test("selection popup keeps primary actions compact and moves note tools into More", () => {
@@ -744,17 +516,19 @@ test("selection popup keeps primary actions compact and moves note tools into Mo
 
 test("AI dialog uses built-in quick prompts and keeps reasoning separate", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
+  const aiSource = fs.readFileSync(new URL("../packages/reader/src/ai-context.js", import.meta.url), "utf8");
+  const aiRenderSource = fs.readFileSync(new URL("../packages/reader/src/ai-render.js", import.meta.url), "utf8");
   const chinese = fs.readFileSync(new URL("../packages/reader/src/i18n-zh.js", import.meta.url), "utf8");
   for (const label of ["解释一下", "举个例子", "总结要点", "对我有什么用", "换个角度看", "出题考考我"]) {
     assert.match(chinese, new RegExp(label));
   }
-  assert.match(source, /const DEFAULT_AI_QUICK_PROMPTS/);
+  assert.match(aiSource, /const DEFAULT_AI_QUICK_PROMPTS/);
   assert.doesNotMatch(source, /AiPromptLibraryModal/);
-  assert.match(source, /function aiQuickPrompts\(\) \{\s+return defaultAiQuickPrompts\(\);/);
-  assert.match(source, /button\.addEventListener\("click", \(\) => \{[\s\S]*chat\._send\(item\.prompt\)/);
+  assert.match(aiSource, /function aiQuickPrompts\(\) \{\s+return defaultAiQuickPrompts\(\);/);
+  assert.match(aiRenderSource, /button\.addEventListener\("click", \(\) => \{[\s\S]*chat\._send\(item\.prompt\)/);
   assert.match(explainSource, /createEl\("details", \{ cls: "qiaomu-reader-ai-reason" \}\)/);
   assert.match(explainSource, /reasoningBox\.open = false/);
-  assert.match(transportSource, /onDelta/);
+  assert.match(aiPiSource, /onDelta/);
   assert.match(source, /createAiStreamingMarkdownRenderer/);
   assert.match(explainSource, /markdownRenderer\.update\(answer\)/);
   assert.match(explainSource, /await markdownRenderer\.finish\(answer\)/);
@@ -763,6 +537,9 @@ test("AI dialog uses built-in quick prompts and keeps reasoning separate", () =>
 
 test("desktop AI chat keeps per-book threads and structured document or selection context", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
+  const pdfSource = fs.readFileSync(new URL("../packages/reader/src/pdf-document.js", import.meta.url), "utf8");
+  const aiSource = fs.readFileSync(new URL("../packages/reader/src/ai-context.js", import.meta.url), "utf8");
+  const aiRenderSource = fs.readFileSync(new URL("../packages/reader/src/ai-render.js", import.meta.url), "utf8");
   const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   assert.match(source, /const AI_CHAT_VIEW_TYPE = "qiaomu-book-reader-ai-chat"/);
   assert.match(pluginSource, /\[AI_CHAT_VIEW_TYPE, AiChatView\]/);
@@ -773,62 +550,62 @@ test("desktop AI chat keeps per-book threads and structured document or selectio
   assert.match(chatViewSource, /find\(\(item\) => item\.bookPath && item\.bookPath === bookPath\)/);
   assert.match(chatViewSource, /loadSession\(recent, \{[\s\S]*readerView,[\s\S]*bookFile,[\s\S]*pendingContext,[\s\S]*draft,[\s\S]*\}\)/);
   assert.doesNotMatch(source, /buildAiChatModelPicker\(footer, this\)/);
-  assert.match(source, /function renderAiHeadMeta\(host, chat\)/);
+  assert.match(aiRenderSource, /function renderAiHeadMeta\(host, chat\)/);
   assert.doesNotMatch(source, /qiaomu-reader-ai-active-model/);
-  assert.match(source, /AI_MARKDOWN_RENDER_INTERVAL_MS = 50/);
-  assert.match(source, /enhanceAiMarkdown/);
-  assert.match(source, /qiaomu-reader-ai-table-scroll/);
-  assert.match(source, /checkbox\.disabled = true/);
+  assert.match(aiRenderSource, /AI_MARKDOWN_RENDER_INTERVAL_MS = 50/);
+  assert.match(aiRenderSource, /enhanceAiMarkdown/);
+  assert.match(aiRenderSource, /qiaomu-reader-ai-table-scroll/);
+  assert.match(aiRenderSource, /checkbox\.disabled = true/);
   assert.match(explainSource, /createNoteFromAiAnswer\(this\.app, this\.plugin, answer, source\.question, source\.context/);
-  assert.match(source, /noteKind: "ai-answer"/);
-  assert.match(source, /return composeAiAnswerNote\(\{\s*answer:/); // composed via the extracted excerpt composer
+  assert.match(fs.readFileSync(new URL("../packages/reader/src/book-notes.js", import.meta.url), "utf8"), /noteKind: "ai-answer"/);
+  assert.match(fs.readFileSync(new URL("../packages/reader/src/book-notes.js", import.meta.url), "utf8"), /return composeAiAnswerNote\(\{\s*answer:/); // composed via the extracted excerpt composer
   assert.match(explainSource, /act\("note", qiaomuReaderTranslate\("save-ai-response"\)/);
-  assert.match(source, /createNoteFromAiAnswer[\s\S]*?open: false/);
+  assert.match(fs.readFileSync(new URL("../packages/reader/src/book-notes.js", import.meta.url), "utf8"), /createNoteFromAiAnswer[\s\S]*?open: false/);
   assert.match(explainSource, /savedNote = note/);
   assert.doesNotMatch(source, /if \(note && typeof this\.close === "function"\) this\.close\(\)/);
   assert.match(noteTitleSource, /qiaomuReaderTranslate\(asAnswer \? "save-to-note" : "create-note"\)/);
-  assert.match(source, /bookLinkHeading: qiaomuReaderTranslate\("ai-reading-notes"\)/);
+  assert.match(fs.readFileSync(new URL("../packages/reader/src/book-notes.js", import.meta.url), "utf8"), /bookLinkHeading: translate\("ai-reading-notes"\)/);
   assert.doesNotMatch(source, /extra: "\\n\\n" \+ answer/);
   assert.match(chatViewSource, /new ReadSettingsModal\(this\.app, this\.readerView, "ai"\)\.open\(\)/);
-  assert.match(source, /aiMessages\(text, settings, turns, book\)/);
+  assert.match(aiPiSource, /aiMessages\(text, plugin\.settings, turns, book\)/);
   assert.match(css, /\.qiaomu-reader-ai-sidebar \{[^}]*height: 100%;[^}]*display: flex;[^}]*overflow: hidden/s);
   assert.match(css, /\.qiaomu-reader-ai-sidebar \.qiaomu-reader-ai-log \{ min-height: 0; max-height: none; \}/);
   assert.match(historySource, /class AiChatHistoryModal extends Modal/);
   assert.match(chatViewSource, /createEl\("textarea", \{ cls: "qiaomu-reader-ai-input" \}\)/);
   assert.match(chatViewSource, /this\.inputController = bindReaderAiComposer\(this, input, send, footer\)/);
-  assert.match(source, /items\.slice\(0, 3\)/);
+  assert.match(aiRenderSource, /items\.slice\(0, 3\)/);
   assert.match(chatViewSource, /new AiChatHistoryModal\(this\.app, this\)\.open\(\)/);
   assert.match(chatViewSource, /normalizeAiChatHistory\(this\.plugin\.settings\.aiChatHistory\)/);
-  assert.match(source, /function readerPageContext\(view\)/);
-  assert.match(source, /function readerDefaultAiContext\(view\)/);
-  assert.match(source, /function readerAiPanelContext\(view\)/);
-  assert.match(source, /unavailable: true,[\s\S]*bookFile: view\.file,[\s\S]*readerView: view/);
-  assert.match(source, /kind: "document"/);
-  assert.match(source, /pdfDocumentContext: packPdfDocumentContext/);
-  assert.match(source, /getClientRects/);
-  assert.match(source, /kind: "page"/);
-  assert.match(source, /turn\.context/);
-  assert.match(source, /renderAiUserTurn/);
-  assert.match(source, /function renderAiContextQuote\(host, value, options = \{\}\)/);
-  assert.match(source, /!isDocument && \(context\.text\.length > 120 \|\| context\.text\.includes\("\\n"\)\)/);
-  assert.match(source, /cls: "qiaomu-reader-ai-context-preview", text: previewText/);
+  assert.match(aiRenderSource, /function readerPageContext\(view\)/);
+  assert.match(aiRenderSource, /function readerDefaultAiContext\(view\)/);
+  assert.match(aiRenderSource, /function readerAiPanelContext\(view\)/);
+  assert.match(aiRenderSource, /unavailable: true,[\s\S]*bookFile: view\.file,[\s\S]*readerView: view/);
+  assert.match(aiRenderSource, /kind: "document"/);
+  assert.match(pdfSource, /pdfDocumentContext: packPdfDocumentContext/);
+  assert.match(aiRenderSource, /getClientRects/);
+  assert.match(aiRenderSource, /kind: "page"/);
+  assert.match(aiSource, /turn\.context/);
+  assert.match(aiRenderSource, /renderAiUserTurn/);
+  assert.match(aiRenderSource, /function renderAiContextQuote\(host, value, options = \{\}\)/);
+  assert.match(aiRenderSource, /!isDocument && \(context\.text\.length > 120 \|\| context\.text\.includes\("\\n"\)\)/);
+  assert.match(aiRenderSource, /cls: "qiaomu-reader-ai-context-preview", text: previewText/);
   assert.match(chatViewSource, /!this\.pendingContext && !this\.turns\.length && this\.readerView/);
-  assert.match(source, /function syncOpenAiReaderContext\(view\)/);
-  assert.match(source, /if \(!readerIsPdf\(view\)\) \{\s*return \{\s*bookFile: view\.file/);
+  assert.match(aiRenderSource, /function syncOpenAiReaderContext\(view\)/);
+  assert.match(aiRenderSource, /if \(!readerIsPdf\(view\)\) \{\s*return \{\s*bookFile: view\.file/);
   assert.match(chatViewSource, /nextContext\?\.text \|\| \(sameBook \? this\.text : ""\)/);
-  assert.match(source, /getLeavesOfType\(AI_CHAT_VIEW_TYPE\)\[0\]/);
+  assert.match(aiRenderSource, /getLeavesOfType\(AI_CHAT_VIEW_TYPE\)\[0\]/);
   assert.match(pluginSource, /readerAiPanelContext\(target\)/);
   assert.match(viewSource, /syncOpenAiReaderContext\(this\);/);
   assert.match(chatViewSource, /contextUnavailable/);
-  assert.match(source, /function renderAiComposerPrompts\(host, chat\)/);
+  assert.match(aiRenderSource, /function renderAiComposerPrompts\(host, chat\)/);
   assert.equal(((source + explainSource + chatViewSource).match(/renderAiComposerPrompts\(c, this\);/g) || []).length, 2);
-  assert.match(source, /function bindAiSlashPrompts\(menu, input, chat\)/);
-  assert.match(source, /raw\.startsWith\("\/"\)/);
-  assert.match(source, /event\.key === "ArrowDown" \|\| event\.key === "ArrowUp"/);
-  assert.match(source, /event\.key === "Enter" && matches\.length/);
-  assert.match(source, /event\.key === "Escape"/);
+  assert.match(aiRenderSource, /function bindAiSlashPrompts\(menu, input, chat\)/);
+  assert.match(aiRenderSource, /raw\.startsWith\("\/"\)/);
+  assert.match(aiRenderSource, /event\.key === "ArrowDown" \|\| event\.key === "ArrowUp"/);
+  assert.match(aiRenderSource, /event\.key === "Enter" && matches\.length/);
+  assert.match(aiRenderSource, /event\.key === "Escape"/);
   assert.doesNotMatch(source, /createEl\("button", \{ cls: "qiaomu-reader-ai-context-refresh"/);
-  assert.match(source, /remove-context-for-this-message/);
+  assert.match(aiRenderSource, /remove-context-for-this-message/);
   assert.match(viewSource, /trayButton\(null, "ai-reading"/);
   assert.match(viewSource, /readerAiPanelContext\(this\)/);
   assert.doesNotMatch(source, /qiaomu-reader-pdf-note-btn|createNoteFromPdfPage|pdfNoteBtn/);
@@ -866,9 +643,10 @@ test("desktop AI chat keeps per-book threads and structured document or selectio
 
 test("reader lifecycle cancels stale loads and releases PDF resources", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
-  assert.match(source, /async function extractPdf\(file, app, _settings = \{\}, onProgress, options = \{\}\)/);
-  assert.match(source, /const signal = options\.signal/);
-  assert.match(source, /throwIfReaderLoadAborted\(signal\)/);
+  const pdfSource = fs.readFileSync(new URL("../packages/reader/src/pdf-document.js", import.meta.url), "utf8");
+  assert.match(pdfSource, /async function extractPdf\(file, app, _settings = \{\}, onProgress, options = \{\}\)/);
+  assert.match(pdfSource, /const signal = options\.signal/);
+  assert.match(pdfSource, /throwIfReaderLoadAborted\(signal\)/);
   assert.match(source, /async function loadReaderDocument\(file, app, settings, onProgress, options = \{\}\)/);
   assert.match(source, /extractPdf\(file, app, settings, onProgress, options\)/);
   assert.match(readerSources, /const loadToken = this\._loadCoordinator\.begin\(\)/);
@@ -876,37 +654,19 @@ test("reader lifecycle cancels stale loads and releases PDF resources", () => {
   assert.match(readerSources, /if \(!this\._loadCoordinator\.isCurrent\(loadToken\)\) \{[\s\S]*lazy\?\.destroy\?\.\(\)/);
   assert.equal((readerSources.match(/this\._loadCoordinator\.cancel\(\);/g) || []).length, 2);
   assert.match(readerSources, /this\._pdfLazy\?\.destroy\?\.\(\)/);
-  assert.match(source, /_loadingTask: loadingTask/);
-  assert.match(source, /try \{ void loadingTask\.destroy\(\); \} catch/);
+  assert.match(pdfSource, /_loadingTask: loadingTask/);
+  assert.match(pdfSource, /try \{ void loadingTask\.destroy\(\); \} catch/);
   assert.match(readerSources, /async makePdfThumb\(pdfFile\)[\s\S]*return this\._renderPdfCover\(bytes\)/); // thumbnail delegates to the shared PDF cover renderer
   assert.match(readerSources, /async _renderPdfCover\(bytes\)[\s\S]*const loadingTask = pdfjsLib\.getDocument\([\s\S]*finally \{[\s\S]*await loadingTask\.destroy\(\)/);
   assert.doesNotMatch(source, /doc\.destroy\(\)/);
 });
 
-test("AI settings explain and verify provider-specific ACP instead of a generic install", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
-  assert.match(settingsTabSource, /cliAcpSupport\(s\.aiProvider\)/);
-  assert.match(settingsTabSource, /probeCliAcp\(s\.aiProvider/);
-  assert.doesNotMatch(source, /warmCliAiSession\(cfg\.id/); // Opening a book must not initialize a model session.
-  assert.match(settingsTabSource, /this-cli-includes-acp/);
-  assert.match(settingsTabSource, /this-cli-requires-the-separate-0-adapter/);
-  assert.match(settingsTabSource, /acp-adapter-path/);
-  assert.match(settingsTabSource, /resolveAcpPath\(s\.aiProvider/);
-  assert.match(settingsTabSource, /why-acp-matters/);
-  assert.match(settingsTabSource, /built-in-acp-no-extra-install/);
-  assert.match(settingsTabSource, /community-adapter-one-click-setup/);
-  assert.match(settingsTabSource, /copyToClipboard\(acp\.installCommand\)/);
-  assert.match(source, /pluginAcpInstallRoot\(plugin, cfg\.id, acp\.installVersion\)/);
-  assert.match(settingsTabSource, /set-up-acp/);
-  assert.match(source, /installCliAcp\(cfg\.id, \{ installRoot \}\)/);
-  assert.match(settingsTabSource, /set-up-acp-checks-for-an-existing-installation/);
-});
-
 test("book-note append asks to open only once", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
-  const start = source.indexOf("async function exportHighlightsToBookNote");
-  const end = source.indexOf("const HighlightExportModal", start);
-  const exportSource = source.slice(start, end);
+  const bookNotesSource = fs.readFileSync(new URL("../packages/reader/src/book-notes.js", import.meta.url), "utf8");
+  const start = bookNotesSource.indexOf("async function exportHighlightsToBookNote");
+  const end = bookNotesSource.indexOf("const HighlightExportModal", start);
+  const exportSource = bookNotesSource.slice(start, end < 0 ? undefined : end);
   assert.match(source, /bookNoteAppendPromptSeen: false/);
   assert.match(exportSource, /bookNoteAppendPromptSeen !== true/);
   assert.match(exportSource, /bookNoteAppendPromptSeen = true/);
@@ -922,6 +682,7 @@ test("reader chrome stays white and removes only the reader's redundant host hea
 
 test("immersive reader chrome overlays the page and retracts without reserving rows", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
+  const chromeSource = fs.readFileSync(new URL("../packages/reader/src/reader-chrome.js", import.meta.url), "utf8");
   const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   const chinese = fs.readFileSync(new URL("../packages/reader/src/i18n-zh.js", import.meta.url), "utf8");
   assert.match(css, /\.qiaomu-reader-top \{[^}]*position:absolute;[^}]*height:40px;[^}]*border-radius:0/s);
@@ -934,17 +695,17 @@ test("immersive reader chrome overlays the page and retracts without reserving r
   assert.match(css, /\.qiaomu-reader-fullscreen-modal \.qiaomu-reader-pbar \{\s*position:absolute/s);
   assert.match(css, /\.qiaomu-reader-bot-center \{[^}]*flex-direction:row/s);
   assert.match(css, /\.qiaomu-reader-pct::before \{ content:"·"/);
-  assert.match(source, /function setupImmersiveChrome\(view, root\)/);
-  assert.match(source, /root\.addEventListener\("focusin", reveal\)/);
-  assert.match(source, /event\.clientY <= rect\.top \+ 64/);
-  assert.match(source, /\.qiaomu-reader-panel-open,\.qiaomu-reader-overlay-on,\.qiaomu-reader-hl-popup-on/);
+  assert.match(chromeSource, /function setupImmersiveChrome\(view, root\)/);
+  assert.match(chromeSource, /root\.addEventListener\("focusin", reveal\)/);
+  assert.match(chromeSource, /event\.clientY <= rect\.top \+ 64/);
+  assert.match(chromeSource, /\.qiaomu-reader-panel-open,\.qiaomu-reader-overlay-on,\.qiaomu-reader-hl-popup-on/);
   assert.equal((readerSources.match(/wireReaderChrome\(this, root\);/g) || []).length, 2); // both views delegate chrome wiring to the shared helper
-  assert.match(source, /function wireReaderChrome\(view, root\)/);
-  assert.equal((source.match(/setupImmersiveChrome\(view, root\);/g) || []).length, 1);
-  assert.match(source, /function setReaderTitle\(el, value, limit = 18\)/);
-  assert.match(source, /glyphs\.slice\(0, limit\)\.join\(""\).*…/);
-  assert.match(source, /setReaderTitle\(view\.titleEl, opts\.title\)/); // top-bar factory sets titles for both readers
-  assert.equal(((source + viewSource).match(/setReaderTitle\(/g) || []).length, 3); // definition + factory + one direct call
+  assert.match(chromeSource, /function wireReaderChrome\(view, root\)/);
+  assert.equal((chromeSource.match(/setupImmersiveChrome\(view, root\);/g) || []).length, 1);
+  assert.match(chromeSource, /function setReaderTitle\(el, value, limit = 18\)/);
+  assert.match(chromeSource, /glyphs\.slice\(0, limit\)\.join\(""\).*…/);
+  assert.match(chromeSource, /setReaderTitle\(view\.titleEl, opts\.title\)/); // top-bar factory sets titles for both readers
+  assert.equal(((chromeSource + viewSource).match(/setReaderTitle\(/g) || []).length, 3); // definition + factory + one direct call
   const icons = fs.readFileSync(new URL("../packages/reader/src/reader-icons.js", import.meta.url), "utf8");
   assert.match(icons, /"reading-note": `<svg[^`]+<path[^`]+<path[^`]+<path/s);
   assert.match(viewSource, /trayButton\("reading-note"/); // note button rides the data-driven top-bar tray
@@ -967,13 +728,12 @@ test("settings use task tabs, concise intros, and Chinese-first copy", () => {
   assert.match(settingsTabSource, /if \(cfg\.id === "custom"\) this\._aiBaseRow\(c, s, p\)/);
   assert.match(settingsTabSource, /if \(needsSecret \|\| cfg\.id === "custom"\) this\._aiSecretRow\(c, s, p\)/);
   assert.match(source, /aiSecrets: \{\}, aiBases: \{\}/);
-  assert.match(source, /settings\.aiSecrets\?\.\[providerId\]/);
-  assert.match(source, /settings\.aiBases\?\.\[id\]/);
+  assert.match(fs.readFileSync(new URL("../packages/reader/src/ai-context.js", import.meta.url), "utf8"), /settings\.aiSecrets\?\.\[providerId\]/);
+  assert.match(fs.readFileSync(new URL("../packages/reader/src/ai-context.js", import.meta.url), "utf8"), /settings\.aiBases\?\.\[id\]/);
   assert.match(settingsTabSource, /qiaomuReaderTranslate\(cfg\.provider\.label\)/);
   assert.match(source, /aiModels: \{\}/);
   assert.match(source, /aiThinking: \{\}/);
-  assert.match(source, /aiCliEfforts: \{\}/);
-  assert.match(fs.readFileSync(new URL("../packages/reader/src/read-settings-modal.js", import.meta.url), "utf8"), /setName\(qiaomuReaderTranslate\("reasoning-effort"\)\)/);
+  assert.match(fs.readFileSync(new URL("../packages/reader/src/read-settings-modal.js", import.meta.url), "utf8"), /setName\(qiaomuReaderTranslate\("thinking-mode-2"\)\)/);
   assert.match(settingsTabSource, /_aiThinkingRow\(host, s\)[\s\S]{0,260}"thinking-mode"/);
   assert.match(settingsTabSource, /this\._settingsDisclosure\(advanced, "ai-connection-settings"\)/);
   assert.match(settingsTabSource, /createEl\("details", \{ cls: "qiaomu-reader-settings-disclosure" \}\)/);
@@ -990,14 +750,14 @@ test("settings use task tabs, concise intros, and Chinese-first copy", () => {
 });
 
 test("folder and template settings use searchable vault pickers", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/note-paths.js", import.meta.url), "utf8");
   const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   const chinese = fs.readFileSync(new URL("../packages/reader/src/i18n-zh.js", import.meta.url), "utf8");
   assert.match(source, /const FolderPicker = class extends FuzzySuggestModal/);
   assert.match(folderSource, /class CreateFolderModal extends Modal/);
-  assert.match(source, /file instanceof TFolder && qiaomuReaderPath\(file\.path\)/);
-  assert.match(source, /\{ kind: "root", path: "", label: qiaomuReaderTranslate\("vault-root"\) \}/);
-  assert.match(source, /\{ kind: "create", path: "", label: qiaomuReaderTranslate\("create-new-folder"\) \}/);
+  assert.match(source, /file instanceof TFolder && path\(file\.path\)/);
+  assert.match(source, /\{ kind: "root", path: "", label: translate\("vault-root"\) \}/);
+  assert.match(source, /\{ kind: "create", path: "", label: translate\("create-new-folder"\) \}/);
   assert.match(source, /if \(item\.kind === "create"\)/);
   assert.match(source, /\.setIcon\("folder-open"\)/);
   assert.match(source, /\.setIcon\("file-search"\)/);
@@ -1015,7 +775,7 @@ test("folder and template settings use searchable vault pickers", () => {
 
 test("quote template is language-neutral and migrates the old Russian fragment", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
-  assert.match(source, /const QUOTE_TEMPLATE_DEFAULT = "> \{text\}\\n\\n— \[\[\{book\}\]\]\{page\}\{link\}"/);
+  assert.match(fs.readFileSync(new URL("../packages/reader/src/book-notes.js", import.meta.url), "utf8"), /const QUOTE_TEMPLATE_DEFAULT = "> \{text\}\\n\\n— \[\[\{book\}\]\]\{page\}\{link\}"/);
   assert.doesNotMatch(source, /— из \[\[\{book\}\]\]/i);
   assert.match(pluginSource, /quoteTemplate\.replace\(\/\u2014\\s\+из/);
 });
@@ -1078,11 +838,6 @@ test("confirming AI settings automatically prepares, tests, and enables the sele
   const modalSource = fs.readFileSync(new URL("../packages/reader/src/settings-group-modal.js", import.meta.url), "utf8") + source;
   assert.match(modalSource, /constructor\(app, title, build, options = \{\}\)/);
   assert.match(modalSource, /typeof this\.options\.onDone === "function"/);
-  assert.match(modalSource, /async function ensureAiCliReady\(plugin, onStage = \(\) => \{\}\)/);
-  assert.match(modalSource, /installCliAcp\(cfg\.id, \{ installRoot \}\)/);
-  assert.match(modalSource, /probeCliAcp\(cfg\.id/);
-  assert.match(modalSource, /resolveCliPath\(cfg\.id, s\.aiCliPaths\[cfg\.id\]\)/);
-  assert.doesNotMatch(modalSource, /const cliStatus = await probeCliAi/);
   assert.match(modalSource, /async function testAndEnableAi\(plugin, onStage = \(\) => \{\}\)/);
   assert.match(modalSource, /await testAndEnableAi\(plugin, setButtonText\)/);
   assert.match(modalSource, /plugin\.settings\.aiEnabled = true/);
@@ -1090,13 +845,3 @@ test("confirming AI settings automatically prepares, tests, and enables the sele
   assert.match(modalSource, /return false/);
 });
 
-test("recovered Codex transport diagnostics do not become saved answer text", async () => {
-  const { stripCodexTransportNotice } = await import('../packages/reader/src/ai-cli.js');
-  const warning = 'Warning: Falling back from WebSockets to HTTPS transport. stream disconnected before completion: Connection reset by peer (os error 54)';
-  assert.equal(stripCodexTransportNotice(warning + '\n\n正式回答'), '正式回答');
-  assert.equal(stripCodexTransportNotice('作者写道：Warning: keep this quotation'), '作者写道：Warning: keep this quotation');
-  const parser = createCliStreamParser('codex-cli', () => {});
-  for (const text of [warning, '正式回答']) parser.push(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text } }) + '\n');
-  parser.finish();
-  assert.equal(parser.result().answer, '正式回答');
-});

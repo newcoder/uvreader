@@ -7,7 +7,6 @@ import { addMissingQuoteLinks, highlightBacklink, jumpToEngineHighlight } from "
 import { aiProviderFor, normalizeAiBase } from "./ai-providers.js";
 import { cloneJson, createSerialTaskQueue, isPlainRecord, mergeReadingProgress, readJsonRecordStore, writeVerifiedJsonRecord } from "./storage.js";
 import { createStarterLibraryInstaller } from "./starter-library.js";
-import { disposeCliAiSessions } from "./ai-cli.js";
 import { disposeReaderFonts } from "./reader-fonts.js";
 import { loadAiDrafts } from "./ai-drafts.js";
 import { migrateCoverCache } from "./book-cover.js";
@@ -308,7 +307,6 @@ export function createPlugin({
     this._unloading = true;
     this._aiQuoteJumpController?.abort();
     disposeReaderFonts(this);
-    disposeCliAiSessions();
     window.clearTimeout(this._bookCmdTimer);
     for (const timer of Object.values(this._fmTimers || {})) window.clearTimeout(timer);
     this._fmTimers = {};
@@ -450,13 +448,10 @@ export function createPlugin({
   }
   _mergeDefaultSettings(saved) {
     this.settings = { ...DEFAULT, ...(saved?.settings ?? {}) };
-    this.settings.aiCliPaths = { ...(this.settings.aiCliPaths || {}) };
-    this.settings.aiAcpPaths = { ...(this.settings.aiAcpPaths || {}) };
     this.settings.aiModels = { ...(this.settings.aiModels || {}) };
     this.settings.aiSecrets = { ...(this.settings.aiSecrets || {}) };
     this.settings.aiBases = { ...(this.settings.aiBases || {}) };
     this.settings.aiThinking = { ...(this.settings.aiThinking || {}) };
-    this.settings.aiCliEfforts = { ...(this.settings.aiCliEfforts || {}) };
     this.settings.aiChatHistory = normalizeAiChatHistory(this.settings.aiChatHistory);
     this.settings.locationMarks = normalizeLocationMarks(this.settings.locationMarks);
     if (this.settings.aiProvider && this.settings.aiModel && !this.settings.aiModels[this.settings.aiProvider]) {
@@ -474,9 +469,20 @@ export function createPlugin({
       this.settings.quoteTemplate = this.settings.quoteTemplate.replace(/—\s+из\s+(?=\[\[\{book\}\]\])/giu, "— ");
     }
     let settingsMigrated = false;
-    if (this.settings.aiProvider === "grok-cli"
-      && !Object.prototype.hasOwnProperty.call(this.settings.aiCliEfforts, "grok-cli")) {
-      this.settings.aiCliEfforts["grok-cli"] = "low";
+    // The CLI/ACP providers were replaced by the pi-ai runtime, which only
+    // speaks HTTP providers. Drop their stored paths/effort settings and reset
+    // a removed provider so the reader can pick a service again.
+    const REMOVED_CLI_PROVIDERS = new Set(["codex-cli", "claude-cli", "grok-cli", "kimi-cli", "zcode-cli"]);
+    if (this.settings.aiCliPaths || this.settings.aiAcpPaths || this.settings.aiCliEfforts) {
+      delete this.settings.aiCliPaths;
+      delete this.settings.aiAcpPaths;
+      delete this.settings.aiCliEfforts;
+      settingsMigrated = true;
+    }
+    if (REMOVED_CLI_PROVIDERS.has(this.settings.aiProvider)) {
+      this.settings.aiProvider = "";
+      this.settings.aiEnabled = false;
+      this.settings.aiNeedsVerification = false;
       settingsMigrated = true;
     }
     // v3.3 replaces the old colour names with purpose-built reading themes.

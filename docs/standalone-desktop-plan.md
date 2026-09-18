@@ -171,12 +171,14 @@ AI 会话拆文件在 shim 的 `loadData/saveData` 完成，`src/main.js` 无感
 
 已知注意：electron-builder 首次运行会下载 electron 与 nsis/winCodeSign 资源，网络受限时设置 `ELECTRON_MIRROR`、`ELECTRON_BUILDER_BINARIES_MIRROR`；`apps/desktop/release/` 已加入 `.gitignore`。
 
-## 13. AI CLI 兼容模式
+## 13. AI 传输层（已由 pi-ai 替换 CLI/ACP）
 
-本机已装并登录 CLI（如 Claude Code）时，AI 伴读不再强制要求 ACP 适配器：
+> 2026-09 更新：CLI/ACP 通道已整体移除（`ai-cli.js`、`ai-acp-manual.js`、`ai-transport.js`、`ai-stream.js` 已删除），改为桌面主进程的 pi-ai 运行时。
 
-- `ai-cli.js`：`runCliAi` 在会话密钥存在但 ACP 适配器缺失时回退到一次性 CLI 通道（`acpOnly` 的 ZCode 除外）；新增 `windowsExecutableTarget`，在 Windows 上把 npm 的 `.cmd` shim 解析到它真正启动的可执行文件（例如 `%APPDATA%\npm\node_modules\@anthropic-ai\claude-code\bin\claude.exe`），使 `claude` 能被自动发现。
-- `main.js`：`ensureAiCliReady` 在适配器缺失且无法自动安装时走兼容模式（`probeCliAi` 探测登录状态），不再抛 `acpmissing`。
-- 实测：Windows + Claude Code 2.1.x（DeepSeek 代理账号）自动识别、连接测试通过、流式回答成功；`tests/ai-cli-resolve.test.mjs` 锁定 shim 解析行为。手动集成脚本：`apps/desktop/scripts/test-claude-cli.mjs`（需本机已登录 CLI，未纳入 CI）。
+- `apps/desktop/src/main/ai-runtime.js`：用 `@earendil-works/pi-ai` 构建 provider（全部走 `openai-completions`），负责流式增量、错误归一化（`auth/forbidden/limit/timeout/cancelled/empty/notconfigured/nokey`）与连接测试；本地端点自动加 `supportsFinishReason: false`，keyless 服务用占位 key。
+- `apps/desktop/src/preload/index.js`：暴露 `qbrDesktop.ai.{stream,abort,test}`；主进程经 IPC 事件回传增量。
+- `packages/reader/src/ai-pi.js`：把桥接适配成原有 `aiExplain` 契约，聊天 UI 零改动。
+- provider 收敛为 API key 服务 + 本地/自定义 OpenAI 兼容端点；旧设置（`aiCliPaths`/`aiAcpPaths`/`aiCliEfforts`、CLI provider id）在启动迁移时清除并重置。
+- 测试：`apps/desktop/test/ai-runtime.test.mjs`（faux provider）、`tests/ai-pi.test.mjs`；E2E 的 AI 场景经 mock 端点走主进程链路。
 
 注意事项：新模块导出的符号必须显式 `export`（构建期缺失只会让 esbuild 降级成 `(void 0)`，`npm test` 抓不到，靠 smoke/E2E 兜底）；测试用 `jsdom` + `installDomExtensions(window)` 补 Obsidian DOM 扩展。抽离后按名字切 `main.js` 源码的测试要改读新模块（`core-config`、`engine-integration`、`reader-experience`、`check-i18n` 均已同步）；模块内函数有 2 空格缩进，按 `\n}` 切函数会切到工厂结尾，需带缩进匹配。端口命名避免与函数内局部变量重名（`HL_COLORS`→`hlColors` 就撞上了 `openSelectionMoreMenu` 里的局部 `colors`）。

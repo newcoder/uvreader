@@ -17,7 +17,7 @@ UV Reader 是中文优先的**独立桌面阅读器**（Electron），支持 EPU
 | 阅读笔记 | 每本书一篇 Markdown 笔记，`↩` 可跳回原文对应位置 |
 | 目录 | 左侧栏，可搜索、可关闭，高度与阅读区一致 |
 | 适合页面 | 正文按可用宽度铺满；PDF 切到单页并放大到约 90% 阅读区宽度 |
-| AI 伴读（可选） | HTTP 服务（DeepSeek、Kimi、通义千问、智谱 GLM、MiniMax、硅基流动、豆包、OpenRouter、OpenAI、Ollama、LM Studio、自定义端点）与本机 CLI/ACP（Codex、Claude、Grok、Kimi、ZCode） |
+| AI 伴读（可选） | HTTP 服务（DeepSeek、Kimi、通义千问、智谱 GLM、MiniMax、硅基流动、豆包、OpenRouter、OpenAI）与本地端点（Ollama、LM Studio、自定义 OpenAI 兼容接口），由主进程的 pi-ai 运行时统一承载 |
 | 本地优先 | 书籍、进度、划线、笔记都保存在本机文件；AI 关闭时不联网 |
 
 ## 运行
@@ -61,12 +61,7 @@ npx eslint packages/reader/src/ --max-warnings=0
 
 CI（`.github/workflows/ci.yml`）按上述顺序执行，并在 xvfb 下跑一次桌面冒烟。
 
-本机已安装并登录 CLI（Claude Code / Codex / Grok / Kimi / ZCode）时，可以手动验证 AI 伴读的 CLI 链路（不依赖 ACP 适配器，未安装时自动走兼容模式）：
-
-```bash
-npm run desktop:test:cli              # 默认 claude-cli，自动探测可执行文件
-npm run desktop:test:cli -- codex-cli # 指定 provider；第三个参数可传二进制路径
-```
+AI 伴读的传输层由桌面主进程的 pi-ai 运行时提供：渲染层通过 preload 桥发送请求，主进程负责 provider 调用、流式增量与错误归一化。本地模型只需提供 OpenAI 兼容端点（Ollama / llama.cpp server / LM Studio）即可接入。
 
 ## 架构
 
@@ -85,7 +80,7 @@ assets/starter-books/ 内置公版示例书
 
 ## 隐私
 
-书籍、阅读进度、划线和笔记都在本地文件中，无账号、无遥测。可选联网能力默认关闭：翻译（Google Translate）、AI 伴读（你选择并配置的服务或本机 CLI）。详见 [SECURITY.md](SECURITY.md)。
+书籍、阅读进度、划线和笔记都在本地文件中，无账号、无遥测。可选联网能力默认关闭：翻译（Google Translate）、AI 伴读（你选择并配置的服务，含本地模型端点）。详见 [SECURITY.md](SECURITY.md)。
 
 ## 许可
 
@@ -101,7 +96,7 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 
 > Status: in development; planned for release as a standalone desktop app. No installer is published yet — build from source for now.
 
-Features: paged/scrolling reading, wheel paging, page jump, single or two columns, five page themes, bundled and custom fonts, three-colour highlights with inline comments, one Markdown reading note per book with backlinks, a searchable left TOC sidebar, fit-to-width reading (PDFs are zoomed to ~90% of the reading area), and optional AI assistance through HTTP providers or locally signed-in CLIs (Codex, Claude Code, Grok, Kimi, ZCode).
+Features: paged/scrolling reading, wheel paging, page jump, single or two columns, five page themes, bundled and custom fonts, three-colour highlights with inline comments, one Markdown reading note per book with backlinks, a searchable left TOC sidebar, fit-to-width reading (PDFs are zoomed to ~90% of the reading area), and optional AI assistance through HTTP providers or local OpenAI-compatible endpoints (Ollama, LM Studio, llama.cpp).
 
 Build and run:
 

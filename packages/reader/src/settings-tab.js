@@ -4,7 +4,6 @@
 import { AI_PROVIDERS, AI_PROVIDER_CATEGORIES, normalizeAiBase } from "./ai-providers.js";
 import { READER_THEME_CHOICES } from "./reader-themes.js";
 import { UI_LANGUAGES } from "./i18n-languages.js";
-import { cliAcpSupport, cliMeta, cliReasoningEfforts, effectiveCliEffort, probeCliAcp, probeCliAi, resolveAcpPath, resolveCliPath } from "./ai-cli.js";
 import { selectionActionPreferences } from "./selection-preferences.js";
 import { svgIcon } from "./reader-icons.js";
 
@@ -264,7 +263,7 @@ export function createSettingsTab({
     if (!cfg.provider) return;
     const p = cfg.provider;
     this._aiModelPicker(c, s, p, redraw);
-    const needsSecret = p.transport !== "cli" && p.needsKey && !cfg.key;
+    const needsSecret = p.needsKey && !cfg.key;
     if (needsSecret || cfg.id === "custom") this._aiSecretRow(c, s, p);
     if (cfg.id === "custom") this._aiBaseRow(c, s, p);
     const feedback = c.createDiv("qiaomu-reader-ai-setup-feedback");
@@ -280,15 +279,11 @@ export function createSettingsTab({
     c.addEventListener("change", () => window.setTimeout(paintStatus, 0));
     const advanced = this._settingsDisclosure(c, "advanced");
     advanced.parentElement.setAttribute("data-ai-advanced", "");
-    if (p.transport === "cli") this._aiEffortRow(advanced, s);
     if (p.supportsThinking) this._aiThinkingRow(advanced, s);
     const connection = this._settingsDisclosure(advanced, "ai-connection-settings");
     connection.parentElement.setAttribute("data-ai-connection", "");
-    if (p.transport === "cli") this._aiCliRows(connection, s, p, redraw);
-    if (p.transport !== "cli") {
-      if (p.needsKey && !needsSecret) this._aiSecretRow(connection, s, p);
-      if (cfg.id !== "custom") this._aiBaseRow(connection, s, p);
-    }
+    if (p.needsKey && !needsSecret) this._aiSecretRow(connection, s, p);
+    if (cfg.id !== "custom") this._aiBaseRow(connection, s, p);
     this._aiTestRow(connection, p, options);
     const behavior = this._settingsDisclosure(advanced, "ai-response-preferences");
     this._aiTailRows(behavior, s, p, cfg);
@@ -362,7 +357,7 @@ export function createSettingsTab({
   }
   _aiModelPicker(host, s, p, redraw) {
     const models = [...new Set([p.model, ...(p.models || [])].filter(Boolean))];
-    const custom = Boolean(s.aiModel && !models.includes(s.aiModel)) || (!p.model && p.transport !== "cli" && !s.aiModel);
+    const custom = Boolean(s.aiModel && !models.includes(s.aiModel)) || (!p.model && !s.aiModel);
     const saveModel = async value => {
       s.aiModel = value;
       s.aiModels = { ...s.aiModels, [s.aiProvider]: value };
@@ -389,207 +384,6 @@ export function createSettingsTab({
     inputRow = new Setting(host).setName(qiaomuReaderTranslate("model-id"))
       .addText(field => field.setValue(s.aiModel || "").setPlaceholder(p.model || "model-id").onChange(value => saveModel(value.trim())));
     inputRow.settingEl.toggleClass("qiaomu-reader-hidden", !custom);
-  }
-  _aiCliRows(host, s, p, redraw) {
-    if (!Platform.isDesktopApp) {
-      host.createEl("div", { cls: "qiaomu-reader-set-note", text: qiaomuReaderTranslate("local-cli-providers-are-available-only-in-obsidian-desktop") });
-    }
-    if (!s.aiCliPaths || typeof s.aiCliPaths !== "object") s.aiCliPaths = {};
-    if (!s.aiAcpPaths || typeof s.aiAcpPaths !== "object") s.aiAcpPaths = {};
-    const cli = cliMeta(s.aiProvider);
-    const acp = cliAcpSupport(s.aiProvider);
-    const prepareAcpAdapter = async (button) => {
-      button.setDisabled(true).setButtonText(qiaomuReaderTranslate("checking"));
-      try {
-        s.aiEnabled = false;
-        s.aiNeedsVerification = true;
-        await this._saveAll();
-        const status = await ensureAiCliReady(this.plugin, (text) => button.setButtonText(text));
-        new Notice(status?.installed
-          ? qiaomuReaderTranslate("0-is-installed-and-verified-you-can-start-chatting", acp.label)
-          : qiaomuReaderTranslate("acp-is-ready-follow-up-questions-will-reuse-the-persistent-sessi"));
-      } catch (error) {
-        new Notice(aiConnectionErrorMessage(error), 9000);
-      } finally {
-        button.setDisabled(false).setButtonText(qiaomuReaderTranslate("set-up-acp"));
-      }
-      redraw();
-    };
-    this._aiCliPathRow(host, s, p, cli, acp, prepareAcpAdapter, redraw);
-    if (!cli?.acpOnly && s.aiProvider !== "grok-cli") this._aiCliLoginRow(host, s, p, redraw);
-    if (acp.supported) this._aiAcpGuide(this._settingsDisclosure(host, "ai-install-help"), acp);
-    if (acp.supported && acp.mode === "adapter" && acp.binary !== p.binary) {
-      this._aiAcpAdapterRow(host, s, acp, prepareAcpAdapter, redraw);
-    }
-    if (acp.supported) this._aiAcpVerifyRow(host, s, p, acp, cli);
-  }
-  _aiCliPathRow(host, s, p, cli, acp, prepareAcpAdapter, redraw) {
-    const pathSetting = new Setting(host)
-      .setName(qiaomuReaderTranslate(cli?.acpOnly ? "ACP 路径" : "cli-path"))
-      .setDesc(qiaomuReaderTranslate("leave-empty-for-automatic-detection-if-obsidian-cannot-see-a-com"));
-    pathSetting.addText((field) => field
-      .setPlaceholder(p.binary || "")
-      .setValue((cli?.acpOnly ? s.aiAcpPaths : s.aiCliPaths)[s.aiProvider] || "")
-      .onChange(async (value) => {
-        (cli?.acpOnly ? s.aiAcpPaths : s.aiCliPaths)[s.aiProvider] = value.trim();
-        s.aiEnabled = false;
-        s.aiNeedsVerification = true;
-        await this._saveAll();
-      }));
-    pathSetting.addButton((b) => b.setButtonText(qiaomuReaderTranslate(cli?.acpOnly && acp.autoInstall ? "set-up-acp" : "auto-detect")).onClick(async () => {
-      if (!Platform.isDesktopApp) {
-        new Notice(qiaomuReaderTranslate("local-cli-providers-are-available-only-in-obsidian-desktop"));
-        return;
-      }
-      if (cli?.acpOnly && acp.autoInstall) {
-        await prepareAcpAdapter(b);
-        return;
-      }
-      b.setDisabled(true).setButtonText(qiaomuReaderTranslate("checking"));
-      const found = cli?.acpOnly
-        ? await resolveAcpPath(s.aiProvider, s.aiAcpPaths[s.aiProvider])
-        : await resolveCliPath(s.aiProvider, s.aiCliPaths[s.aiProvider]);
-      b.setDisabled(false).setButtonText(qiaomuReaderTranslate("auto-detect"));
-      if (!found) {
-        new Notice(qiaomuReaderTranslate("could-not-find-0-install-it-first-or-enter-its-path-manually", p.binary), 7000);
-        return;
-      }
-      (cli?.acpOnly ? s.aiAcpPaths : s.aiCliPaths)[s.aiProvider] = found;
-      s.aiEnabled = false;
-      s.aiNeedsVerification = true;
-      await this._saveAll();
-      new Notice(qiaomuReaderTranslate("found-0", found));
-      redraw();
-    }));
-  }
-  _aiCliLoginRow(host, s, p, redraw) {
-    new Setting(host)
-      .setName(qiaomuReaderTranslate("login-status"))
-      .setDesc(qiaomuReaderTranslate("checks-whether-the-cli-is-installed-and-signed-in-no-book-conten"))
-      .addButton((b) => b.setButtonText(qiaomuReaderTranslate("check-status")).onClick(async () => {
-        if (!Platform.isDesktopApp) {
-          new Notice(qiaomuReaderTranslate("local-cli-providers-are-available-only-in-obsidian-desktop"));
-          return;
-        }
-        b.setDisabled(true).setButtonText(qiaomuReaderTranslate("checking"));
-        try {
-          const status = await probeCliAi(s.aiProvider, { binaryPath: s.aiCliPaths[s.aiProvider] });
-          s.aiCliPaths[s.aiProvider] = status.binaryPath;
-          await this._saveAll();
-          new Notice(qiaomuReaderTranslate("signed-in-0", p.label));
-          redraw();
-        } catch (e) {
-          const why = e && e.qiaomuReaderReason;
-          new Notice(why === "climissing"
-            ? qiaomuReaderTranslate("cli-not-found-install-it-or-set-its-path-first")
-            : qiaomuReaderTranslate("the-cli-is-not-signed-in-complete-its-login-flow-in-terminal-fir"), 7000);
-        } finally {
-          b.setDisabled(false).setButtonText(qiaomuReaderTranslate("check-status"));
-        }
-      }));
-  }
-  _aiAcpGuide(host, acp) {
-    const guide = host.createDiv("qiaomu-reader-acp-guide");
-    const heading = guide.createDiv("qiaomu-reader-acp-guide-heading");
-    svgIcon(heading.createSpan("qiaomu-reader-acp-guide-icon"), "zap");
-    heading.createSpan({ text: qiaomuReaderTranslate("why-acp-matters") });
-    guide.createDiv({
-      cls: "qiaomu-reader-acp-guide-copy",
-      text: qiaomuReaderTranslate("acp-reuses-the-running-cli-process-and-session-for-the-same-chat"),
-    });
-    const install = guide.createDiv("qiaomu-reader-acp-install");
-    install.createSpan({
-      cls: `qiaomu-reader-acp-guide-badge${acp.community ? " is-community" : ""}`,
-      text: qiaomuReaderTranslate(acp.mode === "native"
-        ? "built-in-acp-no-extra-install"
-        : acp.community && acp.autoInstall
-          ? "community-adapter-one-click-setup"
-          : acp.autoInstall
-            ? "acp-adapter-one-click-setup"
-            : "acp-adapter-install-required"),
-    });
-    if (acp.installNote) install.createDiv({ cls: "qiaomu-reader-acp-install-note", text: qiaomuReaderTranslate(acp.installNote) });
-    if (acp.autoInstall) install.createDiv({
-      cls: "qiaomu-reader-acp-install-note",
-      text: qiaomuReaderTranslate("set-up-acp-checks-for-an-existing-installation-first-if-missing", acp.installVersion),
-    });
-    if (acp.installCommand) {
-      const command = install.createDiv("qiaomu-reader-acp-install-command");
-      command.createEl("code", { text: acp.installCommand });
-      const copy = command.createEl("button", { text: qiaomuReaderTranslate("copy-command"), attr: { type: "button" } });
-      copy.addEventListener("click", async () => {
-        const ok = await copyToClipboard(acp.installCommand);
-        new Notice(ok ? qiaomuReaderTranslate("install-command-copied") : qiaomuReaderTranslate("copy-failed-copy-the-command-manually"));
-      });
-    }
-  }
-  _aiAcpAdapterRow(host, s, acp, prepareAcpAdapter, redraw) {
-    const adapterPath = new Setting(host)
-      .setName(qiaomuReaderTranslate("acp-adapter-path"))
-      .setDesc(qiaomuReaderTranslate("leave-blank-to-auto-detect-if-the-adapter-is-installed-separatel"));
-    adapterPath.addText((field) => field
-      .setPlaceholder(acp.binary || "")
-      .setValue(s.aiAcpPaths[s.aiProvider] || "")
-      .onChange(async (value) => {
-        s.aiAcpPaths[s.aiProvider] = value.trim();
-        s.aiEnabled = false;
-        s.aiNeedsVerification = true;
-        await this._saveAll();
-      }));
-    adapterPath.addButton((b) => b.setButtonText(qiaomuReaderTranslate(acp.autoInstall ? "set-up-acp" : "auto-detect")).onClick(async () => {
-      if (!Platform.isDesktopApp) return;
-      if (acp.autoInstall) {
-        await prepareAcpAdapter(b);
-        return;
-      }
-      b.setDisabled(true).setButtonText(qiaomuReaderTranslate("checking"));
-      const found = await resolveAcpPath(s.aiProvider, s.aiAcpPaths[s.aiProvider]);
-      b.setDisabled(false).setButtonText(qiaomuReaderTranslate("auto-detect"));
-      if (!found) {
-        new Notice(qiaomuReaderTranslate("could-not-find-0-install-it-first-or-enter-its-path-manually", acp.binary), 7000);
-        return;
-      }
-      s.aiAcpPaths[s.aiProvider] = found;
-      s.aiEnabled = false;
-      s.aiNeedsVerification = true;
-      await this._saveAll();
-      new Notice(qiaomuReaderTranslate("found-0", found));
-      redraw();
-    }));
-  }
-  _aiAcpVerifyRow(host, s, p, acp, cli) {
-    const acpSetting = new Setting(host)
-      .setName(qiaomuReaderTranslate("persistent-acp-session"))
-      .setDesc(acp.mode === "native"
-        ? qiaomuReaderTranslate("this-cli-includes-acp-once-verified-each-chat-reuses-a-persisten")
-        : qiaomuReaderTranslate("this-cli-requires-the-separate-0-adapter-once-verified-each-chat", acp.label));
-    acpSetting.addButton((b) => b.setButtonText(qiaomuReaderTranslate("verify-acp")).onClick(async () => {
-      if (!Platform.isDesktopApp) {
-        new Notice(qiaomuReaderTranslate("local-cli-providers-are-available-only-in-obsidian-desktop"));
-        return;
-      }
-      b.setDisabled(true).setButtonText(qiaomuReaderTranslate("verifying"));
-      try {
-        const status = await probeCliAcp(s.aiProvider, {
-          binaryPath: s.aiCliPaths[s.aiProvider],
-          acpPath: s.aiAcpPaths[s.aiProvider],
-          model: s.aiModel,
-          effort: s.aiCliEfforts?.[s.aiProvider],
-        });
-        if (!cli?.acpOnly) s.aiCliPaths[s.aiProvider] = status.binaryPath;
-        if (acp.mode === "adapter" || cli?.acpOnly) s.aiAcpPaths[s.aiProvider] = status.acpPath;
-        await this._saveAll();
-        new Notice(qiaomuReaderTranslate("acp-is-ready-follow-up-questions-will-reuse-the-persistent-sessi"));
-      } catch (e) {
-        const why = e?.qiaomuReaderReason;
-        new Notice(why === "climissing" || why === "acpmissing"
-          ? qiaomuReaderTranslate("could-not-find-0-install-it-first-or-enter-its-executable-path-a", acp.binary)
-          : qiaomuReaderTranslate("0-could-not-initialize-confirm-that-the-cli-is-logged-in-and-acp", acp.label), 7000);
-      } finally {
-        b.setDisabled(false).setButtonText(qiaomuReaderTranslate("verify-acp"));
-      }
-    }));
-    acpSetting.addButton((b) => b.setButtonText(qiaomuReaderTranslate("view-install-docs")).onClick(() => window.open(acp.installUrl, "_blank")));
   }
   _aiSecretRow(host, s, p) {
     if (!s.aiSecrets || typeof s.aiSecrets !== "object") s.aiSecrets = {};
@@ -624,27 +418,6 @@ export function createSettingsTab({
         await this._saveAll();
       });
   }
-  _aiEffortRow(host, s) {
-    if (!s.aiCliEfforts || typeof s.aiCliEfforts !== "object") s.aiCliEfforts = {};
-    const labels = {
-      "": qiaomuReaderTranslate("model-default"),
-      minimal: qiaomuReaderTranslate("minimal"),
-      low: qiaomuReaderTranslate("low"),
-      medium: qiaomuReaderTranslate("medium"),
-      high: qiaomuReaderTranslate("high"),
-      xhigh: qiaomuReaderTranslate("extra-high"),
-      max: qiaomuReaderTranslate("maximum"),
-    };
-    this._readingDropdown(host,
-      "reasoning-effort",
-      "clis-do-not-share-one-universal-thinking-switch-choose-low-for-f",
-      cliReasoningEfforts(s.aiProvider).map((effort) => [effort, labels[effort] || effort]),
-      effectiveCliEffort(s.aiProvider, s.aiCliEfforts[s.aiProvider]),
-      async (value) => {
-        s.aiCliEfforts[s.aiProvider] = value;
-        await this._saveAll();
-      });
-  }
   _aiBaseRow(host, s, p) {
     if (!s.aiBases || typeof s.aiBases !== "object") s.aiBases = {};
     new Setting(host)
@@ -661,9 +434,7 @@ export function createSettingsTab({
   _aiTestRow(host, p, options) {
     new Setting(host)
       .setName(qiaomuReaderTranslate("test-connection"))
-      .setDesc(p.transport === "cli"
-        ? qiaomuReaderTranslate("the-connection-test-reuses-the-cli-account-to-send-one-minimal-m")
-        : qiaomuReaderTranslate("sends-a-minimal-test-with-no-book-content-cloud-services-may-cha"))
+      .setDesc(qiaomuReaderTranslate("sends-a-minimal-test-with-no-book-content-cloud-services-may-cha"))
       .addButton((b) => b.setButtonText(options.enableOnSuccess ? qiaomuReaderTranslate("test-and-enable") : qiaomuReaderTranslate("run-test")).setCta().onClick(async () => {
         const idleText = options.enableOnSuccess ? qiaomuReaderTranslate("test-and-enable") : qiaomuReaderTranslate("run-test");
         b.setDisabled(true).setButtonText(qiaomuReaderTranslate("testing"));
@@ -707,9 +478,7 @@ export function createSettingsTab({
       }));
     host.createEl("div", {
       cls: "qiaomu-reader-set-note",
-      text: p.transport === "cli"
-        ? qiaomuReaderTranslate("the-reader-runs-0-in-an-isolated-temporary-directory-and-denies", p.label)
-        : p.local
+      text: p.local
         ? qiaomuReaderTranslate("local-models-run-on-this-device-only-a-phone-cannot-reach-the-co")
         : qiaomuReaderTranslate("only-when-you-use-ai-are-the-selected-passage-book-title-and-que", cfg.base),
     });
@@ -938,7 +707,7 @@ export function createSettingsTab({
           .onClick(() => openPluginAiSettings(this.app, this.plugin, () => this._redraw())));
       return;
     }
-    const modelName = cfg.model || (cfg.transport === "cli" ? qiaomuReaderTranslate("model-default") : qiaomuReaderTranslate("default-model"));
+    const modelName = cfg.model || qiaomuReaderTranslate("default-model");
     setup
       .setName(qiaomuReaderTranslate("ai-assistance-is-set-up"))
       .setDesc(`${qiaomuReaderTranslate(cfg.provider.label)} · ${modelName}`)

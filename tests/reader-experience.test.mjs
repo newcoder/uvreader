@@ -269,7 +269,7 @@ test("selection toolbar stays hidden until mouse release and removes document li
   const area = window.document.querySelector("article");
   let checks = 0;
   const view = { areaEl: area, hlPopup: window.document.querySelector(".popup"), _hideHlPopup() { this.hlPopup.classList.remove("qiaomu-reader-hl-popup-on"); }, _scheduleSelCheck() { checks++; } };
-  const fn = source.slice(source.indexOf("function setupReaderSelection("), source.indexOf("function readerPageContext("));
+  const fn = source.slice(source.indexOf("function setupReaderSelection("), source.indexOf("function readerIsPdf("));
   const begin = selectionSource.slice(selectionSource.indexOf("function beginReaderSelection("), selectionSource.indexOf("function engineSelectionRect("));
   vm.runInNewContext(`const selectionHud = { beginReaderSelection, openReaderSelectionContext() {} };\n${begin}\n${fn}\nsetupReaderSelection`, { window })(view);
   area.dispatchEvent(new window.PointerEvent("pointerdown", { pointerType: "mouse", button: 0 }));
@@ -326,7 +326,7 @@ test("PDF pan mode drags its scroller and consumes the following click", () => {
   page.scrollLeft = 100;
   let clicks = 0;
   const view = { areaEl: area, pager: { scrollMode: false }, pdfPanMode: true };
-  const fn = source.slice(source.indexOf("function setupPdfZoomInteractions("), source.indexOf("function aiHttpError("));
+  const fn = source.slice(source.indexOf("function setupPdfZoomInteractions("), source.indexOf("// The desktop shell exposes its pi-ai runtime"));
   vm.runInNewContext(`${fn}\nsetupPdfZoomInteractions`, { readerIsPdf: () => true, PDF_ZOOM_DEFAULT: 1 })(view);
   area.addEventListener("click", () => { clicks++; });
   text.dispatchEvent(new window.PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerType: "mouse", button: 0, clientX: 120, clientY: 180 }));

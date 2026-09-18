@@ -44,17 +44,17 @@ function setup(provider, model = "", key = "") {
   const settings = { aiProvider: provider, aiModel: model, aiModels: {}, aiSecrets: {}, aiBases: {} };
   let saved = 0, redrawn = 0;
   const tab = new Tab({}, { settings, saveAll: async () => { saved++; } });
-  for (const method of ["_aiSecretRow", "_aiCliRows", "_aiBaseRow", "_aiEffortRow", "_aiThinkingRow", "_aiTestRow", "_aiTailRows"]) tab[method] = host => host.createDiv({ cls: method });
+  for (const method of ["_aiSecretRow", "_aiBaseRow", "_aiThinkingRow", "_aiTestRow", "_aiTailRows"]) tab[method] = host => host.createDiv({ cls: method });
   const host = document.querySelector("main");
   tab._groupAi(host, () => { redrawn++; });
   return { host, settings, window, counts: () => ({ saved, redrawn }) };
 }
 const folded = el => !!el.closest("details:not([open])");
 
-test("CLI setup exposes choices and keeps paths, tests, effort and prompts folded", () => {
-  const { host } = setup("codex-cli");
+test("provider setup exposes choices and keeps tests and prompts folded", () => {
+  const { host } = setup("deepseek");
   assert.equal(host.querySelectorAll(":scope > .setting-item select").length, 2);
-  for (const name of ["_aiCliRows", "_aiEffortRow", "_aiTestRow", "_aiTailRows"]) assert.ok(folded(host.querySelector(`.${name}`)));
+  for (const name of ["_aiTestRow", "_aiTailRows"]) assert.ok(folded(host.querySelector(`.${name}`)));
   assert.equal(host.querySelectorAll("details[open]").length, 0);
 });
 
@@ -87,12 +87,12 @@ test("switching providers preserves provider-scoped secrets and endpoint overrid
 });
 
 test("choosing a model saves per provider and requires a fresh connection check", async () => {
-  const x = setup("codex-cli");
+  const x = setup("deepseek");
   const select = x.host.querySelectorAll("select")[1];
-  select.value = AI_PROVIDERS["codex-cli"].models[0];
+  select.value = AI_PROVIDERS.deepseek.models[0];
   select.dispatchEvent(new x.window.Event("change"));
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(x.settings.aiModels["codex-cli"], select.value);
+  assert.equal(x.settings.aiModels.deepseek, select.value);
   assert.equal(x.settings.aiEnabled, false);
   assert.equal(x.settings.aiNeedsVerification, true);
   assert.deepEqual(x.counts(), { saved: 1, redrawn: 1 });

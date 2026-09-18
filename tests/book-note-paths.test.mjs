@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-const source = fs.readFileSync(new URL('../packages/reader/src/wire.js', import.meta.url), 'utf8');
+const source = fs.readFileSync(new URL('../packages/reader/src/note-paths.js', import.meta.url), 'utf8');
 const pluginSource = fs.readFileSync(new URL("../packages/reader/src/plugin.js", import.meta.url), "utf8");
 class TFile {
   constructor(path) { this.path = path; this.basename = path.split('/').at(-1).replace(/\.md$/, ''); this.extension = 'md'; }
@@ -11,8 +11,8 @@ function setup(paths) {
   const files = paths.map(p => new TFile(p));
   const app = { vault: { getAbstractFileByPath: path => files.find(f => f.path === path), getMarkdownFiles: () => files }, metadataCache: { getFirstLinkpathDest: () => files[0] } };
   const start = source.indexOf('function resolveBookNote(app, name) {');
-  const code = source.slice(start, source.indexOf('\nconst BookNotePicker', start));
-  const resolve = vm.runInNewContext(`${code}; resolveBookNote`, { TFile, qiaomuReaderPath: p => p });
+  const code = source.slice(start, source.indexOf('const BookNotePicker', start));
+  const resolve = vm.runInNewContext(`${code}; resolveBookNote`, { TFile, path: p => p, qiaomuReaderPath: p => p });
   return { app, files, resolve };
 }
 test('full reading-note paths disambiguate same-name notes and never redirect deleted targets', () => {

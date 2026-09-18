@@ -2,7 +2,6 @@
 // reader helpers, so the module runs outside Obsidian; pure helpers are
 // imported directly.
 import { READER_THEME_CHOICES } from "./reader-themes.js";
-import { cliReasoningEfforts, effectiveCliEffort } from "./ai-cli.js";
 import { docOf } from "./reader-dom.js";
 import { ensureBundledReaderFont } from "./bundled-fonts.js";
 import { resolveReaderFont } from "./reader-appearance.js";
@@ -86,7 +85,7 @@ export function createReadSettingsModal({
       start.addEventListener("click", () => openPluginAiSettings(this.app, plugin, () => this._draw()));
     } else {
       const providerName = qiaomuReaderTranslate(cfg.provider.label);
-      const modelName = cfg.model || (cfg.transport === "cli" ? qiaomuReaderTranslate("model-default") : qiaomuReaderTranslate("default-model"));
+      const modelName = cfg.model || qiaomuReaderTranslate("default-model");
       const status = new Setting(section)
         .setName(qiaomuReaderTranslate("ai-assistance-is-set-up"))
         .setDesc(`${providerName} · ${modelName}`)
@@ -111,28 +110,7 @@ export function createReadSettingsModal({
           }));
     }
 
-    if (state.ready && cfg.transport === "cli") {
-      if (!s.aiCliEfforts || typeof s.aiCliEfforts !== "object") s.aiCliEfforts = {};
-      const labels = {
-        "": qiaomuReaderTranslate("model-default"),
-        minimal: qiaomuReaderTranslate("minimal"),
-        low: qiaomuReaderTranslate("low"),
-        medium: qiaomuReaderTranslate("medium"),
-        high: qiaomuReaderTranslate("high"),
-        xhigh: qiaomuReaderTranslate("extra-high"),
-        max: qiaomuReaderTranslate("maximum"),
-      };
-      new Setting(section)
-        .setName(qiaomuReaderTranslate("reasoning-effort"))
-        .setDesc(qiaomuReaderTranslate("low-is-faster-for-everyday-reading-raise-it-for-difficult-passag"))
-        .addDropdown((dropdown) => {
-          cliReasoningEfforts(s.aiProvider).forEach((value) => dropdown.addOption(value, labels[value] || value));
-          dropdown.setValue(effectiveCliEffort(s.aiProvider, s.aiCliEfforts[s.aiProvider])).onChange(async (value) => {
-            s.aiCliEfforts[s.aiProvider] = value;
-            await plugin.saveAll();
-          });
-        });
-    } else if (state.ready && cfg.provider.supportsThinking) {
+    if (state.ready && cfg.provider.supportsThinking) {
       if (!s.aiThinking || typeof s.aiThinking !== "object") s.aiThinking = {};
       new Setting(section)
         .setName(qiaomuReaderTranslate("thinking-mode-2"))

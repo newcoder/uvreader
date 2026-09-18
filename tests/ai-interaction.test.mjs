@@ -10,6 +10,8 @@ import { shouldFollowContext } from "../packages/reader/src/reader-experience.js
 import { verifiedQuotes } from "../packages/reader/src/reading-workflow.js";
 
 const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
+const aiContextSource = fs.readFileSync(new URL("../packages/reader/src/ai-context.js", import.meta.url), "utf8");
+const aiRenderSource = fs.readFileSync(new URL("../packages/reader/src/ai-render.js", import.meta.url), "utf8");
 const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
 const modalSource = fs.readFileSync(new URL("../packages/reader/src/reader-modal.js", import.meta.url), "utf8");
 const explainModalSource = fs.readFileSync(new URL("../packages/reader/src/ai-explain-modal.js", import.meta.url), "utf8");
@@ -62,7 +64,7 @@ function composer() {
 }
 
 test("quick prompts send immediately, preserve existing drafts, and remain visible while busy", () => {
-  const renderSource = source.slice(source.indexOf("function contextualAiQuickPrompts("), source.indexOf("function bindAiSlashPrompts("));
+  const renderSource = aiRenderSource.slice(aiRenderSource.indexOf("function contextualAiQuickPrompts("), aiRenderSource.indexOf("function bindAiSlashPrompts("));
   const sendingStart = explainModalSource.indexOf("  _setSending(busy) {");
   const sendingSource = explainModalSource.slice(sendingStart, explainModalSource.indexOf("\n  _watchKeyboard() {", sendingStart));
   const items = ["解释一下", "举个例子", "总结要点", "自定义问题"].map((name) => ({ name, prompt: `prompt:${name}` }));
@@ -77,7 +79,7 @@ test("quick prompts send immediately, preserve existing drafts, and remain visib
   }
   const iconsSource = fs.readFileSync(new URL("../packages/reader/src/reader-icons.js", import.meta.url), "utf8");
   const runtimeIcon = vm.runInNewContext(iconsSource.slice(iconsSource.indexOf("function icon(n)")) + "\nicon");
-  const sandbox = { isNonChineseSource, docOf: el => el.ownerDocument, aiQuickPrompts: () => items, qiaomuReaderTranslate: (s) => s, Menu, svgIcon(host, name) { host.innerHTML = runtimeIcon(name); } };
+  const sandbox = { isNonChineseSource, docOf: el => el.ownerDocument, aiQuickPrompts: () => items, translate: (s) => s, qiaomuReaderTranslate: (s) => s, Menu, svgIcon(host, name) { host.innerHTML = runtimeIcon(name); } };
   const helpers = vm.runInNewContext(`${renderSource}\n({renderAiComposerPrompts})`, sandbox);
   const render = helpers.renderAiComposerPrompts;
   const setSending = vm.runInNewContext(`({${sendingSource}})._setSending`, sandbox);
@@ -187,7 +189,7 @@ function chatHarness(explain, overrides = {}) {
   const window = dom();
   const context = {
     window, AbortController, Modal: class {}, console: { error() {} },
-    qiaomuReaderTranslate: (s) => s, newAiSessionKey: () => window.crypto.randomUUID(),
+    qiaomuReaderTranslate: (s) => s, translate: (s) => s, newAiSessionKey: () => window.crypto.randomUUID(),
     normalizeAiTurnContext: (value) => value ? { ...value } : null,
     svgIcon() {}, verifiedQuotes, aiExplain: explain, copyToClipboard: async () => true, Notice: class {},
     createNoteFromAiAnswer: async () => null,
@@ -199,7 +201,7 @@ function chatHarness(explain, overrides = {}) {
     }),
     ...overrides,
   };
-  const helpers = source.slice(source.indexOf("function aiLogFollowsTail("), source.indexOf("const createAiStreamingMarkdownRenderer = createAiStreamingMarkdownRendererFactory({"));
+  const helpers = aiRenderSource.slice(aiRenderSource.indexOf("function aiLogFollowsTail("), aiRenderSource.indexOf("const createAiStreamingMarkdownRenderer = createAiStreamingMarkdownRendererFactory({"));
   // The explain modal lives in its own module now: evaluate its factory with
   // the same stubs, reusing the sliced chat helpers as ports.
   const explainFactory = explainModalSource.slice(explainModalSource.indexOf("export function createAiExplainModal(")).replace("export function", "function");
@@ -219,12 +221,12 @@ function chatHarness(explain, overrides = {}) {
 
 test("mobile AI header owns a safe close control that closes once", () => {
   const window = dom();
-  const helper = source.slice(source.indexOf("function renderMobileAiHeader("), source.indexOf("// Mobile uses the same attached-source composer"));
+  const helper = aiRenderSource.slice(aiRenderSource.indexOf("function renderMobileAiHeader("), aiRenderSource.indexOf("function renderAiUserTurn(log, turn) {"));
   const render = vm.runInNewContext(`${helper}\nrenderMobileAiHeader`, {
-    qiaomuReaderTranslate: (key) => key,
+    translate: (key) => key,
     renderAiHeadMeta() {},
     svgIcon(button, name) { button.dataset.icon = name; },
-    ReadSettingsModal: class {},
+    openReadSettings() {},
     openPluginAiSettings() {},
   });
   const host = window.document.querySelector("main");
@@ -241,7 +243,7 @@ test("mobile AI header owns a safe close control that closes once", () => {
   window.close();
 });
 
-for (const reason of ["cancelled", "timeout", "acpstopped"]) {
+for (const reason of ["cancelled", "timeout", "http"]) {
   test(`${reason} keeps partial Markdown, source, actions and history`, async () => {
     const { chat } = chatHarness(async (_text, _plugin, _turns, _book, { onDelta }) => {
       onDelta({ content: "## 已输出\n\n有价值的内容" });
@@ -378,7 +380,7 @@ function sidebarHarness() {
   const window = dom();
   class File { constructor(path) { this.path = path; this.basename = path; } }
   const files = new Map(["a.epub", "b.epub"].map((path) => [path, new File(path)]));
-  const normalize = source.slice(source.indexOf("function normalizeAiChatHistory("), source.indexOf("function normalizeAiTurnContext("));
+  const normalize = aiContextSource.slice(aiContextSource.indexOf("function normalizeAiChatHistory("), aiContextSource.indexOf("function aiChatTitle("));
   // The chat view lives in its own module now: evaluate its factory with the
   // same stubs, reusing the sliced helpers as ports.
   const chatViewFactory = chatViewSource.slice(chatViewSource.indexOf("export function createAiChatView(")).replace("export function", "function");
@@ -488,9 +490,10 @@ test("failed history deletion preserves the current conversation and stored item
 
 test("note-saving integration uses the answer topic, never the generic question", async () => {
   let result;
-  const fn = source.slice(source.indexOf("async function createNoteFromAiAnswer("), source.indexOf("function _escHtml("));
+  const bookNotesSource = fs.readFileSync(new URL("../packages/reader/src/book-notes.js", import.meta.url), "utf8");
+  const fn = bookNotesSource.slice(bookNotesSource.indexOf("async function createNoteFromAiAnswer("), bookNotesSource.indexOf("function _escHtml("));
   const save = vm.runInNewContext(`${fn}\ncreateNoteFromAiAnswer`, {
-    qiaomuReaderTranslate: (s) => s, suggestAiNoteTitle,
+    translate: (s) => s, qiaomuReaderTranslate: (s) => s, suggestAiNoteTitle,
     normalizeAiTurnContext: (context) => context,
     createNoteFromSelection: (...args) => { result = args; },
   });
@@ -571,13 +574,13 @@ test("new selections replace prior selection context without replacing the draft
 });
 
 test("automatic selection sync only updates an existing AI sidebar and never opens one or sends", () => {
-  const start = source.indexOf("function syncOpenAiSelectionContext(");
-  const helper = source.slice(start, source.indexOf("function syncOpenAiReaderContext(", start));
+  const start = aiRenderSource.indexOf("function syncOpenAiSelectionContext(");
+  const helper = aiRenderSource.slice(start, aiRenderSource.indexOf("function syncOpenAiReaderContext(", start));
   class Chat { setContext(context, options) { this.context = context; this.options = options; } }
   let leaves = [];
   const sync = vm.runInNewContext(`${helper}\nsyncOpenAiSelectionContext`, {
-    AiChatView: Chat, AI_CHAT_VIEW_TYPE: "ai", aiSetupState: () => ({ ready: true, enabled: true }),
-    qiaomuReaderTranslate: x => x, paintAiSource() {},
+    getAiChatView: () => Chat, AI_CHAT_VIEW_TYPE: "ai", aiSetupState: () => ({ ready: true, enabled: true }),
+    translate: x => x, qiaomuReaderTranslate: x => x, paintAiSource() {},
   });
   const view = { _pendingSel: { text: "选中的段落" }, file: { path: "a.epub" }, engine: {}, app: { workspace: { getLeavesOfType: () => leaves } } };
   sync(view);
@@ -619,17 +622,4 @@ test("mobile modal renders a real answer without Component methods and unloads r
   win.close(); window.close();
 });
 
-test("mobile AI requests leave the busy state after a stalled network call", async () => {
-  const helperSource = source.slice(source.indexOf("function aiRequestWithTimeout("), source.indexOf("const { aiExplainStream, aiExplain } = createAiTransport({"));
-  const withTimeout = vm.runInNewContext(`${helperSource}\naiRequestWithTimeout`, {
-    window: { setTimeout, clearTimeout },
-  });
-  await assert.rejects(
-    withTimeout(new Promise(() => {}), null, 5),
-    (error) => error.qiaomuReaderReason === "timeout",
-  );
-  const controller = new AbortController();
-  const pending = withTimeout(new Promise(() => {}), controller.signal, 1000);
-  controller.abort();
-  await assert.rejects(pending, (error) => error.qiaomuReaderReason === "cancelled");
-});
+

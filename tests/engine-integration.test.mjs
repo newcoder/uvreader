@@ -14,6 +14,8 @@ const viewSource = fs.readFileSync(path.join(root, "packages", "reader", "src", 
 const paginatorSource = fs.readFileSync(new URL("../packages/reader/src/pdf-paginator.js", import.meta.url), "utf8");
 const modalSource = fs.readFileSync(path.join(root, "packages", "reader", "src", "reader-modal.js"), "utf8");
 const selectionSource = fs.readFileSync(path.join(root, "packages", "reader", "src", "selection-actions.js"), "utf8");
+const chromeSource = fs.readFileSync(path.join(root, "packages", "reader", "src", "reader-chrome.js"), "utf8");
+const aiRenderSource = fs.readFileSync(path.join(root, "packages", "reader", "src", "ai-render.js"), "utf8");
 function sliceFunction(text, name, indent = "") {
   const start = text.indexOf(`function ${name}(`);
   const asyncStart = text.slice(start - 6, start) === "async " ? start - 6 : start;
@@ -107,8 +109,8 @@ test("EPUB relocation updates chapter, percent and AI context; initial loads and
 });
 
 test("AI context reads the engine's visible text and current chapter without legacy pager geometry", () => {
-  const context = vm.runInNewContext(`${functionSource("readerPageContext")}\nreaderPageContext`, {
-    qiaomuReaderTranslate: translate,
+  const context = vm.runInNewContext(`${sliceFunction(aiRenderSource, "readerPageContext", "  ")}\nreaderPageContext`, {
+    translate, qiaomuReaderTranslate: translate,
   });
   const view = { file: { path: "book.epub" }, pager: {}, engine: {
     visibleText: () => "  现在看到的正文  ", currentLocation: () => ({ tocItem: { label: "第二章" } }),
@@ -296,7 +298,7 @@ test("iframe pointer events reveal chrome and use host tap zones without hijacki
   const calls = [];
   const view = { areaEl: main, plugin: { settings: { navMode: "click" } },
     _armImmersive: () => calls.push("chrome"), nav: dir => calls.push(dir) };
-  const attach = vm.runInNewContext(`const selectionHud = { beginReaderSelection, handleAreaNavClick, openReaderSelectionContext() {} };\n${sliceFunction(selectionSource, "beginReaderSelection", "  ")}\n${sliceFunction(selectionSource, "handleAreaNavClick", "  ")}\n${functionSource("attachEngineChrome")}\nattachEngineChrome`, {
+  const attach = vm.runInNewContext(`const selectionHud = { beginReaderSelection, handleAreaNavClick, openReaderSelectionContext() {} };\n${sliceFunction(selectionSource, "beginReaderSelection", "  ")}\n${sliceFunction(selectionSource, "handleAreaNavClick", "  ")}\n${sliceFunction(chromeSource, "attachEngineChrome", "  ")}\nattachEngineChrome`, {
     isPdf: () => false, clampPdfZoom: (value) => value, PDF_ZOOM_DEFAULT: 1, selOf: () => null,
   });
   attach(view, doc);

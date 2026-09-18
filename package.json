@@ -19,8 +19,7 @@
     "desktop:dist": "npm --prefix apps/desktop run dist",
     "desktop:dist:dir": "npm --prefix apps/desktop run dist:dir",
     "desktop:smoke:packaged": "npm --prefix apps/desktop run smoke:packaged",
-    "build:icon": "node scripts/make-app-icon.mjs",
-    "desktop:test:cli": "npm --prefix apps/desktop run test:cli"
+    "build:icon": "node scripts/make-app-icon.mjs"
   },
   "keywords": [
     "reader",

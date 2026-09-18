@@ -95,7 +95,8 @@ const mainConfig = {
   bundle: true,
   format: "cjs",
   platform: "node",
-  target: "node20",
+  // The AI runtime bundles pi-ai, whose engines require Node >=22.19.
+  target: "node22",
   external: ["electron"],
   sourcemap: prod ? false : "inline",
   logLevel: "info",

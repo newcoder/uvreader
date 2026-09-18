@@ -292,6 +292,21 @@ async function runEbookScenario() {
     }, 25_000);
     console.log("epub: selected", selected.slice(0, 40));
 
+    // The color dropdown must render the full quick palette; a missing port
+    // leaves the trigger dead and this step times out.
+    await page.evaluate(() => document.querySelector(".qiaomu-reader-hl-colors")?.click());
+    const colorOptions = await waitFor("highlight color dropdown", () => page.evaluate(() => {
+      const options = [...document.querySelectorAll(".qiaomu-reader-color-dropdown .qiaomu-reader-color-option")];
+      if (options.length < 3) return "";
+      const labels = options.map((option) => option.textContent.trim());
+      return labels.every(Boolean) ? labels : "";
+    }), 8_000);
+    const checked = await page.evaluate(() => [...document.querySelectorAll(".qiaomu-reader-color-dropdown .qiaomu-reader-color-option")].filter((option) => option.getAttribute("aria-checked") === "true").length);
+    if (checked !== 1) throw new Error(`expected exactly one checked color, saw ${checked}`);
+    await page.keyboard.press("Escape");
+    await waitFor("color dropdown closed", () => page.evaluate(() => !document.querySelector(".qiaomu-reader-color-dropdown")), 5_000);
+    console.log("epub: highlight color palette ready", colorOptions.join("/"));
+
     const highlightsPath = path.join(userData, "library", "plugin", "reading-highlights.json");
     const stored = await highlightFromPopup(page, highlightsPath, bookKey, { cfi: true });
     console.log("epub: highlight stored", stored.id, stored.color);
