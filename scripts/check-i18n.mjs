@@ -6,7 +6,7 @@ import { UI_LANGUAGES, UI_TRANSLATIONS } from "../packages/reader/src/i18n-langu
 import { AI_PROVIDER_CATEGORIES, AI_PROVIDERS } from "../packages/reader/src/ai-providers.js";
 import { QIAOMU_READER_ZH_CN } from "../packages/reader/src/i18n-zh.js";
 
-const source = await fs.readFile(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+const source = await fs.readFile(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
 const selectionSource = await fs.readFile(new URL("../packages/reader/src/selection-actions.js", import.meta.url), "utf8");
 const viewSource = await fs.readFile(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
 const modalSource = await fs.readFile(new URL("../packages/reader/src/reader-modal.js", import.meta.url), "utf8");

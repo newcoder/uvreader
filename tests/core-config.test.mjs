@@ -25,7 +25,7 @@ import { deriveAiSetupState } from "../packages/reader/src/ai-setup-state.js";
 import { isChineseSourceText, translateUiText } from "../packages/reader/src/i18n-runtime.js";
 import { EmbeddedPdfBinaryDataFactory, PDF_CMAP_OPTIONS } from "../packages/reader/src/pdf-cmaps.js";
 
-const mainSource = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+const mainSource = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
 const pluginSource = fs.readFileSync(new URL("../packages/reader/src/plugin.js", import.meta.url), "utf8");
 const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
 const modalSource = fs.readFileSync(new URL("../packages/reader/src/reader-modal.js", import.meta.url), "utf8");
@@ -170,7 +170,7 @@ test("PDF AI context keeps page boundaries and represents the whole document", (
 });
 
 test("PDF zoom stays bounded and supports buttons, gestures, and shortcuts", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   assert.equal(clampPdfZoom(0.1), PDF_ZOOM_MIN);
   assert.equal(clampPdfZoom(8), PDF_ZOOM_MAX);
   assert.equal(clampPdfZoom("bad"), 1);
@@ -203,7 +203,7 @@ test("saving an AI response keeps the answer as the note body", () => {
 });
 
 test("PDF extraction renders every page image and overlays PDF.js text instead of reflowing it", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   assert.match(source, /pdfjs-dist\/legacy\/build\/pdf\.mjs/);
   assert.match(source, /new pdfjsLib\.TextLayer/);
   assert.match(source, /page\.cleanup\?\.\(\)/);
@@ -324,7 +324,7 @@ test("empty synced JSON placeholders stay blocked until the user restores or rem
 });
 
 test("reader persistence refuses to overwrite unreadable stores and reports real save failures", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   const selection = fs.readFileSync(new URL("../packages/reader/src/selection-actions.js", import.meta.url), "utf8");
   assert.match(pluginSource, /this\._blockedStores\.add\(path5\)/);
   assert.match(pluginSource, /this\._unreadableStores\.set\(path5/);
@@ -339,7 +339,7 @@ test("reader persistence refuses to overwrite unreadable stores and reports real
 });
 
 test("fixed-layout PDF pages show a reserved loading state instead of a blank sheet", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   const styles = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   assert.match(source, /const FIGURE_RENDERING_CLASS = "qiaomu-reader-pdf-rendering"/);
   assert.match(source, /surface\) surface\.addClass\(FIGURE_RENDERING_CLASS\)/);
@@ -357,7 +357,7 @@ test("fixed-layout PDF pages show a reserved loading state instead of a blank sh
 });
 
 test("runtime diagnostics use the maintained plugin identity", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   assert.doesNotMatch(source, /console\.(?:error|warn|log)\("Book Reader:/);
   assert.match(source, /const VIEW_TYPE = "qiaomu-reader"/);
   assert.match(source, /const LIB_VIEW_TYPE = "qiaomu-reader-library"/);
@@ -382,7 +382,7 @@ test("Russian UI never leaks Chinese-first source keys", () => {
 });
 
 test("translation target labels follow the plugin interface language", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   assert.match(source, /const TRANSLATION_LANGUAGE_CHOICES = Object\.freeze/);
   assert.match(source, /\["zh-CN", "simplified-chinese"\]/);
   assert.match(settingsTabSource, /TRANSLATION_LANGUAGE_CHOICES\.forEach\(\(\[value, label\]\) => dropdown\.addOption\(value, qiaomuReaderTranslate\(label\)\)\)/);
@@ -713,7 +713,7 @@ test("public README presents the standalone desktop app and preserved notices", 
 });
 
 test("AI prompt and context are Chinese-first", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   const start = source.indexOf("function aiSystemChat");
   const end = source.indexOf("const TranslateModal", start);
   const aiSource = source.slice(start, end);
@@ -724,7 +724,7 @@ test("AI prompt and context are Chinese-first", () => {
 
 test("selection popup keeps primary actions compact and moves note tools into More", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/selection-actions.js", import.meta.url), "utf8");
-  const main = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const main = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   assert.match(source, /void view\.plugin\.openAiChat\(context\)/); // Unconfigured users reach inline setup.
   assert.match(source, /ai: \["qiaomu-reader-hl-ai", "sparkles"/); // AI entry in the button descriptor table
@@ -743,7 +743,7 @@ test("selection popup keeps primary actions compact and moves note tools into Mo
 });
 
 test("AI dialog uses built-in quick prompts and keeps reasoning separate", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   const chinese = fs.readFileSync(new URL("../packages/reader/src/i18n-zh.js", import.meta.url), "utf8");
   for (const label of ["解释一下", "举个例子", "总结要点", "对我有什么用", "换个角度看", "出题考考我"]) {
     assert.match(chinese, new RegExp(label));
@@ -762,7 +762,7 @@ test("AI dialog uses built-in quick prompts and keeps reasoning separate", () =>
 });
 
 test("desktop AI chat keeps per-book threads and structured document or selection context", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   assert.match(source, /const AI_CHAT_VIEW_TYPE = "qiaomu-book-reader-ai-chat"/);
   assert.match(pluginSource, /\[AI_CHAT_VIEW_TYPE, AiChatView\]/);
@@ -865,7 +865,7 @@ test("desktop AI chat keeps per-book threads and structured document or selectio
 });
 
 test("reader lifecycle cancels stale loads and releases PDF resources", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   assert.match(source, /async function extractPdf\(file, app, _settings = \{\}, onProgress, options = \{\}\)/);
   assert.match(source, /const signal = options\.signal/);
   assert.match(source, /throwIfReaderLoadAborted\(signal\)/);
@@ -884,7 +884,7 @@ test("reader lifecycle cancels stale loads and releases PDF resources", () => {
 });
 
 test("AI settings explain and verify provider-specific ACP instead of a generic install", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   assert.match(settingsTabSource, /cliAcpSupport\(s\.aiProvider\)/);
   assert.match(settingsTabSource, /probeCliAcp\(s\.aiProvider/);
   assert.doesNotMatch(source, /warmCliAiSession\(cfg\.id/); // Opening a book must not initialize a model session.
@@ -903,7 +903,7 @@ test("AI settings explain and verify provider-specific ACP instead of a generic 
 });
 
 test("book-note append asks to open only once", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   const start = source.indexOf("async function exportHighlightsToBookNote");
   const end = source.indexOf("const HighlightExportModal", start);
   const exportSource = source.slice(start, end);
@@ -921,7 +921,7 @@ test("reader chrome stays white and removes only the reader's redundant host hea
 });
 
 test("immersive reader chrome overlays the page and retracts without reserving rows", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   const chinese = fs.readFileSync(new URL("../packages/reader/src/i18n-zh.js", import.meta.url), "utf8");
   assert.match(css, /\.qiaomu-reader-top \{[^}]*position:absolute;[^}]*height:40px;[^}]*border-radius:0/s);
@@ -954,7 +954,7 @@ test("immersive reader chrome overlays the page and retracts without reserving r
 });
 
 test("settings use task tabs, concise intros, and Chinese-first copy", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   const chinese = fs.readFileSync(new URL("../packages/reader/src/i18n-zh.js", import.meta.url), "utf8");
   assert.match(settingsTabSource, /qiaomu-reader-settings-head/);
   assert.match(settingsTabSource, /qiaomu-reader-settings-intro/);
@@ -990,7 +990,7 @@ test("settings use task tabs, concise intros, and Chinese-first copy", () => {
 });
 
 test("folder and template settings use searchable vault pickers", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   const chinese = fs.readFileSync(new URL("../packages/reader/src/i18n-zh.js", import.meta.url), "utf8");
   assert.match(source, /const FolderPicker = class extends FuzzySuggestModal/);
@@ -1014,7 +1014,7 @@ test("folder and template settings use searchable vault pickers", () => {
 });
 
 test("quote template is language-neutral and migrates the old Russian fragment", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   assert.match(source, /const QUOTE_TEMPLATE_DEFAULT = "> \{text\}\\n\\n— \[\[\{book\}\]\]\{page\}\{link\}"/);
   assert.doesNotMatch(source, /— из \[\[\{book\}\]\]/i);
   assert.match(pluginSource, /quoteTemplate\.replace\(\/\u2014\\s\+из/);
@@ -1030,7 +1030,7 @@ test("reading settings own their scroll area without horizontal overflow", () =>
 });
 
 test("reading settings split reading and AI assistance without exposing secrets", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   const modalSource = fs.readFileSync(new URL("../packages/reader/src/read-settings-modal.js", import.meta.url), "utf8");
   assert.match(modalSource, /initialTab = "reading"/);
@@ -1056,7 +1056,7 @@ test("reading settings split reading and AI assistance without exposing secrets"
 });
 
 test("AI setup uses one status-driven flow and enables only after a successful test", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   const start = settingsTabSource.indexOf("  _tabTranslate(");
   const end = settingsTabSource.indexOf("  _tabData(c)", start);
   const tabSource = settingsTabSource.slice(start, end);
@@ -1072,7 +1072,7 @@ test("AI setup uses one status-driven flow and enables only after a successful t
 });
 
 test("confirming AI settings automatically prepares, tests, and enables the selected provider", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   // The settings group modal lives in its own module; the readiness helpers
   // it drives stay in main.js, so both sources are asserted together.
   const modalSource = fs.readFileSync(new URL("../packages/reader/src/settings-group-modal.js", import.meta.url), "utf8") + source;

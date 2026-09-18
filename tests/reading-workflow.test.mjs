@@ -9,7 +9,7 @@ import { loadAiDrafts, normalizeDrafts } from "../packages/reader/src/ai-drafts.
 import { aiAnswerMarker, appendAiAnswer, verifiedQuotes, normalizeLocationMarks } from "../packages/reader/src/reading-workflow.js";
 import { bindAiComposer } from "../packages/reader/src/ai-composer.js";
 
-const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
 const historySource = fs.readFileSync(new URL("../packages/reader/src/ai-chat-history-modal.js", import.meta.url), "utf8");
 const findPanelSource = fs.readFileSync(new URL("../packages/reader/src/find-panel.js", import.meta.url), "utf8");
 const tick = () => new Promise((resolve) => setImmediate(resolve));

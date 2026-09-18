@@ -6,7 +6,7 @@ import { JSDOM } from "jsdom";
 import { FONT_FILE_ACCEPT, importedReaderFonts } from "../packages/reader/src/reader-fonts.js";
 import { normalizeCustomFontFamily, resolveReaderFont, readerTextCss, syncPageButtons } from "../packages/reader/src/reader-appearance.js";
 
-const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
 const fontInputSource = fs.readFileSync(new URL("../packages/reader/src/custom-font-input.js", import.meta.url), "utf8");
 
 test("custom fonts accept Chinese names, spaces, quoted commas and generic fallbacks", () => {

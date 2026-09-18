@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { highlightBacklink } from '../packages/reader/src/highlight-navigation.js';
-const source = fs.readFileSync(new URL('../packages/reader/src/main.js', import.meta.url), 'utf8');
+const source = fs.readFileSync(new URL('../packages/reader/src/wire.js', import.meta.url), 'utf8');
 const pluginSource = fs.readFileSync(new URL("../packages/reader/src/plugin.js", import.meta.url), "utf8");
 const viewSource = fs.readFileSync(new URL('../packages/reader/src/reader-view.js', import.meta.url), 'utf8');
 class TFile { constructor(path) { this.path = path; this.extension = path.split('.').at(-1); this.basename = path.split('/').at(-1).replace(/\.[^.]+$/, ''); } }

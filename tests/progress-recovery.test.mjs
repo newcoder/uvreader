@@ -4,7 +4,7 @@ import vm from "node:vm";
 import test from "node:test";
 import { cloneJson, createSerialTaskQueue, isPlainRecord, mergeReadingProgress, parseJsonRecord, readJsonRecordStore, writeVerifiedJsonRecord } from "../packages/reader/src/storage.js";
 
-const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
 const pluginSource = fs.readFileSync(new URL("../packages/reader/src/plugin.js", import.meta.url), "utf8");
 const primary = "reading-progress.json";
 const recovery = ".obsidian/plugins/reader/reading-progress-recovery.json";

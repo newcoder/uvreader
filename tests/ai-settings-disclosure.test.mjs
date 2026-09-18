@@ -4,7 +4,7 @@ import vm from "node:vm";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import { AI_PROVIDERS, AI_PROVIDER_CATEGORIES } from "../packages/reader/src/ai-providers.js";
-const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
 const settingsTabSource = fs.readFileSync(new URL("../packages/reader/src/settings-tab.js", import.meta.url), "utf8");
 function setup(provider, model = "", key = "") {
   const { window } = new JSDOM("<main></main>"), { document, HTMLElement } = window;

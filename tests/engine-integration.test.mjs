@@ -9,7 +9,7 @@ import { JSDOM } from "jsdom";
 import { foliateElements } from "../scripts/foliate-elements.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
-const source = fs.readFileSync(path.join(root, "packages", "reader", "src", "main.js"), "utf8");
+const source = fs.readFileSync(path.join(root, "packages", "reader", "src", "wire.js"), "utf8");
 const viewSource = fs.readFileSync(path.join(root, "packages", "reader", "src", "reader-view.js"), "utf8");
 const paginatorSource = fs.readFileSync(new URL("../packages/reader/src/pdf-paginator.js", import.meta.url), "utf8");
 const modalSource = fs.readFileSync(path.join(root, "packages", "reader", "src", "reader-modal.js"), "utf8");

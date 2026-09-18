@@ -9,7 +9,7 @@ import { suggestAiNoteTitle } from "../packages/reader/src/ai-note-title.js";
 import { shouldFollowContext } from "../packages/reader/src/reader-experience.js";
 import { verifiedQuotes } from "../packages/reader/src/reading-workflow.js";
 
-const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
 const viewSource = fs.readFileSync(new URL("../packages/reader/src/reader-view.js", import.meta.url), "utf8");
 const modalSource = fs.readFileSync(new URL("../packages/reader/src/reader-modal.js", import.meta.url), "utf8");
 const explainModalSource = fs.readFileSync(new URL("../packages/reader/src/ai-explain-modal.js", import.meta.url), "utf8");

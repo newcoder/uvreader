@@ -5,7 +5,7 @@ import vm from "node:vm";
 import { JSDOM } from "jsdom";
 import { jumpToEngineHighlight } from "../packages/reader/src/highlight-navigation.js";
 
-const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
 const code = source.slice(source.indexOf("async function jumpToAiQuote("), source.indexOf("\nfunction showLocationMarks"));
 function setup() {
   const dom = new JSDOM('<input>');

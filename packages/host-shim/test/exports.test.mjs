@@ -4,11 +4,11 @@ import test from "node:test";
 
 import * as shim from "../src/index.js";
 
-const mainSource = fs.readFileSync(new URL("../../../packages/reader/src/main.js", import.meta.url), "utf8");
+const mainSource = fs.readFileSync(new URL("../../../packages/reader/src/wire.js", import.meta.url), "utf8");
 
-test("the shim exports every symbol src/main.js imports from obsidian", () => {
+test("the shim exports every symbol src/wire.js imports from obsidian", () => {
   const match = /import\s*\{([^{}]*)\}\s*from\s*"obsidian";/.exec(mainSource);
-  assert.ok(match, "src/main.js must import from obsidian");
+  assert.ok(match, "src/wire.js must import from obsidian");
   const names = match[1]
     .split(",")
     .map((name) => name.trim())
