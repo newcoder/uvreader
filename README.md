@@ -71,13 +71,17 @@ npm run desktop:test:cli -- codex-cli # 指定 provider；第三个参数可传�
 ## 架构
 
 ```text
-apps/desktop/        Electron 壳：主进程、预加载、渲染进程、打包脚本
-packages/reader/     阅读核心与界面（main.js 仍通过兼容层运行）
-packages/host-shim/  Obsidian API 兼容层（迁移期过渡，之后会随重构移除）
+apps/desktop/         Electron 壳：主进程、预加载、渲染进程、打包脚本
+packages/reader/src/  阅读核心：60+ 个宿主无关模块（阅读、划线、笔记、AI、界面）
+  main.js             入口（仅 re-export，供桌面壳与测试引用）
+  wire.js             辅助函数与端口装配（唯一接触宿主 API 的接线层）
+  plugin.js           Obsidian 插件适配（注入 Plugin 基类）
+  settings-tab.js     设置页适配（注入 PluginSettingTab 基类）
+packages/host-shim/   Obsidian API 兼容层（仅 wire/plugin/settings-tab 使用）
 assets/starter-books/ 内置公版示例书
 ```
 
-迁移进行中：阅读逻辑会逐步从 `packages/reader/src/main.js` 抽成与宿主无关的模块，`packages/host-shim` 是过渡方案，最终目标是桌面端只依赖纯阅读模块。计划与进度见 [docs/standalone-desktop-plan.md](docs/standalone-desktop-plan.md)。
+迁移状态：阅读、划线、批注、笔记、AI 与全部界面/弹窗都已是宿主无关模块，可独立单测；只有 `wire.js`、`plugin.js`、`settings-tab.js` 通过 `packages/host-shim` 接触宿主 API。计划与进度见 [docs/standalone-desktop-plan.md](docs/standalone-desktop-plan.md)。
 
 ## 隐私
 
