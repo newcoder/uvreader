@@ -13,6 +13,7 @@ const modalSource = await fs.readFile(new URL("../packages/reader/src/reader-mod
 const librarySource = await fs.readFile(new URL("../packages/reader/src/library-modal.js", import.meta.url), "utf8");
 const readerSources = source + viewSource + modalSource + librarySource;
 const readSettingsSource = await fs.readFile(new URL("../packages/reader/src/read-settings-modal.js", import.meta.url), "utf8");
+const settingsTabSource = await fs.readFile(new URL("../packages/reader/src/settings-tab.js", import.meta.url), "utf8");
 const readingNoteSource = await fs.readFile(new URL("../packages/reader/src/reading-note.js", import.meta.url), "utf8");
 const packageJson = JSON.parse(await fs.readFile(new URL("../package.json", import.meta.url), "utf8"));
 
@@ -84,7 +85,7 @@ if (!/[\u3400-\u9fff]/.test(packageJson.description || "")) {
 if (!source.includes('"book-reader-updated-to-0": "UV Reader has been updated to {0}"') && !QIAOMU_READER_ZH_CN["book-reader-updated-to-0"].startsWith("柚肥阅读")) {
   errors.push("The update notice is not branded and translated for Chinese users");
 }
-if (!source.includes("of UI_LANGUAGES") || !UI_LANGUAGES.some((language) => language.id === "zh")) {
+if (!settingsTabSource.includes("of UI_LANGUAGES") || !UI_LANGUAGES.some((language) => language.id === "zh")) {
   errors.push("Missing Simplified Chinese language option");
 }
 if (!source.includes("Object.values(READER_FONTS)")) errors.push("Font controls do not use the unified font registry");
@@ -168,7 +169,7 @@ if (!selectionSource.includes('button(row, "qiaomu-reader-hl-menu", "ellipsis"')
 if (!selectionSource.includes('createDiv({ cls: "qiaomu-reader-hl-comment-quote", text })') || !selectionSource.includes('event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.isComposing') || !selectionSource.includes('event.key === "Escape"')) {
   errors.push("Inline comments must show the selected passage and support Cmd/Ctrl+Enter to save plus Escape to dismiss");
 }
-if (!source.includes('if (cfg.id === "custom") this._aiBaseRow(c, s, p)') || !source.includes('this._settingsDisclosure(advanced, "ai-connection-settings")')) {
+if (!settingsTabSource.includes('if (cfg.id === "custom") this._aiBaseRow(c, s, p)') || !settingsTabSource.includes('this._settingsDisclosure(advanced, "ai-connection-settings")')) {
   errors.push("AI connection details must remain behind progressive disclosure except required custom endpoints");
 }
 if (!source.includes("const DEFAULT_AI_QUICK_PROMPTS")

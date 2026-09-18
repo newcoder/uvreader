@@ -5,6 +5,7 @@ import test from "node:test";
 import { JSDOM } from "jsdom";
 import { AI_PROVIDERS, AI_PROVIDER_CATEGORIES } from "../packages/reader/src/ai-providers.js";
 const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
+const settingsTabSource = fs.readFileSync(new URL("../packages/reader/src/settings-tab.js", import.meta.url), "utf8");
 function setup(provider, model = "", key = "") {
   const { window } = new JSDOM("<main></main>"), { document, HTMLElement } = window;
   HTMLElement.prototype.addClass = function (...names) { this.classList.add(...names); };
@@ -32,8 +33,11 @@ function setup(provider, model = "", key = "") {
       build(c); return this;
     }
   }
-  const code = source.slice(source.indexOf("const SettingsTab = class"), source.indexOf("export default QiaomuBookReader"));
-  const Tab = vm.runInNewContext(`${code}; SettingsTab`, { PluginSettingTab: class {}, Setting, window, AI_PROVIDERS, AI_PROVIDER_CATEGORIES, Platform: { isDesktopApp: true }, setIcon() {}, qiaomuReaderTranslate: key => key,
+  // The settings tab lives in its own module: build it through its factory.
+  const settingsFactory = settingsTabSource.slice(settingsTabSource.indexOf("export function createSettingsTab(")).replace("export function", "function");
+  const settingsPortNames = settingsFactory.slice(settingsFactory.indexOf("{") + 1, settingsFactory.indexOf("})")).split(",").map((name) => name.trim()).filter(Boolean);
+  const settingsPortExpr = `{ ${settingsPortNames.map((name) => `${name}: typeof ${name} === \"undefined\" ? undefined : ${name}`).join(", ")} }`;
+  const Tab = vm.runInNewContext(`${settingsFactory}\ncreateSettingsTab(${settingsPortExpr})`, { PluginSettingTab: class {}, Setting, window, AI_PROVIDERS, AI_PROVIDER_CATEGORIES, Platform: { isDesktopApp: true }, setIcon() {}, qiaomuReaderTranslate: key => key,
     aiConfig: p => ({ id: p.settings.aiProvider, provider: AI_PROVIDERS[p.settings.aiProvider], key }),
     aiSetupState: () => ({ enabled: false }),
   });

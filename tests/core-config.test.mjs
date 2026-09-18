@@ -35,6 +35,7 @@ const readSettingsSource = fs.readFileSync(new URL("../packages/reader/src/read-
 const noteTitleSource = fs.readFileSync(new URL("../packages/reader/src/note-title-modal.js", import.meta.url), "utf8");
 const historySource = fs.readFileSync(new URL("../packages/reader/src/ai-chat-history-modal.js", import.meta.url), "utf8");
 const transportSource = fs.readFileSync(new URL("../packages/reader/src/ai-transport.js", import.meta.url), "utf8");
+const settingsTabSource = fs.readFileSync(new URL("../packages/reader/src/settings-tab.js", import.meta.url), "utf8");
 const bookSetupSource = fs.readFileSync(new URL("../packages/reader/src/book-setup-modal.js", import.meta.url), "utf8");
 const highlightExportSource = fs.readFileSync(new URL("../packages/reader/src/highlight-export-modal.js", import.meta.url), "utf8");
 const settingsGroupSource = fs.readFileSync(new URL("../packages/reader/src/settings-group-modal.js", import.meta.url), "utf8");
@@ -327,7 +328,7 @@ test("reader persistence refuses to overwrite unreadable stores and reports real
   assert.match(source, /this\._blockedStores\.add\(path5\)/);
   assert.match(source, /this\._unreadableStores\.set\(path5/);
   assert.match(source, /async retryUnreadableStore\(path5\)/);
-  assert.match(source, /to-avoid-overwriting-recoverable-data/);
+  assert.match(settingsTabSource, /to-avoid-overwriting-recoverable-data/);
   assert.match(source, /if \(this\._blockedStores\.has\(path5\)\) return false/);
   assert.match(source, /stores\.some\(\(store\) => store === false\)/);
   assert.match(source, /const saved = await this\._persistHighlights/);
@@ -383,7 +384,7 @@ test("translation target labels follow the plugin interface language", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
   assert.match(source, /const TRANSLATION_LANGUAGE_CHOICES = Object\.freeze/);
   assert.match(source, /\["zh-CN", "simplified-chinese"\]/);
-  assert.match(source, /TRANSLATION_LANGUAGE_CHOICES\.forEach\(\(\[value, label\]\) => dropdown\.addOption\(value, qiaomuReaderTranslate\(label\)\)\)/);
+  assert.match(settingsTabSource, /TRANSLATION_LANGUAGE_CHOICES\.forEach\(\(\[value, label\]\) => dropdown\.addOption\(value, qiaomuReaderTranslate\(label\)\)\)/);
   assert.doesNotMatch(source, /\.addOption\("zh-CN", "简体中文"\)/);
 });
 
@@ -883,21 +884,21 @@ test("reader lifecycle cancels stale loads and releases PDF resources", () => {
 
 test("AI settings explain and verify provider-specific ACP instead of a generic install", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
-  assert.match(source, /cliAcpSupport\(s\.aiProvider\)/);
-  assert.match(source, /probeCliAcp\(s\.aiProvider/);
+  assert.match(settingsTabSource, /cliAcpSupport\(s\.aiProvider\)/);
+  assert.match(settingsTabSource, /probeCliAcp\(s\.aiProvider/);
   assert.doesNotMatch(source, /warmCliAiSession\(cfg\.id/); // Opening a book must not initialize a model session.
-  assert.match(source, /this-cli-includes-acp/);
-  assert.match(source, /this-cli-requires-the-separate-0-adapter/);
-  assert.match(source, /acp-adapter-path/);
-  assert.match(source, /resolveAcpPath\(s\.aiProvider/);
-  assert.match(source, /why-acp-matters/);
-  assert.match(source, /built-in-acp-no-extra-install/);
-  assert.match(source, /community-adapter-one-click-setup/);
-  assert.match(source, /copyToClipboard\(acp\.installCommand\)/);
+  assert.match(settingsTabSource, /this-cli-includes-acp/);
+  assert.match(settingsTabSource, /this-cli-requires-the-separate-0-adapter/);
+  assert.match(settingsTabSource, /acp-adapter-path/);
+  assert.match(settingsTabSource, /resolveAcpPath\(s\.aiProvider/);
+  assert.match(settingsTabSource, /why-acp-matters/);
+  assert.match(settingsTabSource, /built-in-acp-no-extra-install/);
+  assert.match(settingsTabSource, /community-adapter-one-click-setup/);
+  assert.match(settingsTabSource, /copyToClipboard\(acp\.installCommand\)/);
   assert.match(source, /pluginAcpInstallRoot\(plugin, cfg\.id, acp\.installVersion\)/);
-  assert.match(source, /set-up-acp/);
+  assert.match(settingsTabSource, /set-up-acp/);
   assert.match(source, /installCliAcp\(cfg\.id, \{ installRoot \}\)/);
-  assert.match(source, /set-up-acp-checks-for-an-existing-installation/);
+  assert.match(settingsTabSource, /set-up-acp-checks-for-an-existing-installation/);
 });
 
 test("book-note append asks to open only once", () => {
@@ -954,30 +955,30 @@ test("immersive reader chrome overlays the page and retracts without reserving r
 test("settings use task tabs, concise intros, and Chinese-first copy", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
   const chinese = fs.readFileSync(new URL("../packages/reader/src/i18n-zh.js", import.meta.url), "utf8");
-  assert.match(source, /qiaomu-reader-settings-head/);
-  assert.match(source, /qiaomu-reader-settings-intro/);
-  assert.match(source, /body\.dataset\.tab = this\._tab/);
+  assert.match(settingsTabSource, /qiaomu-reader-settings-head/);
+  assert.match(settingsTabSource, /qiaomu-reader-settings-intro/);
+  assert.match(settingsTabSource, /body\.dataset\.tab = this\._tab/);
   assert.match(chinese, /"line-width": "每行字数"/);
   assert.match(chinese, /"data": "存储与同步"/);
   assert.match(chinese, /只改变书页；顶部和底部工具栏始终跟随 Obsidian/);
   assert.match(chinese, /按自己的阅读习惯调整，所有设置都会自动保存/);
   assert.match(chinese, /"confirm": "确定"/);
-  assert.match(source, /if \(cfg\.id === "custom"\) this\._aiBaseRow\(c, s, p\)/);
-  assert.match(source, /if \(needsSecret \|\| cfg\.id === "custom"\) this\._aiSecretRow\(c, s, p\)/);
+  assert.match(settingsTabSource, /if \(cfg\.id === "custom"\) this\._aiBaseRow\(c, s, p\)/);
+  assert.match(settingsTabSource, /if \(needsSecret \|\| cfg\.id === "custom"\) this\._aiSecretRow\(c, s, p\)/);
   assert.match(source, /aiSecrets: \{\}, aiBases: \{\}/);
   assert.match(source, /settings\.aiSecrets\?\.\[providerId\]/);
   assert.match(source, /settings\.aiBases\?\.\[id\]/);
-  assert.match(source, /qiaomuReaderTranslate\(cfg\.provider\.label\)/);
+  assert.match(settingsTabSource, /qiaomuReaderTranslate\(cfg\.provider\.label\)/);
   assert.match(source, /aiModels: \{\}/);
   assert.match(source, /aiThinking: \{\}/);
   assert.match(source, /aiCliEfforts: \{\}/);
   assert.match(fs.readFileSync(new URL("../packages/reader/src/read-settings-modal.js", import.meta.url), "utf8"), /setName\(qiaomuReaderTranslate\("reasoning-effort"\)\)/);
-  assert.match(source, /_aiThinkingRow\(host, s\)[\s\S]{0,260}"thinking-mode"/); // thinking toggle rides the shared _readingToggle builder via _aiThinkingRow
-  assert.match(source, /this\._settingsDisclosure\(advanced, "ai-connection-settings"\)/);
-  assert.match(source, /createEl\("details", \{ cls: "qiaomu-reader-settings-disclosure" \}\)/);
-  assert.match(source, /_readingDropdown\(host,\s*"body-font"/); // body-font row rides the shared dropdown builder in _groupAppearance
-  assert.match(source, /setName\(qiaomuReaderTranslate\("font-size-2"\)\)/);
-  assert.match(source, /setName\(qiaomuReaderTranslate\("line-spacing-2"\)\)/);
+  assert.match(settingsTabSource, /_aiThinkingRow\(host, s\)[\s\S]{0,260}"thinking-mode"/);
+  assert.match(settingsTabSource, /this\._settingsDisclosure\(advanced, "ai-connection-settings"\)/);
+  assert.match(settingsTabSource, /createEl\("details", \{ cls: "qiaomu-reader-settings-disclosure" \}\)/);
+  assert.match(settingsTabSource, /_readingDropdown\(host,\s*"body-font"/);
+  assert.match(settingsTabSource, /setName\(qiaomuReaderTranslate\("font-size-2"\)\)/);
+  assert.match(settingsTabSource, /setName\(qiaomuReaderTranslate\("line-spacing-2"\)\)/);
   assert.match(source, /labels: \{ ru: "Georgia", en: "Georgia", zh: "Georgia" \}/);
   assert.match(source, /labels: \{ ru: "Lora", en: "Lora", zh: "Lora" \}/);
   assert.match(source, /labels: \{ ru: "Inter", en: "Inter", zh: "Inter" \}/);
@@ -999,9 +1000,9 @@ test("folder and template settings use searchable vault pickers", () => {
   assert.match(source, /if \(item\.kind === "create"\)/);
   assert.match(source, /\.setIcon\("folder-open"\)/);
   assert.match(source, /\.setIcon\("file-search"\)/);
-  assert.equal((source.match(/addFolderPathControl\(new Setting\(c\)/g) || []).length, 2); // two direct rows; the other two ride the pickFolder wrapper
-  assert.equal((source.match(/pickFolder\(new Setting\(c\)/g) || []).length, 2);
-  assert.equal((source.match(/pickFile\(new Setting\(c\)/g) || []).length, 2); // both note-path rows ride the pickFile wrapper
+  assert.equal((settingsTabSource.match(/addFolderPathControl\(new Setting\(c\)/g) || []).length, 2); // two direct rows; the other two ride the pickFolder wrapper
+  assert.equal((settingsTabSource.match(/pickFolder\(new Setting\(c\)/g) || []).length, 2);
+  assert.equal((settingsTabSource.match(/pickFile\(new Setting\(c\)/g) || []).length, 2); // both note-path rows ride the pickFile wrapper
   assert.match(source, /target instanceof TFolder/);
   assert.match(folderSource, /await this\.app\.vault\.createFolder\(path\)/);
   assert.match(css, /\.qiaomu-reader-folder-setting \.setting-item-control \{[^}]*grid-template-columns:minmax\(180px,1fr\) 32px/s);
@@ -1055,18 +1056,18 @@ test("reading settings split reading and AI assistance without exposing secrets"
 
 test("AI setup uses one status-driven flow and enables only after a successful test", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/main.js", import.meta.url), "utf8");
-  const start = source.indexOf("_tabTranslate(");
-  const end = source.indexOf("_tabData(c)", start);
-  const tabSource = source.slice(start, end);
+  const start = settingsTabSource.indexOf("  _tabTranslate(");
+  const end = settingsTabSource.indexOf("  _tabData(c)", start);
+  const tabSource = settingsTabSource.slice(start, end);
   assert.match(tabSource, /const state = aiSetupState\(this\.plugin\)/);
   assert.match(tabSource, /ai-assistance-is-not-set-up/);
   assert.match(tabSource, /enable-ai-assistance/);
   assert.doesNotMatch(tabSource, /setName\(qiaomuReaderTranslate\("ai-assisted-reading"\)\)[\s\S]*addToggle/);
   assert.match(source, /enableOnSuccess: true/);
-  assert.match(source, /setButtonText\(options\.enableOnSuccess \? qiaomuReaderTranslate\("test-and-enable"\)/);
-  assert.match(source, /s\.aiEnabled = true;[\s\S]*await this\.plugin\.saveAll\(\)/);
+  assert.match(settingsTabSource, /setButtonText\(options\.enableOnSuccess \? qiaomuReaderTranslate\("test-and-enable"\)/);
+  assert.match(source + settingsTabSource, /s\.aiEnabled = true;[\s\S]*await this\.plugin\.saveAll\(\)/);
   assert.match(source, /s\.aiNeedsVerification = false/);
-  assert.match(source, /s\.aiNeedsVerification = true/);
+  assert.match(settingsTabSource, /s\.aiNeedsVerification = true/);
 });
 
 test("confirming AI settings automatically prepares, tests, and enables the selected provider", () => {
