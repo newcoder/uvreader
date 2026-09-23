@@ -301,6 +301,14 @@ export function createSettingsTab({
         .addToggle(toggle => toggle.setValue(s.selectionShowLabels === true).onChange(async value => {
           s.selectionShowLabels = value; await this.plugin.saveAll();
         }));
+      new Setting(host).setName(t("auto-pinyin-info"))
+        .addToggle(toggle => toggle.setValue(s.autoPinyinInfo !== false).onChange(async value => {
+          s.autoPinyinInfo = value; await this.plugin.saveAll();
+        }));
+      new Setting(host).setName(t("auto-translate-english"))
+        .addToggle(toggle => toggle.setValue(s.autoTranslateEnglish !== false).onChange(async value => {
+          s.autoTranslateEnglish = value; await this.plugin.saveAll();
+        }));
       host.createEl("p", { cls: "qiaomu-reader-set-note", text: t("selection-hidden-in-more") });
       const items = selectionActionPreferences(s.selectionActions);
       const labels = { highlight: "highlight-action", comment: "annotate-action", ai: "ask-ai-action", translate: "translate", copy: "copy" };

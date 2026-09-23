@@ -62,6 +62,20 @@ test("aiExplain forwards config, messages and deltas through the bridge", async 
   ]);
 });
 
+test("aiTranslate sends a strict translation prompt with the target language", async () => {
+  const { calls, transport } = setup();
+  const answer = await transport.aiTranslate("Hello world", { settings: {} }, { target: "简体中文" });
+  assert.equal(answer, "你好");
+  const payload = calls.stream[0];
+  assert.equal(payload.options.sessionKey, "", "translations do not join a chat session");
+  assert.equal(payload.config.thinking, false, "translation never spends time on reasoning");
+  assert.equal(payload.messages.length, 2);
+  assert.equal(payload.messages[0].role, "system");
+  assert.match(payload.messages[0].content, /翻译引擎/);
+  assert.match(payload.messages[0].content, /目标语言：简体中文/);
+  assert.deepEqual(payload.messages[1], { role: "user", content: "Hello world" });
+});
+
 test("missing configuration and keys keep the reader reasons", async () => {
   const noProvider = setup({ cfg: { provider: null } });
   await assert.rejects(noProvider.transport.aiExplain("q", { settings: {} }, [], ""), (error) => error.qiaomuReaderReason === "notconfigured");

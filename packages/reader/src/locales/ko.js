@@ -1308,4 +1308,10 @@ export default {
   "pinyin-unpinned": "병음 고정을 해제했습니다",
   "pinyin-pin-unsupported": "이 형식은 병음 고정을 지원하지 않습니다",
   "remove-pinyin": "병음 제거",
+  "auto-pinyin-info": "중국어를 선택하면 병음과 뜻 표시",
+  "auto-translate-english": "영어를 선택하면 자동 번역",
+  "translate-into-0": "{0}(으)로 번역",
+  "nothing-to-translate": "번역할 내용이 없습니다",
+  "ai-not-configured-tap-to-set-up": "AI가 설정되지 않았습니다 · 눌러서 설정",
+  "translation-failed-tap-to-retry": "번역에 실패했습니다 · 눌러서 다시 시도",
 };

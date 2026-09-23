@@ -12,6 +12,7 @@ export function createSelectionActions({
   isPdf, hlColorCss, hlColors, positionPopup, refreshHlPanel, autoFocus,
   paintAiSource, copyToClipboard,
   flowSelectionParts, raiseSelectionPopup, lookupPinyin, lookupWord,
+  translateSelection, translationTarget,
 }) {
   function selectionActions(view) {
     const actions = {
@@ -221,20 +222,63 @@ export function createSelectionActions({
     (buttons.find(b => b.getAttribute("aria-checked") === "true") || buttons[0]).focus({ preventScroll: true });
   }
 
+  // A run of latin letters is offered to the AI translator; the chip shows the
+  // translation in the same place as the pinyin/gloss chip.
+  const LATIN = /[A-Za-z]/;
+  const HAN = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/u;
+  function translatableSelection(text) {
+    const value = String(text || "").trim();
+    if (value.length < 2 || value.length > 600) return false;
+    if (HAN.test(value)) return false;
+    return LATIN.test(value);
+  }
+
+  function translationChip(view, pop, row, token, text) {
+    const chip = pop.createDiv("qiaomu-reader-py-chip qiaomu-reader-py-chip-translate");
+    chip.setAttribute("role", "note");
+    const target = typeof translationTarget === "function" ? translationTarget(view) : "";
+    chip.createDiv({ cls: "qiaomu-reader-py-pinyin", text: target ? translate("translate-into-0", target) : translate("translation") });
+    const body = chip.createDiv({ cls: "qiaomu-reader-py-gloss", text: translate("translating") });
+    row.before(chip);
+    const settled = () => view._wordLookupToken === token && chip.isConnected;
+    void Promise.resolve(translateSelection(view, text)).then((result) => {
+      if (!settled()) return;
+      body.textContent = result || translate("nothing-to-translate");
+    }).catch((error) => {
+      if (!settled()) return;
+      const reason = error?.qiaomuReaderReason || "";
+      const needsSetup = reason === "notconfigured" || reason === "nokey" || reason === "desktop";
+      body.textContent = translate(needsSetup ? "ai-not-configured-tap-to-set-up" : "translation-failed-tap-to-retry");
+      chip.addClass("qiaomu-reader-py-chip-action");
+      chip.addEventListener("click", () => {
+        if (needsSetup) openAiSelectionChat(view);
+        else syncSelectionInfo(view);
+      });
+    });
+  }
+
   // Reading + short definition for the current selection, on its own row above
-  // the action buttons. Long selections and latin text produce no chip. Where
-  // the format supports it the chip is a button that pins the reading.
+  // the action buttons. Long selections produce no chip, and a latin run is
+  // translated by the AI instead. Where the format supports it the chip is a
+  // button that pins the reading.
   function syncSelectionInfo(view) {
     const pop = view.hlPopup;
     if (!pop) return;
-    // Every new selection invalidates a word lookup that is still in flight.
+    // Every new selection invalidates a lookup that is still in flight.
     const token = (view._wordLookupToken = (view._wordLookupToken || 0) + 1);
     pop.querySelector(".qiaomu-reader-py-chip")?.remove();
     const row = pop.querySelector(".qiaomu-reader-hl-actions");
-    if (!row || typeof lookupPinyin !== "function") return;
+    if (!row) return;
     const sel = view._pendingSel || view._currentHl() || null;
-    const info = lookupPinyin(sel?.text || "");
-    if (!info) return;
+    const text = String(sel?.text || "");
+    const settings = view.plugin.settings;
+    const info = settings.autoPinyinInfo !== false && typeof lookupPinyin === "function" ? lookupPinyin(text) : null;
+    if (!info) {
+      if (settings.autoTranslateEnglish !== false && typeof translateSelection === "function" && translatableSelection(text)) {
+        translationChip(view, pop, row, token, text);
+      }
+      return;
+    }
     const canPin = !!view.engine && view.file?.extension !== "pdf" && !!sel?.cfi
       && typeof view._togglePinyinPin === "function";
     const pinned = canPin && Boolean(view._pinyinPinFor?.(sel));

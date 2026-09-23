@@ -1754,4 +1754,10 @@ Object.assign(QIAOMU_READER_ZH_CN, {
   "pinyin-unpinned": "已取消固定注音",
   "pinyin-pin-unsupported": "该格式暂不支持固定注音",
   "remove-pinyin": "移除注音",
+  "auto-pinyin-info": "选中中文自动注音释义",
+  "auto-translate-english": "选中英文自动翻译",
+  "translate-into-0": "译成 {0}",
+  "nothing-to-translate": "没有可翻译的内容",
+  "ai-not-configured-tap-to-set-up": "AI 未配置 · 点此设置",
+  "translation-failed-tap-to-retry": "翻译失败 · 点此重试",
 });

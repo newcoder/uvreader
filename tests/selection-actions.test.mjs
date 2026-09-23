@@ -72,6 +72,8 @@ function setup(overrides = {}) {
     raiseSelectionPopup() {},
     lookupPinyin: overrides.lookupPinyin,
     lookupWord: overrides.lookupWord,
+    translateSelection: overrides.translateSelection,
+    translationTarget: overrides.translationTarget,
   });
   view._showHlPopup({ left: 10, right: 210, top: 100, bottom: 120, width: 200, height: 20 });
   return { window, view, api, menus, records, copied, savedComments, translations, close: () => window.close() };
@@ -222,6 +224,85 @@ test("undoing an existing highlight leaves a tracked, self-hiding restore toast"
   } finally {
     window.setTimeout = realSetTimeout;
   }
+  f.close();
+});
+
+test("an English selection is translated into the chip by the AI", async () => {
+  const calls = [];
+  const f = setup({
+    translateSelection: async (view, text) => { calls.push(text); return "这是一个测试。"; },
+    translationTarget: () => "简体中文",
+  });
+  const { api, view } = f;
+  view._pendingSel = { text: "This is a test." };
+  api.syncSelectionToolbar(view);
+  const chip = view.hlPopup.querySelector(".qiaomu-reader-py-chip");
+  assert.ok(chip, "the chip appears while the translation runs");
+  assert.equal(chip.querySelector(".qiaomu-reader-py-gloss").textContent, "translating");
+  await tick();
+  assert.deepEqual(calls, ["This is a test."]);
+  assert.equal(chip.querySelector(".qiaomu-reader-py-gloss").textContent, "这是一个测试。");
+  f.close();
+});
+
+test("the translation chip offers AI setup when the service is missing", async () => {
+  const contexts = [];
+  const f = setup({
+    translateSelection: async () => {
+      const error = new Error("AI is not configured");
+      error.qiaomuReaderReason = "notconfigured";
+      throw error;
+    },
+    translationTarget: () => "简体中文",
+  });
+  const { api, view } = f;
+  view.plugin.openAiChat = async (context) => contexts.push(context);
+  view._pendingSel = { text: "Hello world" };
+  api.syncSelectionToolbar(view);
+  await tick();
+  const chip = view.hlPopup.querySelector(".qiaomu-reader-py-chip");
+  assert.equal(chip.querySelector(".qiaomu-reader-py-gloss").textContent, "ai-not-configured-tap-to-set-up");
+  chip.click();
+  assert.equal(contexts.length, 1, "tapping the chip opens the AI conversation to set it up");
+  f.close();
+});
+
+test("a failed translation retries when the chip is tapped", async () => {
+  let attempts = 0;
+  const f = setup({
+    translateSelection: async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("boom");
+      return "第二次成功";
+    },
+    translationTarget: () => "简体中文",
+  });
+  const { api, view } = f;
+  view._pendingSel = { text: "Retry me" };
+  api.syncSelectionToolbar(view);
+  await tick();
+  const chip = view.hlPopup.querySelector(".qiaomu-reader-py-chip");
+  assert.equal(chip.querySelector(".qiaomu-reader-py-gloss").textContent, "translation-failed-tap-to-retry");
+  chip.click();
+  await tick();
+  assert.equal(attempts, 2);
+  assert.equal(view.hlPopup.querySelector(".qiaomu-reader-py-gloss").textContent, "第二次成功");
+  f.close();
+});
+
+test("the chip obeys the automatic pinyin and translation switches", () => {
+  const lookup = (text) => (text === "犇" ? { text, pinyin: "bēn", gloss: "群牛受惊奔跑。", single: true, words: [] } : null);
+  const f = setup({ lookupPinyin: lookup, translateSelection: async () => "translated", translationTarget: () => "简体中文" });
+  const { api, view } = f;
+  view.plugin.settings.autoPinyinInfo = false;
+  view._pendingSel = { text: "犇" };
+  api.syncSelectionToolbar(view);
+  assert.equal(view.hlPopup.querySelector(".qiaomu-reader-py-chip"), null, "Chinese annotations can be switched off");
+  view.plugin.settings.autoPinyinInfo = true;
+  view.plugin.settings.autoTranslateEnglish = false;
+  view._pendingSel = { text: "Hello" };
+  api.syncSelectionToolbar(view);
+  assert.equal(view.hlPopup.querySelector(".qiaomu-reader-py-chip"), null, "English translation can be switched off");
   f.close();
 });
 

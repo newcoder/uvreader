@@ -1308,4 +1308,10 @@ export default {
   "pinyin-unpinned": "Pinyin gelöst",
   "pinyin-pin-unsupported": "Für dieses Format lässt sich Pinyin nicht anheften",
   "remove-pinyin": "Pinyin entfernen",
+  "auto-pinyin-info": "Pinyin und Definition für ausgewähltes Chinesisch",
+  "auto-translate-english": "Ausgewähltes Englisch automatisch übersetzen",
+  "translate-into-0": "Übersetzen nach {0}",
+  "nothing-to-translate": "Nichts zu übersetzen",
+  "ai-not-configured-tap-to-set-up": "KI ist nicht eingerichtet · zum Konfigurieren tippen",
+  "translation-failed-tap-to-retry": "Übersetzung fehlgeschlagen · zum Wiederholen tippen",
 };

@@ -272,6 +272,8 @@ const selectionHud = createSelectionActions({
   raiseSelectionPopup,
   lookupPinyin: lookupSelection,
   lookupWord: lookupWordGloss,
+  translateSelection,
+  translationTarget: (view) => translateSelectionTarget(view.plugin.settings),
 });
 
 const pinPopup = createPinPopup({
@@ -416,6 +418,9 @@ const DEFAULT_READER_SESSION = {
   readerAdvOpen: false, readerHistOpen: false,
   askNoteTitle: true, shortNoteTitles: true, defaultHlColor: "yellow",
   selectionShowLabels: false, selectionActions: null,
+  // The reading chip: pinyin and gloss for Han selections, an AI translation
+  // for other scripts.
+  autoPinyinInfo: true, autoTranslateEnglish: true,
   bookTags: {}, navMode: "buttons",
   timerEnabled: true, dailyGoalMin: 15, readingLog: {}, lifetimeSeconds: 0,
   // Content-first "immersive" chrome: controls overlay the page and fully
@@ -1373,11 +1378,28 @@ function setupPdfZoomInteractions(view) {
 // The desktop shell exposes its pi-ai runtime through the preload bridge; the
 // reader only sees the stable aiExplain contract.
 const aiRuntimeBridge = typeof window !== "undefined" && window.qbrDesktop ? window.qbrDesktop.ai || null : null;
-const { aiExplainStream, aiExplain } = createPiTransport({
+const { aiExplainStream, aiExplain, aiTranslate } = createPiTransport({
   bridge: aiRuntimeBridge,
   aiConfig,
   aiMessages,
 });
+
+// The selection chip translates non-Han text with the configured AI service.
+// The target language is the one chosen for the translate action.
+function translateSelectionTarget(settings) {
+  const choice = TRANSLATION_LANGUAGE_CHOICES.find(([value]) => value === (settings.translateTo || "zh-CN"))
+    || TRANSLATION_LANGUAGE_CHOICES[0];
+  return qiaomuReaderTranslate(choice[1]);
+}
+async function translateSelection(view, text) {
+  const state = aiSetupState(view.plugin);
+  if (!state.enabled) {
+    const error = new Error("AI is not configured");
+    error.qiaomuReaderReason = state.reason || "notconfigured";
+    throw error;
+  }
+  return aiTranslate(text, view.plugin, { target: translateSelectionTarget(view.plugin.settings) });
+}
 // Mobile uses the same attached-source composer as the desktop sidebar. The
 // source is context for the next turn, not a permanent banner above the chat.
 const AiExplainModal = createAiExplainModal({

@@ -1308,4 +1308,10 @@ export default {
   "pinyin-unpinned": "ピンインの固定を解除しました",
   "pinyin-pin-unsupported": "この形式はピンインの固定に対応していません",
   "remove-pinyin": "ピンインを削除",
+  "auto-pinyin-info": "中国語を選択したらピンインと意味を表示",
+  "auto-translate-english": "英語を選択したら自動で翻訳",
+  "translate-into-0": "{0}に翻訳",
+  "nothing-to-translate": "翻訳する内容がありません",
+  "ai-not-configured-tap-to-set-up": "AIが未設定です · タップして設定",
+  "translation-failed-tap-to-retry": "翻訳に失敗しました · タップして再試行",
 };

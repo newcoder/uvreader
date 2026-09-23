@@ -1310,4 +1310,10 @@ export default {
   "pinyin-unpinned": "Пиньинь откреплён",
   "pinyin-pin-unsupported": "Этот формат не поддерживает закрепление пиньиня",
   "remove-pinyin": "Убрать пиньинь",
+  "auto-pinyin-info": "Пиньинь и определение для выделенного китайского",
+  "auto-translate-english": "Автоматически переводить выделенный английский",
+  "translate-into-0": "Перевести на {0}",
+  "nothing-to-translate": "Нечего переводить",
+  "ai-not-configured-tap-to-set-up": "ИИ не настроен · нажмите, чтобы настроить",
+  "translation-failed-tap-to-retry": "Не удалось перевести · нажмите, чтобы повторить",
 };

@@ -267,6 +267,8 @@ button.qiaomu-reader-py-chip:hover { background:color-mix(in srgb,var(--qiaomu-r
 button.qiaomu-reader-py-chip:focus-visible { outline:2px solid color-mix(in srgb, var(--qiaomu-reader-accent) 48%, transparent); outline-offset:1px; }
 .qiaomu-reader-py-chip[aria-pressed="true"] { background:color-mix(in srgb, var(--qiaomu-reader-accent) 16%, transparent); }
 .qiaomu-reader-py-chip[aria-pressed="true"] .qiaomu-reader-py-pinyin { color:var(--qiaomu-reader-accent); }
+.qiaomu-reader-py-chip.qiaomu-reader-py-chip-action { cursor:pointer; }
+.qiaomu-reader-py-chip.qiaomu-reader-py-chip-action .qiaomu-reader-py-gloss { color:var(--qiaomu-reader-accent); }
 .qiaomu-reader-py-pinyin { font-size:12px; line-height:1.25; color:var(--qiaomu-reader-muted); letter-spacing:.02em; white-space:nowrap; }
 .qiaomu-reader-py-gloss { font-size:12px; line-height:1.35; color:var(--qiaomu-reader-text); overflow:hidden; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
 /* Card for a pinned reading: full pinyin, the definition and one action. */

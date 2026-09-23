@@ -1308,4 +1308,10 @@ export const QIAOMU_READER_EN = {
   "pinyin-unpinned": "Pinyin unpinned",
   "pinyin-pin-unsupported": "Pinning pinyin is not supported for this format",
   "remove-pinyin": "Remove pinyin",
+  "auto-pinyin-info": "Pinyin and definition for selected Chinese",
+  "auto-translate-english": "Translate selected English automatically",
+  "translate-into-0": "Translate into {0}",
+  "nothing-to-translate": "Nothing to translate",
+  "ai-not-configured-tap-to-set-up": "AI is not set up · tap to configure",
+  "translation-failed-tap-to-retry": "Translation failed · tap to retry",
 };

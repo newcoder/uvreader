@@ -580,6 +580,43 @@ async function runAiScenario() {
     }, 20_000);
     if (mock.state.requests < 2) throw new Error(`expected a connection test and a chat request, saw ${mock.state.requests}`);
     console.log("ai: chat persisted", record.id, `(${mock.state.requests} requests)`);
+
+    // Selecting English text asks the configured service for a translation and
+    // shows it in the reading chip.
+    const selected = await waitFor("english selection", async () => {
+      for (const frame of page.frames()) {
+        if (frame === page.mainFrame()) continue;
+        try {
+          const text = await frame.evaluate(() => {
+            const frameRect = document.defaultView?.frameElement?.getBoundingClientRect();
+            if (!frameRect || frameRect.width < 50 || frameRect.height < 50) return "";
+            const el = [...document.querySelectorAll("p")].find((node) => {
+              const length = node.textContent.trim().length;
+              if (length <= 30 || length >= 400) return false;
+              const rect = node.getBoundingClientRect();
+              return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < innerHeight;
+            });
+            if (!el) return "";
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            const selection = document.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            document.dispatchEvent(new Event("selectionchange", { bubbles: true }));
+            el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true }));
+            return selection.toString().replace(/\s+/g, " ").trim();
+          });
+          if (text) return text;
+        } catch {}
+      }
+      return "";
+    }, 20_000);
+    const translated = await waitFor("selection translation", () => page.evaluate(() => {
+      const chip = document.querySelector(".qiaomu-reader-py-chip");
+      const gloss = chip?.querySelector(".qiaomu-reader-py-gloss")?.textContent || "";
+      return gloss.includes("MOCK STREAM ANSWER") ? gloss : "";
+    }), 20_000);
+    console.log("ai: selection translated", selected.slice(0, 18), "->", translated.slice(0, 24));
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(userData, { recursive: true, force: true });
