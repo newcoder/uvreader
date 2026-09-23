@@ -2,11 +2,15 @@
 
 **中文** · [English](#english) · [许可证](LICENSE) · [问题反馈](https://github.com/newcoder/uvreader/issues)
 
-> 不离开书页，读懂一个观点，留下一条真正有用的笔记。
-
 UV Reader 是中文优先的**独立桌面阅读器**（Electron），支持 EPUB、PDF、FB2、MOBI、AZW3 和 CBZ。阅读、划线、批注、阅读笔记和可选的 AI 伴读都在同一个窗口里完成，不再依赖 Obsidian。
 
-> 状态：开发中，计划作为独立桌面应用发布，暂未提供安装包；当前可从源码构建运行。
+> **关于本项目**：fork 自 Obsidian 插件 [qiaomu-reader](https://github.com/joeseesun/qiaomu-reader)，现已发展为独立桌面应用，不再以插件形态维护。
+>
+> **宗旨**：为了更好的阅读体验（For a better reading experience）。
+>
+> **设计原则**：好快省多（Do it well, do it fast, do it lean, then scale it.）
+
+> 状态：v0.1.0 已发布，提供 Windows / macOS / Linux 安装包，见 [Releases](https://github.com/newcoder/uvreader/releases)；也可从源码构建运行。
 
 ## 功能
 
@@ -95,7 +99,13 @@ assets/starter-books/ 内置公版示例书
 
 UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, PDF, FB2, MOBI, AZW3 and CBZ. Reading, highlighting, notes and an optional AI companion live in one window; Obsidian is no longer required.
 
-> Status: in development; planned for release as a standalone desktop app. No installer is published yet — build from source for now.
+> **About**: forked from the Obsidian plugin [qiaomu-reader](https://github.com/joeseesun/qiaomu-reader) and now developed as a standalone desktop app; the plugin form is no longer maintained.
+>
+> **Purpose**: for a better reading experience.
+>
+> **Design principles**: do it well, do it fast, do it lean, then scale it.
+
+> Status: v0.1.0 is released with Windows / macOS / Linux installers — see [Releases](https://github.com/newcoder/uvreader/releases). You can also build from source.
 
 Features: paged/scrolling reading, wheel paging, page jump, single or two columns, five page themes, bundled and custom fonts, three-colour highlights with inline comments, one Markdown reading note per book with backlinks, a searchable left TOC sidebar, fit-to-width reading (PDFs are zoomed to ~90% of the reading area), and optional AI assistance through HTTP providers or local OpenAI-compatible endpoints (Ollama, LM Studio, llama.cpp).
 
