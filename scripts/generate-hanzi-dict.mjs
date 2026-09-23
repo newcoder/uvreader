@@ -1,25 +1,33 @@
-// Generates the compact single-character glossary and the variant fallback map
-// used by the selection pinyin/definition popup. Everything is offline at
-// runtime: this script downloads the sources once, caches them under
-// node_modules/.cache and writes packages/reader/src/hanzi-dict-data.js.
+// Generates the offline glossaries used by the selection pinyin/definition
+// popup. Everything is offline at runtime: this script downloads the sources
+// once, caches them under node_modules/.cache and writes
+// packages/reader/src/hanzi-dict-data.js (characters and variants) plus
+// packages/reader/src/word-dict-data.js (idioms and common words).
 //
 //   node scripts/generate-hanzi-dict.mjs [--source <word.json>]
 //
 // Sources:
-//   - chinese-xinhua data/word.json (MIT)
+//   - chinese-xinhua data/word.json and data/idiom.json (MIT)
+//   - mapull/chinese-dictionary word/word.json (汉典 derived, modern definitions)
+//   - fxsjy/jieba dict.txt (MIT, word frequencies used to keep common words)
 //   - OpenCC TSCharacters / TWVariants / HKVariants (Apache-2.0)
 //   - Unihan_Variants.txt from the Unicode Character Database (optional; when
 //     it cannot be downloaded the OpenCC maps are still used)
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import zlib from "node:zlib";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..");
 const output = path.join(repoRoot, "packages/reader/src/hanzi-dict-data.js");
+const wordOutput = path.join(repoRoot, "packages/reader/src/word-dict-data.js");
 const cacheDir = path.join(repoRoot, "node_modules/.cache/chinese-xinhua");
 const variantDir = path.join(repoRoot, "node_modules/.cache/hanzi-variants");
 const wordCache = path.join(cacheDir, "word.json");
+const idiomCache = path.join(cacheDir, "idiom.json");
+const mapullCache = path.join(repoRoot, "node_modules/.cache/chinese-dictionary/word.json");
+const jiebaCache = path.join(repoRoot, "node_modules/.cache/jieba/dict.txt");
 const unihanCache = path.join(variantDir, "Unihan.zip");
 
 const RAW = "https://raw.githubusercontent.com";
@@ -29,13 +37,24 @@ const mirrors = (url) => [
   url,
 ];
 const WORD_SOURCES = mirrors(`${RAW}/pwxcoo/chinese-xinhua/master/data/word.json`);
+const IDIOM_SOURCES = mirrors(`${RAW}/pwxcoo/chinese-xinhua/master/data/idiom.json`);
+const MAPULL_SOURCES = mirrors(`${RAW}/mapull/chinese-dictionary/master/word/word.json`);
+const JIEBA_SOURCES = mirrors(`${RAW}/fxsjy/jieba/master/jieba/dict.txt`);
 const OPENCC_FILES = ["TSCharacters.txt", "TWVariants.txt", "HKVariants.txt"];
 const UNIHAN_SOURCES = mirrors("https://www.unicode.org/Public/UCD/latest/ucd/Unihan.zip");
+
+// Common words come from jieba's frequency list; the threshold keeps everyday
+// words while dropping the long tail of rare four-character combinations.
+const WORD_MIN_FREQ = 10;
+const WORD_MAX_CHARS = 4;
+const WORD_GLOSS_MAX = 26;
+const IDIOM_GLOSS_MAX = 40;
 
 const PINYIN_CHARS = "a-züǖǘǚǜāáǎàēéěèīíǐìōóǒòūúǔùńňǹ·ɡ";
 const BOPOMOFO_CHARS = "\\u3105-\\u3129\\u02c7\\u02ca\\u02cb\\u02c9\\u02d9\\u02c8\\u255d\\u2557\\u2554";
 const BOPOMOFO = new RegExp(`[${BOPOMOFO_CHARS}]+`, "gu");
 const CJK = /^[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]$/u;
+const CJK_WORD = /^[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+$/u;
 const MAX_GLOSS = 64;
 
 function sourcePath() {
@@ -68,6 +87,73 @@ async function loadWordSource() {
   const explicit = sourcePath();
   if (explicit) return JSON.parse(fs.readFileSync(explicit, "utf8"));
   return JSON.parse(await fetchCached(wordCache, WORD_SOURCES));
+}
+
+// ── multi-character words ───────────────────────────────────────────────────
+const trimGloss = (raw, cap, { keepSentence = false } = {}) => {
+  let text = String(raw || "")
+    .replace(/★[^。]*。(?=\s|$)/gu, " ")
+    .replace(/ㄧ/gu, "；")
+    .replace(/◇/gu, "，")
+    .replace(/^[①-⑳⒈-⒑1-9][.、．)）]?\s*/u, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!keepSentence) {
+    const firstStop = text.indexOf("。");
+    if (firstStop >= 8) text = text.slice(0, firstStop + 1);
+  }
+  if (text.length > cap) {
+    const cut = text.slice(0, cap);
+    const stop = Math.max(cut.lastIndexOf("。"), cut.lastIndexOf("；"), cut.lastIndexOf("，"), cut.lastIndexOf(";"));
+    text = stop > cap * 0.4 ? cut.slice(0, stop + 1) : `${cut.replace(/[，、；;]$/u, "")}…`;
+  }
+  return text;
+};
+
+// Idiom explanations usually explain the characters first and give the
+// figurative meaning after 比喻/形容/指; that part is the useful one.
+function idiomGloss(raw) {
+  const clean = String(raw || "").replace(/★[^。]*。(?=\s|$)/gu, " ").replace(/ㄧ/gu, "；").replace(/◇/gu, "，").replace(/\s+/g, " ").trim();
+  const at = clean.search(/比喻|形容|借指|泛指|指/u);
+  const body = at >= 0 ? clean.slice(at) : clean;
+  const gloss = trimGloss(body, IDIOM_GLOSS_MAX, { keepSentence: true });
+  return gloss.length >= 4 ? gloss : trimGloss(clean, IDIOM_GLOSS_MAX, { keepSentence: true });
+}
+
+async function buildWordGlosses() {
+  const [idioms, mapull, jiebaText] = await Promise.all([
+    fetchCached(idiomCache, IDIOM_SOURCES).then(JSON.parse),
+    fetchCached(mapullCache, MAPULL_SOURCES).then(JSON.parse),
+    fetchCached(jiebaCache, JIEBA_SOURCES),
+  ]);
+  const frequencies = new Map();
+  for (const line of jiebaText.split("\n")) {
+    const [word, freq] = line.split(" ");
+    if (word) frequencies.set(word, Number(freq) || 0);
+  }
+  const modern = new Map();
+  for (const entry of mapull) {
+    const word = String(entry?.word || "").trim();
+    if (word && !modern.has(word)) modern.set(word, String(entry?.explanation || ""));
+  }
+  const glosses = new Map();
+  for (const entry of idioms) {
+    const word = String(entry?.word || "").trim();
+    if (!CJK_WORD.test(word) || word.length < 2 || word.length > 8 || glosses.has(word)) continue;
+    const gloss = idiomGloss(modern.get(word) || entry?.explanation);
+    if (gloss) glosses.set(word, gloss);
+  }
+  let common = 0;
+  for (const [word, explanation] of modern) {
+    if (word.length < 2 || word.length > WORD_MAX_CHARS || !CJK_WORD.test(word) || glosses.has(word)) continue;
+    if ((frequencies.get(word) || 0) < WORD_MIN_FREQ) continue;
+    const gloss = trimGloss(explanation, WORD_GLOSS_MAX);
+    if (!gloss) continue;
+    glosses.set(word, gloss);
+    common++;
+  }
+  console.log(`word glossary: ${glosses.size} entries (${glosses.size - common} idioms, ${common} common words)`);
+  return glosses;
 }
 
 // ── variant maps ────────────────────────────────────────────────────────────
@@ -307,12 +393,28 @@ async function main() {
   }
   variants.sort((a, b) => a[0].localeCompare(b[0], "zh"));
 
+  // Traditional forms keep the modern meaning of their simplified character,
+  // even when the traditional character has an entry of its own (歡 vs 欢).
+  // The word lookup converts whole runs with this map as well.
+  const traditional = [];
+  const traditionalSeen = new Set();
+  for (const map of opencc) {
+    for (const [char, target] of map) {
+      if (traditionalSeen.has(char) || char === target || !glosses.has(target)) continue;
+      traditionalSeen.add(char);
+      traditional.push([char, target]);
+    }
+  }
+  traditional.sort((a, b) => a[0].localeCompare(b[0], "zh"));
+
   const lines = entries.map(([word, gloss]) => `  "${escapeValue(word)}": "${escapeValue(gloss)}",`);
   const variantLines = variants.map(([char, target]) => `  "${escapeValue(char)}": "${escapeValue(target)}",`);
+  const traditionalLines = traditional.map(([char, target]) => `  "${escapeValue(char)}": "${escapeValue(target)}",`);
   const module = `// Generated by scripts/generate-hanzi-dict.mjs — do not edit.
 // Sources: chinese-xinhua data/word.json (MIT), OpenCC (Apache-2.0) and the
 // Unihan database. HANZI_GLOSSES holds one short definition per character;
-// HANZI_VARIANTS maps traditional and variant forms to a covered character.
+// HANZI_VARIANTS maps uncovered variant forms to a covered character, and
+// HANZI_TRADITIONAL maps traditional forms to their simplified character.
 export const HANZI_GLOSSES = Object.freeze({
 ${lines.join("\n")}
 });
@@ -320,9 +422,32 @@ ${lines.join("\n")}
 export const HANZI_VARIANTS = Object.freeze({
 ${variantLines.join("\n")}
 });
+
+export const HANZI_TRADITIONAL = Object.freeze({
+${traditionalLines.join("\n")}
+});
 `;
   fs.writeFileSync(output, module);
-  console.log(`wrote ${entries.length} glosses and ${variants.length} variants -> ${path.relative(repoRoot, output)} (${Math.round(module.length / 1024)} KB)`);
+  console.log(`wrote ${entries.length} glosses, ${variants.length} variants and ${traditional.length} traditional forms -> ${path.relative(repoRoot, output)} (${Math.round(module.length / 1024)} KB)`);
+
+  const wordGlosses = await buildWordGlosses();
+  const wordEntries = [...wordGlosses.entries()].sort((a, b) => a[0].localeCompare(b[0], "zh"));
+  const text = wordEntries.map(([word, gloss]) => `${word}\t${gloss}`).join("\n");
+  // gzip keeps the committed file and the bundle small; the reader inflates it
+  // with DecompressionStream the first time a word is looked up.
+  const packed = zlib.gzipSync(text, { level: 9 }).toString("base64");
+  const chunks = [];
+  for (let at = 0; at < packed.length; at += 1000) chunks.push(JSON.stringify(packed.slice(at, at + 1000)));
+  const wordModule = `// Generated by scripts/generate-hanzi-dict.mjs — do not edit.
+// Sources: chinese-xinhua data/idiom.json (MIT), mapull/chinese-dictionary
+// (汉典 derived) and fxsjy/jieba's frequency list (MIT). One "word\tgloss"
+// line per idiom or common word, gzipped and inflated on the first lookup.
+export const WORD_DICT_GZIP_BASE64 = [
+${chunks.map((chunk) => `  ${chunk},`).join("\n")}
+].join("");
+`;
+  fs.writeFileSync(wordOutput, wordModule);
+  console.log(`wrote ${wordEntries.length} word glosses -> ${path.relative(repoRoot, wordOutput)} (${Math.round(wordModule.length / 1024)} KB packed, ${Math.round(text.length * 3 / 1024)} KB raw)`);
 }
 
 const isDirect = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);

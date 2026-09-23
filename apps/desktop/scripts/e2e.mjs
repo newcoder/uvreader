@@ -730,6 +730,7 @@ async function writeMinimalEpub(file) {
   <h1>第一章</h1>
   <p>犇这个字很少见，意思是群牛受惊奔跑。</p>
   <p>阅读是一件安静而长久的事情，值得每天坚持。</p>
+  <p>望梅止渴这个成语出自三国时期的故事。</p>
   <p>这是一段比较长的中文句子，用来验证长选区不会显示注音和释义信息。</p>
 </body></html>`);
   fs.writeFileSync(file, await zip.generateAsync({ type: "nodebuffer" }));
@@ -855,14 +856,27 @@ async function runPinyinScenario() {
       return value.includes("bēn") && value.includes("群牛受惊奔跑") ? value : "";
     }, 20_000);
     console.log("pinyin: single character shows reading and glossary", chip.slice(0, 24));
-    const wordChip = await waitFor("word pinyin chip", async () => {
+    const wordChip = await waitFor("word definition", async () => {
       const selected = await selectTextInFrames(page, "阅读");
       if (!selected) return "";
-      await sleep(300);
-      return page.evaluate(() => document.querySelector(".qiaomu-reader-py-chip")?.textContent || "");
+      await sleep(250);
+      return page.evaluate(() => {
+        const chip = document.querySelector(".qiaomu-reader-py-chip");
+        const gloss = chip?.querySelector(".qiaomu-reader-py-gloss")?.textContent || "";
+        return gloss ? { pinyin: chip.querySelector(".qiaomu-reader-py-pinyin")?.textContent || "", gloss } : "";
+      });
     }, 15_000);
-    if (wordChip.includes("群牛")) throw new Error("a word must not reuse the character glossary");
-    console.log("pinyin: word shows its reading", wordChip);
+    if (wordChip.gloss.includes("群牛")) throw new Error("a word must not reuse the character glossary");
+    console.log("pinyin: word shows its definition", wordChip.pinyin, "|", wordChip.gloss);
+    const idiomChip = await waitFor("idiom definition", async () => {
+      const selected = await selectTextInFrames(page, "望梅止渴");
+      if (!selected) return "";
+      await sleep(250);
+      return page.evaluate(
+        () => document.querySelector(".qiaomu-reader-py-chip .qiaomu-reader-py-gloss")?.textContent || "");
+    }, 15_000);
+    if (!idiomChip.includes("比喻")) throw new Error("an idiom should show its figurative meaning");
+    console.log("pinyin: idiom shows its definition", idiomChip.slice(0, 20));
     await selectTextInFrames(page, "比较长的中文句子", true);
     await sleep(400);
     if (!(await page.evaluate(() => !document.querySelector(".qiaomu-reader-py-chip")))) {

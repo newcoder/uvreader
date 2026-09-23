@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { glossFor, hanziCount, isHanChar, lookupSelection, pinyinText, pinyinWords } from "../packages/reader/src/pinyin-annotate.js";
+import { glossFor, hanziCount, isHanChar, lookupSelection, lookupWordGloss, pinyinText, pinyinWords, wordKeyFor } from "../packages/reader/src/pinyin-annotate.js";
 import { HANZI_GLOSSES, HANZI_VARIANTS } from "../packages/reader/src/hanzi-dict-data.js";
 
 test("isHanChar and hanziCount only count CJK ideographs", () => {
@@ -54,6 +54,25 @@ test("traditional and variant characters fall back to the covered form", () => {
   assert.equal(glossFor("滯"), HANZI_GLOSSES["滞"]);
   assert.equal(lookupSelection("輒").gloss, HANZI_GLOSSES["辄"]);
   assert.match(glossFor("犇"), /^群牛受惊奔跑。/u);
+});
+
+test("multi-character selections look up words and idioms, not character by character", async () => {
+  assert.equal(lookupSelection("阅读").gloss, "");
+  assert.equal(lookupSelection("阅读").wordKey, "阅读");
+  assert.match(await lookupWordGloss("阅读"), /领会/u);
+  assert.match(await lookupWordGloss("囫囵"), /完整/u);
+  assert.match(await lookupWordGloss("望梅止渴"), /比喻/u);
+  assert.equal(lookupSelection("犇").wordKey, "", "single characters use the character table");
+});
+
+test("a run that is not a word stays without a definition", async () => {
+  assert.equal(await lookupWordGloss("不是词组的"), "");
+  assert.equal(await lookupWordGloss("abc"), "");
+  assert.equal(await lookupWordGloss("读"), "");
+  assert.equal(wordKeyFor("（阅读）"), "阅读", "surrounding punctuation is ignored");
+  assert.equal(wordKeyFor("阅读abc"), "阅读", "latin characters around the run are ignored");
+  assert.equal(wordKeyFor("阅a读"), "", "latin characters inside the run disqualify it");
+  assert.equal(await lookupWordGloss("歡喜"), await lookupWordGloss("欢喜"), "traditional forms resolve through the variant map");
 });
 
 test("the generated glossary keeps modern definitions instead of classical citations", () => {

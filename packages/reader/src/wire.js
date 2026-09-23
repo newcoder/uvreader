@@ -49,7 +49,7 @@ import { iconLabel, svgIcon } from "./reader-icons.js";
 import { createPageJump } from "./page-jump.js";
 import { createPdfZoomUi } from "./pdf-zoom-ui.js";
 import { createSelectionActions } from "./selection-actions.js";
-import { lookupSelection } from "./pinyin-annotate.js";
+import { lookupSelection, lookupWordGloss } from "./pinyin-annotate.js";
 import { createPinPopup } from "./pin-popup.js";
 import { createReaderTimer } from "./reader-timer.js";
 import { createReaderHud } from "./reader-hud.js";
@@ -271,6 +271,7 @@ const selectionHud = createSelectionActions({
   flowSelectionParts,
   raiseSelectionPopup,
   lookupPinyin: lookupSelection,
+  lookupWord: lookupWordGloss,
 });
 
 const pinPopup = createPinPopup({
@@ -1626,6 +1627,11 @@ function openEnginePinPopup(view, hit) {
     view.plugin.removePin(view.file.path, pin.id);
     void view.engine?.removePin(pin.id);
   });
+  if (!gloss) {
+    void lookupWordGloss(hit.text || "").then((found) => {
+      if (found) pinPopup.updateGloss(view, found);
+    }).catch(() => {});
+  }
 }
 
 

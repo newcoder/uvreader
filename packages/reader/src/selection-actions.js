@@ -11,7 +11,7 @@ export function createSelectionActions({
   translate, Notice, Scope, TranslateModal, setIcon, window,
   isPdf, hlColorCss, hlColors, positionPopup, refreshHlPanel, autoFocus,
   paintAiSource, copyToClipboard,
-  flowSelectionParts, raiseSelectionPopup, lookupPinyin,
+  flowSelectionParts, raiseSelectionPopup, lookupPinyin, lookupWord,
 }) {
   function selectionActions(view) {
     const actions = {
@@ -227,6 +227,8 @@ export function createSelectionActions({
   function syncSelectionInfo(view) {
     const pop = view.hlPopup;
     if (!pop) return;
+    // Every new selection invalidates a word lookup that is still in flight.
+    const token = (view._wordLookupToken = (view._wordLookupToken || 0) + 1);
     pop.querySelector(".qiaomu-reader-py-chip")?.remove();
     const row = pop.querySelector(".qiaomu-reader-hl-actions");
     if (!row || typeof lookupPinyin !== "function") return;
@@ -239,12 +241,13 @@ export function createSelectionActions({
     const chip = canPin
       ? pop.createEl("button", { cls: "qiaomu-reader-py-chip" })
       : pop.createDiv("qiaomu-reader-py-chip");
+    const chipGloss = () => chip.querySelector(".qiaomu-reader-py-gloss")?.textContent || info.gloss || "";
     if (canPin) {
       chip.setAttribute("type", "button");
       chip.setAttribute("aria-pressed", String(pinned));
       chip.setAttribute("aria-label", translate(pinned ? "unpin-pinyin" : "pin-pinyin"));
       chip.addEventListener("click", () => {
-        view._togglePinyinPin(sel, info);
+        view._togglePinyinPin(sel, { ...info, gloss: chipGloss() });
         syncSelectionInfo(view);
       });
     } else {
@@ -253,6 +256,14 @@ export function createSelectionActions({
     chip.createDiv({ cls: "qiaomu-reader-py-pinyin", text: info.pinyin });
     if (info.gloss) chip.createDiv({ cls: "qiaomu-reader-py-gloss", text: info.gloss });
     row.before(chip);
+    if (!info.gloss && info.wordKey && typeof lookupWord === "function") {
+      void Promise.resolve(lookupWord(info.wordKey)).then((gloss) => {
+        if (!gloss || view._wordLookupToken !== token) return;
+        const current = pop.querySelector(".qiaomu-reader-py-chip");
+        if (!current || current.querySelector(".qiaomu-reader-py-gloss")) return;
+        current.createDiv({ cls: "qiaomu-reader-py-gloss", text: gloss });
+      }).catch(() => { /* without the word table the reading still shows */ });
+    }
   }
 
   function syncSelectionToolbar(view) {

@@ -57,9 +57,17 @@ export function createPinPopup({ translate, positionPopup }) {
     positionPopup(view, rect, 220, 84, ui.pop);
   }
 
+  // The definition of a word pin arrives after the card opened.
+  function updateGloss(view, gloss) {
+    const ui = view?._pinPopupUI;
+    if (!ui || !gloss) return;
+    ui.gloss.setText(gloss);
+    ui.gloss.toggleClass("qiaomu-reader-pin-gloss-empty", false);
+  }
+
   function hide(view) {
     view?._pinPopupUI?.pop?.classList.remove("qiaomu-reader-pin-popup-on");
   }
 
-  return { show, hide };
+  return { show, updateGloss, hide };
 }

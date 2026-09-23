@@ -11,6 +11,7 @@ import { jumpToEngineHighlight } from "./highlight-navigation.js";
 import { readerTextCss, resolveReaderFont, syncPageButtons } from "./reader-appearance.js";
 import { svgIcon } from "./reader-icons.js";
 import { pinyinPinFor, renderEnginePins, togglePinyinPin } from "./pinyin-pins.js";
+import { warmWordGlosses } from "./pinyin-annotate.js";
 
 export function createReaderView({
   ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, BookSetupModal, FONTS, InfoModal, ReadSettingsModal, VIEW_TYPE, addBookFileMenu, attachEngineChrome, attachReaderContentClick, attachReaderSwipeNav, bookNoteAction, buildFindPanelFor, buildReaderPageArea, buildReaderPanels, buildReaderSettPanelBody, buildReaderTopBar, buildTocItems, buildTocPanelFor, clearAiSource, clearFoundIn, createPdfPaginator, createPdfZoomControls, currentBookPage, enrichHighlights, ensureSelectedReaderFont, exportHighlightsMenu,   flowSelectionParts, handleReaderWheel, hidePinPopup, hlColorCss, loadReaderDocument, locateHl, markFoundIn, navigateEngineToc, openEngineHighlightPopup, openEnginePinPopup, openOrCreateBookNoteBeside, pageJump, pdfVisiblePageLabel, pdfZoom, persistCurrentReaderPosition, qiaomuReaderClearPaintedSelection, qiaomuReaderLocale, qiaomuReaderRevealWhenSettled, qiaomuReaderTheme, qiaomuReaderTranslate, raiseSelectionPopup, readerAiPanelContext, readerHud, readerIsPdf, readerPaginationMappingCollapsed, readerPdfPages, readerTimer, rememberReaderJump, renderHighlightPanel, renderReaderLoadError, renderVisibleFigures, resolveHighlightAnchor, restoreAiSource, restoreEngineHistory, selectionHud, setReaderTitle, setReadingFocus, settleReader, syncNavigationPanel, syncOpenAiReaderContext, syncOpenAiSelectionContext, syncReaderAiCapability, unwrapAllHighlights, updateEngineLocation, wireReaderChrome, wrapBlockRange,
@@ -228,6 +229,9 @@ export function createReaderView({
     this._pdfOutline = result.outline;
   }
   _finishBookOpen(file) {
+    // Inflate the word glossary while the reader settles so the first
+    // multi-character selection is instant.
+    try { warmWordGlosses(); } catch (e) { console.warn("UV Reader: could not preload the word glossary", e); }
     syncReaderAiCapability(this);
     this.buildSettPanel(); this._maybePromptBookNote(file);
     this._sessionSec = 0; this._running = false;

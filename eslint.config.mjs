@@ -57,6 +57,8 @@ export default [
         performance: "readonly",
         fetch: "readonly",
         Blob: "readonly",
+        Response: "readonly",
+        DecompressionStream: "readonly",
         URL: "readonly",
       },
     },

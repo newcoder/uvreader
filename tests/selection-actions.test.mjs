@@ -71,6 +71,7 @@ function setup(overrides = {}) {
     flowSelectionParts: () => null,
     raiseSelectionPopup() {},
     lookupPinyin: overrides.lookupPinyin,
+    lookupWord: overrides.lookupWord,
   });
   view._showHlPopup({ left: 10, right: 210, top: 100, bottom: 120, width: 200, height: 20 });
   return { window, view, api, menus, records, copied, savedComments, translations, close: () => window.close() };
@@ -221,6 +222,43 @@ test("undoing an existing highlight leaves a tracked, self-hiding restore toast"
   } finally {
     window.setTimeout = realSetTimeout;
   }
+  f.close();
+});
+
+test("a word selection fills in its definition when the lookup resolves", async () => {
+  const lookup = (text) => (text === "阅读"
+    ? { text, pinyin: "yuè dú", gloss: "", single: false, words: [], wordKey: "阅读" }
+    : null);
+  const f = setup({
+    lookupPinyin: lookup,
+    lookupWord: async (key) => (key === "阅读" ? "看书﹑报﹑文件等，并领会其内容" : ""),
+  });
+  const { api, view } = f;
+  view._pendingSel = { text: "阅读" };
+  api.syncSelectionToolbar(view);
+  const chip = view.hlPopup.querySelector(".qiaomu-reader-py-chip");
+  assert.equal(chip.querySelector(".qiaomu-reader-py-gloss"), null, "the definition arrives asynchronously");
+  await tick();
+  assert.equal(chip.querySelector(".qiaomu-reader-py-gloss").textContent, "看书﹑报﹑文件等，并领会其内容");
+  f.close();
+});
+
+test("a stale word lookup never leaks into the next selection", async () => {
+  const resolvers = [];
+  const f = setup({
+    lookupPinyin: (text) => (text === "阅读"
+      ? { text, pinyin: "yuè dú", gloss: "", single: false, words: [], wordKey: "阅读" }
+      : null),
+    lookupWord: () => new Promise((resolve) => { resolvers.push(resolve); }),
+  });
+  const { api, view } = f;
+  view._pendingSel = { text: "阅读" };
+  api.syncSelectionToolbar(view);
+  view._pendingSel = { text: "阅读" };
+  api.syncSelectionToolbar(view);
+  resolvers[0]("上一轮的结果");
+  await tick();
+  assert.equal(view.hlPopup.querySelector(".qiaomu-reader-py-gloss"), null, "the earlier lookup is dropped");
   f.close();
 });
 
