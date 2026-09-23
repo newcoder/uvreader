@@ -3,6 +3,8 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # Allows re-running a failed release from the Actions UI (pick the tag ref).
+  workflow_dispatch:
 
 permissions:
   contents: write
