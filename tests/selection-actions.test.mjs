@@ -176,6 +176,40 @@ test("the highlight toast sits under the passage instead of the page bottom", ()
   f.close();
 });
 
+test("undoing an existing highlight leaves a tracked, self-hiding restore toast", () => {
+  const f = setup(); const { api, view, records, window } = f;
+  const timers = [];
+  const realSetTimeout = window.setTimeout;
+  window.setTimeout = (fn) => { timers.push(fn); return timers.length; };
+  window.clearTimeout = () => {};
+  try {
+    records.push({ id: "existing", color: "yellow", text: "选中文本", cfi: "epubcfi(/6/2!/4/2,/1:0,/1:4)" });
+    view._editHlId = "existing";
+    api.showHighlightUndo(view, { left: 10, top: 20, bottom: 40, width: 80, height: 20 });
+    view.contentEl.querySelector(".qiaomu-reader-selection-feedback button").click();
+    assert.equal(records.length, 0, "the highlight is removed");
+    const restore = view.contentEl.querySelector(".qiaomu-reader-selection-feedback");
+    assert.equal(view._selectionFeedback, restore, "the restore toast stays tracked instead of lingering forever");
+    assert.equal(timers.length, 2, "the restore toast scheduled its own auto-hide");
+    timers[1]();
+    assert.equal(view.contentEl.querySelector(".qiaomu-reader-selection-feedback"), null, "the restore toast hides itself");
+  } finally {
+    window.setTimeout = realSetTimeout;
+  }
+  f.close();
+});
+
+test("a click anywhere else dismisses the toast", () => {
+  const f = setup(); const { api, view, window } = f;
+  view._hlPopupRect = { left: 120, top: 300, bottom: 320, width: 180, height: 20 };
+  api.applySelectionColor(view, "green");
+  assert.ok(view.contentEl.querySelector(".qiaomu-reader-selection-feedback"));
+  view.contentEl.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
+  assert.equal(view.contentEl.querySelector(".qiaomu-reader-selection-feedback"), null, "outside click hides the toast");
+  assert.equal(view._selectionFeedback, null);
+  f.close();
+});
+
 test("an existing highlight offers the undo toast that removes and restores it", () => {
   const f = setup(); const { api, view, records } = f;
   records.push({ id: "existing", color: "yellow", text: "选中文本", cfi: "epubcfi(/6/2!/4/2,/1:0,/1:4)" });

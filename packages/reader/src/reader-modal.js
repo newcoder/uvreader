@@ -421,8 +421,12 @@ export function createReaderModal({
           doc.addEventListener("pointerup", notify);
           doc.addEventListener("selectionchange", notify);
         } catch (e) { console.warn("UV Reader: could not watch selections in a book document", e); }
-        try { doc.addEventListener("pointerdown", () => hidePinPopup(this)); }
-        catch (e) { console.warn("UV Reader: could not watch taps in a book document", e); }
+        try {
+          doc.addEventListener("pointerdown", () => {
+            hidePinPopup(this);
+            selectionHud.hideSelectionFeedback(this);
+          });
+        } catch (e) { console.warn("UV Reader: could not watch taps in a book document", e); }
       },
       onRelocate: (detail) => {
         if (this.file?.path !== file.path || this.engine !== engine || loadToken.signal.aborted) return;

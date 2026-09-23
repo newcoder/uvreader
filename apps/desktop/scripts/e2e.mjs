@@ -321,6 +321,10 @@ async function runEbookScenario() {
       return el?.style.top && el.style.bottom === "auto" ? el.style.top : "";
     }), 8_000);
     console.log("epub: undo toast follows the passage", placedToast);
+    if (!(await tapTextInFrames(page, selected.slice(0, 6)))) throw new Error("could not tap the page to dismiss the toast");
+    await waitFor("toast dismissed by tapping the page", () => page.evaluate(
+      () => !document.querySelector(".qiaomu-reader-selection-feedback")), 8_000);
+    console.log("epub: tapping the page dismissed the undo toast");
 
     // Clicking a stored highlight reopens its toolbar: the engine emits
     // show-annotation and the view routes it back into the highlight popup.

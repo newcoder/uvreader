@@ -75,17 +75,44 @@ export function createSelectionActions({
     Object.assign(el.style, { left: `${Math.round(left)}px`, top: `${Math.round(top)}px`, bottom: "auto", transform: "none" });
   }
 
-  function selectionFeedback(view, message, undo, rect = null) {
+  function hideSelectionFeedback(view) {
+    if (!view?._selectionFeedback && !view?._selectionFeedbackTimer) return;
     window.clearTimeout(view._selectionFeedbackTimer);
+    view._selectionFeedbackTimer = null;
     view._selectionFeedback?.remove();
+    view._selectionFeedback = null;
+  }
+
+  // A click anywhere else dismisses the toast; it also hides itself after a
+  // moment, so it never lingers over the page.
+  function bindFeedbackDismiss(view) {
+    if (view._selectionFeedbackDismiss) return;
+    view._selectionFeedbackDismiss = true;
+    const doc = view.contentEl?.ownerDocument;
+    if (!doc) return;
+    const onDown = (event) => {
+      const el = view._selectionFeedback;
+      if (!el || el.contains(event.target)) return;
+      hideSelectionFeedback(view);
+    };
+    if (typeof view.registerDomEvent === "function") view.registerDomEvent(doc, "pointerdown", onDown);
+    else doc.addEventListener("pointerdown", onDown);
+  }
+
+  function selectionFeedback(view, message, undo, rect = null) {
+    hideSelectionFeedback(view);
+    bindFeedbackDismiss(view);
     const el = view._selectionFeedback = view.contentEl.createDiv("qiaomu-reader-selection-feedback");
     el.setAttribute("role", "status");
     el.createSpan({ text: message });
     if (undo) el.createEl("button", { text: translate("undo"), attr: { type: "button" } }).addEventListener("click", () => {
-      undo(); window.clearTimeout(view._selectionFeedbackTimer); el.remove(); view._selectionFeedback = null;
+      // Dismiss this toast before running the action: the action may raise a
+      // follow-up toast (delete → restore) that must keep its own timer.
+      hideSelectionFeedback(view);
+      undo();
     });
     if (rect) positionFeedback(view, el, rect);
-    view._selectionFeedbackTimer = window.setTimeout(() => { el.remove(); view._selectionFeedback = null; }, undo ? 6000 : 1800);
+    view._selectionFeedbackTimer = window.setTimeout(() => { el.remove(); view._selectionFeedback = null; view._selectionFeedbackTimer = null; }, undo ? 6000 : 1800);
   }
 
   function removeHighlightWithUndo(view, id, rect) {
@@ -445,7 +472,7 @@ export function createSelectionActions({
 
   return {
     matchingSelectionHighlight, selectionColor, clearReaderSelection, beginReaderSelection,
-    engineSelectionRect, selectionFeedback, showHighlightUndo, removeHighlightWithUndo, repaintSelectionHighlights,
+    engineSelectionRect, selectionFeedback, hideSelectionFeedback, showHighlightUndo, removeHighlightWithUndo, repaintSelectionHighlights,
     applySelectionColor, closeSelectionColorDropdown, toggleSelectionColorDropdown, syncSelectionToolbar,
     actions: selectionActions, addBarButtons, copySelectionText, openAiSelectionChat,
     closeInlineHighlightComment, openInlineHighlightComment, handleAreaNavClick,
