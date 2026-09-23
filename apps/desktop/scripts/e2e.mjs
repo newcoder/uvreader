@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
+import JSZip from "jszip";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -618,11 +619,114 @@ async function runHomeScenario() {
   }
 }
 
+async function writeMinimalEpub(file) {
+  const zip = new JSZip();
+  zip.file("mimetype", "application/epub+zip", { compression: "STORE" });
+  zip.file("META-INF/container.xml", `<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>`);
+  zip.file("OEBPS/content.opf", `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="id">pinyin-fixture</dc:identifier>
+    <dc:title>拼音测试书</dc:title>
+    <dc:language>zh</dc:language>
+  </metadata>
+  <manifest><item id="c1" href="chapter1.xhtml" media-type="application/xhtml+xml"/></manifest>
+  <spine><itemref idref="c1"/></spine>
+</package>`);
+  zip.file("OEBPS/chapter1.xhtml", `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><head><title>第一章</title></head><body>
+  <h1>第一章</h1>
+  <p>犇这个字很少见，意思是群牛受惊奔跑。</p>
+  <p>阅读是一件安静而长久的事情，值得每天坚持。</p>
+  <p>这是一段比较长的中文句子，用来验证长选区不会显示注音和释义信息。</p>
+</body></html>`);
+  fs.writeFileSync(file, await zip.generateAsync({ type: "nodebuffer" }));
+}
+
+async function selectTextInFrames(page, needle, wholeParagraph = false) {
+  for (const frame of page.frames()) {
+    if (frame === page.mainFrame()) continue;
+    try {
+      const text = await frame.evaluate(({ needle, wholeParagraph }) => {
+        const frameRect = document.defaultView?.frameElement?.getBoundingClientRect();
+        if (!frameRect || frameRect.width < 50 || frameRect.height < 50) return "";
+        if (wholeParagraph) {
+          const el = [...document.querySelectorAll("p")].find((node) => node.textContent.includes(needle));
+          if (!el) return "";
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          document.getSelection().removeAllRanges();
+          document.getSelection().addRange(range);
+          el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true }));
+          return document.getSelection().toString();
+        }
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        let node = null, offset = -1;
+        while ((node = walker.nextNode())) {
+          offset = node.textContent.indexOf(needle);
+          if (offset >= 0) break;
+        }
+        if (!node || offset < 0) return "";
+        const range = document.createRange();
+        range.setStart(node, offset);
+        range.setEnd(node, offset + needle.length);
+        document.getSelection().removeAllRanges();
+        document.getSelection().addRange(range);
+        node.parentElement.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true }));
+        return document.getSelection().toString();
+      }, { needle, wholeParagraph });
+      if (text) return text;
+    } catch {}
+  }
+  return "";
+}
+
+async function runPinyinScenario() {
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-pinyin-"));
+  const chineseBook = path.join(fixtureDir, "pinyin.epub");
+  await writeMinimalEpub(chineseBook);
+  const { app, page, userData } = await launch(chineseBook);
+  try {
+    await page.waitForSelector(".qiaomu-reader-view", { timeout: 30_000 });
+    await waitFor("reader ready", () => readerReady(page), 30_000);
+    const chip = await waitFor("pinyin chip", async () => {
+      const selected = await selectTextInFrames(page, "犇");
+      if (!selected) return "";
+      await sleep(300);
+      const value = await page.evaluate(() => document.querySelector(".qiaomu-reader-py-chip")?.textContent || "");
+      return value.includes("bēn") && value.includes("群牛受惊奔跑") ? value : "";
+    }, 20_000);
+    console.log("pinyin: single character shows reading and glossary", chip.slice(0, 24));
+    const wordChip = await waitFor("word pinyin chip", async () => {
+      const selected = await selectTextInFrames(page, "阅读");
+      if (!selected) return "";
+      await sleep(300);
+      return page.evaluate(() => document.querySelector(".qiaomu-reader-py-chip")?.textContent || "");
+    }, 15_000);
+    if (wordChip.includes("群牛")) throw new Error("a word must not reuse the character glossary");
+    console.log("pinyin: word shows its reading", wordChip);
+    await selectTextInFrames(page, "比较长的中文句子", true);
+    await sleep(400);
+    if (!(await page.evaluate(() => !document.querySelector(".qiaomu-reader-py-chip")))) {
+      throw new Error("a long selection must not show the pinyin chip");
+    }
+    console.log("pinyin: long selections stay clean");
+  } finally {
+    await app.close().catch(() => {});
+    fs.rmSync(userData, { recursive: true, force: true });
+    fs.rmSync(fixtureDir, { recursive: true, force: true });
+  }
+}
+
 let failed = false;
 try {
   await runHomeScenario();
   await runEbookScenario();
   await runPdfScenario();
+  await runPinyinScenario();
   await runAiScenario();
   await runApiKeyScenario();
   await runScrollScenario();

@@ -258,6 +258,10 @@ img.qiaomu-reader-pdf-lazy:not([data-loaded="1"]) { background:color-mix(in srgb
 .qiaomu-reader-hl-popup { position:absolute; z-index:35; display:flex; flex-direction:column; align-items:stretch; gap:0; padding:7px 9px; border-radius:14px; background:var(--qiaomu-reader-ui); border:1px solid var(--qiaomu-reader-border); box-shadow:0 10px 32px rgba(0,0,0,.25); opacity:0; transform:translateY(4px) scale(.96); pointer-events:none; transition:opacity .13s,transform .13s,width .16s ease; }
 .qiaomu-reader-hl-popup.qiaomu-reader-hl-popup-on { opacity:1; transform:translateY(0) scale(1); pointer-events:all; }
 .qiaomu-reader-hl-actions { display:flex; align-items:center; justify-content:center; gap:6px; }
+/* Offline reading + short definition for the selected character or word. */
+.qiaomu-reader-py-chip { display:flex; flex-direction:column; justify-content:center; gap:1px; max-width:230px; padding:0 8px 0 2px; margin-right:2px; border-right:1px solid var(--qiaomu-reader-border); }
+.qiaomu-reader-py-pinyin { font-size:12px; line-height:1.25; color:var(--text-muted); letter-spacing:.02em; white-space:nowrap; }
+.qiaomu-reader-py-gloss { font-size:12px; line-height:1.3; color:var(--text-normal); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 /* Docked popup must clear the bottom bar (the bar is ~50px tall plus its
    safe-area); an 18px offset put it right on top of the page-turn arrows and
    the % readout. */

@@ -5,7 +5,7 @@ import { createSelectionActions } from "../packages/reader/src/selection-actions
 import { selectionActionPreferences } from "../packages/reader/src/selection-preferences.js";
 
 const tick = () => new Promise(r => setTimeout(r, 5));
-function setup() {
+function setup(overrides = {}) {
   const { window } = new JSDOM('<main><article></article><div class="popup"></div></main>', { pretendToBeVisual: true });
   const proto = window.HTMLElement.prototype;
   proto.createEl = function(tag, opts = {}) {
@@ -70,6 +70,7 @@ function setup() {
     hlCommentMd: () => "",
     flowSelectionParts: () => null,
     raiseSelectionPopup() {},
+    lookupPinyin: overrides.lookupPinyin,
   });
   view._showHlPopup({ left: 10, right: 210, top: 100, bottom: 120, width: 200, height: 20 });
   return { window, view, api, menus, records, copied, savedComments, translations, close: () => window.close() };
@@ -86,6 +87,26 @@ test("toolbar exposes stable labeled actions and a separate three-color menu", (
   assert.equal(view.hlPopup.querySelector('[role="radio"]').getAttribute("aria-checked"), "true");
   view.hlPopup.querySelector(".qiaomu-reader-hl-colors").click();
   assert.equal(view.hlPopup.querySelector(".qiaomu-reader-color-dropdown"), null);
+  f.close();
+});
+
+test("selection popup shows the pinyin and glossary chip at the front", () => {
+  const lookup = (text) => (text === "犇"
+    ? { text, pinyin: "bēn", gloss: "群牛受惊奔跑。", single: true, words: [] }
+    : null);
+  const f = setup({ lookupPinyin: lookup });
+  const { api, view } = f;
+  view._pendingSel = { text: "犇" };
+  api.syncSelectionToolbar(view);
+  const row = view.hlPopup.querySelector(".qiaomu-reader-hl-actions");
+  const chip = row.firstElementChild;
+  assert.equal(chip.className, "qiaomu-reader-py-chip");
+  assert.equal(chip.querySelector(".qiaomu-reader-py-pinyin").textContent, "bēn");
+  assert.equal(chip.querySelector(".qiaomu-reader-py-gloss").textContent, "群牛受惊奔跑。");
+  assert.ok(row.querySelector(".qiaomu-reader-hl-highlight"), "the actions stay in the row");
+  view._pendingSel = { text: "阅读" };
+  api.syncSelectionToolbar(view);
+  assert.equal(row.querySelectorAll(".qiaomu-reader-py-chip").length, 0, "the chip follows the selection");
   f.close();
 });
 

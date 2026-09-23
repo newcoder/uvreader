@@ -49,6 +49,7 @@ import { iconLabel, svgIcon } from "./reader-icons.js";
 import { createPageJump } from "./page-jump.js";
 import { createPdfZoomUi } from "./pdf-zoom-ui.js";
 import { createSelectionActions } from "./selection-actions.js";
+import { lookupSelection } from "./pinyin-annotate.js";
 import { createReaderTimer } from "./reader-timer.js";
 import { createReaderHud } from "./reader-hud.js";
 import { createReaderView } from "./reader-view.js";
@@ -271,6 +272,7 @@ const selectionHud = createSelectionActions({
   hlCommentMd,
   flowSelectionParts,
   raiseSelectionPopup,
+  lookupPinyin: lookupSelection,
 });
 
 const readerTimer = createReaderTimer({

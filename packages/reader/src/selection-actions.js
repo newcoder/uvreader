@@ -12,7 +12,7 @@ export function createSelectionActions({
   translate, Notice, Menu, Scope, TranslateModal, setIcon, window,
   isPdf, hlColorCss, hlColors, positionPopup, refreshHlPanel, autoFocus,
   paintAiSource, copyToClipboard, quoteMarkdown, createNoteFromSelection, hlCommentMd,
-  flowSelectionParts, raiseSelectionPopup,
+  flowSelectionParts, raiseSelectionPopup, lookupPinyin,
 }) {
   function selectionActions(view) {
     const actions = {
@@ -175,6 +175,23 @@ export function createSelectionActions({
     (buttons.find(b => b.getAttribute("aria-checked") === "true") || buttons[0]).focus({ preventScroll: true });
   }
 
+  // Reading + short definition for the current selection, shown at the front of
+  // the toolbar. Long selections and latin text produce no chip.
+  function syncSelectionInfo(view) {
+    const row = view.hlPopup?.querySelector(".qiaomu-reader-hl-actions");
+    if (!row) return;
+    row.querySelector(".qiaomu-reader-py-chip")?.remove();
+    if (typeof lookupPinyin !== "function") return;
+    const text = view._pendingSel?.text || view._currentHl()?.text || "";
+    const info = lookupPinyin(text);
+    if (!info) return;
+    const chip = row.createDiv("qiaomu-reader-py-chip");
+    chip.setAttribute("role", "note");
+    chip.createDiv({ cls: "qiaomu-reader-py-pinyin", text: info.pinyin });
+    if (info.gloss) chip.createDiv({ cls: "qiaomu-reader-py-gloss", text: info.gloss });
+    row.prepend(chip);
+  }
+
   function syncSelectionToolbar(view) {
     const config = JSON.stringify([view.plugin.settings.selectionShowLabels, view.plugin.settings.selectionActions, view.plugin.settings.translateEnabled]);
     if (view.hlPopup && view._selectionToolbarConfig !== config) {
@@ -183,6 +200,7 @@ export function createSelectionActions({
       addBarButtons(view, view.hlPopup);
       view._selectionToolbarConfig = config;
     }
+    syncSelectionInfo(view);
     const btn = view.hlPopup?.querySelector(".qiaomu-reader-hl-highlight");
     if (!btn) return;
     btn.style.setProperty("--selection-color", hlColorCss(selectionColor(view)));
