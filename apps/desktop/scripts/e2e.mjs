@@ -401,6 +401,37 @@ async function runEbookScenario() {
     console.log("epub: the undo toast removed and restored the highlight", undoToast.slice(0, 8));
     await page.evaluate(() => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view._hideHlPopup());
 
+    // A search hit in a section that was not rendered when the search ran must
+    // still be outlined after the reader jumps to it.
+    await page.evaluate(() => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view.findBtn?.click());
+    await page.waitForSelector(".qiaomu-reader-toc-find-input", { timeout: 10_000 });
+    await page.fill(".qiaomu-reader-toc-find-input", "Alice");
+    const resultCount = await waitFor("search results", () => page.evaluate(
+      () => document.querySelectorAll(".qiaomu-reader-find-item").length), 20_000);
+    await page.evaluate(() => {
+      const rows = [...document.querySelectorAll(".qiaomu-reader-find-item")];
+      rows[rows.length - 1]?.click();
+    });
+    // The overlay is hit-tested across the visible page: the current location
+    // range covers the whole spread, not just the match.
+    const outlined = await waitFor("outlined search hit", () => page.evaluate(() => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view;
+      const entry = view.engine.contents().find(({ doc, overlayer }) => doc && overlayer);
+      const range = view.engine.currentLocation()?.range;
+      if (!entry || !range) return "";
+      const rect = range.getBoundingClientRect();
+      for (let y = rect.top + 4; y < rect.bottom; y += 16) {
+        for (let x = rect.left + 4; x < rect.right; x += 16) {
+          const [key] = entry.overlayer.hitTest({ x, y });
+          if (String(key).startsWith("foliate-search:")) return key;
+        }
+      }
+      return "";
+    }), 15_000);
+    if (!String(outlined).startsWith("foliate-search:")) throw new Error(`the search hit is not outlined: ${outlined}`);
+    console.log("epub: search hit outlined after jumping", resultCount, "results");
+    await page.evaluate(() => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view.findBtn?.click());
+
     const notePath = path.join(userData, "library", "notes", `${path.basename(book, path.extname(book))}.md`);
     const needle = selected.slice(0, 12);
     const note = await waitFor("reading note", () => {

@@ -1783,8 +1783,10 @@ function buildTocPanelFor(view, panel, { close, jump: openItem }) {
   }
   let filterText = "";
   if (entries.length > 12) {
-    const box = panel.createDiv("qiaomu-reader-toc-find");
-    const input = box.createEl("input", { type: "text", cls: "qiaomu-reader-toc-find-input" });
+    // Its own classes: the find panel's search box uses the same styling but
+    // must stay distinguishable from this table-of-contents filter.
+    const box = panel.createDiv("qiaomu-reader-toc-filter");
+    const input = box.createEl("input", { type: "text", cls: "qiaomu-reader-toc-filter-input" });
     input.placeholder = qiaomuReaderTranslate("filter-by-title");
     input.addEventListener("input", () => {
       filterText = input.value.trim().toLowerCase();

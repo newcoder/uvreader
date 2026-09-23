@@ -743,9 +743,9 @@ button.qiaomu-reader-py-chip:focus-visible { outline:2px solid color-mix(in srgb
 }
 
 /* ── TOC search and in-book find ─────────────────────────────────────────── */
-.qiaomu-reader-toc-find { padding: 10px 14px 4px; }
-.qiaomu-reader-toc-find-input { width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--qiaomu-reader-border); background: var(--qiaomu-reader-ui); color: var(--qiaomu-reader-text); font-family: 'Inter', system-ui, sans-serif; font-size: 13px; }
-.qiaomu-reader-toc-find-input:focus { outline: none; border-color: var(--qiaomu-reader-accent); }
+.qiaomu-reader-toc-find, .qiaomu-reader-toc-filter { padding: 10px 14px 4px; }
+.qiaomu-reader-toc-find-input, .qiaomu-reader-toc-filter-input { width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--qiaomu-reader-border); background: var(--qiaomu-reader-ui); color: var(--qiaomu-reader-text); font-family: 'Inter', system-ui, sans-serif; font-size: 13px; }
+.qiaomu-reader-toc-find-input:focus, .qiaomu-reader-toc-filter-input:focus { outline: none; border-color: var(--qiaomu-reader-accent); }
 .qiaomu-reader-toc-row { display: flex; align-items: baseline; gap: 10px; }
 .qiaomu-reader-toc-label { flex: 1; min-width: 0; }
 .qiaomu-reader-toc-where { flex: none; font-size: 11px; opacity: .6; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -1274,7 +1274,8 @@ button.qiaomu-reader-py-chip:focus-visible { outline:2px solid color-mix(in srgb
 .qiaomu-reader-note-back { z-index: 42; }
 .qiaomu-reader-panel.qiaomu-reader-navigation-panel { top: auto; right: auto; left: 8px; bottom: 48px; width: min(420px, calc(100% - 16px)); max-height: min(45%, 380px); border-radius: 12px; border: 1px solid var(--background-modifier-border); padding: 12px; gap: 6px; }
 .qiaomu-reader-navigation-panel .qiaomu-reader-pan-title { margin: 0; padding: 0 0 8px; font-size: 13px; }
-.qiaomu-reader-navigation-panel .qiaomu-reader-toc-find { padding: 0; margin: 0; }
+.qiaomu-reader-navigation-panel .qiaomu-reader-toc-find,
+.qiaomu-reader-navigation-panel .qiaomu-reader-toc-filter { padding: 0; margin: 0; }
 .qiaomu-reader-navigation-panel .qiaomu-reader-toc-list { overflow: auto; min-height: 0; padding: 0; }
 .qiaomu-reader-find-controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .qiaomu-reader-find-controls button { font-size: 11px; padding: 3px 7px; height: 28px; }

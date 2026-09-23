@@ -164,7 +164,7 @@ test("built Foliate elements load twice in one host and coexist with older depen
 test("engine searches createDocument sections, returns readable excerpts and cancels a stale query", async () => {
   const dom = new JSDOM("<body><main></main></body>", { runScripts: "outside-only" });
   const elements = foliateElements(root);
-  const { EpubEngine } = evaluate(dom, await bundle(elements));
+  const { EpubEngine, SEARCH_PREFIX } = evaluate(dom, await bundle(elements));
   const View = dom.window.customElements.get(JSON.parse(elements.define.__QBR_ENGINE_VIEW_TAG__));
   const parse = text => new dom.window.DOMParser().parseFromString(`<p>${text}</p>`, "text/html");
   let release;
@@ -174,13 +174,20 @@ test("engine searches createDocument sections, returns readable excerpts and can
     { createDocument: async () => parse("歡喜這本書。") },
   ];
   const annotations = new Set();
+  // Only sections the paginator has rendered carry an overlay, like the real
+  // library; annotations for other sections are recorded as unpainted.
+  const rendered = new Set([0, 1]);
+  const sectionOf = (value) => Number(String(value).replace(SEARCH_PREFIX, "").replace(/^epubcfi\((\d+).*$/, "$1"));
   // Stub layout only: exercise the bundled engine and real Foliate matcher
   // against the dependency's createDocument section contract.
   View.prototype.open = async function () { this.book = { sections, metadata: { language: "zh" } }; };
   View.prototype.init = async function () { this.lastLocation = { cfi: "test" }; this.renderer = { getContents: () => [{ doc: dom.window.document }] }; };
   View.prototype.close = function () {};
   View.prototype.getCFI = (index, range) => `epubcfi(${index}/${range.startOffset})`;
-  View.prototype.addAnnotation = async ({ value }) => annotations.add(value);
+  View.prototype.resolveNavigation = (target) => ({ index: sectionOf(target) });
+  View.prototype.addAnnotation = async function ({ value }) {
+    if (rendered.has(sectionOf(value))) annotations.add(value);
+  };
   View.prototype.deleteAnnotation = async ({ value }) => annotations.delete(value);
   const engine = new EpubEngine(dom.window.document.querySelector("main"));
   try {
@@ -199,6 +206,12 @@ test("engine searches createDocument sections, returns readable excerpts and can
     assert.equal(traditional.length, 1);
     assert.equal(traditional[0].index, 2);
     assert.match(traditional[0].excerpt, /歡喜這本書/);
+    assert.ok(!annotations.has(`${SEARCH_PREFIX}epubcfi(2/0)`), "an unrendered section cannot paint yet");
+    rendered.add(2);
+    const viewElement = dom.window.document.querySelector("main").firstElementChild;
+    viewElement.dispatchEvent(new dom.window.CustomEvent("create-overlay", { detail: { index: 2 } }));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(annotations.has(`${SEARCH_PREFIX}epubcfi(2/0)`), "the hit is painted when its section appears");
     sections[0].createDocument = () => new Promise(resolve => { release = resolve; });
     const stale = engine.search("理解").next();
     while (!release) await new Promise(resolve => setImmediate(resolve));

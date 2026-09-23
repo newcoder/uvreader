@@ -430,15 +430,28 @@ export class EpubEngine {
 
     // Repaint every annotation that lives in the given section. Called when a
     // section's overlay is created; addAnnotation is a no-op for sections the
-    // library has not rendered, so nothing paints too early.
+    // library has not rendered, so nothing paints too early. Search hits belong
+    // here as well: they are painted while the book is searched, but a hit in a
+    // section that was not rendered back then would otherwise never get its
+    // outline when the reader jumps to it.
     async #paintAnnotations(index) {
         if (!Number.isInteger(index)) return;
         const view = this.#view;
         if (!view) return;
-        for (const annotation of [...this.#highlights.values(), ...this.#pins.values()]) {
+        const annotations = [
+            ...this.#highlights.values(),
+            ...this.#pins.values(),
+            ...this.#searchHits.map((cfi) => ({ value: SEARCH_PREFIX + cfi })),
+        ];
+        for (const annotation of annotations) {
             if (this.#view !== view) return;
             let section = null;
-            try { section = view.resolveNavigation(annotation.value)?.index ?? null; } catch { section = null; }
+            try {
+                const target = annotation.value.startsWith(SEARCH_PREFIX)
+                    ? annotation.value.slice(SEARCH_PREFIX.length)
+                    : annotation.value;
+                section = view.resolveNavigation(target)?.index ?? null;
+            } catch { section = null; }
             if (section !== index) continue;
             try { await view.addAnnotation(annotation); } catch { /* the section may close mid-paint */ }
         }
