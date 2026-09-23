@@ -8,6 +8,7 @@
 import { pinyin, segment } from "pinyin-pro";
 
 import { HANZI_GLOSSES, HANZI_TRADITIONAL, HANZI_VARIANTS } from "./hanzi-dict-data.js";
+import { normalizeHanzi } from "./hanzi-normalize.js";
 import { WORD_DICT_GZIP_BASE64 } from "./word-dict-data.js";
 
 const HAN = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/u;
@@ -52,10 +53,7 @@ export function glossFor(char) {
   return HANZI_GLOSSES[key] || HANZI_GLOSSES[HANZI_VARIANTS[key]] || "";
 }
 
-// Whole runs are converted the same way before the word lookup.
-export function simplifiedWord(text) {
-  return [...String(text || "")].map((char) => HANZI_TRADITIONAL[char] || char).join("");
-}
+
 
 // ── multi-character word glossary ───────────────────────────────────────────
 // The generated table is gzipped to keep the bundle small; it is inflated on
@@ -98,7 +96,7 @@ export async function lookupWordGloss(text) {
   if (!key) return "";
   const table = await wordTable();
   if (table.has(key)) return table.get(key);
-  const simplified = simplifiedWord(key);
+  const simplified = normalizeHanzi(key);
   if (simplified !== key && table.has(simplified)) return table.get(simplified);
   return "";
 }

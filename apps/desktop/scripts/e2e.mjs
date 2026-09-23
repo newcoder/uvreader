@@ -877,6 +877,17 @@ async function runPinyinScenario() {
     }, 15_000);
     if (!idiomChip.includes("比喻")) throw new Error("an idiom should show its figurative meaning");
     console.log("pinyin: idiom shows its definition", idiomChip.slice(0, 20));
+
+    // A traditional query must find the simplified text in the book.
+    await page.evaluate(() => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view.findBtn?.click());
+    await page.waitForSelector(".qiaomu-reader-toc-find-input", { timeout: 10_000 });
+    await page.fill(".qiaomu-reader-toc-find-input", "閱讀");
+    const found = await waitFor("traditional query finds simplified text", () => page.evaluate(() => {
+      const rows = [...document.querySelectorAll(".qiaomu-reader-find-item .qiaomu-reader-find-text")];
+      return rows.map((row) => row.textContent).find((text) => text.includes("阅读")) || "";
+    }), 15_000);
+    console.log("pinyin: traditional query found", found.slice(0, 20));
+    await page.evaluate(() => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view.findBtn?.click());
     await selectTextInFrames(page, "比较长的中文句子", true);
     await sleep(400);
     if (!(await page.evaluate(() => !document.querySelector(".qiaomu-reader-py-chip")))) {

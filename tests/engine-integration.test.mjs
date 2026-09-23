@@ -171,6 +171,7 @@ test("engine searches createDocument sections, returns readable excerpts and can
   const sections = [
     { createDocument: async () => parse("理解一个概念，理解原文。") },
     { createDocument: async () => parse("再用例子检查理解。") },
+    { createDocument: async () => parse("歡喜這本書。") },
   ];
   const annotations = new Set();
   // Stub layout only: exercise the bundled engine and real Foliate matcher
@@ -191,6 +192,13 @@ test("engine searches createDocument sections, returns readable excerpts and can
     assert.match(hits[0].excerpt, /理解一个概念/);
     assert.ok(!hits[0].excerpt.includes("[object Object]"));
     assert.equal(annotations.size, 3);
+    // A simplified query finds traditional text, and the excerpt keeps the
+    // characters the book itself uses.
+    const traditional = [];
+    for await (const hit of engine.search("欢喜")) traditional.push(hit);
+    assert.equal(traditional.length, 1);
+    assert.equal(traditional[0].index, 2);
+    assert.match(traditional[0].excerpt, /歡喜這本書/);
     sections[0].createDocument = () => new Promise(resolve => { release = resolve; });
     const stale = engine.search("理解").next();
     while (!release) await new Promise(resolve => setImmediate(resolve));

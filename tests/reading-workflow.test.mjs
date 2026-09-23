@@ -26,6 +26,17 @@ test("search supports single Han, literal metacharacters and original Unicode of
   assert.equal(nextSearchIndex(0, -1, 3), 2);
 });
 
+test("search matches simplified and traditional forms while keeping the book's own text", () => {
+  const traditional = searchBookBlocks(["歡喜這本書，歡喜閱讀。"], "欢喜");
+  assert.deepEqual(traditional.map((h) => h.offset), [0, 6]);
+  assert.equal(traditional[0].hit, "歡喜", "the hit keeps the book's characters");
+  assert.match(traditional[0].post, /這本書/u);
+  const simplified = searchBookBlocks(["欢喜这本书。"], "歡喜");
+  assert.deepEqual(simplified.map((h) => h.offset), [0]);
+  assert.equal(simplified[0].hit, "欢喜");
+  assert.deepEqual(searchBookBlocks(["歡喜"], "悲伤"), []);
+});
+
 function memoryAdapter(initial = {}) {
   const files = new Map(Object.entries(initial));
   return { files, fail: false,

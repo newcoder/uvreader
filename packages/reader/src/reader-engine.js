@@ -20,8 +20,7 @@ export { HIGHLIGHT_PAINTS } from "./highlight-colors.js";
 
 import { makeBook } from "foliate-js/view.js";
 import { Overlayer } from "foliate-js/overlayer.js";
-import { searchMatcher } from "foliate-js/search.js";
-import { textWalker } from "foliate-js/text-walker.js";
+import { createHanziSearchMatcher } from "./search-matcher.js";
 
 // Every extension this engine can open; the plugin registers all of them.
 export const ENGINE_EXTENSIONS = ["epub", "fb2", "fbz", "mobi", "azw", "azw3", "cbz"];
@@ -460,7 +459,8 @@ export class EpubEngine {
         let count = 0;
         const limit = Math.min(300, Math.max(1, opts.limit || 300));
         if (!current()) return;
-        const match = searchMatcher(textWalker, {
+        // Simplified and traditional forms compare as the same words.
+        const match = createHanziSearchMatcher({
             defaultLocale: this.#book?.metadata?.language,
             matchCase: !!opts.matchCase,
             matchDiacritics: !!opts.matchDiacritics,

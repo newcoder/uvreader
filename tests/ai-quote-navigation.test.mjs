@@ -93,7 +93,7 @@ test("citation search is bounded, cancellable, and leaves existing search annota
     constructor(view, book) { this.#view = view; this.#book = book; }
     clearSearchHits() { throw Error('must not clear existing search'); }
     ${searchMethod}
-  })`, { searchMatcher: () => function* (doc) { yield { range: doc, excerpt: { match: "quote" } }; }, textWalker: {}, SEARCH_PREFIX: "search:" });
+  })`, { createHanziSearchMatcher: () => function* (doc) { yield { range: doc, excerpt: { match: "quote" } }; }, SEARCH_PREFIX: "search:" });
   const engine = new Engine({ getCFI: index => `cfi-${index}`, addAnnotation: async x => painted.push(x) }, { sections });
   const hits = [];
   for await (const hit of engine.search("quote", { paint: false, limit: 2 })) hits.push(hit);
