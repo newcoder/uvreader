@@ -900,7 +900,7 @@ export const QIAOMU_READER_EN = {
   "e-ink": "E-ink",
   "report-a-bug-or-suggest-a-feature-and-we-will-follow-up-on-githu": "Report a bug or suggest a feature and we will follow up on GitHub.",
   "open-github-issues": "Open GitHub Issues",
-  "version-0-adapted-and-maintained-by-qiaomu": " — version {0}. Adapted and maintained by Qiaomu.",
+  "version-0-adapted-and-maintained-by-qiaomu": " · version {0}. A fork of qiaomu-reader (an Obsidian plugin), maintained by newcoder.",
   "a-new-chinese-interface-plus-source-han-serif-and-source-han-san": "A new Chinese interface plus Source Han Serif and Source Han Sans.",
   "links-from-notes-back-to-the-book-now-use-one-quiet-icon-without": "Links from notes back to the book now use one quiet icon without extra words.",
   "the-library-now-has-a-calm-editorial-layout-without-emoji-glow-e": "The library now has a calm editorial layout without emoji, glow effects or heavy card chrome.",

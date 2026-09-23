@@ -45,6 +45,7 @@ npm run build:icon         # 重新生成应用图标（纯 Node，无外部依�
 ```
 
 - 产物：`apps/desktop/release/UV-Reader-<版本>-setup.exe`、`UV-Reader-<版本>-portable.exe`；macOS 为 dmg、Linux 为 AppImage（需在对应系统上构建）。
+- 发布：把版本号写进根 `package.json` 后推送 `v<版本>` tag，`.github/workflows/release.yml` 会先跑门禁校验版本一致性，再在三个平台构建并创建 GitHub Release。
 - 版本号取自根 `package.json`；图标由 `scripts/make-app-icon.mjs` 生成到 `apps/desktop/build/icon.png`。
 - 已注册 `.epub/.pdf/.mobi/.azw3/.fb2/.cbz` 文件关联与单实例；用“打开方式”传入的路径会在启动后自动打开。
 - 网络受限时先设置镜像：`ELECTRON_MIRROR`、`ELECTRON_BUILDER_BINARIES_MIRROR`（例如 npmmirror 对应路径）。

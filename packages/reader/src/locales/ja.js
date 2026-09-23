@@ -900,7 +900,7 @@ export default {
   "e-ink": "電子ペーパー",
   "report-a-bug-or-suggest-a-feature-and-we-will-follow-up-on-githu": "不具合や機能の提案はGitHubへお寄せください。GitHub上で対応します。",
   "open-github-issues": "GitHub Issuesを開く",
-  "version-0-adapted-and-maintained-by-qiaomu": " — バージョン{0}。改修・保守：Qiaomu。",
+  "version-0-adapted-and-maintained-by-qiaomu": " · バージョン{0}。qiaomu-reader（Obsidianプラグイン）のフォーク、newcoderが保守しています。",
   "a-new-chinese-interface-plus-source-han-serif-and-source-han-san": "中国語インターフェースとSource Han Serif、Source Han Sansを追加しました。",
   "links-from-notes-back-to-the-book-now-use-one-quiet-icon-without": "ノートから本へ戻るリンクを、余分な文字のない1つのアイコンにしました。",
   "the-library-now-has-a-calm-editorial-layout-without-emoji-glow-e": "ライブラリを、絵文字や発光効果、重いカード装飾を使わない落ち着いたレイアウトにしました。",

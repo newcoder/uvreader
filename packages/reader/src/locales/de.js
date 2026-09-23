@@ -900,7 +900,7 @@ export default {
   "e-ink": "E-ink",
   "report-a-bug-or-suggest-a-feature-and-we-will-follow-up-on-githu": "Melden Sie einen Fehler oder schlagen Sie eine Funktion vor, und wir werden auf GitHub nachfassen.",
   "open-github-issues": "GitHub Issues öffnen",
-  "version-0-adapted-and-maintained-by-qiaomu": " — Version {0}. Angepasst und gepflegt von Qiaomu.",
+  "version-0-adapted-and-maintained-by-qiaomu": " · Version {0}. Ein Fork von qiaomu-reader (ein Obsidian-Plugin), gepflegt von newcoder.",
   "a-new-chinese-interface-plus-source-han-serif-and-source-han-san": "Eine neue chinesische Oberfläche plus Source Han Serif und Source Han Sans.",
   "links-from-notes-back-to-the-book-now-use-one-quiet-icon-without": "Links von Notizen zurück zum Buch verwenden jetzt ein ruhiges Symbol ohne zusätzliche Wörter.",
   "the-library-now-has-a-calm-editorial-layout-without-emoji-glow-e": "Die Bibliothek hat jetzt ein ruhiges redaktionelles Layout ohne Emojis, Glüheffekte oder schweren Karten-Chrome.",

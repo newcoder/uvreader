@@ -902,7 +902,7 @@ export default {
   "e-ink": "Электронные чернила",
   "report-a-bug-or-suggest-a-feature-and-we-will-follow-up-on-githu": "Сообщите об ошибке или предложите функцию — мы ответим в GitHub.",
   "open-github-issues": "Открыть GitHub Issues",
-  "version-0-adapted-and-maintained-by-qiaomu": " — версия {0}. Автор: 向阳乔木。",
+  "version-0-adapted-and-maintained-by-qiaomu": " · версия {0}. Форк qiaomu-reader (плагин Obsidian), поддержка: newcoder.",
   "a-new-chinese-interface-plus-source-han-serif-and-source-han-san": "Новый китайский интерфейс и шрифты Source Han Serif / Source Han Sans",
   "links-from-notes-back-to-the-book-now-use-one-quiet-icon-without": "Ссылки из заметок обратно в книгу теперь показаны одной иконкой, без лишнего текста",
   "the-library-now-has-a-calm-editorial-layout-without-emoji-glow-e": "Библиотека получила спокойную редакционную компоновку без эмодзи, бликов и тяжёлых карточек",

@@ -900,7 +900,7 @@ export default {
   "e-ink": "E-ink",
   "report-a-bug-or-suggest-a-feature-and-we-will-follow-up-on-githu": "버그를 신고하거나 기능을 제안하면 GitHub에서 후속 조치를 하겠습니다.",
   "open-github-issues": "GitHub Issues 열기",
-  "version-0-adapted-and-maintained-by-qiaomu": " — 버전 {0}. Qiaomu가 적용하고 유지 관리합니다.",
+  "version-0-adapted-and-maintained-by-qiaomu": " · 버전 {0}. qiaomu-reader(Obsidian 플러그인)의 포크이며 newcoder가 유지 관리합니다.",
   "a-new-chinese-interface-plus-source-han-serif-and-source-han-san": "새로운 중국어 인터페이스와 Source Han Serif 및 Source Han Sans.",
   "links-from-notes-back-to-the-book-now-use-one-quiet-icon-without": "노트에서 책으로 돌아가는 링크는 이제 추가 단어 없이 조용한 아이콘 하나를 사용합니다.",
   "the-library-now-has-a-calm-editorial-layout-without-emoji-glow-e": "라이브러리는 이제 이모지, 글로우 효과 또는 무거운 카드 크롬 없이 차분한 편집 레이아웃을 갖추고 있습니다.",

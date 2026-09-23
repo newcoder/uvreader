@@ -166,8 +166,16 @@ AI 会话拆文件在 shim 的 `loadData/saveData` 完成，`src/main.js` 无感
 | P-2 | electron-builder 26 接入：`apps/desktop/electron-builder.config.cjs`，版本取根 `package.json`（`extraMetadata.version`），Win NSIS+portable、mac dmg、Linux AppImage | 完成 |
 | P-3 | 文件关联（epub/pdf/mobi/azw3/fb2/cbz）、单实例、命令行打开书籍 | 完成 |
 | P-4 | 打包产物冒烟：`npm run desktop:smoke:packaged`（免安装目录 / 便携版，退出码 0/1） | 完成（Windows 实测 0） |
-| P-5 | CI 发布流水线：tag → 三平台构建 → 上传 GitHub Release | 下一步 |
+| P-5 | CI 发布流水线：tag → 三平台构建 → 上传 GitHub Release | 完成（`.github/workflows/release.yml`） |
 | P-6 | 代码签名/公证、自动更新（electron-updater） | 计划 |
+
+发布流程（P-5）：
+
+1. 版本号写在根 `package.json`（electron-builder 通过 `extraMetadata.version` 继承）；推送 `v*` tag 触发 `release.yml`。
+2. `verify` 作业先跑完整门禁，并用 `scripts/check-release-tag.mjs` 校验 tag 与 `package.json` 版本一致（不一致直接失败）。
+3. `build` 矩阵在 Windows/macOS/Ubuntu 上各自 `npm ci` + `npm run desktop:dist`，产物（`.exe`/`.dmg`/`.AppImage`）作为构建产物上传。
+4. `release` 作业汇总产物，用 `gh release create --generate-notes` 创建 GitHub Release。
+5. 签名/公证尚未接入，macOS 产物为未签名包（`CSC_IDENTITY_AUTO_DISCOVERY=false`），P-6 处理。
 
 已知注意：electron-builder 首次运行会下载 electron 与 nsis/winCodeSign 资源，网络受限时设置 `ELECTRON_MIRROR`、`ELECTRON_BUILDER_BINARIES_MIRROR`；`apps/desktop/release/` 已加入 `.gitignore`。
 

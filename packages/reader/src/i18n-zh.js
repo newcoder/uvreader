@@ -1464,7 +1464,7 @@ Object.assign(QIAOMU_READER_ZH_CN, {
 Object.assign(QIAOMU_READER_ZH_CN, {
   "report-a-bug-or-suggest-a-feature-and-we-will-follow-up-on-githu": "遇到问题或有功能建议，可在 GitHub 提交，我们会在那里跟进。",
   "open-github-issues": "打开 GitHub Issues",
-  "version-0-adapted-and-maintained-by-qiaomu": " — 版本 {0}。改造与维护：向阳乔木。",
+  "version-0-adapted-and-maintained-by-qiaomu": " · 版本 {0}。Fork 自 qiaomu-reader（Obsidian 插件），由 newcoder 维护。",
   "a-new-chinese-interface-plus-source-han-serif-and-source-han-san": "完善简体中文界面，并新增思源宋体和思源黑体。",
   "links-from-notes-back-to-the-book-now-use-one-quiet-icon-without": "阅读笔记中的原文定位链接改为单个图标，不再夹带无效文字。",
   "the-library-now-has-a-calm-editorial-layout-without-emoji-glow-e": "书库改为克制的编辑式布局，去掉 emoji、光晕和厚重卡片。",

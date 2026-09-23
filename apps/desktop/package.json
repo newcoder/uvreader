@@ -2,7 +2,8 @@
   "name": "qiaomu-reader-desktop",
   "private": true,
   "version": "0.1.0",
-  "description": "Standalone Electron shell for UV Reader.",
+  "description": "Standalone Electron shell for UV Reader (柚肥阅读).",
+  "author": "newcoder",
   "main": "dist/main.cjs",
   "type": "module",
   "scripts": {

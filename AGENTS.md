@@ -20,6 +20,7 @@ Standalone desktop reader (Electron) for EPUB/PDF/FB2/MOBI/AZW3/CBZ with highlig
 - `npm run check:i18n` — dictionary, placeholder, HTML and URL parity across 9 languages plus exact-string assertions about the reader modules (`wire.js`, `plugin.js`, `settings-tab.js` and the extracted UI modules).
 - `npx eslint packages/reader/src/ --max-warnings=0` — CI treats warnings as failures.
 - `npm run desktop:install` (once; behind a blocked network set `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`), `desktop:build`, `desktop:dev`, `desktop:start`, `desktop:smoke` (boots against a starter book and exits 0/1), `desktop:e2e` (Playwright-Electron).
+- Release: push a `v<version>` tag matching the root `package.json` version; `.github/workflows/release.yml` verifies the tag, builds the three platforms and creates the GitHub Release. `scripts/check-release-tag.mjs` is the local/CI guard.
 
 CI order (`.github/workflows/ci.yml`): test → test:shim → test:desktop → check:i18n → eslint → desktop build → smoke under xvfb.
 

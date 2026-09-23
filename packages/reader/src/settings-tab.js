@@ -944,14 +944,10 @@ export function createSettingsTab({
         new WhatsNewModal(this.app, this.plugin, WHATS_NEW.slice(0, 4)).open();
       }));
     const about = c.createEl("div", { cls: "qiaomu-reader-set-note" });
-    about.createEl("b", { text: "UV Reader" });
+    about.createEl("b", { text: "UV Reader / 柚肥阅读" });
     about.appendText(qiaomuReaderTranslate("version-0-adapted-and-maintained-by-qiaomu", this.plugin.manifest.version));
     about.createEl("br");
-    about.createEl("a", { text: "qiaomu.ai", href: "https://qiaomu.ai" });
-    about.appendText(" · ");
-    about.createEl("a", { text: "X @vista8", href: "https://x.com/vista8" });
-    about.appendText(" · ");
-    about.createEl("a", { text: "GitHub @joeseesun", href: "https://github.com/joeseesun" });
+    about.createEl("a", { text: "GitHub @newcoder", href: "https://github.com/newcoder/uvreader" });
   }
 };
 }

@@ -6,7 +6,7 @@ const rootPackage = require("../../package.json");
 module.exports = {
   appId: "com.uvreader.app",
   productName: "UV Reader",
-  copyright: "Copyright © 2026 UV Reader contributors · GPL-3.0",
+  copyright: "Copyright © 2026 newcoder · GPL-3.0 · Fork of qiaomu-reader",
   directories: { output: "release", buildResources: "build" },
   files: ["dist/**/*", "package.json"],
   extraMetadata: { version: rootPackage.version },
@@ -36,6 +36,7 @@ module.exports = {
     icon: "build/icon.png",
     category: "Office",
     target: [{ target: "AppImage", arch: ["x64"] }],
+    artifactName: "UV-Reader-${version}-${arch}.${ext}",
   },
   fileAssociations: [
     { ext: ["epub"], name: "EPUB 电子书", role: "Viewer" },
