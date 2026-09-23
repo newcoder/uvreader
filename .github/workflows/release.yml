@@ -24,6 +24,9 @@ jobs:
       - name: Check that the tag matches package.json
         run: node scripts/check-release-tag.mjs
       - run: npm ci
+      # The desktop tests import the pi-ai runtime, so the shell's own
+      # dependencies must be installed before they run.
+      - run: npm ci --prefix apps/desktop
       - run: npm test
       - run: npm run test:shim
       - run: npm run test:desktop

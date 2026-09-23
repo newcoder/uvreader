@@ -18,16 +18,16 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # The desktop tests import the pi-ai runtime, so the shell's own
+      # dependencies must be installed before they run.
+      - run: npm ci --prefix apps/desktop
       - run: npm test
       - run: npm run test:shim
       - run: npm run test:desktop
       - run: npm run check:i18n
       - run: npx eslint packages/reader/src/ --max-warnings=0
       - name: Build the desktop bundles
-        run: |
-          cd apps/desktop
-          npm ci
-          npm run build
+        run: npm run desktop:build
       - name: Smoke the desktop shell (virtual display)
         run: xvfb-run -a npm run desktop:smoke
         env:
