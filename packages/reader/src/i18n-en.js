@@ -1300,4 +1300,12 @@ export const QIAOMU_READER_EN = {
   "translation-enable-daily": "Enable Daily Notes…",
   "translation-saved": "Saved to {0}",
   "translation-save-failed": "Could not save. Check the note destination and try again.",
+  "pins": "Pinyin notes",
+  "pinyin-note": "Pinyin note",
+  "pin-pinyin": "Pin pinyin",
+  "unpin-pinyin": "Unpin pinyin",
+  "pinyin-pinned": "Pinyin pinned",
+  "pinyin-unpinned": "Pinyin unpinned",
+  "pinyin-pin-unsupported": "Pinning pinyin is not supported for this format",
+  "remove-pinyin": "Remove pinyin",
 };

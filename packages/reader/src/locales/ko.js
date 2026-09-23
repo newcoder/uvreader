@@ -1300,4 +1300,12 @@ export default {
   "translation-enable-daily": "일일 노트 활성화…",
   "translation-saved": "{0}에 저장됨",
   "translation-save-failed": "저장하지 못했습니다. 대상 노트를 확인하고 다시 시도하세요.",
+  "pins": "병음 표시",
+  "pinyin-note": "병음 표시",
+  "pin-pinyin": "병음 고정",
+  "unpin-pinyin": "병음 고정 해제",
+  "pinyin-pinned": "병음을 고정했습니다",
+  "pinyin-unpinned": "병음 고정을 해제했습니다",
+  "pinyin-pin-unsupported": "이 형식은 병음 고정을 지원하지 않습니다",
+  "remove-pinyin": "병음 제거",
 };

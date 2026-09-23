@@ -1302,4 +1302,12 @@ export default {
   "translation-enable-daily": "Включить ежедневные заметки…",
   "translation-saved": "Сохранено в {0}",
   "translation-save-failed": "Не удалось сохранить. Проверьте заметку назначения и повторите попытку.",
+  "pins": "Заметки пиньиня",
+  "pinyin-note": "Заметка пиньиня",
+  "pin-pinyin": "Закрепить пиньинь",
+  "unpin-pinyin": "Открепить пиньинь",
+  "pinyin-pinned": "Пиньинь закреплён",
+  "pinyin-unpinned": "Пиньинь откреплён",
+  "pinyin-pin-unsupported": "Этот формат не поддерживает закрепление пиньиня",
+  "remove-pinyin": "Убрать пиньинь",
 };

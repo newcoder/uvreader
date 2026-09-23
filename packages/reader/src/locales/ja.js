@@ -1300,4 +1300,12 @@ export default {
   "translation-enable-daily": "デイリーノートを有効にする…",
   "translation-saved": "{0} に保存しました",
   "translation-save-failed": "保存できませんでした。保存先のノートを確認して再試行してください。",
+  "pins": "ピンイン",
+  "pinyin-note": "ピンイン表示",
+  "pin-pinyin": "ピンインを固定",
+  "unpin-pinyin": "ピンインの固定を解除",
+  "pinyin-pinned": "ピンインを固定しました",
+  "pinyin-unpinned": "ピンインの固定を解除しました",
+  "pinyin-pin-unsupported": "この形式はピンインの固定に対応していません",
+  "remove-pinyin": "ピンインを削除",
 };

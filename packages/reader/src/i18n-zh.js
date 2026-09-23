@@ -1746,4 +1746,12 @@ Object.assign(QIAOMU_READER_ZH_CN, {
   "cjk-serif": "宋体",
   "kaiti": "楷体",
   "this-format-can-currently-only-be-read-on-desktop": "该格式目前仅支持在桌面端阅读。",
+  "pins": "注音",
+  "pinyin-note": "注音",
+  "pin-pinyin": "固定注音",
+  "unpin-pinyin": "取消固定注音",
+  "pinyin-pinned": "已固定注音",
+  "pinyin-unpinned": "已取消固定注音",
+  "pinyin-pin-unsupported": "该格式暂不支持固定注音",
+  "remove-pinyin": "移除注音",
 });

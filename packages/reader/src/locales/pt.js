@@ -1300,4 +1300,12 @@ export default {
   "translation-enable-daily": "Ativar notas diárias…",
   "translation-saved": "Salvo em {0}",
   "translation-save-failed": "Não foi possível salvar. Verifique a nota de destino e tente novamente.",
+  "pins": "Notas de pinyin",
+  "pinyin-note": "Nota de pinyin",
+  "pin-pinyin": "Fixar pinyin",
+  "unpin-pinyin": "Desafixar pinyin",
+  "pinyin-pinned": "Pinyin fixado",
+  "pinyin-unpinned": "Pinyin desafixado",
+  "pinyin-pin-unsupported": "Este formato não permite fixar pinyin",
+  "remove-pinyin": "Remover pinyin",
 };

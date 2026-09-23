@@ -50,6 +50,7 @@ import { createPageJump } from "./page-jump.js";
 import { createPdfZoomUi } from "./pdf-zoom-ui.js";
 import { createSelectionActions } from "./selection-actions.js";
 import { lookupSelection } from "./pinyin-annotate.js";
+import { createPinPopup } from "./pin-popup.js";
 import { createReaderTimer } from "./reader-timer.js";
 import { createReaderHud } from "./reader-hud.js";
 import { createReaderView } from "./reader-view.js";
@@ -273,6 +274,11 @@ const selectionHud = createSelectionActions({
   flowSelectionParts,
   raiseSelectionPopup,
   lookupPinyin: lookupSelection,
+});
+
+const pinPopup = createPinPopup({
+  translate: qiaomuReaderTranslate,
+  positionPopup: readerHud.positionPopup,
 });
 
 const readerTimer = createReaderTimer({
@@ -1602,6 +1608,18 @@ function openEngineHighlightPopup(view, hit) {
   view._showHlPopup(selectionHud.engineSelectionRect(doc, hit.range));
 }
 
+// Clicking a pinned reading reopens its card: full pinyin, the short
+// definition and the one action that removes the pin.
+function openEnginePinPopup(view, hit) {
+  if (view._selectionDragging || view._selectionMenuOpen || !hit?.id || !hit.range || !view.file) return;
+  const doc = hit.range.startContainer.ownerDocument;
+  view._hideHlPopup();
+  pinPopup.show(view, hit, selectionHud.engineSelectionRect(doc, hit.range), (pin) => {
+    view.plugin.removePin(view.file.path, pin.id);
+    void view.engine?.removePin(pin.id);
+  });
+}
+
 
 
 
@@ -2371,6 +2389,7 @@ const ReaderView = createReaderView({
   markFoundIn,
   navigateEngineToc,
   openEngineHighlightPopup,
+  openEnginePinPopup,
   openOrCreateBookNoteBeside,
   pageJump,
   pdfVisiblePageLabel,
@@ -2540,6 +2559,7 @@ const ReaderModal = createReaderModal({
   markFoundIn,
   navigateEngineToc,
   openEngineHighlightPopup,
+  openEnginePinPopup,
   openOrCreateBookNoteBeside,
   pdfVisiblePageLabel,
   pdfZoom,

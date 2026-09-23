@@ -176,17 +176,33 @@ export function createSelectionActions({
   }
 
   // Reading + short definition for the current selection, shown at the front of
-  // the toolbar. Long selections and latin text produce no chip.
+  // the toolbar. Long selections and latin text produce no chip. Where the
+  // format supports it the chip is a button that pins the reading to the text.
   function syncSelectionInfo(view) {
     const row = view.hlPopup?.querySelector(".qiaomu-reader-hl-actions");
     if (!row) return;
     row.querySelector(".qiaomu-reader-py-chip")?.remove();
     if (typeof lookupPinyin !== "function") return;
-    const text = view._pendingSel?.text || view._currentHl()?.text || "";
-    const info = lookupPinyin(text);
+    const sel = view._pendingSel || view._currentHl() || null;
+    const info = lookupPinyin(sel?.text || "");
     if (!info) return;
-    const chip = row.createDiv("qiaomu-reader-py-chip");
-    chip.setAttribute("role", "note");
+    const canPin = !!view.engine && view.file?.extension !== "pdf" && !!sel?.cfi
+      && typeof view._togglePinyinPin === "function";
+    const pinned = canPin && Boolean(view._pinyinPinFor?.(sel));
+    const chip = canPin
+      ? row.createEl("button", { cls: "qiaomu-reader-py-chip" })
+      : row.createDiv("qiaomu-reader-py-chip");
+    if (canPin) {
+      chip.setAttribute("type", "button");
+      chip.setAttribute("aria-pressed", String(pinned));
+      chip.setAttribute("aria-label", translate(pinned ? "unpin-pinyin" : "pin-pinyin"));
+      chip.addEventListener("click", () => {
+        view._togglePinyinPin(sel, info);
+        syncSelectionInfo(view);
+      });
+    } else {
+      chip.setAttribute("role", "note");
+    }
     chip.createDiv({ cls: "qiaomu-reader-py-pinyin", text: info.pinyin });
     if (info.gloss) chip.createDiv({ cls: "qiaomu-reader-py-gloss", text: info.gloss });
     row.prepend(chip);

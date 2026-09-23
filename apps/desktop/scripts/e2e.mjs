@@ -312,6 +312,61 @@ async function runEbookScenario() {
     const stored = await highlightFromPopup(page, highlightsPath, bookKey, { cfi: true });
     console.log("epub: highlight stored", stored.id, stored.color);
 
+    // Clicking a stored highlight reopens its toolbar: the engine emits
+    // show-annotation and the view routes it back into the highlight popup.
+    // The selection is text-level on purpose — an element-content range
+    // collapses into a CFI without client rects, which the overlay cannot
+    // hit-test.
+    const clickText = await waitFor("text-level selection", async () => {
+      for (const frame of page.frames()) {
+        if (frame === page.mainFrame()) continue;
+        try {
+          const text = await frame.evaluate(() => {
+            const frameRect = document.defaultView?.frameElement?.getBoundingClientRect();
+            if (!frameRect || frameRect.width < 50 || frameRect.height < 50) return "";
+            const el = [...document.querySelectorAll("p")].find((node) => {
+              const rect = node.getBoundingClientRect();
+              return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < innerHeight
+                && node.textContent.trim().length > 40;
+            });
+            if (!el) return "";
+            const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+            const node = walker.nextNode();
+            if (!node) return "";
+            const range = document.createRange();
+            range.setStart(node, 0);
+            range.setEnd(node, Math.min(14, node.textContent.length));
+            const selection = document.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            document.dispatchEvent(new Event("selectionchange", { bubbles: true }));
+            node.parentElement.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true }));
+            return selection.toString().replace(/\s+/g, " ").trim();
+          });
+          if (text) { await sleep(300); return text; }
+        } catch {}
+      }
+      return "";
+    }, 15_000);
+    await waitFor("highlight popup for the click test", () => page.evaluate(
+      () => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view?.hlPopup?.classList.contains("qiaomu-reader-hl-popup-on")), 10_000);
+    await page.click(".qiaomu-reader-hl-highlight");
+    const clickNeedle = clickText.slice(0, 6);
+    const clickedHl = await waitFor("click-test highlight stored", () => page.evaluate((needle) => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view;
+      const hit = view.plugin.getHighlights(view.file.path).find((hl) => hl.cfi && hl.text?.includes(needle));
+      return hit ? { id: hit.id } : "";
+    }, clickNeedle), 10_000);
+    await page.evaluate(() => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view._hideHlPopup());
+    await clearSelectionInFrames(page);
+    if (!(await clickTextInFrames(page, clickNeedle))) throw new Error("could not click the stored highlight");
+    await waitFor("highlight toolbar reopened", () => page.evaluate((id) => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view;
+      return view._editHlId === id && view.hlPopup.classList.contains("qiaomu-reader-hl-popup-on");
+    }, clickedHl.id), 10_000);
+    console.log("epub: clicking the highlight reopened its toolbar");
+    await page.evaluate(() => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view._hideHlPopup());
+
     const notePath = path.join(userData, "library", "notes", `${path.basename(book, path.extname(book))}.md`);
     const needle = selected.slice(0, 12);
     const note = await waitFor("reading note", () => {
@@ -684,6 +739,44 @@ async function selectTextInFrames(page, needle, wholeParagraph = false) {
   return "";
 }
 
+async function clearSelectionInFrames(page) {
+  for (const frame of page.frames()) {
+    if (frame === page.mainFrame()) continue;
+    try { await frame.evaluate(() => document.getSelection()?.removeAllRanges()); } catch {}
+  }
+}
+
+async function clickTextInFrames(page, needle) {
+  for (const frame of page.frames()) {
+    if (frame === page.mainFrame()) continue;
+    try {
+      const point = await frame.evaluate((text) => {
+        const frameRect = document.defaultView?.frameElement?.getBoundingClientRect();
+        if (!frameRect || frameRect.width < 50 || frameRect.height < 50) return null;
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        let node = null, offset = -1;
+        while ((node = walker.nextNode())) {
+          offset = node.textContent.indexOf(text);
+          if (offset >= 0) break;
+        }
+        if (!node || offset < 0) return null;
+        const range = document.createRange();
+        range.setStart(node, offset);
+        range.setEnd(node, offset + text.length);
+        const rect = range.getBoundingClientRect();
+        if (!rect.width && !rect.height) return null;
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        const target = document.elementFromPoint(x, y) || node.parentElement;
+        target.dispatchEvent(new MouseEvent("click", { clientX: x, clientY: y, bubbles: true, cancelable: true }));
+        return { x, y, target: target.tagName };
+      }, needle);
+      if (point) return point;
+    } catch {}
+  }
+  return null;
+}
+
 async function runPinyinScenario() {
   const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-pinyin-"));
   const chineseBook = path.join(fixtureDir, "pinyin.epub");
@@ -714,6 +807,43 @@ async function runPinyinScenario() {
       throw new Error("a long selection must not show the pinyin chip");
     }
     console.log("pinyin: long selections stay clean");
+
+    await selectTextInFrames(page, "犇");
+    await sleep(300);
+    await page.click(".qiaomu-reader-py-chip");
+    const pin = await waitFor("pinned reading", () => page.evaluate(() => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view;
+      const stored = view?.plugin.getPins(view.file.path) || [];
+      const live = stored[0] ? view.engine.getPin(stored[0].id) : null;
+      return stored.length === 1 && live?.pin?.pinyin === "bēn"
+        ? { id: stored[0].id, cfi: stored[0].cfi }
+        : "";
+    }), 15_000);
+    console.log("pinyin: chip pinned the reading", pin.id);
+
+    await page.evaluate((cfi) => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view.engine.goTo(cfi), pin.cfi);
+    await sleep(600);
+    await page.evaluate(() => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view._hideHlPopup());
+    // The book renders inside a closed shadow root, so a page-level mouse click
+    // cannot address the character. Dispatch the same click in the section
+    // document at the character's coordinates instead.
+    const clicked = await clickTextInFrames(page, "犇");
+    if (!clicked) throw new Error("could not click the pinned character");
+    const card = await waitFor("pin card", async () => {
+      const text = await page.evaluate(() => {
+        const pop = document.querySelector(".qiaomu-reader-pin-popup-on");
+        return pop ? pop.textContent : "";
+      });
+      return text.includes("bēn") && text.includes("群牛受惊奔跑") ? text : "";
+    }, 10_000);
+    console.log("pinyin: clicking the pin opens its card", card.slice(0, 24));
+    await page.click(".qiaomu-reader-pin-remove");
+    await waitFor("pin removed", () => page.evaluate((id) => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view;
+      return view.plugin.getPins(view.file.path).length === 0 && view.engine.getPin(id) === null
+        && !document.querySelector(".qiaomu-reader-pin-popup-on");
+    }, pin.id), 10_000);
+    console.log("pinyin: the card removed the pin");
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(userData, { recursive: true, force: true });

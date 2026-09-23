@@ -69,8 +69,7 @@ export function createReaderHud({ translate, notice, window, platform, isPdf, ju
     return !!(app && app.isMobile);
   }
 
-  function positionPopup(view, anchorRect, estW, estH) {
-    const { hlPopup: pop } = view;
+  function positionPopup(view, anchorRect, estW, estH, pop = view.hlPopup) {
     const { contentEl: root } = view;
     pop.style.maxWidth = `${Math.max(120, root.clientWidth - 16)}px`;
     if (isMobile(view.app)) {

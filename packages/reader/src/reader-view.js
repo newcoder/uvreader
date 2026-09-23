@@ -10,9 +10,10 @@ import { docOf } from "./reader-dom.js";
 import { jumpToEngineHighlight } from "./highlight-navigation.js";
 import { readerTextCss, resolveReaderFont, syncPageButtons } from "./reader-appearance.js";
 import { svgIcon } from "./reader-icons.js";
+import { pinyinPinFor, renderEnginePins, togglePinyinPin } from "./pinyin-pins.js";
 
 export function createReaderView({
-  ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, BookSetupModal, FONTS, InfoModal, ReadSettingsModal, VIEW_TYPE, addBookFileMenu, attachEngineChrome, attachReaderContentClick, attachReaderSwipeNav, bookNoteAction, buildFindPanelFor, buildReaderPageArea, buildReaderPanels, buildReaderSettPanelBody, buildReaderTopBar, buildTocItems, buildTocPanelFor, clearAiSource, clearFoundIn, createPdfPaginator, createPdfZoomControls, currentBookPage, enrichHighlights, ensureSelectedReaderFont, exportHighlightsMenu, flowSelectionParts, handleReaderWheel, hlColorCss, loadReaderDocument, locateHl, markFoundIn, navigateEngineToc, openEngineHighlightPopup, openOrCreateBookNoteBeside, pageJump, pdfVisiblePageLabel, pdfZoom, persistCurrentReaderPosition, qiaomuReaderClearPaintedSelection, qiaomuReaderLocale, qiaomuReaderRevealWhenSettled, qiaomuReaderTheme, qiaomuReaderTranslate, raiseSelectionPopup, readerAiPanelContext, readerHud, readerIsPdf, readerPaginationMappingCollapsed, readerPdfPages, readerTimer, rememberReaderJump, renderHighlightPanel, renderReaderLoadError, renderVisibleFigures, resolveHighlightAnchor, restoreAiSource, restoreEngineHistory, selectionHud, setReaderTitle, setReadingFocus, settleReader, syncNavigationPanel, syncOpenAiReaderContext, syncOpenAiSelectionContext, syncReaderAiCapability, unwrapAllHighlights, updateEngineLocation, wireReaderChrome, wrapBlockRange,
+  ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, BookSetupModal, FONTS, InfoModal, ReadSettingsModal, VIEW_TYPE, addBookFileMenu, attachEngineChrome, attachReaderContentClick, attachReaderSwipeNav, bookNoteAction, buildFindPanelFor, buildReaderPageArea, buildReaderPanels, buildReaderSettPanelBody, buildReaderTopBar, buildTocItems, buildTocPanelFor, clearAiSource, clearFoundIn, createPdfPaginator, createPdfZoomControls, currentBookPage, enrichHighlights, ensureSelectedReaderFont, exportHighlightsMenu, flowSelectionParts, handleReaderWheel, hlColorCss, loadReaderDocument, locateHl, markFoundIn, navigateEngineToc, openEngineHighlightPopup, openEnginePinPopup, openOrCreateBookNoteBeside, pageJump, pdfVisiblePageLabel, pdfZoom, persistCurrentReaderPosition, qiaomuReaderClearPaintedSelection, qiaomuReaderLocale, qiaomuReaderRevealWhenSettled, qiaomuReaderTheme, qiaomuReaderTranslate, raiseSelectionPopup, readerAiPanelContext, readerHud, readerIsPdf, readerPaginationMappingCollapsed, readerPdfPages, readerTimer, rememberReaderJump, renderHighlightPanel, renderReaderLoadError, renderVisibleFigures, resolveHighlightAnchor, restoreAiSource, restoreEngineHistory, selectionHud, setReaderTitle, setReadingFocus, settleReader, syncNavigationPanel, syncOpenAiReaderContext, syncOpenAiSelectionContext, syncReaderAiCapability, unwrapAllHighlights, updateEngineLocation, wireReaderChrome, wrapBlockRange,
 }) {
   return class ReaderView extends ItemView {
   constructor(leaf, plugin) {
@@ -206,6 +207,7 @@ export function createReaderView({
       await this.plugin.refreshHighlights();
       if (!this._loadCoordinator.isCurrent(loadToken)) return;
       this._renderEngineHighlights();
+      this._renderEnginePins();
     } else {
       this._adoptPdfResult(result);
       const outline = this._pdfOutline;
@@ -246,6 +248,7 @@ export function createReaderView({
       layout: plugin.settings,
       onNavigate: (direction) => this.nav(direction),
       onHighlightClick: (hit) => openEngineHighlightPopup(this, hit),
+      onPinClick: (hit) => openEnginePinPopup(this, hit),
       onDocLoaded: ({ doc, index }) => {
         attachEngineChrome(this, doc, index);
         // Each section lives in an iframe the page stylesheet cannot reach:
@@ -333,6 +336,18 @@ export function createReaderView({
         catch { /* the section holding that CFI may not be rendered yet */ }
       }
     })();
+  }
+  _renderEnginePins() {
+    renderEnginePins(this);
+  }
+  _pinyinPinFor(sel) {
+    return pinyinPinFor(this, sel);
+  }
+  _togglePinyinPin(sel, info) {
+    return togglePinyinPin(this, sel, info, {
+      notice: (message) => new Notice(message),
+      translate: qiaomuReaderTranslate,
+    });
   }
   _engineAppearanceCss() {
     // The engine renders each section inside its own iframe document, so the
@@ -861,7 +876,7 @@ export function createReaderView({
     new Notice(qiaomuReaderTranslate("refreshed"));
   }
   _renderFlowHighlights() {
-    if (this.engine) { this._renderEngineHighlights(); return; }
+    if (this.engine) { this._renderEngineHighlights(); this._renderEnginePins(); return; }
     if (!this.file || !this.pager.flow) return;
     const flow = this.pager.flow;
     unwrapAllHighlights(flow);

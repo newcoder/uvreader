@@ -9,9 +9,10 @@ import { createReaderLoadCoordinator, isReaderLoadAbort, waitForReaderFrame } fr
 import { docOf } from "./reader-dom.js";
 import { jumpToEngineHighlight } from "./highlight-navigation.js";
 import { readerTextCss, resolveReaderFont, syncPageButtons } from "./reader-appearance.js";
+import { pinyinPinFor, renderEnginePins, togglePinyinPin } from "./pinyin-pins.js";
 
 export function createReaderModal({
-  Modal, Notice, BookSetupModal, FONTS, InfoModal, ReadSettingsModal, addPdfZoomMenuItems, attachEngineChrome, attachReaderContentClick, attachReaderSwipeNav, bookNoteAction, buildFindPanelFor, buildReaderBotNav, buildReaderMoreButton, buildReaderPageArea, buildReaderPanels, buildReaderSettPanelBody, buildReaderTopBar, buildTocItems, buildTocPanelFor, clearAiSource, clearFoundIn, createPdfPaginator, currentBookPage, enrichHighlights, ensureSelectedReaderFont, exportHighlightsMenu, flowSelectionParts, hlColorCss, loadReaderDocument, locateHl, markFoundIn, navigateEngineToc, openEngineHighlightPopup, openOrCreateBookNoteBeside, pdfVisiblePageLabel, pdfZoom, persistCurrentReaderPosition, qiaomuReaderClearPaintedSelection, qiaomuReaderLocale, qiaomuReaderRevealWhenSettled, qiaomuReaderTheme, qiaomuReaderTranslate, raiseSelectionPopup, readerHud, readerIsPdf, readerPaginationMappingCollapsed, readerPdfPages, readerTimer, rememberReaderJump, renderHighlightPanel, renderReaderLoadError, renderVisibleFigures, resolveHighlightAnchor, restoreAiSource, restoreEngineHistory, selectionHud, settleReader, syncNavigationPanel, syncOpenAiSelectionContext, syncReaderAiCapability, unwrapAllHighlights, updateEngineLocation, wireReaderChrome, wrapBlockRange,
+  Modal, Notice, BookSetupModal, FONTS, InfoModal, ReadSettingsModal, addPdfZoomMenuItems, attachEngineChrome, attachReaderContentClick, attachReaderSwipeNav, bookNoteAction, buildFindPanelFor, buildReaderBotNav, buildReaderMoreButton, buildReaderPageArea, buildReaderPanels, buildReaderSettPanelBody, buildReaderTopBar, buildTocItems, buildTocPanelFor, clearAiSource, clearFoundIn, createPdfPaginator, currentBookPage, enrichHighlights, ensureSelectedReaderFont, exportHighlightsMenu, flowSelectionParts, hlColorCss, loadReaderDocument, locateHl, markFoundIn, navigateEngineToc, openEngineHighlightPopup, openEnginePinPopup, openOrCreateBookNoteBeside, pdfVisiblePageLabel, pdfZoom, persistCurrentReaderPosition, qiaomuReaderClearPaintedSelection, qiaomuReaderLocale, qiaomuReaderRevealWhenSettled, qiaomuReaderTheme, qiaomuReaderTranslate, raiseSelectionPopup, readerHud, readerIsPdf, readerPaginationMappingCollapsed, readerPdfPages, readerTimer, rememberReaderJump, renderHighlightPanel, renderReaderLoadError, renderVisibleFigures, resolveHighlightAnchor, restoreAiSource, restoreEngineHistory, selectionHud, settleReader, syncNavigationPanel, syncOpenAiSelectionContext, syncReaderAiCapability, unwrapAllHighlights, updateEngineLocation, wireReaderChrome, wrapBlockRange,
 }) {
   return class ReaderModal extends Modal {
   constructor(app, plugin, file) {
@@ -267,6 +268,7 @@ export function createReaderModal({
       await this.plugin.refreshHighlights();
       if (!this._loadCoordinator.isCurrent(loadToken)) return false;
       this._renderEngineHighlights();
+      this._renderEnginePins();
       return true;
     }
     this.bookHtml = result.html;
@@ -406,6 +408,7 @@ export function createReaderModal({
       layout: plugin.settings,
       onNavigate: (direction) => this._nav(direction),
       onHighlightClick: (hit) => openEngineHighlightPopup(this, hit),
+      onPinClick: (hit) => openEnginePinPopup(this, hit),
       onDocLoaded: ({ doc, index }) => {
         attachEngineChrome(this, doc, index);
         try { void ensureSelectedReaderFont(doc, plugin, plugin.settings); }
@@ -486,6 +489,18 @@ export function createReaderModal({
         catch { /* that section may not be rendered yet */ }
       }
     })();
+  }
+  _renderEnginePins() {
+    renderEnginePins(this);
+  }
+  _pinyinPinFor(sel) {
+    return pinyinPinFor(this, sel);
+  }
+  _togglePinyinPin(sel, info) {
+    return togglePinyinPin(this, sel, info, {
+      notice: (message) => new Notice(message),
+      translate: qiaomuReaderTranslate,
+    });
   }
   exportHighlights(evt) {
     if (!this.file) { new Notice(qiaomuReaderTranslate("no-book-is-open")); return; }
@@ -622,7 +637,7 @@ export function createReaderModal({
     this.overlayEl.classList.remove("qiaomu-reader-overlay-on");
   }
   _renderFlowHighlights() {
-    if (this.engine) { this._renderEngineHighlights(); return; }
+    if (this.engine) { this._renderEngineHighlights(); this._renderEnginePins(); return; }
     if (!this.file || !this.pager.flow) return;
     unwrapAllHighlights(this.pager.flow);
     const blocks = this.pager.flow.querySelectorAll(READER_BLOCK_SELECTOR);

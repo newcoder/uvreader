@@ -110,6 +110,41 @@ test("selection popup shows the pinyin and glossary chip at the front", () => {
   f.close();
 });
 
+test("the reading chip pins the selection and reflects the pinned state", () => {
+  const lookup = (text) => (text === "犇"
+    ? { text, pinyin: "bēn", gloss: "群牛受惊奔跑。", single: true, words: [] }
+    : null);
+  const f = setup({ lookupPinyin: lookup });
+  const { api, view } = f;
+  const calls = [];
+  let pinned = null;
+  view.engine = { addPin() {}, removePin() {} };
+  view._pinyinPinFor = () => pinned;
+  view._togglePinyinPin = (sel, info) => {
+    calls.push({ sel, info });
+    pinned = pinned ? null : { id: "p1", cfi: sel.cfi };
+    return pinned;
+  };
+  view._pendingSel = { cfi: "epubcfi(/6/2!/4/2,/1:0,/1:1)", text: "犇" };
+  api.syncSelectionToolbar(view);
+  const row = view.hlPopup.querySelector(".qiaomu-reader-hl-actions");
+  let chip = row.firstElementChild;
+  assert.equal(chip.tagName, "BUTTON");
+  assert.equal(chip.getAttribute("type"), "button");
+  assert.equal(chip.getAttribute("aria-pressed"), "false");
+  assert.equal(chip.getAttribute("aria-label"), "pin-pinyin");
+  chip.click();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].info.pinyin, "bēn");
+  chip = row.firstElementChild;
+  assert.equal(chip.getAttribute("aria-pressed"), "true", "the chip reflects the pinned state");
+  assert.equal(chip.getAttribute("aria-label"), "unpin-pinyin");
+  chip.click();
+  assert.equal(calls.length, 2);
+  assert.equal(row.firstElementChild.getAttribute("aria-pressed"), "false");
+  f.close();
+});
+
 test("right-click in a book iframe captures selection before the native menu and preserves CFI when copying its link", async () => {
   const f = setup(); const { view, api, menus, copied, window } = f;
   const frame = window.document.createElement("iframe"); view.areaEl.append(frame);

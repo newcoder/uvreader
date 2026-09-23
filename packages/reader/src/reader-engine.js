@@ -66,6 +66,44 @@ export function bindEngineKeys(doc, navigate, scrolled = () => false) {
     return () => doc.removeEventListener("keydown", keydown);
 }
 
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+// Overlay shape for a pinned reading: the pinyin sits above the annotated
+// text and a dotted rule marks the character it belongs to. The elements are
+// created by the host document because the overlay SVG lives in the
+// paginator's shadow root, where the reader stylesheet cannot reach.
+export function pinyinPinShape(rects, options = {}, doc = document) {
+    const { pinyin = "", color = "currentColor" } = options;
+    const g = doc.createElementNS(SVG_NS, "g");
+    const first = rects[0];
+    if (!first) return g;
+    for (const rect of rects) {
+        const rule = doc.createElementNS(SVG_NS, "line");
+        rule.setAttribute("x1", String(rect.left));
+        rule.setAttribute("x2", String(rect.right));
+        rule.setAttribute("y1", String(rect.bottom - 1));
+        rule.setAttribute("y2", String(rect.bottom - 1));
+        rule.setAttribute("stroke", color);
+        rule.setAttribute("stroke-opacity", ".45");
+        rule.setAttribute("stroke-width", "1");
+        rule.setAttribute("stroke-dasharray", "2 2");
+        g.append(rule);
+    }
+    if (!pinyin) return g;
+    const size = Math.max(9, Math.min(13, Math.round((first.height || 20) * .42)));
+    const label = doc.createElementNS(SVG_NS, "text");
+    label.setAttribute("x", String(first.left + first.width / 2));
+    label.setAttribute("y", String(Math.max(size, first.top - 3)));
+    label.setAttribute("text-anchor", "middle");
+    label.setAttribute("font-size", String(size));
+    label.setAttribute("font-family", "system-ui, sans-serif");
+    label.setAttribute("fill", color);
+    label.setAttribute("fill-opacity", ".85");
+    label.textContent = pinyin;
+    g.append(label);
+    return g;
+}
+
 function disposeEngineView(view) {
     if (!view) return;
     const book = view.book;
@@ -105,6 +143,8 @@ export class EpubEngine {
     #book = null;
     #highlights = new Map();
     #idByCfi = new Map();
+    #pins = new Map();
+    #pinByCfi = new Map();
     #searchHits = [];
     #extraCss = "";
     #lastRange = null;
@@ -154,6 +194,10 @@ export class EpubEngine {
         });
         view.addEventListener("draw-annotation", (e) => {
             const { draw, annotation } = e.detail;
+            if (annotation?.pin) {
+                draw(pinyinPinShape, { pinyin: annotation.pin.pinyin, color: this.#pinColor() });
+                return;
+            }
             if (typeof annotation?.colorId === "string" && HIGHLIGHT_PAINTS[annotation.colorId])
                 draw((rects, options) => {
                     const shape = Overlayer.highlight(rects, options);
@@ -166,8 +210,22 @@ export class EpubEngine {
         });
         view.addEventListener("show-annotation", (e) => {
             const { value, index, range } = e.detail || {};
+            const pinId = this.#pinByCfi.get(value);
+            if (pinId) {
+                const annotation = this.#pins.get(pinId);
+                this.#hooks.onPinClick?.({ id: annotation.id, cfi: annotation.value, ...annotation.pin, index, range });
+                return;
+            }
             const hit = this.#highlights.get(this.#idByCfi.get(value));
             if (hit) this.#hooks.onHighlightClick?.({ ...hit, index, range });
+        });
+        // Sections are rendered lazily as the reader moves through the book;
+        // stored annotations are painted again for every section the library
+        // brings up, otherwise highlights and pins only exist in chapters that
+        // were already rendered when the book was opened.
+        view.addEventListener("create-overlay", (e) => {
+            if (this.#view !== view) return;
+            void this.#paintAnnotations(e.detail?.index);
         });
         try {
             await view.open(file);
@@ -215,6 +273,8 @@ export class EpubEngine {
         this.#book = null;
         this.#highlights.clear();
         this.#idByCfi.clear();
+        this.#pins.clear();
+        this.#pinByCfi.clear();
         this.#searchHits = [];
         this.#lastRange = null;
         disposeEngineView(view);
@@ -335,6 +395,54 @@ export class EpubEngine {
     highlightAt(cfiRange) {
         const id = this.#idByCfi.get(cfiRange);
         return id ? this.#highlights.get(id) : null;
+    }
+
+    // ── pinned readings ─────────────────────────────────────────────────────
+    // A pin paints the pinyin above a character (plus its glossary in the
+    // popup) and remembers the CFI so it survives reflow and reopening.
+    async addPin(id, cfiRange, info = {}) {
+        if (!this.#view || !cfiRange) return;
+        const annotation = {
+            id,
+            value: cfiRange,
+            pin: { pinyin: String(info.pinyin || ""), gloss: String(info.gloss || "") },
+        };
+        this.#pins.set(id, annotation);
+        this.#pinByCfi.set(cfiRange, id);
+        await this.#view.addAnnotation(annotation);
+    }
+
+    async removePin(id) {
+        const annotation = this.#pins.get(id);
+        if (!annotation) return;
+        this.#pins.delete(id);
+        this.#pinByCfi.delete(annotation.value);
+        await this.#view.deleteAnnotation(annotation);
+    }
+
+    getPin(id) {
+        return this.#pins.get(id) || null;
+    }
+
+    #pinColor() {
+        try { return this.#host.ownerDocument.defaultView.getComputedStyle(this.#host).color || "currentColor"; }
+        catch { return "currentColor"; }
+    }
+
+    // Repaint every annotation that lives in the given section. Called when a
+    // section's overlay is created; addAnnotation is a no-op for sections the
+    // library has not rendered, so nothing paints too early.
+    async #paintAnnotations(index) {
+        if (!Number.isInteger(index)) return;
+        const view = this.#view;
+        if (!view) return;
+        for (const annotation of [...this.#highlights.values(), ...this.#pins.values()]) {
+            if (this.#view !== view) return;
+            let section = null;
+            try { section = view.resolveNavigation(annotation.value)?.index ?? null; } catch { section = null; }
+            if (section !== index) continue;
+            try { await view.addAnnotation(annotation); } catch { /* the section may close mid-paint */ }
+        }
     }
 
     // ── search ──────────────────────────────────────────────────────────────

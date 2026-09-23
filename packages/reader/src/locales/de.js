@@ -1300,4 +1300,12 @@ export default {
   "translation-enable-daily": "Tägliche Notizen aktivieren…",
   "translation-saved": "In {0} gespeichert",
   "translation-save-failed": "Speichern fehlgeschlagen. Prüfe die Zielnotiz und versuche es erneut.",
+  "pins": "Pinyin-Notizen",
+  "pinyin-note": "Pinyin-Notiz",
+  "pin-pinyin": "Pinyin anheften",
+  "unpin-pinyin": "Pinyin lösen",
+  "pinyin-pinned": "Pinyin angeheftet",
+  "pinyin-unpinned": "Pinyin gelöst",
+  "pinyin-pin-unsupported": "Für dieses Format lässt sich Pinyin nicht anheften",
+  "remove-pinyin": "Pinyin entfernen",
 };

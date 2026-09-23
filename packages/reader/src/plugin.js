@@ -25,6 +25,7 @@ export function createPlugin({
     this.progress = {};
     this.thumbCache = {};
     this.highlights = {};
+    this.pins = {};
     this.progressBackups = {};
     this._progressQueue = createSerialTaskQueue();
     this._localDataQueue = createSerialTaskQueue();
@@ -568,6 +569,7 @@ export function createPlugin({
     this._lastBookPath = saved?.lastBookPath || "";
     this.progress = (await this._loadProgressFromVault()) || {};
     this.highlights = (await this._loadHighlightsFromVault()) || {};
+    this.pins = (await this._loadPinsFromVault()) || {};
   }
   async _repairBookNoteState() {
     const { promptedRepaired } = this.settings;
@@ -1172,6 +1174,59 @@ export function createPlugin({
     if (last && last.sig === sig) { last.ts = now; return; }
     arr.push({ ts: now, count: list.length, sig, items: JSON.parse(JSON.stringify(list)) });
     while (arr.length > 12) arr.shift();
+  }
+  // Pinyin annotations pinned to a book, keyed by the same book paths as the
+  // highlights. Small records ({id, cfi, text, pinyin, gloss}) in their own
+  // store so highlight panels, exports and note sync never see them.
+  _pinsFilePath() {
+    const folder = this._dataFolder();
+    return qiaomuReaderPath(folder ? `${folder}/reading-pins.json` : "reading-pins.json");
+  }
+  async _loadPinsFromVault() {
+    return this._loadJsonStore(this._pinsFilePath(), qiaomuReaderTranslate("pins"));
+  }
+  getPins(path5) {
+    const list = this.pins[path5];
+    return Array.isArray(list) ? [...list] : [];
+  }
+  addPin(path5, pin) {
+    if (!this.pins[path5]) this.pins[path5] = [];
+    this.pins[path5].push(pin);
+    void this._persistPins(path5, (disk) => {
+      if (!disk[path5]) disk[path5] = [];
+      if (!disk[path5].some((x) => x.id === pin.id)) disk[path5].push(pin);
+    });
+  }
+  removePin(path5, id) {
+    const list = this.pins[path5];
+    if (list) this.pins[path5] = list.filter((pin) => pin.id !== id);
+    void this._persistPins(path5, (disk) => {
+      if (disk[path5]) disk[path5] = disk[path5].filter((pin) => pin.id !== id);
+    });
+  }
+  _persistPins(bookPath, applyFn) {
+    const operation = (this._pinChain || Promise.resolve()).then(() => this._writePinStore(bookPath, applyFn));
+    this._pinChain = operation.catch(() => {});
+    return operation.catch((error) => {
+      console.error("UV Reader: pinyin pin persist failed", error);
+      return false;
+    });
+  }
+  async _writePinStore(bookPath, applyFn) {
+    const file = this._pinsFilePath();
+    if (this._blockedStores.has(file)) throw new Error("pin store is locked after a read failure");
+    const disk = (await this.app.vault.adapter.exists(file))
+      ? await this._loadJsonStore(file, qiaomuReaderTranslate("pins"))
+      : {};
+    if (disk === null) throw new Error("pin store is unreadable");
+    applyFn(disk);
+    this.pins = disk && typeof disk === "object" ? disk : {};
+    const folder = file.substring(0, file.lastIndexOf("/"));
+    if (folder && !(await this.app.vault.adapter.exists(folder))) {
+      await this.app.vault.createFolder(folder).catch(() => {});
+    }
+    await this.app.vault.adapter.write(file, JSON.stringify(this.pins, null, 2));
+    return true;
   }
 };
 }
