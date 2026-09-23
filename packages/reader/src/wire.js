@@ -1614,7 +1614,10 @@ function openEnginePinPopup(view, hit) {
   if (view._selectionDragging || view._selectionMenuOpen || !hit?.id || !hit.range || !view.file) return;
   const doc = hit.range.startContainer.ownerDocument;
   view._hideHlPopup();
-  pinPopup.show(view, hit, selectionHud.engineSelectionRect(doc, hit.range), (pin) => {
+  // Pins stored before the glossary table grew (or before a variant mapping
+  // existed) may have no definition; look it up again when the card opens.
+  const gloss = hit.gloss || lookupSelection(hit.text || "")?.gloss || "";
+  pinPopup.show(view, { ...hit, gloss }, selectionHud.engineSelectionRect(doc, hit.range), (pin) => {
     view.plugin.removePin(view.file.path, pin.id);
     void view.engine?.removePin(pin.id);
   });

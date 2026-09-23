@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { hanziCount, isHanChar, lookupSelection, pinyinText, pinyinWords } from "../packages/reader/src/pinyin-annotate.js";
+import { glossFor, hanziCount, isHanChar, lookupSelection, pinyinText, pinyinWords } from "../packages/reader/src/pinyin-annotate.js";
+import { HANZI_GLOSSES, HANZI_VARIANTS } from "../packages/reader/src/hanzi-dict-data.js";
 
 test("isHanChar and hanziCount only count CJK ideographs", () => {
   assert.equal(isHanChar("汉"), true);
@@ -23,7 +24,7 @@ test("pinyinWords keeps word context for polyphones", () => {
 test("lookupSelection returns pinyin and the glossary for a single character", () => {
   const result = lookupSelection("犇");
   assert.equal(result.pinyin, "bēn");
-  assert.equal(result.gloss, "群牛受惊奔跑。");
+  assert.match(result.gloss, /^群牛受惊奔跑。/u);
   assert.equal(result.single, true);
 });
 
@@ -44,4 +45,23 @@ test("lookupSelection rejects empty, latin and over-long selections", () => {
 test("unknown characters degrade to no result instead of throwing", () => {
   assert.equal(lookupSelection("𠮷"), null);
   assert.equal(lookupSelection("　"), null);
+});
+
+test("traditional and variant characters fall back to the covered form", () => {
+  assert.equal(HANZI_GLOSSES["輒"], undefined, "the traditional form has no entry of its own");
+  assert.equal(HANZI_VARIANTS["輒"], "辄");
+  assert.equal(glossFor("輒"), HANZI_GLOSSES["辄"]);
+  assert.equal(glossFor("滯"), HANZI_GLOSSES["滞"]);
+  assert.equal(lookupSelection("輒").gloss, HANZI_GLOSSES["辄"]);
+  assert.match(glossFor("犇"), /^群牛受惊奔跑。/u);
+});
+
+test("the generated glossary keeps modern definitions instead of classical citations", () => {
+  assert.match(HANZI_GLOSSES["品"], /物|等级|性质/u);
+  assert.doesNotMatch(HANZI_GLOSSES["粗"], /《/u);
+  assert.match(HANZI_GLOSSES["粗"], /横剖面|颗粒|粗糙/u);
+  assert.doesNotMatch(HANZI_GLOSSES["睹"], /《/u);
+  assert.match(HANZI_GLOSSES["睹"], /看见/u);
+  const citations = Object.values(HANZI_GLOSSES).filter((gloss) => gloss.includes("《"));
+  assert.equal(citations.length, 0, "no gloss may quote a classical dictionary");
 });
