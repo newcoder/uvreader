@@ -1,17 +1,16 @@
 // Selection toolbar, highlight popup and colour actions for the reader UI.
 // The host injects menus, modals, notices and clipboard access so the module
 // stays independent of the Obsidian API.
-import { docOf, selOf } from "./reader-dom.js";
-import { highlightBacklink } from "./highlight-navigation.js";
+import { selOf } from "./reader-dom.js";
 import { PDF_ZOOM_DEFAULT, clampPdfZoom } from "./pdf-zoom.js";
 import { selectionActionPreferences } from "./selection-preferences.js";
 
 const QUICK_HL_COLOR_IDS = ["yellow", "green", "pink"];
 
 export function createSelectionActions({
-  translate, Notice, Menu, Scope, TranslateModal, setIcon, window,
+  translate, Notice, Scope, TranslateModal, setIcon, window,
   isPdf, hlColorCss, hlColors, positionPopup, refreshHlPanel, autoFocus,
-  paintAiSource, copyToClipboard, quoteMarkdown, createNoteFromSelection, hlCommentMd,
+  paintAiSource, copyToClipboard,
   flowSelectionParts, raiseSelectionPopup, lookupPinyin,
 }) {
   function selectionActions(view) {
@@ -64,25 +63,6 @@ export function createSelectionActions({
     return { left: r.left + x, right: r.right + x, top: r.top + y, bottom: r.bottom + y, width: r.width, height: r.height };
   }
 
-  function openReaderSelectionContext(view, event, doc, index) {
-    if (view._commentEditing || view.pdfPanMode) return;
-    const sel = doc.getSelection();
-    if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
-    view._editHlId = null;
-    view._selectionDragging = false;
-    if (view.engine) view._engineSelectionCheck({ doc, index });
-    else {
-      const found = flowSelectionParts(view);
-      if (!found) return;
-      raiseSelectionPopup(view, found.parts, found.range);
-    }
-    if (!view._currentHl()) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const frame = doc.defaultView?.frameElement?.getBoundingClientRect();
-    openSelectionMoreMenu(view, { clientX: event.clientX + (frame?.left || 0), clientY: event.clientY + (frame?.top || 0) }, true);
-  }
-
   function selectionFeedback(view, message, undo) {
     window.clearTimeout(view._selectionFeedbackTimer);
     view._selectionFeedback?.remove();
@@ -132,15 +112,17 @@ export function createSelectionActions({
 
   function closeSelectionColorDropdown(view, focus = false) {
     view.hlPopup?.querySelector(".qiaomu-reader-color-dropdown")?.remove();
-    const trigger = view.hlPopup?.querySelector(".qiaomu-reader-hl-colors");
+    const trigger = view.hlPopup?.querySelector(".qiaomu-reader-hl-highlight");
     trigger?.setAttribute("aria-expanded", "false");
     if (focus) trigger?.focus();
   }
 
+  // The highlight button opens this palette; the swatches carry the colour and
+  // their accessible name, without repeating the label as text.
   function toggleSelectionColorDropdown(view) {
     const pop = view.hlPopup;
     if (pop.querySelector(".qiaomu-reader-color-dropdown")) { closeSelectionColorDropdown(view, true); return; }
-    const trigger = pop.querySelector(".qiaomu-reader-hl-colors");
+    const trigger = pop.querySelector(".qiaomu-reader-hl-highlight");
     trigger.setAttribute("aria-expanded", "true");
     const menu = pop.createDiv("qiaomu-reader-color-dropdown");
     menu.setAttribute("role", "radiogroup");
@@ -154,7 +136,6 @@ export function createSelectionActions({
       const swatch = button.createSpan({ cls: "qiaomu-reader-color-swatch" });
       swatch.style.background = color.css;
       if (selected) setIcon(swatch, "check");
-      button.createSpan({ text: color.label() });
       button.addEventListener("click", () => view._applyPopupColor(color.id));
       buttons.push(button);
     }
@@ -175,14 +156,15 @@ export function createSelectionActions({
     (buttons.find(b => b.getAttribute("aria-checked") === "true") || buttons[0]).focus({ preventScroll: true });
   }
 
-  // Reading + short definition for the current selection, shown at the front of
-  // the toolbar. Long selections and latin text produce no chip. Where the
-  // format supports it the chip is a button that pins the reading to the text.
+  // Reading + short definition for the current selection, on its own row above
+  // the action buttons. Long selections and latin text produce no chip. Where
+  // the format supports it the chip is a button that pins the reading.
   function syncSelectionInfo(view) {
-    const row = view.hlPopup?.querySelector(".qiaomu-reader-hl-actions");
-    if (!row) return;
-    row.querySelector(".qiaomu-reader-py-chip")?.remove();
-    if (typeof lookupPinyin !== "function") return;
+    const pop = view.hlPopup;
+    if (!pop) return;
+    pop.querySelector(".qiaomu-reader-py-chip")?.remove();
+    const row = pop.querySelector(".qiaomu-reader-hl-actions");
+    if (!row || typeof lookupPinyin !== "function") return;
     const sel = view._pendingSel || view._currentHl() || null;
     const info = lookupPinyin(sel?.text || "");
     if (!info) return;
@@ -190,8 +172,8 @@ export function createSelectionActions({
       && typeof view._togglePinyinPin === "function";
     const pinned = canPin && Boolean(view._pinyinPinFor?.(sel));
     const chip = canPin
-      ? row.createEl("button", { cls: "qiaomu-reader-py-chip" })
-      : row.createDiv("qiaomu-reader-py-chip");
+      ? pop.createEl("button", { cls: "qiaomu-reader-py-chip" })
+      : pop.createDiv("qiaomu-reader-py-chip");
     if (canPin) {
       chip.setAttribute("type", "button");
       chip.setAttribute("aria-pressed", String(pinned));
@@ -205,7 +187,7 @@ export function createSelectionActions({
     }
     chip.createDiv({ cls: "qiaomu-reader-py-pinyin", text: info.pinyin });
     if (info.gloss) chip.createDiv({ cls: "qiaomu-reader-py-gloss", text: info.gloss });
-    row.prepend(chip);
+    row.before(chip);
   }
 
   function syncSelectionToolbar(view) {
@@ -220,7 +202,6 @@ export function createSelectionActions({
     const btn = view.hlPopup?.querySelector(".qiaomu-reader-hl-highlight");
     if (!btn) return;
     btn.style.setProperty("--selection-color", hlColorCss(selectionColor(view)));
-    btn.setAttribute("aria-pressed", String(!!view._editHlId));
   }
 
   function addBarButtons(view, pop) {
@@ -235,15 +216,14 @@ export function createSelectionActions({
       return btn;
     };
     for (const action of selectionActions(view).filter(item => item.visible)) {
-      const parent = action.id === "highlight" ? row.createDiv("qiaomu-reader-highlight-split") : row;
-      button(parent, action.cls, action.icon, action.label, action.run);
-      if (action.id === "highlight") {
-        const colors = button(parent, "qiaomu-reader-hl-colors", "chevron-down", translate("highlight-colors"), () => toggleSelectionColorDropdown(view), true);
-        colors.setAttribute("aria-expanded", "false");
+      const isHighlight = action.id === "highlight";
+      const btn = button(row, action.cls, action.icon, action.label,
+        isHighlight ? () => toggleSelectionColorDropdown(view) : action.run);
+      if (isHighlight) {
+        btn.setAttribute("aria-haspopup", "menu");
+        btn.setAttribute("aria-expanded", "false");
       }
     }
-    const more = button(row, "qiaomu-reader-hl-menu", "ellipsis", translate("more"), (event) => openSelectionMoreMenu(view, event), true);
-    more.setAttribute("aria-haspopup", "menu");
     row.addEventListener("keydown", (event) => {
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
       const buttons = [...row.querySelectorAll("button")];
@@ -256,76 +236,6 @@ export function createSelectionActions({
     row.addEventListener("keydown", (event) => {
       if (event.key === "Escape") { event.preventDefault(); view._hideHlPopup(); }
     });
-  }
-
-  function openSelectionMoreMenu(view, event, includePrimary = false) {
-    const cur = view._currentHl();
-    const file = view.file;
-    if (!cur || !file) return;
-    const pending = view._pendingSel, id = view._editHlId, rect = view._hlPopupRect;
-    const doc = view._selectionDoc;
-    const menu = new Menu();
-    let acted = false;
-    view._selectionMenu = menu;
-    view._selectionMenuOpen = true;
-    view.hlPopup.classList.remove("qiaomu-reader-hl-popup-on");
-    const close = () => { clearReaderSelection(view); view._hideHlPopup(); };
-    const add = (label, icon, run, checked) => menu.addItem((item) => {
-      item.setTitle(label).setIcon(icon);
-      if (checked !== undefined) item.setChecked(checked);
-      item.onClick(() => {
-        acted = true;
-        view._selectionMenuOpen = false;
-        if (view.file?.path !== file.path) return;
-        view._pendingSel = pending; view._editHlId = id; view._selectionDoc = doc;
-        if (rect) view._showHlPopup(rect);
-        run();
-      });
-    });
-    const colors = () => {
-      for (const color of hlColors.filter((entry) => QUICK_HL_COLOR_IDS.includes(entry.id))) {
-        add(translate("highlight-0", color.label()), "highlighter", () => view._applyPopupColor(color.id), selectionColor(view) === color.id);
-      }
-    };
-    if (includePrimary === "colors") colors();
-    else {
-      const primary = selectionActions(view).filter(item => includePrimary || !item.visible);
-      for (const action of primary) add(action.label, action.icon, action.run);
-      if (primary.length) menu.addSeparator();
-      add(translate("copy-as-a-quote"), "text-quote", async () => {
-        const md = quoteMarkdown(view.plugin, cur, file); close();
-        const ok = md && await copyToClipboard(md);
-        selectionFeedback(view, translate(ok ? "copied" : "could-not-copy"));
-      });
-      add(translate("copy-position-link"), "link", async () => {
-        const uri = highlightBacklink(view.app.vault.getName(), file.path, cur); close();
-        const ok = uri && await copyToClipboard(uri);
-        selectionFeedback(view, translate(ok ? "copied" : "could-not-copy"));
-      });
-      add(translate("create-note"), "file-plus", () => {
-        close(); createNoteFromSelection(view.app, view.plugin, cur.text, file, { extra: hlCommentMd(cur), color: cur.color, hl: cur });
-      });
-      if (includePrimary) { menu.addSeparator(); colors(); }
-      if (id) {
-        menu.addSeparator();
-        add(translate(cur.comment ? "delete-highlight-and-comment" : "delete-highlight"), "trash", () => {
-          view.plugin.removeHighlight(file.path, id);
-          view._unwrapHighlight(id); refreshHlPanel(view); close();
-          selectionFeedback(view, translate("highlight-deleted"), () => {
-            if (!view.plugin.getHighlights(file.path).some((hl) => hl.id === id)) view.plugin.addHighlight(file.path, cur);
-            if (view.file?.path === file.path) repaintSelectionHighlights(view);
-          });
-        });
-      }
-    }
-    menu.onHide(() => window.setTimeout(() => {
-      if (view._selectionMenu !== menu) return;
-      view._selectionMenuOpen = false; view._selectionMenu = null;
-      if (!acted) view._hideHlPopup();
-    }, 0));
-    const target = event.currentTarget?.getBoundingClientRect();
-    menu.showAtPosition({ x: target?.left ?? event.clientX ?? rect.left,
-      y: target?.bottom ?? event.clientY ?? rect.bottom }, docOf(view.areaEl));
   }
 
   async function copySelectionText(view) {
@@ -496,9 +406,9 @@ export function createSelectionActions({
 
   return {
     matchingSelectionHighlight, selectionColor, clearReaderSelection, beginReaderSelection,
-    engineSelectionRect, openReaderSelectionContext, selectionFeedback, repaintSelectionHighlights,
+    engineSelectionRect, selectionFeedback, repaintSelectionHighlights,
     applySelectionColor, closeSelectionColorDropdown, toggleSelectionColorDropdown, syncSelectionToolbar,
-    actions: selectionActions, addBarButtons, openSelectionMoreMenu, copySelectionText, openAiSelectionChat,
+    actions: selectionActions, addBarButtons, copySelectionText, openAiSelectionChat,
     closeInlineHighlightComment, openInlineHighlightComment, handleAreaNavClick,
   };
 }

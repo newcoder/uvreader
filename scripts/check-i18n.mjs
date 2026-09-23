@@ -169,8 +169,10 @@ if (!selectionSource.includes('const QUICK_HL_COLOR_IDS = ["yellow", "green", "p
 if (!selectionSource.includes('comment: ["qiaomu-reader-hl-comment-btn", "message-square"') || !selectionSource.includes('createEl("textarea", { cls: "qiaomu-reader-hl-comment-textarea" })')) {
   errors.push("Selection popup does not provide an inline nearby comment editor");
 }
-if (!selectionSource.includes('button(row, "qiaomu-reader-hl-menu", "ellipsis"') || selectionSource.includes("qiaomu-reader-hl-note")) {
-  errors.push("Selection popup must expose More and keep the separate-note action out of the primary row");
+if (selectionSource.includes('button(row, "qiaomu-reader-hl-menu", "ellipsis"')
+  || selectionSource.includes("openSelectionMoreMenu")
+  || selectionSource.includes("qiaomu-reader-hl-note")) {
+  errors.push("Selection popup keeps its primary row to the four main actions");
 }
 if (!selectionSource.includes('createDiv({ cls: "qiaomu-reader-hl-comment-quote", text })') || !selectionSource.includes('event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.isComposing') || !selectionSource.includes('event.key === "Escape"')) {
   errors.push("Inline comments must show the selected passage and support Cmd/Ctrl+Enter to save plus Escape to dismiss");

@@ -259,7 +259,7 @@ const TranslateModal = createTranslateModal({
 });
 const selectionHud = createSelectionActions({
   translate: qiaomuReaderTranslate,
-  Notice, Menu, Scope, TranslateModal, setIcon, window,
+  Notice, Scope, TranslateModal, setIcon, window,
   isPdf: readerIsPdf,
   hlColorCss,
   hlColors: HL_COLORS,
@@ -268,9 +268,6 @@ const selectionHud = createSelectionActions({
   autoFocus: readerHud.autoFocus,
   paintAiSource,
   copyToClipboard,
-  quoteMarkdown,
-  createNoteFromSelection,
-  hlCommentMd,
   flowSelectionParts,
   raiseSelectionPopup,
   lookupPinyin: lookupSelection,
@@ -1163,7 +1160,9 @@ function setupReaderSelection(view) {
     view._selectionDragging = false;
     view._scheduleSelCheck();
   };
-  const context = (event) => selectionHud.openReaderSelectionContext(view, event, doc);
+  // The selection popup carries every action; right-click only suppresses the
+  // platform menu so no second, duplicated menu appears.
+  const context = (event) => event.preventDefault();
   const outside = (event) => {
     if (view._selectionMenuOpen || view.hlPopup?.contains(event.target) || area.contains(event.target)) return;
     view._hideHlPopup();
@@ -1606,6 +1605,12 @@ function openEngineHighlightPopup(view, hit) {
   view._editHlId = hit.id;
   view._selectionDoc = doc;
   view._showHlPopup(selectionHud.engineSelectionRect(doc, hit.range));
+}
+
+// Dismissal for the pinned-reading card. Clicks inside a book section never
+// reach the main document, so the section listener calls this directly.
+function hidePinPopup(view) {
+  pinPopup.hide(view);
 }
 
 // Clicking a pinned reading reopens its card: full pinyin, the short
@@ -2393,6 +2398,7 @@ const ReaderView = createReaderView({
   navigateEngineToc,
   openEngineHighlightPopup,
   openEnginePinPopup,
+  hidePinPopup,
   openOrCreateBookNoteBeside,
   pageJump,
   pdfVisiblePageLabel,
@@ -2563,6 +2569,7 @@ const ReaderModal = createReaderModal({
   navigateEngineToc,
   openEngineHighlightPopup,
   openEnginePinPopup,
+  hidePinPopup,
   openOrCreateBookNoteBeside,
   pdfVisiblePageLabel,
   pdfZoom,

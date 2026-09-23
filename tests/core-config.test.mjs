@@ -494,22 +494,21 @@ test("selection factory ports are initialized before the factory runs", () => {
   }
 });
 
-test("selection popup keeps primary actions compact and moves note tools into More", () => {
+test("selection popup keeps four primary actions and no duplicated menu", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/selection-actions.js", import.meta.url), "utf8");
   const main = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   assert.match(source, /void view\.plugin\.openAiChat\(context\)/); // Unconfigured users reach inline setup.
   assert.match(source, /ai: \["qiaomu-reader-hl-ai", "sparkles"/); // AI entry in the button descriptor table
   assert.match(source, /kind: "selection"[\s\S]*text: cur\.text[\s\S]*bookFile: view\.file/);
-  assert.match(source, /button\(row, "qiaomu-reader-hl-menu", "ellipsis"/); // More entry in the button table
-  assert.match(source, /add\(translate\("create-note"\)/);
-  assert.match(source, /"delete-highlight-and-comment" : "delete-highlight"/);
+  assert.doesNotMatch(source, /openSelectionMoreMenu|qiaomu-reader-hl-menu/); // no second, duplicated menu
   assert.doesNotMatch(source, /act\("qiaomu-reader-hl-note"/);
+  assert.doesNotMatch(main, /openReaderSelectionContext/);
   assert.match(source, /hlCommentQuoteBlock\(editor, current\.text\)/); // quote text comes from the active highlight
   assert.match(source, /const quote = editor\.createDiv\(\{ cls: "qiaomu-reader-hl-comment-quote", text \}\)/);
   assert.match(source, /event\.key === "Enter" && \(event\.metaKey \|\| event\.ctrlKey\) && !event\.isComposing/);
   assert.match(source, /event\.key === "Escape"[\s\S]*view\._hideHlPopup\(\)/);
-  assert.match(css, /\.qiaomu-reader-hl-popup-commenting \.qiaomu-reader-hl-actions \{ display:none; \}/);
+  assert.match(css, /\.qiaomu-reader-hl-popup-commenting \.qiaomu-reader-hl-actions,[\s\S]{0,80}\.qiaomu-reader-py-chip \{ display:none; \}/);
   assert.match(css, /-webkit-line-clamp:3/);
   assert.doesNotMatch(main, /brain-circuit/);
 });

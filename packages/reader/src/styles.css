@@ -261,14 +261,14 @@ img.qiaomu-reader-pdf-lazy:not([data-loaded="1"]) { background:color-mix(in srgb
 /* Offline reading + short definition for the selected character or word. The
    chip is a button when the format can pin the reading to the text, otherwise
    it stays a plain note. */
-.qiaomu-reader-py-chip { display:flex; flex-direction:column; justify-content:center; gap:1px; max-width:230px; padding:2px 8px 2px 4px; margin-right:2px; border:0; border-right:1px solid var(--qiaomu-reader-border); border-radius:8px 0 0 8px; background:transparent; color:inherit; font:inherit; text-align:left; cursor:default; }
+.qiaomu-reader-py-chip { display:flex; flex-direction:column; justify-content:center; gap:2px; align-self:stretch; max-width:260px; margin:0 0 7px; padding:2px 2px 7px; border:0; border-bottom:1px solid var(--qiaomu-reader-border); border-radius:8px 8px 0 0; background:transparent; color:inherit; font:inherit; text-align:left; cursor:default; }
 button.qiaomu-reader-py-chip { cursor:pointer; }
 button.qiaomu-reader-py-chip:hover { background:color-mix(in srgb,var(--qiaomu-reader-text) 8%,transparent); }
 button.qiaomu-reader-py-chip:focus-visible { outline:2px solid color-mix(in srgb, var(--qiaomu-reader-accent) 48%, transparent); outline-offset:1px; }
 .qiaomu-reader-py-chip[aria-pressed="true"] { background:color-mix(in srgb, var(--qiaomu-reader-accent) 16%, transparent); }
 .qiaomu-reader-py-chip[aria-pressed="true"] .qiaomu-reader-py-pinyin { color:var(--qiaomu-reader-accent); }
 .qiaomu-reader-py-pinyin { font-size:12px; line-height:1.25; color:var(--qiaomu-reader-muted); letter-spacing:.02em; white-space:nowrap; }
-.qiaomu-reader-py-gloss { font-size:12px; line-height:1.3; color:var(--qiaomu-reader-text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.qiaomu-reader-py-gloss { font-size:12px; line-height:1.35; color:var(--qiaomu-reader-text); overflow:hidden; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
 /* Card for a pinned reading: full pinyin, the definition and one action. */
 .qiaomu-reader-pin-popup { position:absolute; z-index:35; display:none; flex-direction:column; gap:6px; min-width:150px; max-width:280px; padding:10px 12px; border-radius:12px; background:var(--qiaomu-reader-ui); border:1px solid var(--qiaomu-reader-border); box-shadow:0 10px 32px rgba(0,0,0,.25); }
 .qiaomu-reader-pin-popup.qiaomu-reader-pin-popup-on { display:flex; }
@@ -300,7 +300,8 @@ button.qiaomu-reader-py-chip:focus-visible { outline:2px solid color-mix(in srgb
 .qiaomu-reader-hl-copy:hover, .qiaomu-reader-hl-comment-btn:hover, .qiaomu-reader-hl-note:hover, .qiaomu-reader-hl-ai:hover, .qiaomu-reader-hl-menu:hover { opacity: 1; background: color-mix(in srgb, var(--qiaomu-reader-text) 12%, transparent); }
 .qiaomu-reader-hl-copy svg, .qiaomu-reader-hl-comment-btn svg, .qiaomu-reader-hl-note svg, .qiaomu-reader-hl-ai svg, .qiaomu-reader-hl-menu svg { width: 15px; height: 15px; stroke-width: 1.9; }
 .qiaomu-reader-hl-copy { margin-left: 10px; }
-.qiaomu-reader-hl-popup-commenting .qiaomu-reader-hl-actions { display:none; }
+.qiaomu-reader-hl-popup-commenting .qiaomu-reader-hl-actions,
+.qiaomu-reader-hl-popup-commenting .qiaomu-reader-py-chip { display:none; }
 .qiaomu-reader-hl-comment-editor { width: 320px; max-width: min(320px, calc(100vw - 38px)); display:flex; flex-direction:column; gap:9px; }
 .qiaomu-reader-hl-comment-quote { display:-webkit-box; overflow:hidden; -webkit-box-orient:vertical; -webkit-line-clamp:3; padding:8px 10px; border-radius:9px; background:color-mix(in srgb,var(--qiaomu-reader-text) 5%,transparent); color:var(--qiaomu-reader-muted); font-size:12px; line-height:1.5; cursor:pointer; white-space:normal; overflow-wrap:anywhere; }
 .qiaomu-reader-hl-comment-quote:hover { color:var(--qiaomu-reader-text); background:color-mix(in srgb,var(--qiaomu-reader-text) 8%,transparent); }
@@ -1310,7 +1311,6 @@ button.qiaomu-reader-find-item.qiaomu-reader-toc-active { background: var(--back
   box-shadow: 0 3px 14px rgba(0,0,0,.12); transition: opacity .12s;
 }
 .qiaomu-reader-hl-popup .qiaomu-reader-hl-actions { gap: 2px; flex-wrap: wrap; }
-.qiaomu-reader-highlight-split { display: flex; align-items: center; }
 .qiaomu-reader-hl-popup .qiaomu-reader-selection-action {
   display: inline-flex; align-items: center; justify-content: center; gap: 5px;
   width: auto; height: 32px; min-width: 28px; margin: 0; padding: 0 7px;
@@ -1342,21 +1342,21 @@ button.qiaomu-reader-find-item.qiaomu-reader-toc-active { background: var(--back
   .qiaomu-reader-hl-popup .qiaomu-reader-selection-action svg { color: currentColor; }
 }
 
-/* Color dropdown stays attached to the marker, with an actual color preview. */
+/* Color dropdown stays attached to the marker. The swatches carry the choice
+   on their own: no repeated colour names. */
 .qiaomu-reader-color-dropdown {
-  position:absolute; z-index:2; top:calc(100% + 6px); display:grid;
-  grid-template-columns:repeat(3,1fr); gap:4px; width:186px; padding:6px;
-  border:1px solid var(--background-modifier-border); border-radius:10px;
-  background:var(--background-primary); box-shadow:0 4px 16px rgba(0,0,0,.12);
+  position:absolute; z-index:2; top:calc(100% + 6px); display:flex; gap:4px;
+  padding:6px; border:1px solid var(--background-modifier-border);
+  border-radius:10px; background:var(--background-primary);
+  box-shadow:0 4px 16px rgba(0,0,0,.12);
 }
 .qiaomu-reader-color-dropdown.is-above { top:auto; bottom:calc(100% + 6px); }
 .qiaomu-reader-color-dropdown .qiaomu-reader-color-option {
-  display:flex; flex-direction:column; align-items:center; gap:6px; height:auto;
-  min-width:44px; min-height:56px; padding:6px; font-size:11px; border:0;
-  border-radius:6px; box-shadow:none; background:transparent; color:var(--text-muted);
+  display:grid; place-items:center; width:38px; height:38px; padding:0;
+  border:0; border-radius:8px; box-shadow:none; background:transparent;
 }
 .qiaomu-reader-color-option:hover { background:var(--background-modifier-hover); }
-.qiaomu-reader-color-option[aria-checked="true"] { color:var(--text-normal); }
+.qiaomu-reader-color-option[aria-checked="true"] { background:var(--background-modifier-hover); }
 .qiaomu-reader-color-swatch { width:26px; height:26px; border-radius:50%; display:grid; place-items:center; }
 .qiaomu-reader-color-swatch svg { width:14px; height:14px; color:var(--text-normal); }
 /* Each settings page answers one question, with a single vertical reading order. */

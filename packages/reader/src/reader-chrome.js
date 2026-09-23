@@ -45,7 +45,9 @@ export function createReaderChrome({
     const release = () => { view._selectionDragging = false; };
     doc.addEventListener("pointerup", release);
     doc.addEventListener("pointercancel", release);
-    doc.addEventListener("contextmenu", (event) => selectionHud.openReaderSelectionContext(view, event, doc, index));
+    // Right-click inside a book must not raise a second menu: the selection
+    // popup already carries the actions.
+    doc.addEventListener("contextmenu", (event) => event.preventDefault());
     doc.addEventListener("pointermove", (event) => {
       const frame = doc.defaultView?.frameElement?.getBoundingClientRect();
       if (!frame) return;

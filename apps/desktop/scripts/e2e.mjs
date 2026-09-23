@@ -128,7 +128,9 @@ async function highlightFromPopup(page, highlightsPath, bookKey, expected) {
     const view = window.__qbrApp?.workspace?.getLeavesOfType("qiaomu-reader")[0]?.view;
     return view?.hlPopup?.classList.contains("qiaomu-reader-hl-popup-on") ? "on" : "";
   }), 15_000);
+  // The highlight button opens the swatch palette; the swatch applies the colour.
   await page.click(".qiaomu-reader-hl-highlight");
+  await page.click(".qiaomu-reader-color-dropdown .qiaomu-reader-color-option");
   const stored = await waitFor("reading-highlights.json", () => {
     if (!fs.existsSync(highlightsPath)) return "";
     const data = JSON.parse(fs.readFileSync(highlightsPath, "utf8"));
@@ -293,20 +295,21 @@ async function runEbookScenario() {
     }, 25_000);
     console.log("epub: selected", selected.slice(0, 40));
 
-    // The color dropdown must render the full quick palette; a missing port
-    // leaves the trigger dead and this step times out.
-    await page.evaluate(() => document.querySelector(".qiaomu-reader-hl-colors")?.click());
+    // The highlight button opens the swatch palette; a missing port leaves the
+    // trigger dead and this step times out. Swatches carry no repeated names.
+    await page.evaluate(() => document.querySelector(".qiaomu-reader-hl-highlight")?.click());
     const colorOptions = await waitFor("highlight color dropdown", () => page.evaluate(() => {
       const options = [...document.querySelectorAll(".qiaomu-reader-color-dropdown .qiaomu-reader-color-option")];
       if (options.length < 3) return "";
-      const labels = options.map((option) => option.textContent.trim());
-      return labels.every(Boolean) ? labels : "";
+      const swatches = options.map((option) => option.querySelector(".qiaomu-reader-color-swatch")?.getAttribute("style") || "");
+      const unlabeled = options.filter((option) => !option.textContent.trim()).length;
+      return swatches.every(Boolean) && unlabeled === options.length ? swatches : "";
     }), 8_000);
     const checked = await page.evaluate(() => [...document.querySelectorAll(".qiaomu-reader-color-dropdown .qiaomu-reader-color-option")].filter((option) => option.getAttribute("aria-checked") === "true").length);
     if (checked !== 1) throw new Error(`expected exactly one checked color, saw ${checked}`);
     await page.keyboard.press("Escape");
     await waitFor("color dropdown closed", () => page.evaluate(() => !document.querySelector(".qiaomu-reader-color-dropdown")), 5_000);
-    console.log("epub: highlight color palette ready", colorOptions.join("/"));
+    console.log("epub: highlight swatch palette ready", colorOptions.length, "swatches");
 
     const highlightsPath = path.join(userData, "library", "plugin", "reading-highlights.json");
     const stored = await highlightFromPopup(page, highlightsPath, bookKey, { cfi: true });
@@ -351,6 +354,7 @@ async function runEbookScenario() {
     await waitFor("highlight popup for the click test", () => page.evaluate(
       () => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view?.hlPopup?.classList.contains("qiaomu-reader-hl-popup-on")), 10_000);
     await page.click(".qiaomu-reader-hl-highlight");
+    await page.click(".qiaomu-reader-color-dropdown .qiaomu-reader-color-option");
     const clickNeedle = clickText.slice(0, 6);
     const clickedHl = await waitFor("click-test highlight stored", () => page.evaluate((needle) => {
       const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view;
@@ -739,6 +743,34 @@ async function selectTextInFrames(page, needle, wholeParagraph = false) {
   return "";
 }
 
+// A plain tap in the book (no click) is what dismisses the pinned-reading card.
+async function tapTextInFrames(page, needle) {
+  for (const frame of page.frames()) {
+    if (frame === page.mainFrame()) continue;
+    try {
+      const hit = await frame.evaluate((text) => {
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        let node = null, offset = -1;
+        while ((node = walker.nextNode())) {
+          offset = node.textContent.indexOf(text);
+          if (offset >= 0) break;
+        }
+        if (!node || offset < 0) return false;
+        const range = document.createRange();
+        range.setStart(node, offset);
+        range.setEnd(node, offset + text.length);
+        const rect = range.getBoundingClientRect();
+        const target = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2) || node.parentElement;
+        target.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerType: "mouse" }));
+        target.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerType: "mouse" }));
+        return true;
+      }, needle);
+      if (hit) return true;
+    } catch {}
+  }
+  return false;
+}
+
 async function clearSelectionInFrames(page) {
   for (const frame of page.frames()) {
     if (frame === page.mainFrame()) continue;
@@ -837,6 +869,12 @@ async function runPinyinScenario() {
       return text.includes("bēn") && text.includes("群牛受惊奔跑") ? text : "";
     }, 10_000);
     console.log("pinyin: clicking the pin opens its card", card.slice(0, 24));
+    if (!(await tapTextInFrames(page, "阅读是一件安静"))) throw new Error("could not tap the page to dismiss the card");
+    await waitFor("pin card dismissed", () => page.evaluate(() => !document.querySelector(".qiaomu-reader-pin-popup-on")), 8_000);
+    console.log("pinyin: tapping the page dismissed the card");
+    await clickTextInFrames(page, "犇");
+    await waitFor("pin card reopened", () => page.evaluate(
+      () => Boolean(document.querySelector(".qiaomu-reader-pin-popup-on"))), 8_000);
     await page.click(".qiaomu-reader-pin-remove");
     await waitFor("pin removed", () => page.evaluate((id) => {
       const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view;

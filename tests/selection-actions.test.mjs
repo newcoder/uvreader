@@ -76,16 +76,23 @@ function setup(overrides = {}) {
   return { window, view, api, menus, records, copied, savedComments, translations, close: () => window.close() };
 }
 
-test("toolbar exposes stable labeled actions and a separate three-color menu", () => {
+test("toolbar keeps four actions and opens the swatch palette from the highlight button", () => {
   const f = setup(); const { api, view, menus } = f;
   api.addBarButtons(view, view.hlPopup);
   const labels = [...view.hlPopup.querySelectorAll("button")].map(b => b.getAttribute("aria-label"));
-  assert.deepEqual(labels, ["highlight-action", "highlight-colors", "annotate-action", "ask-ai-action", "copy", "more"]);
-  view.hlPopup.querySelector(".qiaomu-reader-hl-colors").click();
+  assert.deepEqual(labels, ["highlight-action", "annotate-action", "ask-ai-action", "copy"]);
+  const trigger = view.hlPopup.querySelector(".qiaomu-reader-hl-highlight");
+  assert.equal(trigger.getAttribute("aria-expanded"), "false");
+  trigger.click();
   assert.equal(menus.length, 0, "colors use an attached dropdown, not an OS context menu");
-  assert.equal(view.hlPopup.querySelectorAll('[role="radio"]').length, 3);
-  assert.equal(view.hlPopup.querySelector('[role="radio"]').getAttribute("aria-checked"), "true");
-  view.hlPopup.querySelector(".qiaomu-reader-hl-colors").click();
+  assert.equal(trigger.getAttribute("aria-expanded"), "true");
+  const options = view.hlPopup.querySelectorAll('[role="radio"]');
+  assert.equal(options.length, 3);
+  assert.equal(options[0].getAttribute("aria-checked"), "true");
+  assert.equal(options[0].querySelector(".qiaomu-reader-color-swatch"), options[0].firstElementChild);
+  assert.equal(options[0].textContent.trim(), "", "the swatch carries the choice without a repeated colour name");
+  assert.ok(options[0].getAttribute("aria-label"), "the swatch keeps an accessible name");
+  trigger.click();
   assert.equal(view.hlPopup.querySelector(".qiaomu-reader-color-dropdown"), null);
   f.close();
 });
@@ -99,14 +106,15 @@ test("selection popup shows the pinyin and glossary chip at the front", () => {
   view._pendingSel = { text: "犇" };
   api.syncSelectionToolbar(view);
   const row = view.hlPopup.querySelector(".qiaomu-reader-hl-actions");
-  const chip = row.firstElementChild;
+  const chip = view.hlPopup.querySelector(".qiaomu-reader-py-chip");
   assert.equal(chip.className, "qiaomu-reader-py-chip");
+  assert.equal(chip.nextElementSibling, row, "the reading row sits above the action row");
   assert.equal(chip.querySelector(".qiaomu-reader-py-pinyin").textContent, "bēn");
   assert.equal(chip.querySelector(".qiaomu-reader-py-gloss").textContent, "群牛受惊奔跑。");
   assert.ok(row.querySelector(".qiaomu-reader-hl-highlight"), "the actions stay in the row");
   view._pendingSel = { text: "阅读" };
   api.syncSelectionToolbar(view);
-  assert.equal(row.querySelectorAll(".qiaomu-reader-py-chip").length, 0, "the chip follows the selection");
+  assert.equal(view.hlPopup.querySelectorAll(".qiaomu-reader-py-chip").length, 0, "the chip follows the selection");
   f.close();
 });
 
@@ -127,8 +135,7 @@ test("the reading chip pins the selection and reflects the pinned state", () => 
   };
   view._pendingSel = { cfi: "epubcfi(/6/2!/4/2,/1:0,/1:1)", text: "犇" };
   api.syncSelectionToolbar(view);
-  const row = view.hlPopup.querySelector(".qiaomu-reader-hl-actions");
-  let chip = row.firstElementChild;
+  let chip = view.hlPopup.querySelector(".qiaomu-reader-py-chip");
   assert.equal(chip.tagName, "BUTTON");
   assert.equal(chip.getAttribute("type"), "button");
   assert.equal(chip.getAttribute("aria-pressed"), "false");
@@ -136,39 +143,24 @@ test("the reading chip pins the selection and reflects the pinned state", () => 
   chip.click();
   assert.equal(calls.length, 1);
   assert.equal(calls[0].info.pinyin, "bēn");
-  chip = row.firstElementChild;
+  chip = view.hlPopup.querySelector(".qiaomu-reader-py-chip");
   assert.equal(chip.getAttribute("aria-pressed"), "true", "the chip reflects the pinned state");
   assert.equal(chip.getAttribute("aria-label"), "unpin-pinyin");
   chip.click();
   assert.equal(calls.length, 2);
-  assert.equal(row.firstElementChild.getAttribute("aria-pressed"), "false");
+  assert.equal(view.hlPopup.querySelector(".qiaomu-reader-py-chip").getAttribute("aria-pressed"), "false");
   f.close();
 });
 
-test("right-click in a book iframe captures selection before the native menu and preserves CFI when copying its link", async () => {
-  const f = setup(); const { view, api, menus, copied, window } = f;
-  const frame = window.document.createElement("iframe"); view.areaEl.append(frame);
-  frame.getBoundingClientRect = () => ({ left: 100, top: 50 });
-  const doc = frame.contentDocument; doc.body.textContent = "选中文本";
-  const range = doc.createRange(); range.selectNodeContents(doc.body); doc.getSelection().addRange(range);
-  view.engine = {};
-  view._engineSelectionCheck = ({ doc: actual, index }) => { assert.equal(actual, doc); assert.equal(index, 12); view._selectionDoc = doc; };
-  const event = new doc.defaultView.MouseEvent("contextmenu", { clientX: 30, clientY: 40, cancelable: true });
-  api.openReaderSelectionContext(view, event, doc, 12);
-  assert.equal(event.defaultPrevented, true);
-  const menu = menus[0]; assert.equal(menu.pos.x, 130); assert.equal(menu.pos.y, 90);
-  assert.deepEqual(menu.items.slice(0, 4).map(i => i.title), ["highlight-action", "annotate-action", "ask-ai-action", "copy"]);
-  doc.getSelection().removeAllRanges(); view._hideHlPopup();
-  await menu.items.find(i => i.title === "copy-position-link").run(); await tick();
-  assert.match(copied[0], /cfi=epubcfi%28/);
+test("the selection popup carries every action, so no second menu exists", () => {
+  const f = setup();
+  const { api, view, menus } = f;
+  assert.equal(typeof api.openReaderSelectionContext, "undefined");
+  assert.equal(typeof api.openSelectionMoreMenu, "undefined");
+  api.syncSelectionToolbar(view);
+  assert.equal(view.hlPopup.querySelector(".qiaomu-reader-hl-menu"), null);
+  assert.equal(menus.length, 0);
   f.close();
-});
-
-test("an open menu cannot apply an old selection to another book", () => {
-  const f = setup(); f.api.openSelectionMoreMenu(f.view, {}, true);
-  f.view.file = { path: "Another.mobi" };
-  f.menus[0].items[0].run();
-  assert.equal(f.records.length, 0); f.close();
 });
 
 test("recoloring an existing CFI keeps its ID and comment; undo restores the previous color", () => {
@@ -253,16 +245,13 @@ test("translation becomes a primary action only when enabled and retains selecte
   f.close();
 });
 
-test("configured order is shared with right click and hidden actions remain in More", () => {
+test("configured order drives the four visible buttons", () => {
   const f = setup();
   f.view.plugin.settings.selectionActions = [{ id: "copy" }, { id: "highlight", visible: false }];
   f.api.syncSelectionToolbar(f.view);
-  assert.equal(f.view.hlPopup.querySelector("button").getAttribute("aria-label"), "copy");
-  assert.equal(f.view.hlPopup.querySelector(".qiaomu-reader-highlight-split"), null);
-  f.api.openSelectionMoreMenu(f.view, {}, false);
-  assert.equal(f.menus[0].items[0].title, "highlight-action");
-  f.api.openSelectionMoreMenu(f.view, {}, true);
-  assert.deepEqual(f.menus[1].items.slice(0, 4).map(i => i.title), ["copy", "highlight-action", "annotate-action", "ask-ai-action"]);
+  const labels = [...f.view.hlPopup.querySelectorAll(".qiaomu-reader-hl-actions button")].map(b => b.getAttribute("aria-label"));
+  assert.deepEqual(labels, ["copy", "annotate-action", "ask-ai-action"]);
+  assert.equal(f.view.hlPopup.querySelector(".qiaomu-reader-hl-highlight"), null);
   f.close();
 });
 
@@ -273,6 +262,6 @@ test("preferences recover malformed values and preserve deliberate all-hidden st
   assert.equal(normalized.length, 5); assert.equal(normalized[0].visible, false);
   const f = setup(); f.view.plugin.settings.selectionActions = defaults.map(x => ({...x, visible:false}));
   f.api.addBarButtons(f.view, f.view.hlPopup);
-  assert.equal(f.view.hlPopup.querySelectorAll("button").length, 1);
-  assert.ok(f.view.hlPopup.querySelector(".qiaomu-reader-hl-menu")); f.close();
+  assert.equal(f.view.hlPopup.querySelectorAll("button").length, 0);
+  f.close();
 });
