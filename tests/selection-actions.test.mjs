@@ -76,14 +76,18 @@ function setup(overrides = {}) {
   return { window, view, api, menus, records, copied, savedComments, translations, close: () => window.close() };
 }
 
-test("toolbar keeps four actions and opens the swatch palette from the highlight button", () => {
-  const f = setup(); const { api, view, menus } = f;
+test("the highlight button applies the current colour and ArrowDown opens the swatch palette", () => {
+  const f = setup(); const { api, view, menus, records, window } = f;
   api.addBarButtons(view, view.hlPopup);
   const labels = [...view.hlPopup.querySelectorAll("button")].map(b => b.getAttribute("aria-label"));
   assert.deepEqual(labels, ["highlight-action", "annotate-action", "ask-ai-action", "copy"]);
   const trigger = view.hlPopup.querySelector(".qiaomu-reader-hl-highlight");
   assert.equal(trigger.getAttribute("aria-expanded"), "false");
   trigger.click();
+  assert.equal(records.length, 1, "one click highlights with the current colour");
+  assert.equal(records[0].color, "yellow");
+  assert.equal(view.hlPopup.querySelector(".qiaomu-reader-color-dropdown"), null, "no palette on a plain click");
+  trigger.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
   assert.equal(menus.length, 0, "colors use an attached dropdown, not an OS context menu");
   assert.equal(trigger.getAttribute("aria-expanded"), "true");
   const options = view.hlPopup.querySelectorAll('[role="radio"]');
@@ -92,8 +96,29 @@ test("toolbar keeps four actions and opens the swatch palette from the highlight
   assert.equal(options[0].querySelector(".qiaomu-reader-color-swatch"), options[0].firstElementChild);
   assert.equal(options[0].textContent.trim(), "", "the swatch carries the choice without a repeated colour name");
   assert.ok(options[0].getAttribute("aria-label"), "the swatch keeps an accessible name");
-  trigger.click();
+  view.hlPopup.querySelector(".qiaomu-reader-color-dropdown")
+    .dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   assert.equal(view.hlPopup.querySelector(".qiaomu-reader-color-dropdown"), null);
+  f.close();
+});
+
+test("holding the highlight button opens the palette without highlighting", () => {
+  const f = setup(); const { api, view, records, window } = f;
+  const timers = [];
+  const realSetTimeout = window.setTimeout;
+  window.setTimeout = (fn) => { timers.push(fn); return timers.length; };
+  try {
+    api.addBarButtons(view, view.hlPopup);
+    const trigger = view.hlPopup.querySelector(".qiaomu-reader-hl-highlight");
+    trigger.dispatchEvent(new window.MouseEvent("pointerdown", { button: 0, bubbles: true }));
+    assert.equal(timers.length, 1, "the hold timer is armed");
+    timers[0]();
+    assert.ok(view.hlPopup.querySelector(".qiaomu-reader-color-dropdown"), "the palette opens on hold");
+    trigger.click();
+    assert.equal(records.length, 0, "the click ending the hold must not highlight");
+  } finally {
+    window.setTimeout = realSetTimeout;
+  }
   f.close();
 });
 

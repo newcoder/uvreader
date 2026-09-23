@@ -128,9 +128,9 @@ async function highlightFromPopup(page, highlightsPath, bookKey, expected) {
     const view = window.__qbrApp?.workspace?.getLeavesOfType("qiaomu-reader")[0]?.view;
     return view?.hlPopup?.classList.contains("qiaomu-reader-hl-popup-on") ? "on" : "";
   }), 15_000);
-  // The highlight button opens the swatch palette; the swatch applies the colour.
+  // One click highlights with the current colour; the palette is the held /
+  // ArrowDown path and is exercised by its own step.
   await page.click(".qiaomu-reader-hl-highlight");
-  await page.click(".qiaomu-reader-color-dropdown .qiaomu-reader-color-option");
   const stored = await waitFor("reading-highlights.json", () => {
     if (!fs.existsSync(highlightsPath)) return "";
     const data = JSON.parse(fs.readFileSync(highlightsPath, "utf8"));
@@ -295,9 +295,11 @@ async function runEbookScenario() {
     }, 25_000);
     console.log("epub: selected", selected.slice(0, 40));
 
-    // The highlight button opens the swatch palette; a missing port leaves the
-    // trigger dead and this step times out. Swatches carry no repeated names.
-    await page.evaluate(() => document.querySelector(".qiaomu-reader-hl-highlight")?.click());
+    // The palette opens from the highlight button (ArrowDown or a held press);
+    // a missing port leaves the trigger dead and this step times out. Swatches
+    // carry no repeated colour names.
+    await page.focus(".qiaomu-reader-hl-highlight");
+    await page.keyboard.press("ArrowDown");
     const colorOptions = await waitFor("highlight color dropdown", () => page.evaluate(() => {
       const options = [...document.querySelectorAll(".qiaomu-reader-color-dropdown .qiaomu-reader-color-option")];
       if (options.length < 3) return "";
@@ -365,7 +367,6 @@ async function runEbookScenario() {
     await waitFor("highlight popup for the click test", () => page.evaluate(
       () => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view?.hlPopup?.classList.contains("qiaomu-reader-hl-popup-on")), 10_000);
     await page.click(".qiaomu-reader-hl-highlight");
-    await page.click(".qiaomu-reader-color-dropdown .qiaomu-reader-color-option");
     const clickNeedle = clickText.slice(0, 6);
     const clickedHl = await waitFor("click-test highlight stored", () => page.evaluate((needle) => {
       const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view;

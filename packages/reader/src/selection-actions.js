@@ -269,6 +269,35 @@ export function createSelectionActions({
     btn.style.setProperty("--selection-color", hlColorCss(selectionColor(view)));
   }
 
+  // The highlight button applies the current colour straight away. Holding it
+  // (or pressing ArrowDown/ContextMenu on it) opens the palette instead, so the
+  // colour list stays one gesture away without adding a fifth button.
+  function bindHighlightButton(view, btn, markLongPress) {
+    let timer = null;
+    const cancel = () => {
+      if (timer === null) return;
+      window.clearTimeout(timer);
+      timer = null;
+    };
+    btn.setAttribute("aria-haspopup", "menu");
+    btn.setAttribute("aria-expanded", "false");
+    btn.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      cancel();
+      timer = window.setTimeout(() => {
+        timer = null;
+        markLongPress();
+        toggleSelectionColorDropdown(view);
+      }, 420);
+    });
+    for (const type of ["pointerup", "pointerleave", "pointercancel"]) btn.addEventListener(type, cancel);
+    btn.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowDown" && event.key !== "ContextMenu") return;
+      event.preventDefault();
+      toggleSelectionColorDropdown(view);
+    });
+  }
+
   function addBarButtons(view, pop) {
     const row = pop.createDiv("qiaomu-reader-hl-actions");
     row.setAttribute("role", "toolbar");
@@ -282,12 +311,12 @@ export function createSelectionActions({
     };
     for (const action of selectionActions(view).filter(item => item.visible)) {
       const isHighlight = action.id === "highlight";
-      const btn = button(row, action.cls, action.icon, action.label,
-        isHighlight ? () => toggleSelectionColorDropdown(view) : action.run);
-      if (isHighlight) {
-        btn.setAttribute("aria-haspopup", "menu");
-        btn.setAttribute("aria-expanded", "false");
-      }
+      let longPressed = false;
+      const run = isHighlight
+        ? () => { if (longPressed) { longPressed = false; return; } action.run(); }
+        : action.run;
+      const btn = button(row, action.cls, action.icon, action.label, run);
+      if (isHighlight) bindHighlightButton(view, btn, () => { longPressed = true; });
     }
     row.addEventListener("keydown", (event) => {
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
