@@ -315,6 +315,13 @@ async function runEbookScenario() {
     const stored = await highlightFromPopup(page, highlightsPath, bookKey, { cfi: true });
     console.log("epub: highlight stored", stored.id, stored.color);
 
+    // The undo toast must follow the passage, not sit at the page bottom.
+    const placedToast = await waitFor("placed highlight toast", () => page.evaluate(() => {
+      const el = document.querySelector(".qiaomu-reader-selection-feedback");
+      return el?.style.top && el.style.bottom === "auto" ? el.style.top : "";
+    }), 8_000);
+    console.log("epub: undo toast follows the passage", placedToast);
+
     // Clicking a stored highlight reopens its toolbar: the engine emits
     // show-annotation and the view routes it back into the highlight popup.
     // The selection is text-level on purpose — an element-content range
@@ -369,6 +376,24 @@ async function runEbookScenario() {
       return view._editHlId === id && view.hlPopup.classList.contains("qiaomu-reader-hl-popup-on");
     }, clickedHl.id), 10_000);
     console.log("epub: clicking the highlight reopened its toolbar");
+
+    // The reopened highlight also offers the undo toast again: undo removes it,
+    // and the follow-up toast puts it back.
+    const undoToast = await waitFor("undo toast for the clicked highlight", () => page.evaluate(() => {
+      const el = document.querySelector(".qiaomu-reader-selection-feedback");
+      return el?.style.top ? el.textContent : "";
+    }), 8_000);
+    await page.click(".qiaomu-reader-selection-feedback button");
+    await waitFor("highlight removed by the undo toast", () => page.evaluate((id) => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view;
+      return view.plugin.getHighlights(view.file.path).every((hl) => hl.id !== id);
+    }, clickedHl.id), 8_000);
+    await page.click(".qiaomu-reader-selection-feedback button");
+    await waitFor("highlight restored by the second undo", () => page.evaluate((id) => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view;
+      return view.plugin.getHighlights(view.file.path).some((hl) => hl.id === id);
+    }, clickedHl.id), 8_000);
+    console.log("epub: the undo toast removed and restored the highlight", undoToast.slice(0, 8));
     await page.evaluate(() => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view._hideHlPopup());
 
     const notePath = path.join(userData, "library", "notes", `${path.basename(book, path.extname(book))}.md`);

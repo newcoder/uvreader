@@ -977,6 +977,7 @@ export function createReaderView({
     selectionHud.syncSelectionToolbar(this);
     pop.classList.add("qiaomu-reader-hl-popup-on");
     readerHud.positionPopup(this, rect, 320, 44);
+    selectionHud.showHighlightUndo(this, rect);
   }
   _hideHlPopup() {
     qiaomuReaderClearPaintedSelection();

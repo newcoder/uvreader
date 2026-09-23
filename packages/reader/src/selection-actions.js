@@ -63,7 +63,19 @@ export function createSelectionActions({
     return { left: r.left + x, right: r.right + x, top: r.top + y, bottom: r.bottom + y, width: r.width, height: r.height };
   }
 
-  function selectionFeedback(view, message, undo) {
+  // The toast follows the passage it talks about: under the selection on
+  // desktop, and only without a rect does it fall back to the bottom centre.
+  function positionFeedback(view, el, rect) {
+    const root = view.contentEl;
+    const rootBox = root.getBoundingClientRect();
+    const width = el.offsetWidth || 160;
+    const height = el.offsetHeight || 34;
+    const left = Math.max(6, Math.min(rect.left - rootBox.left + rect.width / 2 - width / 2, root.clientWidth - width - 6));
+    const top = Math.max(6, Math.min(rect.bottom - rootBox.top + 10, rootBox.height - height - 6));
+    Object.assign(el.style, { left: `${Math.round(left)}px`, top: `${Math.round(top)}px`, bottom: "auto", transform: "none" });
+  }
+
+  function selectionFeedback(view, message, undo, rect = null) {
     window.clearTimeout(view._selectionFeedbackTimer);
     view._selectionFeedback?.remove();
     const el = view._selectionFeedback = view.contentEl.createDiv("qiaomu-reader-selection-feedback");
@@ -72,7 +84,32 @@ export function createSelectionActions({
     if (undo) el.createEl("button", { text: translate("undo"), attr: { type: "button" } }).addEventListener("click", () => {
       undo(); window.clearTimeout(view._selectionFeedbackTimer); el.remove(); view._selectionFeedback = null;
     });
+    if (rect) positionFeedback(view, el, rect);
     view._selectionFeedbackTimer = window.setTimeout(() => { el.remove(); view._selectionFeedback = null; }, undo ? 6000 : 1800);
+  }
+
+  function removeHighlightWithUndo(view, id, rect) {
+    const file = view.file;
+    if (!file || !id) return;
+    const hl = view.plugin.getHighlights(file.path).find((item) => item.id === id);
+    if (!hl) return;
+    view.plugin.removeHighlight(file.path, id);
+    view._unwrapHighlight(id);
+    refreshHlPanel(view);
+    view._hideHlPopup();
+    selectionFeedback(view, translate("highlight-deleted"), () => {
+      if (view.plugin.getHighlights(file.path).some((item) => item.id === id)) return;
+      view.plugin.addHighlight(file.path, hl);
+      if (view.file?.path === file.path) repaintSelectionHighlights(view);
+    }, rect);
+  }
+
+  // Clicking an existing highlight reopens its toolbar and offers the same undo
+  // affordance a fresh highlight gets, so it can be removed without the panel.
+  function showHighlightUndo(view, rect) {
+    const id = view._editHlId;
+    if (!id || !view.file) return;
+    selectionFeedback(view, translate("highlight-saved"), () => removeHighlightWithUndo(view, id, rect), rect);
   }
 
   function repaintSelectionHighlights(view) {
@@ -96,6 +133,7 @@ export function createSelectionActions({
     view.plugin.settings.defaultHlColor = colorId;
     void view.plugin.saveAll();
     repaintSelectionHighlights(view);
+    const rect = view._hlPopupRect;
     clearReaderSelection(view); view._hideHlPopup();
     selectionFeedback(view, translate("highlight-saved"), () => {
       for (const id of ids) {
@@ -107,7 +145,7 @@ export function createSelectionActions({
         }
       }
       if (view.file?.path === path) repaintSelectionHighlights(view);
-    });
+    }, rect);
   }
 
   function closeSelectionColorDropdown(view, focus = false) {
@@ -241,9 +279,10 @@ export function createSelectionActions({
   async function copySelectionText(view) {
     const cur = view._currentHl();
     if (!cur) return;
+    const rect = view._hlPopupRect;
     clearReaderSelection(view); view._hideHlPopup();
     const ok = await copyToClipboard(cur.text);
-    selectionFeedback(view, translate(ok ? "copied" : "could-not-copy"));
+    selectionFeedback(view, translate(ok ? "copied" : "could-not-copy"), null, rect);
   }
 
   function openAiSelectionChat(view) {
@@ -406,7 +445,7 @@ export function createSelectionActions({
 
   return {
     matchingSelectionHighlight, selectionColor, clearReaderSelection, beginReaderSelection,
-    engineSelectionRect, selectionFeedback, repaintSelectionHighlights,
+    engineSelectionRect, selectionFeedback, showHighlightUndo, removeHighlightWithUndo, repaintSelectionHighlights,
     applySelectionColor, closeSelectionColorDropdown, toggleSelectionColorDropdown, syncSelectionToolbar,
     actions: selectionActions, addBarButtons, copySelectionText, openAiSelectionChat,
     closeInlineHighlightComment, openInlineHighlightComment, handleAreaNavClick,

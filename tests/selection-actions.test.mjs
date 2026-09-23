@@ -163,6 +163,37 @@ test("the selection popup carries every action, so no second menu exists", () =>
   f.close();
 });
 
+test("the highlight toast sits under the passage instead of the page bottom", () => {
+  const f = setup(); const { api, view } = f;
+  view._hlPopupRect = { left: 120, top: 300, bottom: 320, width: 180, height: 20 };
+  view.contentEl.getBoundingClientRect = () => ({ left: 0, top: 0, right: 500, bottom: 700, width: 500, height: 700 });
+  api.applySelectionColor(view, "green");
+  const toast = view.contentEl.querySelector(".qiaomu-reader-selection-feedback");
+  assert.ok(toast, "the toast exists");
+  assert.ok(Number.parseInt(toast.style.top, 10) > 320, "it sits below the passage");
+  assert.equal(toast.style.bottom, "auto");
+  assert.equal(toast.style.transform, "none");
+  f.close();
+});
+
+test("an existing highlight offers the undo toast that removes and restores it", () => {
+  const f = setup(); const { api, view, records } = f;
+  records.push({ id: "existing", color: "yellow", text: "选中文本", cfi: "epubcfi(/6/2!/4/2,/1:0,/1:4)" });
+  view._editHlId = "existing";
+  const rect = { left: 100, top: 200, bottom: 220, width: 120, height: 20 };
+  api.showHighlightUndo(view, rect);
+  const toast = view.contentEl.querySelector(".qiaomu-reader-selection-feedback");
+  assert.equal(toast.querySelector("span").textContent, "highlight-saved");
+  toast.querySelector("button").click();
+  assert.equal(records.length, 0, "undo removes the highlight");
+  const restore = view.contentEl.querySelector(".qiaomu-reader-selection-feedback");
+  assert.equal(restore.querySelector("span").textContent, "highlight-deleted");
+  restore.querySelector("button").click();
+  assert.equal(records.length, 1, "the second undo restores it");
+  assert.equal(records[0].id, "existing");
+  f.close();
+});
+
 test("recoloring an existing CFI keeps its ID and comment; undo restores the previous color", () => {
   const f = setup(); const { records, view, api } = f;
   records.push({ ...view._pendingSel, id: "existing", color: "yellow", comment: "保留批注" });
