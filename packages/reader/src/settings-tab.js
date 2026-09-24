@@ -284,6 +284,11 @@ export function createSettingsTab({
     if (p.supportsThinking) this._aiThinkingRow(advanced, s);
     this._aiCapabilityModeRow(advanced, s, "image", "image-recognition", redraw);
     this._aiCapabilityModeRow(advanced, s, "tools", "tool-calling", redraw);
+    this._readingToggle(advanced,
+      "ai-tools",
+      "let-the-assistant-look-up-pages-search-the-book-and-list-highlights",
+      s.aiToolsEnabled !== false,
+      async (value) => { s.aiToolsEnabled = value; await this._saveAll(); });
     const connection = this._settingsDisclosure(advanced, "ai-connection-settings");
     connection.parentElement.setAttribute("data-ai-connection", "");
     if (p.needsKey && !needsSecret) this._aiSecretRow(connection, s, p);

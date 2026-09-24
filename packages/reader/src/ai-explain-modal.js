@@ -5,8 +5,12 @@ import { svgIcon } from "./reader-icons.js";
 import { verifiedQuotes } from "./reading-workflow.js";
 
 export function createAiExplainModal({
-  Component, Menu, Modal, Notice, aiExplain, aiLogFollowsTail, aiNeedsPageImage, aiTurnsHaveAttachments, bindAiAttachmentIntake, captureAiScreenshot, bindAiSlashPrompts, bindReaderAiComposer, bookNoteLinkFor, copyToClipboard, createAiChatLog, createAiStreamingMarkdownRenderer, createNoteFromAiAnswer, jumpToAiQuote, newAiSessionKey, normalizeAiTurnContext, noteAiImageFailure, openAiAttachMenu, pickAiAttachments, prepareAiTurns, qiaomuReaderTranslate, readerHud, removeAiAttachment, renderAiAttachmentList, renderAiComposerPrompts, renderAiContextQuote, renderAiUserTurn, renderMobileAiHeader, stripAiAttachmentData,
+  Component, Menu, Modal, Notice, aiExplain, aiExplainStep, aiLogFollowsTail, aiNeedsPageImage, aiTurnsHaveAttachments, bindAiAttachmentIntake, captureAiScreenshot, bindAiSlashPrompts, bindReaderAiComposer, bookNoteLinkFor, copyToClipboard, createAiChatLog, createAiStreamingMarkdownRenderer, createNoteFromAiAnswer, jumpToAiQuote, newAiSessionKey, normalizeAiTurnContext, noteAiImageFailure, openAiAttachMenu, pickAiAttachments, prepareAiTools, prepareAiTurns, qiaomuReaderTranslate,
+  readerHud, removeAiAttachment, renderAiAttachmentList, renderAiComposerPrompts, renderAiContextQuote, renderAiToolStep, renderAiUserTurn, renderMobileAiHeader, stripAiAttachmentData,
 }) {
+  // How many tool-call rounds a single question may take before the model has
+  // to answer with what it already read.
+  const MAX_AI_TOOL_ROUNDS = 3;
   return class AiExplainModal extends Modal {
   constructor(app, plugin, context) {
     super(app);
@@ -255,86 +259,138 @@ export function createAiExplainModal({
     };
     const userBubble = renderAiUserTurn(this.log, userTurn);
     this.turns.push(userTurn);
-    const group = this.log.createDiv("qiaomu-reader-ai-group");
-    const reasoningBox = group.createEl("details", { cls: "qiaomu-reader-ai-reason" });
-    reasoningBox.addClass("qiaomu-reader-ai-reason-hidden");
-    const reasoningSummary = reasoningBox.createEl("summary", { text: qiaomuReaderTranslate("thinking") });
-    const reasoningText = reasoningBox.createDiv("qiaomu-reader-ai-reason-text");
-    const bubble = group.createDiv("qiaomu-reader-ai-msg qiaomu-reader-ai-msg-ai");
-    bubble.setAttribute("aria-busy", "true");
-    const markdownRenderer = createAiStreamingMarkdownRenderer(
-      this,
-      bubble,
-      this.bookFile ? this.bookFile.path : "",
-      {
-        beforeRender: () => aiLogFollowsTail(this.log),
-        afterRender: (followTail) => { if (followTail && !this._readingEarlier) this._scroll(); },
-      },
-    );
-    this.activeMarkdownRenderer = markdownRenderer;
-    // indicator used by chat interfaces. A still line of text reads as a frozen window.
-    const ind = bubble.createDiv("qiaomu-reader-ai-typing");
-    const dots = ind.createDiv("qiaomu-reader-ai-typing-dots");
-    for (let i = 0; i < 3; i++) dots.createDiv("qiaomu-reader-ai-typing-dot");
-    ind.createDiv({ cls: "qiaomu-reader-ai-typing-text", text: qiaomuReaderTranslate("thinking-2") });
-    this._scroll();
-    let answer = "";
-    let reasoning = "";
-    let hasContent = false;
-    const onDelta = (delta) => {
-      if (delta.reasoning) {
-        reasoning = delta.reasoningText || reasoning + delta.reasoning;
-        reasoningBox.removeClass("qiaomu-reader-ai-reason-hidden");
-        reasoningBox.open = !hasContent;
-        reasoningText.setText(reasoning);
-      }
-      if (delta.content) {
-        answer = delta.answer || answer + delta.content;
-        if (!hasContent) {
-          hasContent = true;
-          ind.remove();
-          bubble.addClass("qiaomu-reader-ai-msg-streaming");
-          if (reasoning) {
-            reasoningBox.open = false;
-            reasoningSummary.setText(qiaomuReaderTranslate("reasoning"));
-          }
+    // One round is one visible assistant message. Tool-calling rounds finish
+    // their message and are followed by the tool cards and the next round.
+    const buildRound = () => {
+      const next = {
+        group: this.log.createDiv("qiaomu-reader-ai-group"),
+        answer: "",
+        reasoning: "",
+        hasContent: false,
+      };
+      next.reasoningBox = next.group.createEl("details", { cls: "qiaomu-reader-ai-reason" });
+      next.reasoningBox.addClass("qiaomu-reader-ai-reason-hidden");
+      next.reasoningSummary = next.reasoningBox.createEl("summary", { text: qiaomuReaderTranslate("thinking") });
+      next.reasoningText = next.reasoningBox.createDiv("qiaomu-reader-ai-reason-text");
+      next.bubble = next.group.createDiv("qiaomu-reader-ai-msg qiaomu-reader-ai-msg-ai");
+      next.bubble.setAttribute("aria-busy", "true");
+      next.markdownRenderer = createAiStreamingMarkdownRenderer(
+        this,
+        next.bubble,
+        this.bookFile ? this.bookFile.path : "",
+        {
+          beforeRender: () => aiLogFollowsTail(this.log),
+          afterRender: (followTail) => { if (followTail && !this._readingEarlier) this._scroll(); },
+        },
+      );
+      this.activeMarkdownRenderer = next.markdownRenderer;
+      // A still line of text reads as a frozen window; keep the dots moving.
+      next.ind = next.bubble.createDiv("qiaomu-reader-ai-typing");
+      const dots = next.ind.createDiv("qiaomu-reader-ai-typing-dots");
+      for (let i = 0; i < 3; i++) dots.createDiv("qiaomu-reader-ai-typing-dot");
+      next.ind.createDiv({ cls: "qiaomu-reader-ai-typing-text", text: qiaomuReaderTranslate("thinking-2") });
+      next.onDelta = (delta) => {
+        if (delta.reasoning) {
+          next.reasoning = delta.reasoningText || next.reasoning + delta.reasoning;
+          next.reasoningBox.removeClass("qiaomu-reader-ai-reason-hidden");
+          next.reasoningBox.open = !next.hasContent;
+          next.reasoningText.setText(next.reasoning);
         }
-        markdownRenderer.update(answer);
-      }
+        if (delta.content) {
+          next.answer = delta.answer || next.answer + delta.content;
+          if (!next.hasContent) {
+            next.hasContent = true;
+            next.ind.remove();
+            next.bubble.addClass("qiaomu-reader-ai-msg-streaming");
+            if (next.reasoning) {
+              next.reasoningBox.open = false;
+              next.reasoningSummary.setText(qiaomuReaderTranslate("reasoning"));
+            }
+          }
+          next.markdownRenderer.update(next.answer);
+        }
+      };
+      next.finishBubble = async () => {
+        await next.markdownRenderer.finish(next.answer);
+        next.bubble.removeClass("qiaomu-reader-ai-msg-streaming");
+        next.bubble.removeAttribute("aria-busy");
+        next.ind.remove();
+        if (next.reasoning) {
+          next.reasoningBox.open = false;
+          next.reasoningSummary.setText(qiaomuReaderTranslate("reasoning"));
+        } else {
+          next.reasoningBox.remove();
+        }
+        if (this.activeMarkdownRenderer === next.markdownRenderer) this.activeMarkdownRenderer = null;
+      };
+      this._scroll();
+      return next;
     };
+    let round = null;
+    let answer = "";
     try {
       // Hydration plus the image-support gate; a blocked turn throws with a
       // reason the failure branch below already understands. A text-only send
       // stays on the original turns so nothing about it becomes asynchronous.
-      const outbound = aiTurnsHaveAttachments(this.turns)
+      let outbound = aiTurnsHaveAttachments(this.turns)
         ? await prepareAiTurns(this, this.turns)
         : { turns: this.turns, vision: false };
-      answer = await aiExplain(this.structuredContext ? "" : this.text, this.plugin, outbound.turns, this.book, {
-        signal: this.abortController.signal,
-        onDelta,
-        sessionKey: this.aiSessionKey,
-        vision: outbound.vision,
-      });
+      const toolSet = typeof prepareAiTools === "function" ? await prepareAiTools(this) : null;
+      const useTools = Boolean(toolSet) && typeof aiExplainStep === "function";
+      round = buildRound();
+      for (let stepIndex = 0; ; stepIndex += 1) {
+        const request = {
+          signal: this.abortController.signal,
+          onDelta: round.onDelta,
+          sessionKey: this.aiSessionKey,
+          vision: outbound.vision,
+        };
+        const step = useTools
+          ? await aiExplainStep(this.structuredContext ? "" : this.text, this.plugin, outbound.turns, this.book, { ...request, tools: toolSet.definitions })
+          : {
+            answer: await aiExplain(this.structuredContext ? "" : this.text, this.plugin, outbound.turns, this.book, request),
+            toolCalls: [],
+          };
+        round.answer = String(step.answer || "");
+        if (!step.toolCalls?.length || stepIndex >= MAX_AI_TOOL_ROUNDS) break;
+        // The model asked to read before answering: keep this round's text, run
+        // each call and let the next round see the results.
+        await round.finishBubble();
+        this.turns.push({ role: "assistant", content: round.answer, toolCalls: step.toolCalls, stopReason: "toolUse" });
+        for (const call of step.toolCalls) {
+          const card = renderAiToolStep(this.log, call);
+          this._scroll();
+          let result = null;
+          try { result = await toolSet.run(call.name, call.arguments); }
+          catch (error) { result = { text: `工具执行失败：${String(error?.message || error)}`, isError: true }; }
+          card.finish(result);
+          this.turns.push({ role: "tool", toolCallId: call.id, toolName: call.name, content: result.text, isError: result.isError });
+        }
+        outbound = await prepareAiTurns(this, this.turns);
+        round = buildRound();
+      }
+      answer = round.answer;
     } catch (e) {
+      if (!round) round = buildRound();
       const followTail = aiLogFollowsTail(this.log);
       const why = e && e.qiaomuReaderReason;
       if (why !== "cancelled") console.error("UV Reader: AI chat failed", e);
       // A partial answer is still useful reading material. Keep its Markdown,
       // source and actions, but rebuild ACP next time after an interrupted turn.
       this.aiSessionKey = newAiSessionKey();
-      if (answer.trim()) {
-        await markdownRenderer.finish(answer);
-        this.turns.push({ role: "assistant", content: answer, interrupted: true });
+      if (round.answer.trim()) {
+        await round.markdownRenderer.finish(round.answer);
+        this.turns.push({ role: "assistant", content: round.answer, interrupted: true });
         this._finishAttachments(userTurn);
         this._consumePendingContext(attachedContext);
-        bubble.removeClass("qiaomu-reader-ai-msg-streaming");
-        bubble.removeAttribute("aria-busy");
-        ind.remove();
-        if (reasoning) reasoningBox.open = false;
-        else reasoningBox.remove();
-        group.createDiv({ cls: "qiaomu-reader-ai-interrupted", text: qiaomuReaderTranslate("reply-interrupted-generated-content-has-been-kept") });
-        this._actions(group, answer, { question: text, context: attachedContext, turn: userTurn });
-        if (this.activeMarkdownRenderer === markdownRenderer) this.activeMarkdownRenderer = null;
+        round.bubble.removeClass("qiaomu-reader-ai-msg-streaming");
+        round.bubble.removeAttribute("aria-busy");
+        round.ind.remove();
+        if (round.reasoning) round.reasoningBox.open = false;
+        else round.reasoningBox.remove();
+        round.group.createDiv({ cls: "qiaomu-reader-ai-interrupted", text: qiaomuReaderTranslate("reply-interrupted-generated-content-has-been-kept") });
+        this._actions(round.group, round.answer, { question: text, context: attachedContext, turn: userTurn });
+        if (this.activeMarkdownRenderer === round.markdownRenderer) this.activeMarkdownRenderer = null;
         this.busy = false;
         this.abortController = null;
         this._setSending(false);
@@ -342,14 +398,14 @@ export function createAiExplainModal({
         if (typeof this._persistSession === "function") void this._persistSession();
         return true;
       }
-      markdownRenderer.dispose();
-      if (this.activeMarkdownRenderer === markdownRenderer) this.activeMarkdownRenderer = null;
-      bubble.removeAttribute("aria-busy");
-      if (reasoning) {
-        reasoningBox.open = false;
-        reasoningSummary.setText(qiaomuReaderTranslate("reasoning"));
+      round.markdownRenderer.dispose();
+      if (this.activeMarkdownRenderer === round.markdownRenderer) this.activeMarkdownRenderer = null;
+      round.bubble.removeAttribute("aria-busy");
+      if (round.reasoning) {
+        round.reasoningBox.open = false;
+        round.reasoningSummary.setText(qiaomuReaderTranslate("reasoning"));
       } else {
-        reasoningBox.remove();
+        round.reasoningBox.remove();
       }
       this.turns.pop();
       if (attachedAttachments.length) {
@@ -357,8 +413,8 @@ export function createAiExplainModal({
         this._renderAttachments();
         if (why === "novision") noteAiImageFailure?.(this);
       }
-      if (why !== "cancelled") bubble.addClass("qiaomu-reader-ai-msg-err");
-      bubble.setText(
+      if (why !== "cancelled") round.bubble.addClass("qiaomu-reader-ai-msg-err");
+      round.bubble.setText(
         why === "cancelled" ? qiaomuReaderTranslate("generation-stopped")
           : why === "notconfigured" ? qiaomuReaderTranslate("choose-an-ai-service-and-model-in-plugin-settings-first")
           : why === "nokey" ? qiaomuReaderTranslate("select-or-create-an-api-key-in-plugin-settings-first")
@@ -382,7 +438,7 @@ export function createAiExplainModal({
                   : why === "http" ? qiaomuReaderTranslate("the-service-answered-with-error-0", e.qiaomuReaderStatus)
                     : qiaomuReaderTranslate("could-not-reach-the-service-it-looks-like-there-is-no-internet-c"));
       if (why !== "cancelled") {
-        const retryRow = group.createDiv("qiaomu-reader-ai-acts qiaomu-reader-ai-error-actions");
+        const retryRow = round.group.createDiv("qiaomu-reader-ai-acts qiaomu-reader-ai-error-actions");
         const retry = retryRow.createEl("button", { cls: "qiaomu-reader-ai-act" });
         svgIcon(retry, "rotate-ccw");
         retry.createSpan({ text: qiaomuReaderTranslate("try-again") });
@@ -390,7 +446,7 @@ export function createAiExplainModal({
           if (this.busy) return;
           retry.disabled = true;
           userBubble.remove();
-          group.remove();
+          round.group.remove();
           this.pendingContext = normalizeAiTurnContext(attachedContext);
           if (this.pendingContext) this.text = this.pendingContext.text;
           this._regeneratingContext = true;
@@ -407,19 +463,19 @@ export function createAiExplainModal({
     this._finishAttachments(userTurn);
     this._consumePendingContext(attachedContext);
     this.answer = answer;
-    if (!reasoning) reasoningBox.remove();
+    if (!round.reasoning) round.reasoningBox.remove();
     else {
-      reasoningBox.open = false;
-      reasoningSummary.setText(qiaomuReaderTranslate("reasoning"));
+      round.reasoningBox.open = false;
+      round.reasoningSummary.setText(qiaomuReaderTranslate("reasoning"));
     }
-    bubble.removeClass("qiaomu-reader-ai-msg-streaming");
-    bubble.removeAttribute("aria-busy");
+    round.bubble.removeClass("qiaomu-reader-ai-msg-streaming");
+    round.bubble.removeAttribute("aria-busy");
     // Keep the exact same Markdown renderer for the last stream frame. This
     // prevents a plain-text -> formatted-content jump when generation ends.
     const followTail = aiLogFollowsTail(this.log);
-    await markdownRenderer.finish(answer);
-    if (this.activeMarkdownRenderer === markdownRenderer) this.activeMarkdownRenderer = null;
-    this._actions(group, answer, { question: text, context: attachedContext });
+    await round.markdownRenderer.finish(answer);
+    if (this.activeMarkdownRenderer === round.markdownRenderer) this.activeMarkdownRenderer = null;
+    this._actions(round.group, answer, { question: text, context: attachedContext });
     if (followTail && !this._readingEarlier) this._scroll();
     this.busy = false;
     this.abortController = null;

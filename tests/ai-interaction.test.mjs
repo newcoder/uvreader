@@ -195,6 +195,9 @@ function chatHarness(explain, overrides = {}) {
     createNoteFromAiAnswer: async () => null,
     prepareAiTurns: async (_chat, turns) => ({ turns: turns || [], vision: false }),
     aiTurnsHaveAttachments: (turns) => (turns || []).some((turn) => turn?.attachments?.length > 0),
+    prepareAiTools: null,
+    aiExplainStep: null,
+    renderAiToolStep: () => ({ card: null, finish() {} }),
     stripAiAttachmentData: (list) => list || [],
     renderAiAttachmentList: () => ({ row: null, empty: true }),
     removeAiAttachment: async () => {},
@@ -343,6 +346,35 @@ test("sending refreshes the page once and freezes source while generation contin
   finish("回答");
   await pending;
   assert.equal(chat.turns[0].context.text, "发送瞬间页面");
+});
+
+test("a tool-calling round runs the tool and answers with its results", async () => {
+  const calls = [];
+  let steps = 0;
+  const { chat } = chatHarness(async () => "should not be used", {
+    prepareAiTools: async () => ({
+      definitions: [{ name: "search_book", description: "search", parameters: { type: "object" } }],
+      run: async (name, args) => {
+        calls.push([name, args]);
+        return { text: "命中：Alice 掉进兔子洞", isError: false };
+      },
+    }),
+    aiExplainStep: async (_text, _plugin, turns, _book, options) => {
+      steps += 1;
+      assert.equal(options.tools.length, 1, "the tool schemas travel with the round");
+      if (turns.some((turn) => turn.role === "tool")) return { answer: "最终答案", toolCalls: [] };
+      return { answer: "我查一下。", toolCalls: [{ id: "call_1", name: "search_book", arguments: { query: "Alice" } }] };
+    },
+  });
+  assert.equal(await chat._send("Alice 在哪里出现"), true);
+  assert.equal(steps, 2, "one tool round plus the final answer");
+  assert.deepEqual(calls, [["search_book", { query: "Alice" }]]);
+  const kinds = chat.turns.map((turn) => turn.role);
+  assert.deepEqual(kinds, ["user", "assistant", "tool", "assistant"]);
+  assert.deepEqual(chat.turns[1].toolCalls, [{ id: "call_1", name: "search_book", arguments: { query: "Alice" } }]);
+  assert.equal(chat.turns[2].toolCallId, "call_1");
+  assert.equal(chat.turns[2].content, "命中：Alice 掉进兔子洞");
+  assert.equal(chat.turns[3].content, "最终答案");
 });
 
 test("answer save captures its original book and retains saved-note metadata", async () => {

@@ -276,6 +276,8 @@ export function createAiChatView({
         ...(turn.savedNotePath ? { savedNotePath: turn.savedNotePath } : {}),
         ...(turn.context ? { context: normalizeAiTurnContext(turn.context) } : {}),
         ...(turn.attachments?.length ? { attachments: stripAiAttachmentData(turn.attachments) } : {}),
+        ...(turn.toolCalls?.length ? { toolCalls: turn.toolCalls } : {}),
+        ...(turn.role === "tool" ? { toolCallId: turn.toolCallId, toolName: turn.toolName, isError: turn.isError === true } : {}),
       })),
       updatedAt: Date.now(),
     };
@@ -310,6 +312,9 @@ export function createAiChatView({
         renderAiUserTurn(this.log, turn);
         return;
       }
+      // Tool results stay in the transcript for the model; the step cards
+      // around them are a live-session affordance.
+      if (turn.role !== "assistant") return;
       const group = this.log.createDiv("qiaomu-reader-ai-group");
       const bubble = group.createDiv("qiaomu-reader-ai-msg qiaomu-reader-ai-msg-ai");
       void renderAiMarkdown(this, bubble, turn.content, this.bookFile?.path || "");

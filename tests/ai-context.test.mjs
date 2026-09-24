@@ -164,6 +164,50 @@ test("stored conversations keep attachment metadata but never the base64 payload
   assert.equal("text" in attachments[0], false);
 });
 
+test("tool calls and tool results survive the stored-conversation round trip", () => {
+  const ctx = makeContext();
+  const history = ctx.normalizeAiChatHistory([{
+    id: "c3",
+    title: "T",
+    bookPath: "Books/a.pdf",
+    updatedAt: 9,
+    turns: [
+      { role: "user", content: "第三页讲了什么？" },
+      { role: "assistant", content: "我查一下。", toolCalls: [{ id: "call_1", name: "read_pages", arguments: { start: 3 } }], stopReason: "toolUse" },
+      { role: "tool", toolCallId: "call_1", toolName: "read_pages", content: "第 3 页正文", isError: false },
+      { role: "assistant", content: "这一页讲了……" },
+    ],
+  }]);
+  const turns = history[0].turns;
+  assert.equal(turns.length, 4);
+  assert.deepEqual(turns[1].toolCalls, [{ id: "call_1", name: "read_pages", arguments: { start: 3 } }]);
+  assert.equal(turns[2].role, "tool");
+  assert.equal(turns[2].toolCallId, "call_1");
+  assert.equal(turns[2].toolName, "read_pages");
+});
+
+test("aiMessages sends tool turns and assistant calls back to the model", () => {
+  const ctx = makeContext();
+  const msgs = ctx.aiMessages("", { aiInto: "中文" }, [
+    { role: "user", content: "查一下" },
+    { role: "assistant", content: "", toolCalls: [{ id: "call_1", name: "search_book", arguments: { query: "Alice" } }], stopReason: "toolUse" },
+    { role: "tool", toolCallId: "call_1", toolName: "search_book", content: "命中：Alice", isError: false },
+  ], "书");
+  assert.deepEqual(msgs[2], {
+    role: "assistant",
+    content: "",
+    toolCalls: [{ id: "call_1", name: "search_book", arguments: { query: "Alice" } }],
+    stopReason: "toolUse",
+  });
+  assert.deepEqual(msgs[3], {
+    role: "tool",
+    toolCallId: "call_1",
+    toolName: "search_book",
+    content: "命中：Alice",
+    isError: false,
+  });
+});
+
 test("aiMessages sends attachment parts after the prompt and text files inline", () => {
   const ctx = makeContext();
   const turns = [{

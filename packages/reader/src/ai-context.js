@@ -119,8 +119,20 @@ export function createAiContext({ translate, platform, win = globalThis, locateH
     return value.slice(0, 30).map((item) => {
       const legacyText = String(item?.text || "").slice(0, 50_000);
       const turns = Array.isArray(item?.turns) ? item.turns.slice(-40).map((turn) => ({
-        role: turn?.role === "assistant" ? "assistant" : "user",
-        content: String(turn?.content || "").slice(0, 50_000),
+        role: turn?.role === "assistant" ? "assistant" : turn?.role === "tool" ? "tool" : "user",
+        content: String(turn?.content || "").slice(0, turn?.role === "tool" ? 4_000 : 50_000),
+        ...(turn?.role === "tool" && turn.toolCallId
+          ? { toolCallId: String(turn.toolCallId).slice(0, 120), toolName: String(turn.toolName || "").slice(0, 80), isError: turn.isError === true }
+          : {}),
+        ...(turn?.role === "assistant" && Array.isArray(turn.toolCalls)
+          ? {
+            toolCalls: turn.toolCalls.slice(0, 8).map((call) => ({
+              id: String(call?.id || "").slice(0, 120),
+              name: String(call?.name || "").slice(0, 80),
+              arguments: call?.arguments && typeof call.arguments === "object" ? call.arguments : {},
+            })).filter((call) => call.id && call.name),
+          }
+          : {}),
         ...(turn?.role === "assistant" && turn.interrupted ? { interrupted: true } : {}),
         ...(turn?.role === "assistant" && typeof turn.savedNotePath === "string" && turn.savedNotePath.endsWith(".md")
           ? { savedNotePath: turn.savedNotePath.slice(0, 500) } : {}),
@@ -176,8 +188,22 @@ export function createAiContext({ translate, platform, win = globalThis, locateH
     const msgs = [{ role: "system", content: own || aiSystemChat(into) }];
     const from = String(book || "").trim();
     turns.forEach((turn, i) => {
+      if (turn.role === "tool") {
+        msgs.push({
+          role: "tool",
+          toolCallId: turn.toolCallId || "",
+          toolName: turn.toolName || "",
+          content: turn.content,
+          isError: turn.isError === true,
+        });
+        return;
+      }
       if (turn.role !== "user") {
-        msgs.push({ role: "assistant", content: turn.content });
+        msgs.push({
+          role: "assistant",
+          content: turn.content,
+          ...(turn.toolCalls?.length ? { toolCalls: turn.toolCalls, stopReason: turn.stopReason || "toolUse" } : {}),
+        });
         return;
       }
       const context = normalizeAiTurnContext(turn.context)

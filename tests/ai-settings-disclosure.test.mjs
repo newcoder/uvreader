@@ -22,6 +22,7 @@ function setup(provider, model = "", key = "") {
   class Setting {
     constructor(host) { this.settingEl = host.createDiv("setting-item"); this.controlEl = this.settingEl.createDiv("setting-item-control"); }
     setName(name) { this.settingEl.dataset.name = name; return this; }
+    setDesc(desc) { this.settingEl.dataset.desc = desc; return this; }
     addDropdown(build) {
       const selectEl = this.controlEl.createEl("select");
       const c = { selectEl, addOption(value, text) { selectEl.createEl("option", { text, attr: { value } }); return c; }, setValue(value) { selectEl.value = value; return c; }, onChange(fn) { selectEl.addEventListener("change", () => fn(selectEl.value)); return c; } };
@@ -30,6 +31,11 @@ function setup(provider, model = "", key = "") {
     addText(build) {
       const inputEl = this.controlEl.createEl("input");
       const c = { inputEl, setValue(value) { inputEl.value = value; return c; }, setPlaceholder(value) { inputEl.placeholder = value; return c; }, onChange(fn) { inputEl.addEventListener("input", () => fn(inputEl.value)); return c; } };
+      build(c); return this;
+    }
+    addToggle(build) {
+      const toggleEl = this.controlEl.createEl("input", { attr: { type: "checkbox" } });
+      const c = { toggleEl, setValue(value) { toggleEl.checked = value === true; return c; }, onChange(fn) { toggleEl.addEventListener("change", () => fn(toggleEl.checked)); return c; } };
       build(c); return this;
     }
   }

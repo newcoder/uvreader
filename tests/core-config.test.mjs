@@ -529,8 +529,8 @@ test("AI dialog uses built-in quick prompts and keeps reasoning separate", () =>
   assert.match(explainSource, /reasoningBox\.open = false/);
   assert.match(aiPiSource, /onDelta/);
   assert.match(source, /createAiStreamingMarkdownRenderer/);
-  assert.match(explainSource, /markdownRenderer\.update\(answer\)/);
-  assert.match(explainSource, /await markdownRenderer\.finish\(answer\)/);
+  assert.match(explainSource, /next\.markdownRenderer\.update\(next\.answer\)/);
+  assert.match(explainSource, /await next\.markdownRenderer\.finish\(next\.answer\)/);
   assert.doesNotMatch(source, /bubble\.setText\(answer\)/);
 });
 

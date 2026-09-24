@@ -96,6 +96,21 @@ function chatTurnWithAttachment(userData) {
   return null;
 }
 
+// Every stored turn across the desktop chat files, newest file first.
+function storedChatTurns(userData) {
+  const dir = path.join(userData, "data", "chat");
+  if (!fs.existsSync(dir)) return [];
+  const turns = [];
+  for (const entry of fs.readdirSync(dir)) {
+    if (!entry.endsWith(".json") || entry === "index.json") continue;
+    try {
+      const chat = JSON.parse(fs.readFileSync(path.join(dir, entry), "utf8"));
+      turns.push(...(chat?.turns || []));
+    } catch { /* skip unreadable chat files */ }
+  }
+  return turns;
+}
+
 function startMockAi(options = {}) {
   const state = {
     requests: 0,
@@ -127,6 +142,13 @@ function startMockAi(options = {}) {
           && message.content.some((part) => part?.type === "image_url"),
       );
       const hasTools = Array.isArray(payload.tools) && payload.tools.length > 0;
+      const lastMessage = Array.isArray(payload.messages) ? payload.messages.at(-1) : null;
+      const lastRole = String(lastMessage?.role || "");
+      const lastText = typeof lastMessage?.content === "string" ? lastMessage.content : "";
+      // A real chat with tools: the reader marks the message, the mock asks for
+      // a search, and the round after the tool result answers.
+      const wantsTool = hasTools && lastRole === "user" && lastText.includes("工具") && !lastText.includes("probe_number");
+      const afterTool = hasTools && lastRole === "tool";
       if (hasImage) { state.sawImage = true; state.imageRequests += 1; }
       if (hasTools) state.sawTools = true;
       if (hasImage && !state.vision) {
@@ -164,15 +186,34 @@ function startMockAi(options = {}) {
         response.writeHead(200, { ...cors, "Content-Type": "application/json" });
         response.end(JSON.stringify(body));
       };
-      if (hasImage && !hasTools && !payload.stream) {
+      // Only the message that itself carries an image gets the digit; an image
+      // sitting in history must not hijack a later text turn.
+      const lastHasImage = Array.isArray(lastMessage?.content)
+        && lastMessage.content.some((part) => part?.type === "image_url");
+      if (lastHasImage && !payload.stream) {
         json({ choices: [{ message: { content: state.probeDigit } }] });
         return;
       }
-      if (hasImage && !hasTools) {
+      if (lastHasImage) {
         sse([{ choices: [{ delta: { content: state.probeDigit } }] }]);
         return;
       }
-      if (hasTools && !payload.stream) {
+      if (wantsTool) {
+        sse([
+          { choices: [{ delta: { tool_calls: [{ index: 0, id: "call_search", type: "function", function: { name: "search_book", arguments: "" } }] } }] },
+          { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: JSON.stringify({ query: "Alice" }) } }] } }] },
+          { choices: [{ delta: {}, finish_reason: "tool_calls" }] },
+        ]);
+        return;
+      }
+      if (afterTool) {
+        sse([{ choices: [{ delta: { content: "MOCK TOOL ANSWER" } }] }]);
+        return;
+      }
+      // The probe asks for probe_number by name; the tool loop scenario marks
+      // its own message instead.
+      const probeRequest = hasTools && lastText.includes("probe_number");
+      if (probeRequest && !payload.stream) {
         json({
           choices: [{
             message: {
@@ -183,7 +224,7 @@ function startMockAi(options = {}) {
         });
         return;
       }
-      if (hasTools) {
+      if (probeRequest) {
         sse([
           { choices: [{ delta: { tool_calls: [{ index: 0, id: "call_probe", type: "function", function: { name: "probe_number", arguments: "" } }] } }] },
           { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: JSON.stringify({ n: 7 }) } }] } }] },
@@ -1159,6 +1200,37 @@ async function runCapabilityScenario() {
       return wide ? `${wide.width}x${wide.height}` : "";
     }), 15_000);
     console.log("current page:", pageShot);
+
+    // Tools: the model asks to search, the reader runs it and answers with the
+    // result. The composer still holds the two screenshots, so clear them.
+    await page.evaluate(() => {
+      const leaf = window.__qbrApp.workspace.getLeavesOfType("qiaomu-book-reader-ai-chat")[0];
+      if (leaf?.view) leaf.view.attachments = [];
+    });
+    await page.evaluate(() => document.querySelector(".qiaomu-reader-ai-attach-slot")?.replaceChildren());
+    await page.fill(".qiaomu-reader-ai-input", "用工具检索 Alice");
+    await page.press(".qiaomu-reader-ai-input", "Enter");
+    await waitFor("tool answer", () => page.evaluate(() => {
+      const bubbles = [...document.querySelectorAll(".qiaomu-reader-ai-msg-ai")];
+      return bubbles.some((bubble) => bubble.textContent.includes("MOCK TOOL ANSWER")) ? "yes" : "";
+    }), 30_000);
+    const toolInfo = await page.evaluate(() => {
+      const card = [...document.querySelectorAll(".qiaomu-reader-ai-tool")].at(-1);
+      return {
+        title: card?.querySelector(".qiaomu-reader-ai-tool-title")?.textContent || "",
+        status: card?.querySelector(".qiaomu-reader-ai-tool-status")?.textContent || "",
+        result: card?.querySelector(".qiaomu-reader-ai-tool-text")?.textContent || "",
+      };
+    });
+    if (!toolInfo.title.includes("检索全书")) throw new Error(`the tool step has the wrong title: ${JSON.stringify(toolInfo)}`);
+    if (toolInfo.status !== "完成") throw new Error(`the tool step did not finish: ${JSON.stringify(toolInfo)}`);
+    if (!/Alice/.test(toolInfo.result)) throw new Error(`the tool result has no search hit: ${JSON.stringify(toolInfo).slice(0, 200)}`);
+    const storedTool = await waitFor("stored tool turn", () => {
+      const turn = storedChatTurns(userData).find((item) => item.role === "tool");
+      return turn?.toolName === "search_book" ? turn : "";
+    }, 15_000);
+    if (storedTool.isError) throw new Error("the stored tool turn is an error");
+    console.log("tools:", toolInfo.title, "->", toolInfo.status, `(${toolInfo.result.length} chars)`, "stored as", storedTool.toolName);
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(userData, { recursive: true, force: true });

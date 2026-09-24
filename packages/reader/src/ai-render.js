@@ -492,6 +492,41 @@ export function createAiRender({
     return { row, empty: false };
   }
 
+  // One tool call in the conversation: a title, a live status and a foldable
+  // result. The reader runs the tool; this only draws it.
+  function renderAiToolStep(log, call) {
+    const card = log.createDiv("qiaomu-reader-ai-tool");
+    const head = card.createDiv("qiaomu-reader-ai-tool-head");
+    svgIcon(head.createSpan("qiaomu-reader-ai-tool-icon"), "search");
+    head.createSpan({ cls: "qiaomu-reader-ai-tool-title", text: toolStepTitle(call, translate) });
+    const status = head.createSpan({ cls: "qiaomu-reader-ai-tool-status", text: translate("tool-running") });
+    const body = card.createEl("details", { cls: "qiaomu-reader-ai-tool-body" });
+    body.createEl("summary", { text: translate("tool-result") });
+    const text = body.createEl("pre", { cls: "qiaomu-reader-ai-tool-text" });
+    return {
+      card,
+      finish(result) {
+        text.setText(String(result?.text || ""));
+        status.setText(result?.isError ? translate("tool-failed") : translate("tool-done"));
+        card.toggleClass("is-error", result?.isError === true);
+        card.toggleClass("is-done", result?.isError !== true);
+      },
+    };
+  }
+
+  function toolStepTitle(call, translateFn) {
+    const name = String(call?.name || "");
+    const key = `tool-${name.replace(/_/g, "-")}`;
+    const args = call?.arguments && typeof call.arguments === "object" ? call.arguments : {};
+    if (name === "read_pages") {
+      const start = Number(args.start) || 1;
+      const count = Number(args.count) || 1;
+      return `${translateFn(key)}${count > 1 ? ` ${start}–${start + count - 1}` : ` ${start}`}`;
+    }
+    if (name === "search_book" && args.query) return `${translateFn(key)}：${String(args.query).slice(0, 20)}`;
+    return translateFn(key);
+  }
+
   function renderAiUserTurn(log, turn) {
     const bubble = log.createDiv("qiaomu-reader-ai-msg qiaomu-reader-ai-msg-me");
     const context = normalizeAiTurnContext(turn?.context);
@@ -584,6 +619,7 @@ export function createAiRender({
     createAiStreamingMarkdownRenderer,
     renderAiContextQuote,
     renderAiAttachmentList,
+    renderAiToolStep,
     openAiAttachMenu,
     closeAiAttachMenu,
     bindReaderAiComposer,

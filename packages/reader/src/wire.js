@@ -70,6 +70,7 @@ import { createPdfZoomUi } from "./pdf-zoom-ui.js";
 import { createSelectionActions } from "./selection-actions.js";
 import { lookupSelection, lookupWordGloss } from "./pinyin-annotate.js";
 import { createPinPopup } from "./pin-popup.js";
+import { createAiTools } from "./ai-tools.js";
 import { openShotOverlay, planRegionStitch, visibleRegion } from "./reader-shot.js";
 import { createReaderTimer } from "./reader-timer.js";
 import { createReaderHud } from "./reader-hud.js";
@@ -384,6 +385,7 @@ const {
   createAiStreamingMarkdownRenderer,
   renderAiContextQuote,
   renderAiAttachmentList,
+  renderAiToolStep,
   openAiAttachMenu,
   closeAiAttachMenu,
   bindReaderAiComposer,
@@ -483,6 +485,9 @@ const DEFAULT_AI = {
   // provider/base/model) plus the manual override for a wrong probe.
   aiCapabilities: {},
   aiVisionMode: "auto", aiToolsMode: "auto",
+  // Let the assistant look pages up, search and list highlights while it
+  // answers. Read-only; the tools never write to the book.
+  aiToolsEnabled: true,
   aiInto: "中文", aiSystem: "",
   // null = use the six built-in reading prompts in the current UI language.
   // Once edited this becomes an array of { id, name, prompt } objects. Keeping
@@ -1407,7 +1412,7 @@ function setupPdfZoomInteractions(view) {
 // The desktop shell exposes its pi-ai runtime through the preload bridge; the
 // reader only sees the stable aiExplain contract.
 const aiRuntimeBridge = typeof window !== "undefined" && window.qbrDesktop ? window.qbrDesktop.ai || null : null;
-const { aiExplainStream, aiExplain, aiTranslate, aiProbe } = createPiTransport({
+const { aiExplainStream, aiExplain, aiExplainStep, aiTranslate, aiProbe } = createPiTransport({
   bridge: aiRuntimeBridge,
   aiConfig,
   aiMessages,
@@ -1439,6 +1444,102 @@ async function saveAiAttachment(plugin, attachment) {
   } catch {
     return attachment;
   }
+}
+
+// --- AI tools --------------------------------------------------------------
+// The tools read through the reader and the plugin; the tools module sees only
+// this state object, which keeps the formatting and schemas testable.
+function aiToolState(view, plugin) {
+  const pager = view?.pager;
+  const engine = view?.engine;
+  const format = String(view?.file?.extension || "").toLowerCase();
+  const total = Number(pager?.total) || 0;
+  const tocItems = view?.tocItems || [];
+  const blockPage = (index) => {
+    try { return pageForBlock(pager.flow, index); } catch { return null; }
+  };
+  const blockTexts = () => {
+    try { return [...pager._blocks()].map((el) => String(el.textContent || "")); } catch { return []; }
+  };
+  return {
+    format,
+    pageCount: total,
+    position: () => {
+      if (engine) {
+        const location = engine.currentLocation?.() || {};
+        const section = location.section || {};
+        return {
+          label: location.tocItem?.label || "",
+          page: Number.isFinite(section.current) ? section.current + 1 : undefined,
+          percent: Number.isFinite(location.fraction) ? location.fraction : undefined,
+        };
+      }
+      const page = currentBookPage(view);
+      return {
+        label: chapterForBlock(tocItems, Number.isFinite(pager?.currentBlockIndex?.()) ? pager.currentBlockIndex() : -1) || "",
+        page: Number.isFinite(page) ? page : undefined,
+        percent: total && Number.isFinite(page) ? page / total : undefined,
+      };
+    },
+    outline: () => tocItems
+      .map((item) => ({ label: String(item.label || item.title || ""), page: Number.isFinite(item.page) ? item.page : undefined }))
+      .filter((item) => item.label),
+    readPages: format === "pdf"
+      ? (start, count) => {
+        const pages = [];
+        for (let page = start; page < start + count; page += 1) {
+          let text = "";
+          try { text = String(view._pdfLazy?.textFor?.(page) || ""); } catch { text = ""; }
+          pages.push({ page, text });
+        }
+        return pages;
+      }
+      : null,
+    readCurrent: engine
+      ? () => ({
+        label: engine.currentLocation?.()?.tocItem?.label || "",
+        text: String(engine.visibleText?.() || "").slice(0, 6_000),
+      })
+      : null,
+    search: format === "pdf"
+      ? (query, limit) => searchBookBlocks(blockTexts(), query, limit).map((hit) => ({
+        page: blockPage(hit.block),
+        snippet: `${hit.pre}${hit.hit}${hit.post}`,
+      }))
+      : engine
+        ? async (query, limit) => {
+          const hits = [];
+          for await (const hit of engine.search(query, { paint: false, limit })) {
+            hits.push({ label: engine.labelForCfi(hit.cfi), snippet: hit.excerpt });
+          }
+          return hits;
+        }
+        : null,
+    highlights: () => (view?.file ? plugin.getHighlights(view.file.path) : []).map((hl) => ({
+      label: highlightWhere(view, hl),
+      text: String(hl.text || "").slice(0, 200),
+      comment: String(hl.comment || "").slice(0, 200),
+    })),
+  };
+}
+
+// Tools are offered only when the reader turned them on and the endpoint was
+// checked (or overridden) for tool calling. An inconclusive probe still tries:
+// the loop falls back the moment the provider rejects the tools array.
+async function prepareAiTools(chat) {
+  const plugin = chat?.plugin;
+  if (!plugin || plugin.settings.aiToolsEnabled === false) return null;
+  const view = readerViewForChat(chat);
+  if (!view?.file) return null;
+  const cfg = aiConfig(plugin);
+  const target = { id: cfg.id, base: cfg.base, model: cfg.model };
+  let capability = effectiveCapability(plugin.settings, target, "tools");
+  if (capability.state === "unknown" && capability.source === "none") {
+    try { capability = { state: (await detectAiCapability(plugin, "tools")).state, source: "probe", at: Date.now() }; }
+    catch { return null; }
+  }
+  if (capability.state === "no") return null;
+  return createAiTools({ state: aiToolState(view, plugin) });
 }
 
 // Whether any user turn carries an attachment; a text-only send then skips the
@@ -1767,6 +1868,7 @@ const AiExplainModal = createAiExplainModal({
   Modal,
   Notice,
   aiExplain,
+  aiExplainStep,
   aiLogFollowsTail,
   aiNeedsPageImage,
   aiTurnsHaveAttachments,
@@ -1785,6 +1887,7 @@ const AiExplainModal = createAiExplainModal({
   noteAiImageFailure,
   openAiAttachMenu,
   pickAiAttachments,
+  prepareAiTools,
   prepareAiTurns,
   qiaomuReaderTranslate,
   readerHud,
@@ -1792,6 +1895,7 @@ const AiExplainModal = createAiExplainModal({
   renderAiAttachmentList,
   renderAiComposerPrompts,
   renderAiContextQuote,
+  renderAiToolStep,
   renderAiUserTurn,
   renderMobileAiHeader,
   stripAiAttachmentData: stripAttachmentData,
