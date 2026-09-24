@@ -21,6 +21,7 @@ export { HIGHLIGHT_PAINTS } from "./highlight-colors.js";
 import { makeBook } from "foliate-js/view.js";
 import { Overlayer } from "foliate-js/overlayer.js";
 import { createHanziSearchMatcher } from "./search-matcher.js";
+import { columnDragActive, onColumnDrag } from "./column-drag.js";
 
 // Every extension this engine can open; the plugin registers all of them.
 export const ENGINE_EXTENSIONS = ["epub", "fb2", "fbz", "mobi", "azw", "azw3", "cbz"];
@@ -151,6 +152,7 @@ export class EpubEngine {
     #layout = {};
     #resizeObserver = null;
     #resizeFrame = null;
+    #columnDragOff = null;
     #keyCleanup = null;
 
     constructor(container, hooks = {}) {
@@ -243,10 +245,16 @@ export class EpubEngine {
                 if (this.#resizeFrame !== null) return;
                 this.#resizeFrame = this.#host.ownerDocument.defaultView.requestAnimationFrame(() => {
                     this.#resizeFrame = null;
-                    if (this.#view) this.setLayout(this.#layout);
+                    // A divider drag resizes the host every frame; reflowing the
+                    // book each time makes the drag stutter, so the layout lands
+                    // once the drag ends (see #columnDragOff below).
+                    if (!columnDragActive() && this.#view) this.setLayout(this.#layout);
                 });
             });
             this.#resizeObserver.observe(this.#host);
+            this.#columnDragOff = onColumnDrag((active) => {
+                if (!active && this.#view) this.setLayout(this.#layout);
+            });
         }
         try {
             await restoreEngineLocation(view, opts, () => this.#view === view);
@@ -264,6 +272,7 @@ export class EpubEngine {
     destroy() {
         this.#searchGeneration++;
         this.#resizeObserver?.disconnect(); this.#resizeObserver = null;
+        this.#columnDragOff?.(); this.#columnDragOff = null;
         this.#host.ownerDocument.defaultView?.cancelAnimationFrame?.(this.#resizeFrame);
         this.#resizeFrame = null;
         this.#keyCleanup?.(); this.#keyCleanup = null;

@@ -246,13 +246,23 @@ export class Workspace extends Events {
       const delta = side === "left" ? moveEvent.clientX - startX : startX - moveEvent.clientX;
       this._setSplitWidth(side, startWidth + delta);
     };
+    // Pointer capture keeps the drag alive when the pointer crosses the reader
+    // (its book iframes would otherwise swallow the move events).
+    const handle = event.currentTarget;
+    try { handle?.setPointerCapture?.(event.pointerId); } catch { /* document listeners still work */ }
+    let done = false;
     const up = () => {
+      if (done) return;
+      done = true;
       doc?.removeEventListener?.("pointermove", move);
       doc?.removeEventListener?.("pointerup", up);
+      doc?.removeEventListener?.("pointercancel", up);
+      try { handle?.releasePointerCapture?.(event.pointerId); } catch { /* already gone */ }
       this._storeWidths();
     };
     doc?.addEventListener?.("pointermove", move);
     doc?.addEventListener?.("pointerup", up);
+    doc?.addEventListener?.("pointercancel", up);
   }
 
   _splitMax(side) {

@@ -10,6 +10,7 @@ import { docOf } from "./reader-dom.js";
 import { jumpToEngineHighlight } from "./highlight-navigation.js";
 import { readerTextCss, resolveReaderFont, syncPageButtons } from "./reader-appearance.js";
 import { pinyinPinFor, renderEnginePins, togglePinyinPin } from "./pinyin-pins.js";
+import { columnDragActive, installColumnDragWatch, onColumnDrag } from "./column-drag.js";
 
 export function createReaderModal({
   Modal, Notice, BookSetupModal, FONTS, InfoModal, ReadSettingsModal, addPdfZoomMenuItems, attachEngineChrome, attachReaderContentClick, attachReaderSwipeNav, bookNoteAction, buildFindPanelFor, buildReaderBotNav, buildReaderMoreButton, buildReaderPageArea, buildReaderPanels, buildReaderSettPanelBody, buildReaderTopBar, buildTocItems, buildTocPanelFor, clearAiSource, clearFoundIn, createPdfPaginator, currentBookPage, enrichHighlights, ensureSelectedReaderFont, exportHighlightsMenu,   flowSelectionParts, hidePinPopup, hlColorCss, loadReaderDocument, locateHl, markFoundIn, navigateEngineToc, openEngineHighlightPopup, openEnginePinPopup, openOrCreateBookNoteBeside, pdfVisiblePageLabel, pdfZoom, persistCurrentReaderPosition, qiaomuReaderClearPaintedSelection, qiaomuReaderLocale, qiaomuReaderRevealWhenSettled, qiaomuReaderTheme, qiaomuReaderTranslate, raiseSelectionPopup, readerHud, readerIsPdf, readerPaginationMappingCollapsed, readerPdfPages, readerTimer, rememberReaderJump, renderHighlightPanel, renderReaderLoadError, renderVisibleFigures, resolveHighlightAnchor, restoreAiSource, restoreEngineHistory, selectionHud, settleReader, syncNavigationPanel, syncOpenAiSelectionContext, syncReaderAiCapability,   unwrapAllHighlights, unwrapAllPins, updateEngineLocation, wireReaderChrome, wrapBlockRange,
@@ -105,6 +106,9 @@ export function createReaderModal({
     const startWidth = this.areaEl.clientWidth;
     this._lastW = startWidth;
     const onResize = () => {
+      // A divider drag changes the width frame by frame: hold the reflow until
+      // the pointer is released so the divider keeps up with it.
+      if (columnDragActive()) { this._columnDragResized = true; return; }
       window.clearTimeout(this._rsT); this._rsT = window.setTimeout(() => {
         const widthNow = this.areaEl ? this.areaEl.clientWidth : 0;
         if (!widthNow) {
@@ -118,6 +122,27 @@ export function createReaderModal({
     const obs = new ResizeObserver(onResize);
     this._resizeObs = obs;
     obs.observe(this.areaEl);
+    this._columnDragWatchOff = installColumnDragWatch(this.modalEl || this.contentEl);
+    this._columnDragOff = onColumnDrag((active) => {
+      if (active) {
+        // A reflow queued just before the drag would land mid-drag; the drag
+        // end re-checks the width and lands it then.
+        if (this._rsT) { this._columnDragResized = true; window.clearTimeout(this._rsT); this._rsT = null; }
+        return;
+      }
+      this._afterColumnDrag();
+    });
+  }
+  _afterColumnDrag() {
+    if (!this._columnDragResized) return;
+    this._columnDragResized = false;
+    window.clearTimeout(this._rsT);
+    const widthNow = this.areaEl ? this.areaEl.clientWidth : 0;
+    if (!widthNow || this._closed) return;
+    if (Math.abs(widthNow - (this._lastW || 0)) <= 4
+      && Math.abs(this.areaEl.clientHeight - (this.pager.builtHeight || 0)) <= 4) return;
+    this._lastW = widthNow;
+    this._repaginate();
   }
   _applyTheme() {
     syncPageButtons(this);
@@ -823,6 +848,8 @@ export function createReaderModal({
   }
   _detachReaderObservers() {
     this._visibilityCleanup?.(); this._visibilityCleanup = null;
+    this._columnDragWatchOff?.(); this._columnDragWatchOff = null;
+    this._columnDragOff?.(); this._columnDragOff = null;
     this._resizeObs?.disconnect(); this._pdfLazy?.destroy?.(); this._pdfLazy = null;
     window.clearTimeout(this._rsT); window.clearTimeout(this._selTimer);
     window.clearTimeout(this._immTimer); window.clearTimeout(this._revealT); this._closeWatch?.disconnect();

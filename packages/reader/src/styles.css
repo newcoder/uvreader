@@ -620,6 +620,10 @@ button.qiaomu-reader-py-chip:focus-visible { outline:2px solid color-mix(in srgb
 .qiaomu-reader-view { position: relative; }
 .qiaomu-reader-area { transition: filter .18s ease, opacity .18s ease; }
 .qiaomu-reader-relayouting .qiaomu-reader-area { filter: blur(7px); opacity: .45; }
+/* A divider drag holds the reflow (column-drag.js): the pages stay crisp and
+   the cursor keeps its resize shape over the whole window. */
+html.qbr-split-dragging, html.qbr-split-dragging * { cursor: col-resize !important; user-select: none !important; }
+html.qbr-split-dragging .qiaomu-reader-relayouting .qiaomu-reader-area { filter: none; opacity: 1; }
 
 .qiaomu-reader-relayout-spin { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity .18s ease; }
 .qiaomu-reader-relayouting .qiaomu-reader-relayout-spin { opacity: 1; }

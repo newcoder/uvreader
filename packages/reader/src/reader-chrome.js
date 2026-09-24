@@ -230,13 +230,22 @@ export function createReaderChrome({
       const startX = event.clientX;
       const startWidth = dock.getBoundingClientRect().width;
       const move = (moveEvent) => apply(startWidth - (moveEvent.clientX - startX), false);
+      // Capture so dragging across the pages (and their iframes) keeps moving
+      // the divider instead of dropping the pointer events.
+      try { handle.setPointerCapture?.(event.pointerId); } catch { /* document listeners still work */ }
+      let done = false;
       const up = () => {
+        if (done) return;
+        done = true;
         doc.removeEventListener("pointermove", move);
         doc.removeEventListener("pointerup", up);
+        doc.removeEventListener("pointercancel", up);
+        try { handle.releasePointerCapture?.(event.pointerId); } catch { /* already gone */ }
         apply(dock.getBoundingClientRect().width, true);
       };
       doc.addEventListener("pointermove", move);
       doc.addEventListener("pointerup", up);
+      doc.addEventListener("pointercancel", up);
     });
     handle?.addEventListener("keydown", (event) => {
       if ((event.key !== "ArrowLeft" && event.key !== "ArrowRight") || !isOpen()) return;

@@ -12,6 +12,7 @@ import { readerTextCss, resolveReaderFont, syncPageButtons } from "./reader-appe
 import { svgIcon } from "./reader-icons.js";
 import { pinyinPinFor, renderEnginePins, togglePinyinPin } from "./pinyin-pins.js";
 import { warmWordGlosses } from "./pinyin-annotate.js";
+import { columnDragActive, installColumnDragWatch, onColumnDrag } from "./column-drag.js";
 
 export function createReaderView({
   ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, BookSetupModal, FONTS, InfoModal, ReadSettingsModal, VIEW_TYPE, addBookFileMenu, attachEngineChrome, attachReaderContentClick, attachReaderSwipeNav, bookNoteAction, buildFindPanelFor, buildReaderPageArea, buildReaderPanels, buildReaderSettPanelBody, buildReaderTopBar, buildTocItems, buildTocPanelFor, clearAiSource, clearFoundIn, createPdfPaginator, createPdfZoomControls, currentBookPage, enrichHighlights, ensureSelectedReaderFont, exportHighlightsMenu,   flowSelectionParts, handleReaderWheel, hidePinPopup, hlColorCss, loadReaderDocument, locateHl, markFoundIn, navigateEngineToc, openEngineHighlightPopup, openEnginePinPopup, openOrCreateBookNoteBeside, pageJump, pdfVisiblePageLabel, pdfZoom, persistCurrentReaderPosition, qiaomuReaderClearPaintedSelection, qiaomuReaderLocale, qiaomuReaderRevealWhenSettled, qiaomuReaderTheme, qiaomuReaderTranslate, raiseSelectionPopup, readerAiPanelContext, readerHud, readerIsPdf, readerPaginationMappingCollapsed, readerPdfPages, readerTimer, rememberReaderJump, renderHighlightPanel, renderReaderLoadError, renderVisibleFigures, resolveHighlightAnchor, restoreAiSource, restoreEngineHistory, selectionHud, setReaderTitle, setReadingFocus, settleReader, syncNavigationPanel, syncOpenAiReaderContext, syncOpenAiSelectionContext, syncReaderAiCapability,   unwrapAllHighlights, unwrapAllPins, updateEngineLocation, wireReaderChrome, wrapBlockRange,
@@ -68,6 +69,16 @@ export function createReaderView({
     this.registerDomEvent(docOf(this.contentEl), "visibilitychange", () => renderVisibleFigures(this));
     const obs = this._resizeObs = new ResizeObserver(() => this._onAreaResized());
     obs.observe(this.areaEl);
+    this._columnDragWatchOff = installColumnDragWatch(this.app?.workspaceEl || this.contentEl);
+    this._columnDragOff = onColumnDrag((active) => {
+      if (active) {
+        // A reflow queued just before the drag would land mid-drag; the drag
+        // end re-checks the width and lands it then.
+        if (this._resizeTimer) { this._columnDragResized = true; window.clearTimeout(this._resizeTimer); this._resizeTimer = null; }
+        return;
+      }
+      this._afterColumnDrag();
+    });
     this.registerEvent(this.app.workspace.on("layout-change", () => this._repaginateWhenWidthStale()));
     this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => this._onLeafSwitch(leaf)));
   }
@@ -82,7 +93,10 @@ export function createReaderView({
     if (this.engine) { this._setRelayout(false); return; }
     const width = this.areaEl.clientWidth;
     if (!width || this._resizeAlreadySettled(width)) return;
-    this._setRelayout(true); window.clearTimeout(this._resizeTimer);
+    // A divider drag changes the width frame by frame. Hold the reflow (and
+    // the blur veil) until the pointer is released so the divider keeps up.
+    if (columnDragActive()) { this._columnDragResized = true; return; }
+    window.clearTimeout(this._resizeTimer);
     const delay = this.app?.isMobile ? 500 : 260;
     this._resizeTimer = window.setTimeout(() => this._repaginateAfterResize(), delay);
   }
@@ -92,6 +106,13 @@ export function createReaderView({
       this._setRelayout(false); return;
     }
     void this.repaginate();
+  }
+  // Pointer released: land the reflow the divider drag held back.
+  _afterColumnDrag() {
+    if (!this._columnDragResized) return;
+    this._columnDragResized = false;
+    window.clearTimeout(this._resizeTimer);
+    this._repaginateAfterResize();
   }
   _repaginateWhenWidthStale() {
     if (this._layoutWidthStale()) void this.repaginate();
@@ -1089,6 +1110,8 @@ export function createReaderView({
     this._loadCoordinator.cancel();
     this._closed = true;
     this._resizeObs?.disconnect();
+    this._columnDragWatchOff?.();
+    this._columnDragOff?.();
     this._selectionCleanup?.();
     window.clearTimeout(this._contextSettleTimer);
     clearAiSource(this);

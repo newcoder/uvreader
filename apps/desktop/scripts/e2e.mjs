@@ -425,8 +425,22 @@ async function runEbookScenario() {
     });
     await page.mouse.move(handle.x, handle.y);
     await page.mouse.down();
+    await page.mouse.move(handle.x - 20, handle.y, { steps: 4 });
+    // With the button still held the divider follows the pointer and the reader
+    // holds its reflow (no blur veil, no re-pagination frame by frame).
+    const dragging = await waitFor("divider following the held pointer", () => page.evaluate((before) => {
+      const html = document.documentElement;
+      const panel = document.querySelector(".qiaomu-reader-hl-dock");
+      const width = panel ? Math.round(panel.getBoundingClientRect().width) : 0;
+      if (!html.classList.contains("qbr-split-dragging") || width < before + 8) return "";
+      if (document.querySelector(".qiaomu-reader-relayouting")) return "";
+      return String(width);
+    }, dock.width), 5_000);
+    console.log("epub: divider followed the held pointer to", dragging, "px with the reflow held");
     await page.mouse.move(handle.x - 40, handle.y, { steps: 6 });
     await page.mouse.up();
+    await waitFor("divider drag released", () => page.evaluate(
+      () => !document.documentElement.classList.contains("qbr-split-dragging")), 5_000);
     const widened = await waitFor("wider highlights dock", () => page.evaluate((before) => {
       const panel = document.querySelector(".qiaomu-reader-hl-dock");
       const width = panel ? Math.round(panel.getBoundingClientRect().width) : 0;
@@ -558,6 +572,37 @@ async function runPdfScenario() {
       return share > 0.97 && share < 1.01 ? String(Math.round(share * 100)) : "";
     }), 10_000);
     console.log("pdf: fit page fills the slot width", fitShare, "%");
+
+    // A divider drag holds the PDF reflow while the pointer moves and lands it
+    // once the button is released.
+    await page.evaluate(() => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view.togglePanel("highlights"));
+    await waitFor("pdf dock open", () => page.evaluate(
+      () => document.querySelector(".qiaomu-reader-body")?.classList.contains("qiaomu-reader-hl-open")), 10_000);
+    const handle = await page.evaluate(() => {
+      const rect = document.querySelector(".qiaomu-reader-splitter-hl").getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + 60 };
+    });
+    await page.mouse.move(handle.x, handle.y);
+    await page.mouse.down();
+    await page.mouse.move(handle.x - 30, handle.y, { steps: 5 });
+    const held = await waitFor("pdf reflow held during the drag", () => page.evaluate(() => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view;
+      const laidOut = view.pager.builtWidth || 0;
+      if (!document.documentElement.classList.contains("qbr-split-dragging")) return "";
+      if (document.querySelector(".qiaomu-reader-relayouting")) return "";
+      return laidOut && Math.abs(view.areaEl.clientWidth - laidOut) > 8 ? String(laidOut) : "";
+    }), 8_000);
+    await page.mouse.move(handle.x - 60, handle.y, { steps: 6 });
+    await page.mouse.up();
+    const landed = await waitFor("pdf reflow landed after the drag", () => page.evaluate(() => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view;
+      const laidOut = view.pager.builtWidth || 0;
+      if (document.documentElement.classList.contains("qbr-split-dragging")) return "";
+      if (document.querySelector(".qiaomu-reader-relayouting")) return "";
+      return laidOut && Math.abs(view.areaEl.clientWidth - laidOut) < 8 ? String(laidOut) : "";
+    }), 20_000);
+    console.log("pdf: divider drag held the reflow at", held, "px and landed at", landed, "px");
+    await page.evaluate(() => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view.togglePanel("highlights"));
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(userData, { recursive: true, force: true });
