@@ -116,6 +116,17 @@ img.qiaomu-reader-pdf-lazy:not([data-loaded="1"]) { background:color-mix(in srgb
 .qiaomu-reader-panel.qiaomu-reader-panel-open { display:flex; animation:qiaomu-reader-panel-slide-in .22s cubic-bezier(.4,0,.2,1); box-shadow:-10px 0 40px rgba(0,0,0,.15); }
 @keyframes qiaomu-reader-panel-slide-in { from { transform:translateX(calc(100% + 1px)); } to { transform:translateX(0); } }
 .qiaomu-reader-toc-panel { width:280px; }
+/* The reading row holds the pages plus the docked highlights panel, so the
+   list sits beside the text instead of covering it. Width is draggable. */
+.qiaomu-reader-body { position:relative; display:flex; flex-direction:row; flex:1 1 auto; min-width:0; min-height:0; }
+.qiaomu-reader-splitter { flex:0 0 6px; position:relative; z-index:36; cursor:col-resize; display:none; }
+.qiaomu-reader-body.qiaomu-reader-hl-open .qiaomu-reader-splitter { display:block; }
+.qiaomu-reader-splitter::after { content:""; position:absolute; inset:0 2px; border-radius:2px; background:transparent; transition:background .12s; }
+.qiaomu-reader-splitter:hover::after, .qiaomu-reader-splitter:focus-visible::after { background:color-mix(in srgb, var(--qiaomu-reader-accent) 45%, transparent); }
+.qiaomu-reader-splitter:focus-visible { outline:none; }
+.qiaomu-reader-hl-dock { flex:0 0 auto; display:none; overflow:hidden; border-left:1px solid var(--qiaomu-reader-border); background:var(--qiaomu-reader-ui); }
+.qiaomu-reader-body.qiaomu-reader-hl-open .qiaomu-reader-hl-dock { display:flex; }
+.qiaomu-reader-hl-dock .qiaomu-reader-panel { position:static; inset:auto; display:flex; width:100%; height:100%; min-height:0; border-left:0; box-shadow:none; animation:none; }
 .qiaomu-reader-pan-title { padding:18px 18px 12px; font-family:'Inter',system-ui,sans-serif; font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--qiaomu-reader-muted); border-bottom:1px solid var(--qiaomu-reader-border); margin-bottom:4px; flex-shrink:0; background:var(--qiaomu-reader-ui); position:sticky; top:0; z-index:1; }
 .qiaomu-reader-pan-sec { font-family:'Inter',system-ui,sans-serif; font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--qiaomu-reader-muted); opacity:.65; padding:14px 16px 7px; }
 .qiaomu-reader-theme-row { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; padding:0 14px 4px; }
@@ -236,6 +247,9 @@ img.qiaomu-reader-pdf-lazy:not([data-loaded="1"]) { background:color-mix(in srgb
   .qiaomu-reader-lib-fitbtn { opacity:.92; transform:scale(1); }
   .qiaomu-reader-panel,.qiaomu-reader-toc-panel { width:100%; border-left:none; border-top:1px solid var(--qiaomu-reader-border); top:auto; height:70%; }
   .qiaomu-reader-panel.qiaomu-reader-panel-open { animation:qiaomu-reader-panel-slide-up .22s cubic-bezier(.4,0,.2,1); }
+  /* Phones: the docked list becomes the same bottom sheet as the other panels. */
+  .qiaomu-reader-body.qiaomu-reader-hl-open .qiaomu-reader-hl-dock { position:absolute; left:0; right:0; bottom:0; top:auto; height:70%; z-index:40; border-left:0; border-top:1px solid var(--qiaomu-reader-border); box-shadow:0 -10px 40px rgba(0,0,0,.2); }
+  .qiaomu-reader-splitter { display:none !important; }
   @keyframes qiaomu-reader-panel-slide-up { from { transform:translateY(110%); } to { transform:translateY(0); } }
   .qiaomu-reader-navbtn { width:44px; height:44px; }
   .qiaomu-reader-navbtn svg { width:24px; height:24px; }

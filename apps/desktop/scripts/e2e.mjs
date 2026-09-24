@@ -404,6 +404,31 @@ async function runEbookScenario() {
     console.log("epub: the undo toast removed and restored the highlight", undoToast.slice(0, 8));
     await page.evaluate(() => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view._hideHlPopup());
 
+    // The highlights list docks beside the pages and its divider drags.
+    await page.evaluate(() => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view.togglePanel("highlights"));
+    const dock = await waitFor("docked highlights panel", () => page.evaluate(() => {
+      const body = document.querySelector(".qiaomu-reader-body");
+      const panel = document.querySelector(".qiaomu-reader-hl-dock");
+      if (!body?.classList.contains("qiaomu-reader-hl-open") || !panel) return "";
+      return { width: Math.round(panel.getBoundingClientRect().width), items: document.querySelectorAll(".qiaomu-reader-hl-item").length };
+    }), 10_000);
+    if (dock.items < 1) throw new Error("the docked list should hold the stored highlight");
+    const handle = await page.evaluate(() => {
+      const rect = document.querySelector(".qiaomu-reader-splitter-hl").getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + 60 };
+    });
+    await page.mouse.move(handle.x, handle.y);
+    await page.mouse.down();
+    await page.mouse.move(handle.x - 40, handle.y, { steps: 6 });
+    await page.mouse.up();
+    const widened = await waitFor("wider highlights dock", () => page.evaluate((before) => {
+      const panel = document.querySelector(".qiaomu-reader-hl-dock");
+      const width = panel ? Math.round(panel.getBoundingClientRect().width) : 0;
+      return width > before + 20 ? String(width) : "";
+    }, dock.width), 8_000);
+    console.log("epub: docked highlights panel", dock.items, "items, width", dock.width, "->", widened);
+    await page.evaluate(() => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view.togglePanel("highlights"));
+
     // A search hit in a section that was not rendered when the search ran must
     // still be outlined after the reader jumps to it.
     await page.evaluate(() => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view.findBtn?.click());

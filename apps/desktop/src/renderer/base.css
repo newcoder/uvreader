@@ -241,6 +241,35 @@ body.qbr-reading #app-nav {
   display: none;
 }
 
+/* Draggable dividers between the sidebars and the reading area. Keyboard
+   arrows move the divider by 24px; the width is remembered in localStorage. */
+.qbr-splitter {
+  flex: 0 0 6px;
+  align-self: stretch;
+  position: relative;
+  z-index: 5;
+  cursor: col-resize;
+  background: transparent;
+}
+.qbr-splitter::after {
+  content: "";
+  position: absolute;
+  inset: 0 2px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 0.12s;
+}
+.qbr-splitter:hover::after,
+.qbr-splitter:focus-visible::after {
+  background: color-mix(in srgb, var(--interactive-accent) 55%, transparent);
+}
+.qbr-splitter:focus-visible {
+  outline: none;
+}
+.qbr-splitter[hidden] {
+  display: none;
+}
+
 .qbr-view {
   position: absolute;
   inset: 0;

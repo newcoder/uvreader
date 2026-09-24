@@ -422,6 +422,8 @@ const DEFAULT_READER_SESSION = {
   // The reading chip: pinyin and gloss for Han selections, an AI translation
   // for other scripts.
   autoPinyinInfo: true, autoTranslateEnglish: true,
+  // Docked highlights list width, dragged in the reader.
+  hlDockWidth: 300,
   bookTags: {}, navMode: "buttons",
   timerEnabled: true, dailyGoalMin: 15, readingLog: {}, lifetimeSeconds: 0,
   // Content-first "immersive" chrome: controls overlay the page and fully

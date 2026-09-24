@@ -622,15 +622,20 @@ export function createReaderModal({
   _markFound(query) { markFoundIn(this, query); }
   _clearFound() { clearFoundIn(this); }
   _togglePanel(name) {
+    if (name === "highlights") {
+      if (this.hlDockPanel?.isOpen()) { this.hlDockPanel.close(); return; }
+      this._hideHlPopup();
+      this._buildHlPanel();
+      this.hlDockPanel?.open();
+      return;
+    }
     if (this.panelOpen === name) { this._closePanel(); return; }
     this._hideHlPopup();
-    if (name === "highlights") this._buildHlPanel();
     if (name === "settings") this._renderHistory();
     this.panelOpen = name;
     syncNavigationPanel(this, name);
     this.settPan.classList.toggle("qiaomu-reader-panel-open", name === "settings");
     this.tocPan.classList.toggle("qiaomu-reader-panel-open", name === "toc");
-    this.hlPan.classList.toggle("qiaomu-reader-panel-open", name === "highlights");
     this.overlayEl.classList.add("qiaomu-reader-overlay-on");
   }
   _closePanel() {
@@ -638,7 +643,6 @@ export function createReaderModal({
     syncNavigationPanel(this, null);
     this.settPan.classList.remove("qiaomu-reader-panel-open");
     this.tocPan.classList.remove("qiaomu-reader-panel-open");
-    this.hlPan.classList.remove("qiaomu-reader-panel-open");
     if (this.findPan) this.findPan.classList.remove("qiaomu-reader-panel-open");
     this.overlayEl.classList.remove("qiaomu-reader-overlay-on");
   }

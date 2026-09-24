@@ -846,12 +846,20 @@ export function createReaderView({
     });
   }
   togglePanel(name) {
+    // The highlights list is docked beside the pages, so it keeps the reading
+    // area visible and toggles without the slide-over machinery.
+    if (name === "highlights") {
+      if (this.hlDockPanel?.isOpen()) { this.hlDockPanel.close(); return; }
+      this._hideHlPopup();
+      this.buildHlPanel();
+      this.hlDockPanel?.open();
+      return;
+    }
     if (this.panelOpen === name) {
       this.closePanel();
       return;
     }
     this._hideHlPopup();
-    if (name === "highlights") this.buildHlPanel();
     if (name === "settings") this._renderHistory();
     if (name === "toc" && this._tocRender) this._tocRender();
     this.panelOpen = name;
@@ -859,8 +867,6 @@ export function createReaderView({
     this.settPan.classList.toggle("qiaomu-reader-panel-open", name === "settings");
     this.tocPan.classList.toggle("qiaomu-reader-panel-open", name === "toc");
     this.findPan.classList.toggle("qiaomu-reader-panel-open", name === "find");
-    this.hlPan.classList.toggle("qiaomu-reader-panel-open", name === "highlights");
-    if (this.findPan) this.findPan.classList.toggle("qiaomu-reader-panel-open", name === "find");
     if (name === "toc" && this._tocRender) this._tocRender();
     this.overlayEl.classList.add("qiaomu-reader-overlay-on");
   }
@@ -869,7 +875,6 @@ export function createReaderView({
     syncNavigationPanel(this, null);
     this.settPan.classList.remove("qiaomu-reader-panel-open");
     this.tocPan.classList.remove("qiaomu-reader-panel-open");
-    this.hlPan.classList.remove("qiaomu-reader-panel-open");
     if (this.findPan) this.findPan.classList.remove("qiaomu-reader-panel-open");
     this.overlayEl.classList.remove("qiaomu-reader-overlay-on");
   }

@@ -188,9 +188,62 @@ export function createReaderChrome({
 
   // Page surface plus the click-to-turn navigation class.
   function buildReaderPageArea(view, root, areaCls) {
-    view.areaEl = root.createDiv(areaCls);
+    // The body row holds the reading area plus the docked highlights panel, so
+    // the panel sits beside the pages instead of covering them.
+    view.bodyEl = root.createDiv("qiaomu-reader-body");
+    view.areaEl = view.bodyEl.createDiv(areaCls);
     const navMode = view.plugin.settings.navMode || "buttons";
     if (navMode === "click") root.addClass("qiaomu-reader-navclick");
+  }
+
+  // Docked highlights panel: a right sidebar of the reading area with its own
+  // drag handle. Its width is remembered per device.
+  function createHighlightDock(view) {
+    const body = view.bodyEl;
+    const dock = view.hlDock;
+    const handle = view.hlSplitter;
+    const MIN = 240;
+    const MAX = 560;
+    const MIN_READING = 320;
+    const clamp = (width) => {
+      const ceiling = Math.max(MIN, Math.min(MAX, (body?.clientWidth || MAX + MIN_READING) - MIN_READING));
+      return Math.round(Math.max(MIN, Math.min(ceiling, Number(width) || 0)));
+    };
+    const apply = (width, commit) => {
+      const value = clamp(width);
+      dock.style.flexBasis = `${value}px`;
+      if (commit) {
+        view.plugin.settings.hlDockWidth = value;
+        void view.plugin.saveAll();
+      }
+    };
+    const isOpen = () => body.classList.contains("qiaomu-reader-hl-open");
+    const open = () => {
+      body.classList.add("qiaomu-reader-hl-open");
+      apply(Number(view.plugin.settings.hlDockWidth) || 300, false);
+    };
+    const close = () => body.classList.remove("qiaomu-reader-hl-open");
+    handle?.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || !isOpen()) return;
+      event.preventDefault();
+      const doc = docOf(handle);
+      const startX = event.clientX;
+      const startWidth = dock.getBoundingClientRect().width;
+      const move = (moveEvent) => apply(startWidth - (moveEvent.clientX - startX), false);
+      const up = () => {
+        doc.removeEventListener("pointermove", move);
+        doc.removeEventListener("pointerup", up);
+        apply(dock.getBoundingClientRect().width, true);
+      };
+      doc.addEventListener("pointermove", move);
+      doc.addEventListener("pointerup", up);
+    });
+    handle?.addEventListener("keydown", (event) => {
+      if ((event.key !== "ArrowLeft" && event.key !== "ArrowRight") || !isOpen()) return;
+      event.preventDefault();
+      apply(dock.getBoundingClientRect().width + (event.key === "ArrowLeft" ? 24 : -24), true);
+    });
+    return { open, close, toggle: () => (isOpen() ? close() : open()), isOpen };
   }
 
   // Bottom strip: prev / page locator / percent / next, then the host extras.
@@ -222,8 +275,15 @@ export function createReaderChrome({
     view.overlayEl.addEventListener("click", () => hooks.dismiss());
     view.settPan = root.createDiv("qiaomu-reader-panel");
     view.tocPan = root.createDiv("qiaomu-reader-panel qiaomu-reader-toc-panel");
-    view.hlPan = root.createDiv("qiaomu-reader-panel qiaomu-reader-toc-panel qiaomu-reader-hl-panel");
     view.findPan = root.createDiv("qiaomu-reader-panel qiaomu-reader-toc-panel qiaomu-reader-find-panel");
+    const body = view.bodyEl || root;
+    view.hlSplitter = body.createDiv("qiaomu-reader-splitter qiaomu-reader-splitter-hl");
+    view.hlSplitter.setAttribute("role", "separator");
+    view.hlSplitter.setAttribute("aria-orientation", "vertical");
+    view.hlSplitter.tabIndex = 0;
+    view.hlDock = body.createDiv("qiaomu-reader-hl-dock");
+    view.hlPan = view.hlDock.createDiv("qiaomu-reader-panel qiaomu-reader-hl-panel");
+    view.hlDockPanel = createHighlightDock(view);
     hooks.buildPanelContents();
     view.hlPopup = root.createDiv("qiaomu-reader-hl-popup");
     hooks.buildPopup();

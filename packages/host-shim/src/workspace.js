@@ -177,6 +177,15 @@ export class WorkspaceLeaf {
   }
 }
 
+// Sidebar widths can be dragged; the reader re-lays out from its own width
+// observer. Values live in localStorage so the layout survives a restart.
+const SPLIT_WIDTHS = {
+  left: { min: 200, max: 640, fallback: 300 },
+  right: { min: 240, max: 720, fallback: 380 },
+};
+const SPLIT_WIDTH_KEY = "qbr.workspace.splitWidths";
+const MAIN_MIN_WIDTH = 360;
+
 export class Workspace extends Events {
   constructor(app) {
     super();
@@ -192,8 +201,97 @@ export class Workspace extends Events {
     this.rightSplit = this._makeSplit("right", true, doc);
     if (app.workspaceEl && this.rootSplit.el) {
       app.workspaceEl.classList.add("qbr-workspace");
-      app.workspaceEl.append(this.leftSplit.el, this.rootSplit.el, this.rightSplit.el);
+      this.leftSplitter = this._makeSplitter("left", doc);
+      this.rightSplitter = this._makeSplitter("right", doc);
+      app.workspaceEl.append(
+        this.leftSplit.el, this.leftSplitter,
+        this.rootSplit.el,
+        this.rightSplitter, this.rightSplit.el,
+      );
+      this._applyStoredWidths();
     }
+  }
+
+  _splitFor(side) {
+    return side === "left" ? this.leftSplit : this.rightSplit;
+  }
+
+  _makeSplitter(side, doc) {
+    if (!doc) return null;
+    const el = doc.createElement("div");
+    el.className = `qbr-splitter qbr-splitter-${side}`;
+    el.setAttribute("role", "separator");
+    el.setAttribute("aria-orientation", "vertical");
+    el.tabIndex = 0;
+    el.addEventListener("pointerdown", (event) => this._startSplitDrag(side, event));
+    el.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      const split = this._splitFor(side);
+      if (split.collapsed) return;
+      event.preventDefault();
+      const grow = side === "left" ? event.key === "ArrowRight" : event.key === "ArrowLeft";
+      this._setSplitWidth(side, (split.width || SPLIT_WIDTHS[side].fallback) + (grow ? 24 : -24));
+      this._storeWidths();
+    });
+    return el;
+  }
+
+  _startSplitDrag(side, event) {
+    if (event.button !== 0 || !this._splitFor(side)?.el) return;
+    event.preventDefault();
+    const doc = this.app.workspaceEl?.ownerDocument || globalThis.document;
+    const startX = event.clientX;
+    const startWidth = this._splitFor(side).el.getBoundingClientRect().width;
+    const move = (moveEvent) => {
+      const delta = side === "left" ? moveEvent.clientX - startX : startX - moveEvent.clientX;
+      this._setSplitWidth(side, startWidth + delta);
+    };
+    const up = () => {
+      doc?.removeEventListener?.("pointermove", move);
+      doc?.removeEventListener?.("pointerup", up);
+      this._storeWidths();
+    };
+    doc?.addEventListener?.("pointermove", move);
+    doc?.addEventListener?.("pointerup", up);
+  }
+
+  _splitMax(side) {
+    const limits = SPLIT_WIDTHS[side];
+    const workspace = this.app.workspaceEl;
+    const other = side === "left" ? this.rightSplit : this.leftSplit;
+    const otherWidth = other?.collapsed ? 0 : (other?.width || 0);
+    const total = workspace?.clientWidth || 0;
+    const room = total ? total - otherWidth - MAIN_MIN_WIDTH - 12 : limits.max;
+    return Math.max(limits.min, Math.min(limits.max, room));
+  }
+
+  _setSplitWidth(side, width) {
+    const split = this._splitFor(side);
+    if (!split?.el) return;
+    const limits = SPLIT_WIDTHS[side];
+    const value = Math.round(Math.max(limits.min, Math.min(this._splitMax(side), width)));
+    split.width = value;
+    split.el.style.flexBasis = `${value}px`;
+  }
+
+  _applyStoredWidths() {
+    let stored = {};
+    try {
+      const raw = this.app.workspaceEl.ownerDocument.defaultView?.localStorage?.getItem(SPLIT_WIDTH_KEY);
+      stored = raw ? JSON.parse(raw) : {};
+    } catch { stored = {}; }
+    for (const side of ["left", "right"]) {
+      const limits = SPLIT_WIDTHS[side];
+      const value = Number.isFinite(stored[side]) ? stored[side] : limits.fallback;
+      this._setSplitWidth(side, value);
+    }
+  }
+
+  _storeWidths() {
+    try {
+      const data = { left: this.leftSplit.width, right: this.rightSplit.width };
+      this.app.workspaceEl.ownerDocument.defaultView?.localStorage?.setItem(SPLIT_WIDTH_KEY, JSON.stringify(data));
+    } catch { /* the layout still works without storage */ }
   }
 
   _makeSplit(kind, collapsed, doc) {
@@ -230,6 +328,8 @@ export class Workspace extends Events {
   _syncLayout() {
     if (this.leftSplit.el) this.leftSplit.el.hidden = this.leftSplit.collapsed;
     if (this.rightSplit.el) this.rightSplit.el.hidden = this.rightSplit.collapsed;
+    if (this.leftSplitter) this.leftSplitter.hidden = this.leftSplit.collapsed;
+    if (this.rightSplitter) this.rightSplitter.hidden = this.rightSplit.collapsed;
     // A view that was just mounted is about to become active: show it during
     // load even while another view still owns activeLeaf.
     const active = this._pendingActive || this.activeLeaf || null;
