@@ -124,9 +124,9 @@ img.qiaomu-reader-pdf-lazy:not([data-loaded="1"]) { background:color-mix(in srgb
 .qiaomu-reader-splitter::after { content:""; position:absolute; inset:0 2px; border-radius:2px; background:transparent; transition:background .12s; }
 .qiaomu-reader-splitter:hover::after, .qiaomu-reader-splitter:focus-visible::after { background:color-mix(in srgb, var(--qiaomu-reader-accent) 45%, transparent); }
 .qiaomu-reader-splitter:focus-visible { outline:none; }
-.qiaomu-reader-hl-dock { flex:0 0 auto; display:none; overflow:hidden; border-left:1px solid var(--qiaomu-reader-border); background:var(--qiaomu-reader-ui); }
+.qiaomu-reader-hl-dock { flex:0 0 auto; display:none; overflow:hidden; border-left:1px solid var(--qiaomu-reader-border); background:var(--background-primary); }
 .qiaomu-reader-body.qiaomu-reader-hl-open .qiaomu-reader-hl-dock { display:flex; }
-.qiaomu-reader-hl-dock .qiaomu-reader-panel { position:static; inset:auto; display:flex; width:100%; height:100%; min-height:0; border-left:0; box-shadow:none; animation:none; }
+.qiaomu-reader-hl-dock .qiaomu-reader-panel { position:static; inset:auto; display:flex; width:100%; height:100%; min-height:0; padding:var(--size-4-3); border-left:0; background:var(--background-primary); box-shadow:none; animation:none; }
 .qiaomu-reader-pan-title { padding:18px 18px 12px; font-family:'Inter',system-ui,sans-serif; font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--qiaomu-reader-muted); border-bottom:1px solid var(--qiaomu-reader-border); margin-bottom:4px; flex-shrink:0; background:var(--qiaomu-reader-ui); position:sticky; top:0; z-index:1; }
 .qiaomu-reader-pan-sec { font-family:'Inter',system-ui,sans-serif; font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--qiaomu-reader-muted); opacity:.65; padding:14px 16px 7px; }
 .qiaomu-reader-theme-row { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; padding:0 14px 4px; }
@@ -347,16 +347,16 @@ button.qiaomu-reader-py-chip:focus-visible { outline:2px solid color-mix(in srgb
 .qiaomu-reader-confirm-modal .qiaomu-reader-confirm-btns { display:flex; justify-content:flex-end; gap:10px; }
 .qiaomu-reader-confirm-modal .qiaomu-reader-confirm-yes { background:var(--interactive-accent); color:var(--text-on-accent); font-weight:600; }
 .qiaomu-reader-confirm-modal .qiaomu-reader-confirm-no { background:var(--background-modifier-border); }
-.qiaomu-reader-hl-item { display:flex; align-items:flex-start; gap:10px; padding:12px 14px 12px 16px; border-bottom:1px solid rgba(0,0,0,.05); cursor:pointer; transition:background .13s; }
-.qiaomu-reader-hl-item:hover { background:rgba(0,0,0,.04); }
-.qiaomu-reader-hl-dot { width:10px; height:10px; border-radius:50%; margin-top:5px; flex-shrink:0; box-shadow:0 0 0 1px rgba(0,0,0,.1); }
+.qiaomu-reader-hl-item { display:flex; align-items:flex-start; gap:10px; padding:9px 8px; border-radius:8px; border-bottom:1px solid var(--background-modifier-border); cursor:pointer; transition:background .13s; }
+.qiaomu-reader-hl-item:hover { background:var(--background-modifier-hover); }
+.qiaomu-reader-hl-dot { width:10px; height:10px; border-radius:50%; margin-top:4px; flex-shrink:0; box-shadow:0 0 0 1px rgba(0,0,0,.1); }
 .qiaomu-reader-hl-body { flex:1; min-width:0; display:flex; flex-direction:column; }
-.qiaomu-reader-hl-text { font-family:'Inter',system-ui,sans-serif; font-size:12.5px; line-height:1.5; color:var(--qiaomu-reader-text); opacity:.85; overflow-wrap:anywhere; }
-.qiaomu-reader-hl-del { flex-shrink:0; width:24px; height:24px; display:flex; align-items:center; justify-content:center; border-radius:6px; color:var(--qiaomu-reader-muted); opacity:.5; transition:opacity .13s,color .13s,background .13s; }
-.qiaomu-reader-hl-del:hover { opacity:1; color:#e5484d; background:rgba(0,0,0,.06); }
+.qiaomu-reader-hl-text { font-size:var(--font-ui-small); line-height:1.5; color:var(--text-normal); overflow-wrap:anywhere; }
+.qiaomu-reader-hl-del { flex-shrink:0; width:24px; height:24px; display:flex; align-items:center; justify-content:center; border-radius:6px; color:var(--text-muted); opacity:.5; transition:opacity .13s,color .13s,background .13s; }
+.qiaomu-reader-hl-del:hover { opacity:1; color:#e5484d; background:var(--background-modifier-hover); }
 .qiaomu-reader-hl-del svg { width:15px; height:15px; }
-.qiaomu-reader-hl-more { flex-shrink:0; width:24px; height:24px; display:flex; align-items:center; justify-content:center; border-radius:6px; color:var(--qiaomu-reader-muted); opacity:.5; transition:opacity .13s,color .13s,background .13s; }
-.qiaomu-reader-hl-more:hover { opacity:1; color:var(--qiaomu-reader-text); background:rgba(0,0,0,.06); }
+.qiaomu-reader-hl-more { flex-shrink:0; width:24px; height:24px; display:flex; align-items:center; justify-content:center; border-radius:6px; color:var(--text-muted); opacity:.5; transition:opacity .13s,color .13s,background .13s; }
+.qiaomu-reader-hl-more:hover { opacity:1; color:var(--text-normal); background:var(--background-modifier-hover); }
 .qiaomu-reader-hl-more svg { width:16px; height:16px; }
 .qiaomu-reader-toc-empty { white-space:pre-line; }
 .qiaomu-reader-hist-row { display:flex; flex-direction:column; gap:6px; padding:0 14px 18px; }
@@ -370,10 +370,8 @@ button.qiaomu-reader-py-chip:focus-visible { outline:2px solid color-mix(in srgb
 .qiaomu-reader-act-btn:active { transform:scale(.98); }
 .qiaomu-reader-act-btn svg { width:16px; height:16px; flex-shrink:0; }
 .qiaomu-reader-hist-manual { border-color:color-mix(in srgb,var(--qiaomu-reader-accent) 55%,transparent); background:color-mix(in srgb,var(--qiaomu-reader-accent) 8%,transparent); }
-.qiaomu-reader-hl-export { display:flex; align-items:center; justify-content:center; gap:8px; margin:10px 14px 4px; padding:10px 12px; border-radius:9px; background:color-mix(in srgb,var(--qiaomu-reader-accent) 12%,transparent); border:1px solid color-mix(in srgb,var(--qiaomu-reader-accent) 35%,transparent); color:var(--qiaomu-reader-accent); font-family:'Inter',system-ui,sans-serif; font-size:12.5px; font-weight:600; cursor:pointer; transition:background .13s,border-color .13s,transform .1s; }
-.qiaomu-reader-hl-export:hover { background:color-mix(in srgb,var(--qiaomu-reader-accent) 20%,transparent); border-color:var(--qiaomu-reader-accent); }
-.qiaomu-reader-hl-export:active { transform:scale(.98); }
-.qiaomu-reader-hl-export svg { width:16px; height:16px; }
+/* The highlights list keeps the same header rhythm as the AI companion. */
+.qiaomu-reader-hl-list { display:flex; flex-direction:column; min-height:0; overflow-y:auto; }
 
 /* ── Settings-page callouts, store recovery, ACP guide ───────────────────── */
 .qiaomu-reader-set-note { font-size:12.5px; line-height:1.6; color:var(--text-muted); background:var(--background-secondary); border:1px solid var(--background-modifier-border); border-radius:9px; padding:11px 13px; margin:6px 0 14px; }
@@ -943,6 +941,17 @@ button.qiaomu-reader-py-chip:focus-visible { outline:2px solid color-mix(in srgb
 .modal.qiaomu-reader-ai-modal { width: min(100%, 680px); max-width: 100%; min-width: 0; --modal-background: var(--background-primary); background: var(--background-primary); -webkit-backdrop-filter: none; backdrop-filter: none; }
 .modal.qiaomu-reader-ai-modal > .modal-close-button { display:none; }
 .qiaomu-reader-ai-modal .modal-content { display: flex; flex-direction: column; gap: var(--size-4-2); min-height: 0; }
+/* One header look for the reading-page panels (contents, highlights, AI):
+   title at 15px/600 on the left, ordinary buttons on the right, container on
+   the primary background with the same 12px padding. */
+.qbr-panel-head { flex:0 0 auto; display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+.qbr-panel-title { flex:1 1 auto; min-width:0; font-size:var(--font-ui-medium); font-weight:600; color:var(--text-normal); }
+.qbr-panel-actions { display:flex; align-items:center; gap:2px; }
+.qbr-panel-actions button { flex:0 0 auto; display:flex; align-items:center; justify-content:center; width:32px; height:32px; padding:0; margin:0; border:0; border-radius:50%; background:transparent; color:var(--text-muted); box-shadow:none; cursor:pointer; }
+.qbr-panel-actions button:hover { background:var(--background-modifier-hover); color:var(--text-normal); }
+.qbr-panel-actions button:active { transform:scale(.94); }
+.qbr-panel-actions button svg { width:16px; height:16px; }
+.qbr-panel-empty { color:var(--text-muted); font-size:var(--font-ui-small); }
 .qiaomu-reader-ai-head { flex: 0 0 auto; display: flex; align-items: flex-start; gap: var(--size-4-2); }
 .qiaomu-reader-ai-headtext { flex: 1 1 auto; min-width: 0; }
 .qiaomu-reader-ai-head-actions { display:flex; align-items:center; gap:2px; }

@@ -237,11 +237,17 @@ async function runEbookScenario() {
       return readerVisible && tocVisible && items ? String(items) : "";
     }), 15_000);
     console.log("epub: toc panel opens on the left", tocItems, "items");
-    const tocCloseIsIcon = await page.evaluate(() => Boolean(document.querySelector(".qbr-toc-head button svg")));
-    if (!tocCloseIsIcon) throw new Error("the toc close control must be an icon button");
+    const tocHeader = await page.evaluate(() => {
+      const head = document.querySelector(".qbr-toc-panel .qbr-panel-head");
+      const title = head?.querySelector(".qbr-panel-title");
+      const close = head?.querySelector(".qbr-panel-actions button svg");
+      return { title: title?.textContent || "", iconClose: Boolean(close) };
+    });
+    if (tocHeader.title !== "目录") throw new Error(`unexpected contents title: ${tocHeader.title}`);
+    if (!tocHeader.iconClose) throw new Error("the toc close control must be an icon button");
     await page.evaluate(() => {
       const toc = window.__qbrApp.workspace.getLeavesOfType("qbr-toc")[0];
-      toc?.view?.contentEl?.querySelector(".qbr-toc-head button")?.click();
+      toc?.view?.contentEl?.querySelector(".qbr-panel-actions button")?.click();
     });
     await waitFor("toc panel closed", () => page.evaluate(() => !window.__qbrApp.workspace.getLeavesOfType("qbr-toc").length), 8_000);
 

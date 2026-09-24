@@ -1708,17 +1708,25 @@ function highlightWhere(owner, hl) {
 
 function renderHighlightPanel(p, owner, opts) {
   p.empty();
-  p.createDiv("qiaomu-reader-pan-title").setText(qiaomuReaderTranslate("highlights"));
   const list = owner.file ? owner.plugin.getHighlights(owner.file.path) : [];
+  // Same header as the contents panel and the AI companion: title on the left,
+  // ordinary buttons on the right.
+  const head = p.createDiv("qbr-panel-head");
+  head.createDiv({ cls: "qbr-panel-title", text: qiaomuReaderTranslate("highlights") });
+  const actions = head.createDiv("qbr-panel-actions");
+  if (list.length) {
+    const exp = actions.createEl("button", { attr: { type: "button", "aria-label": qiaomuReaderTranslate("export-to-notes-0", list.length) } });
+    svgIcon(exp, "download");
+    exp.addEventListener("click", (e) => owner.exportHighlights(e));
+  }
+  const close = actions.createEl("button", { attr: { type: "button", "aria-label": qiaomuReaderTranslate("close") } });
+  svgIcon(close, "x");
+  close.addEventListener("click", () => owner.hlDockPanel?.close());
   if (!list.length) {
-    p.createDiv("qiaomu-reader-toc-empty").setText(qiaomuReaderTranslate("no-highlights-yet-select-text-and-pick-a-color"));
+    p.createDiv("qbr-panel-empty").setText(qiaomuReaderTranslate("no-highlights-yet-select-text-and-pick-a-color"));
     return;
   }
-  const exp = p.createDiv("qiaomu-reader-hl-export");
-  iconLabel(exp, "download", qiaomuReaderTranslate("export-to-notes-0", list.length));
-  exp.setAttribute("aria-label", qiaomuReaderTranslate("export-all-highlights"));
-  exp.addEventListener("click", (e) => owner.exportHighlights(e));
-  const wrap = p.createDiv("qiaomu-reader-toc-list");
+  const wrap = p.createDiv("qiaomu-reader-toc-list qiaomu-reader-hl-list");
   for (const hl of list) {
     const item = wrap.createDiv("qiaomu-reader-hl-item");
     const dot = item.createDiv("qiaomu-reader-hl-dot");

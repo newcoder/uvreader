@@ -788,20 +788,9 @@ body:not(.qbr-reading) .qbr-split-left {
   min-height: 100%;
 }
 
+/* The contents panel shares the reading-page panel padding and header. */
 .qbr-toc-panel {
-  padding: 16px 14px 30px;
-}
-
-.qbr-toc-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.qbr-toc-title {
-  font-weight: 600;
+  padding: var(--size-4-3);
 }
 
 .qbr-toc-search {
@@ -815,10 +804,10 @@ body:not(.qbr-reading) .qbr-split-left {
 }
 
 .qbr-toc-item {
-  padding: 5px 8px;
-  border-radius: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--font-ui-small);
 }
 
 .qbr-toc-item:hover {
@@ -835,7 +824,7 @@ body:not(.qbr-reading) .qbr-split-left {
 
 .qbr-toc-empty {
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--font-ui-small);
 }
 
 /* The PDF zoom control belongs to the far right of the window-wide toolbar. */

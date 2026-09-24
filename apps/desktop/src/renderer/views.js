@@ -252,10 +252,10 @@ export function createTocView(leaf, options) {
     render() {
       const host = this.contentEl;
       host.empty();
-      const head = host.createDiv("qbr-toc-head");
-      head.createDiv({ cls: "qbr-toc-title", text: "目录" });
-      const close = head.createEl("button", {
-        cls: "qiaomu-reader-ai-prompt-settings",
+      const head = host.createDiv("qbr-panel-head");
+      head.createDiv({ cls: "qbr-panel-title", text: "目录" });
+      const actions = head.createDiv("qbr-panel-actions");
+      const close = actions.createEl("button", {
         attr: { type: "button", "aria-label": "关闭" },
       });
       setIcon(close, "x");
