@@ -1396,6 +1396,8 @@ async function translateSelection(view, text) {
   if (!state.enabled) {
     const error = new Error("AI is not configured");
     error.qiaomuReaderReason = state.reason || "notconfigured";
+    // Signals the chip to offer the AI conversation instead of a retry.
+    error.qiaomuReaderSetup = true;
     throw error;
   }
   return aiTranslate(text, view.plugin, { target: translateSelectionTarget(view.plugin.settings) });

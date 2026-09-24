@@ -246,8 +246,7 @@ export function createSelectionActions({
       body.textContent = result || translate("nothing-to-translate");
     }).catch((error) => {
       if (!settled()) return;
-      const reason = error?.qiaomuReaderReason || "";
-      const needsSetup = reason === "notconfigured" || reason === "nokey" || reason === "desktop";
+      const needsSetup = error?.qiaomuReaderSetup === true;
       body.textContent = translate(needsSetup ? "ai-not-configured-tap-to-set-up" : "translation-failed-tap-to-retry");
       chip.addClass("qiaomu-reader-py-chip-action");
       chip.addEventListener("click", () => {

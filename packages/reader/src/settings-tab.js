@@ -224,7 +224,7 @@ export function createSettingsTab({
       [["1", t("one")], ["2", t("two")]], String(s.columns || "2"),
       async value => { s.columns = value; await this.plugin.saveAll(); this._repaginateOpenBooks(); });
     buildPageButtonsSetting(c, this.plugin);
-    this._selectionToolbarSettings(this._settingsDisclosure(c, "selection-toolbar"));
+    this._selectionToolbarSettings(this._settingsDisclosure(c, "selection-toolbar", true));
     const extras = c.createEl("details", { cls: "qiaomu-reader-settings-disclosure" });
     extras.createEl("summary", { text: t("reading-goal") });
     c = extras.createDiv("qiaomu-reader-settings-disclosure-body");
@@ -288,8 +288,11 @@ export function createSettingsTab({
     const behavior = this._settingsDisclosure(advanced, "ai-response-preferences");
     this._aiTailRows(behavior, s, p, cfg);
   }
-  _settingsDisclosure(host, key) {
+  _settingsDisclosure(host, key, open = false) {
     const details = host.createEl("details", { cls: "qiaomu-reader-settings-disclosure" });
+    // Frequently used sections stay open so their switches are not hidden
+    // behind a collapsed summary.
+    if (open) details.open = true;
     details.createEl("summary", { text: qiaomuReaderTranslate(key) });
     return details.createDiv("qiaomu-reader-settings-disclosure-body");
   }
@@ -699,6 +702,13 @@ export function createSettingsTab({
     this._renderAiStatusSetting(host, state, cfg);
     host.createEl("h3", { cls: "qiaomu-reader-set-h", text: qiaomuReaderTranslate("selection-translation") });
     this._translateSelectionRows(host);
+    // Same switch as in the selection tools section, placed where a reader
+    // looks for translation behaviour.
+    new Setting(host)
+      .setName(qiaomuReaderTranslate("auto-translate-english"))
+      .addToggle((toggle) => toggle.setValue(this.plugin.settings.autoTranslateEnglish !== false).onChange(async (v) => {
+        this.plugin.settings.autoTranslateEnglish = v; await this.plugin.saveAll();
+      }));
     host.createEl("div", { cls: "qiaomu-reader-set-note", text: qiaomuReaderTranslate("translation-is-a-separate-network-request-to-google-if-you-need") });
   }
   _renderAiStatusSetting(host, state, cfg) {

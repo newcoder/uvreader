@@ -251,6 +251,7 @@ test("the translation chip offers AI setup when the service is missing", async (
     translateSelection: async () => {
       const error = new Error("AI is not configured");
       error.qiaomuReaderReason = "notconfigured";
+      error.qiaomuReaderSetup = true;
       throw error;
     },
     translationTarget: () => "简体中文",
