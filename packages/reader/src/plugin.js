@@ -4,6 +4,7 @@
 import { ENGINE_EXTENSIONS } from "./reader-engine.js";
 import { STARTER_BOOKS } from "./starter-book-data.js";
 import { addMissingQuoteLinks, highlightBacklink, jumpToEngineHighlight } from "./highlight-navigation.js";
+import { sortHighlightsByPosition } from "./highlight-order.js";
 import { aiProviderFor, normalizeAiBase } from "./ai-providers.js";
 import { cloneJson, createSerialTaskQueue, isPlainRecord, mergeReadingProgress, readJsonRecordStore, writeVerifiedJsonRecord } from "./storage.js";
 import { createStarterLibraryInstaller } from "./starter-library.js";
@@ -1080,7 +1081,7 @@ export function createPlugin({
   getHighlights(path5) {
     let _a;
     const list = (_a = this.highlights[path5]) != null ? _a : [];
-    return [...list].sort((a, b) => a.block - b.block || a.occ - b.occ);
+    return sortHighlightsByPosition(list);
   }
   addHighlight(path5, hl) {
     if (!this.highlights[path5]) this.highlights[path5] = [];

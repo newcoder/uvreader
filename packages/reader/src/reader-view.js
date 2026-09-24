@@ -1026,9 +1026,7 @@ export function createReaderView({
       catch { new Notice(qiaomuReaderTranslate("highlight-not-found")); }
       return;
     }
-    const span = this.pager.flow ? this.pager.flow.querySelector(`[data-hl-id="${id}"]`) : null;
-    if (span) this._revealVisibleHighlight(span);
-    else this._jumpToHighlightRecord(id);
+    this._jumpToHighlightRecord(id);
   }
   // Shared tail of every highlight jump: repaint, persist the position, close.
   _commitSpreadJump(page, pages) {
@@ -1036,17 +1034,9 @@ export function createReaderView({
     if (this.file) this.plugin.saveProgress(this.file.path, page, pages, this.pager.currentBlockIndex());
     this.closePanel();
   }
-  // The wrapped span is on the current spread: scroll it into the column edge
-  // and flash it in place.
-  _revealVisibleHighlight(span) {
-    const rel = span.getBoundingClientRect().left - this.pager.flow.getBoundingClientRect().left;
-    const column = Math.max(0, Math.floor(rel / this.pager.sw + 1e-3));
-    const [page, pages] = this.pager.jumpTo(column);
-    this._commitSpreadJump(page, pages);
-    this._flashEl(span);
-  }
-  // The span is not rendered yet: resolve the stored anchor, jump to its
-  // spread, and flash once the wrapper appears.
+  // Fixed-layout pages render lazily, so a wrapped span can exist with zero
+  // size; the block anchor is what maps to a spread, exactly like a table of
+  // contents jump. The flash waits for the page to become visible.
   _jumpToHighlightRecord(id) {
     const records = this.file ? this.plugin.getHighlights(this.file.path) : null;
     const hl = records ? records.find((h) => h.id === id) : null;
@@ -1064,9 +1054,10 @@ export function createReaderView({
     this._commitSpreadJump(page, pages);
     window.requestAnimationFrame(() => this._flashHighlightLater(id));
   }
-  _flashHighlightLater(id) {
+  _flashHighlightLater(id, attempt = 0) {
     const span = this.pager.flow?.querySelector(`[data-hl-id="${id}"]`);
-    if (span) this._flashEl(span);
+    if (span && span.getBoundingClientRect().width > 0) { this._flashEl(span); return; }
+    if (attempt < 8) window.setTimeout(() => this._flashHighlightLater(id, attempt + 1), 120);
   }
   _flashEl(el) {
     el.classList.add("qiaomu-reader-hl-flash");

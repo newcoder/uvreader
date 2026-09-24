@@ -635,6 +635,34 @@ async function runCjkPdfPinScenario() {
       }, 10_000).catch(() => restored);
       assert.equal(painted.span?.py, labelledText, `the reading is painted again: ${JSON.stringify(painted)}`);
       console.log("pdf: pinned reading restored after a restart");
+
+      // A highlight entry in the docked list jumps to its page even when that
+      // page has not been rendered yet.
+      const jumped = await page.evaluate(async () => {
+        const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view;
+        const flow = view.pager.flow;
+        const blocks = [...flow.querySelectorAll("p,h1,h2,h3,h4,.qiaomu-reader-pdf-text-layer")];
+        const needle = "第4页的正文内容";
+        const index = blocks.findIndex((el) => el.textContent.includes(needle));
+        if (index < 0) return { error: "no late block" };
+        const full = blocks[index].textContent;
+        const at = full.indexOf(needle);
+        view.plugin.addHighlight(view.file.path, {
+          id: "e2e-late", color: "yellow", text: needle, block: index, occ: 0,
+          pre: full.slice(Math.max(0, at - 24), at), post: full.slice(at + needle.length, at + needle.length + 24), created: Date.now(),
+        });
+        view._renderFlowHighlights();
+        const before = view.pager.currentPdfPageNumber();
+        view.togglePanel("highlights");
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const items = [...document.querySelectorAll(".qiaomu-reader-hl-item")];
+        items[items.length - 1]?.click();
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        return { before, after: view.pager.currentPdfPageNumber(), items: items.length };
+      });
+      if (jumped.error) throw new Error(jumped.error);
+      if (jumped.after === jumped.before) throw new Error(`the highlight did not jump: ${JSON.stringify(jumped)}`);
+      console.log("pdf: highlight entry jumped to page", jumped.after);
     } finally {
       await again.close().catch(() => {});
     }
