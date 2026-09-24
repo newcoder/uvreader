@@ -17,6 +17,9 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(here, "..");
 const repoRoot = path.resolve(appRoot, "../..");
 const book = path.resolve(process.argv[2] || path.join(repoRoot, "assets/starter-books/11.epub"));
+// Searchable Chinese page, printed from a small zh-CN HTML page with Chrome's
+// --print-to-pdf; used by the pinned-pinyin check on fixed-layout pages.
+const cjkPdf = path.join(appRoot, "test-fixtures/cjk.pdf");
 const appPackage = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -520,6 +523,102 @@ async function runPdfScenario() {
   }
 }
 
+// Pinned pinyin on a fixed-layout page: block-anchored, painted in the flow,
+// restored after a restart.
+async function runCjkPdfPinScenario() {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-e2e-cjk-"));
+  const start = () => electron.launch({
+    executablePath: require("electron"),
+    args: [".", cjkPdf],
+    cwd: appRoot,
+    env: { ...process.env, QBR_USER_DATA: userData },
+  });
+  const selectHan = (page) => page.evaluate(() => {
+    const spans = [...document.querySelectorAll(".qiaomu-reader-pdf-text-layer span")];
+    for (const span of spans) {
+      const node = span.firstChild;
+      if (!node || node.nodeType !== Node.TEXT_NODE) continue;
+      const text = node.textContent || "";
+      const at = [...text].findIndex((char) => /[\u4e00-\u9fff]/u.test(char));
+      if (at < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + 1);
+      const selection = document.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.dispatchEvent(new Event("selectionchange", { bubbles: true }));
+      span.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true }));
+      return text.slice(at, at + 1);
+    }
+    return "";
+  });
+  const pinState = (page) => page.evaluate(() => {
+    const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view;
+    const span = document.querySelector(".qiaomu-reader-flow-pin");
+    return {
+      pins: view.plugin.getPins(view.file.path).map((pin) => ({ id: pin.id, block: pin.block, text: pin.text, pinyin: pin.pinyin })),
+      span: span ? { py: span.getAttribute("data-py"), text: span.textContent } : null,
+    };
+  });
+
+  const app = await start();
+  let page = await app.firstWindow();
+  try {
+    await page.waitForSelector(".qiaomu-reader-view", { timeout: 30_000 });
+    await waitFor("cjk pdf ready", () => readerReady(page), 30_000);
+    // The text layer of the first spread is drawn a moment after the pager.
+    const char = await waitFor("Han character in the CJK text layer", async () => (await selectHan(page)) || "", 20_000);
+    const labelled = await waitFor("pinyin chip for the pdf selection", () => page.evaluate(() => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view;
+      const chip = document.querySelector(".qiaomu-reader-py-chip");
+      if (!chip) return "";
+      return {
+        label: chip.tagName === "BUTTON" ? chip.querySelector(".qiaomu-reader-py-pinyin")?.textContent || "" : "",
+        tag: chip.tagName,
+        pending: view._pendingSel?.text || "",
+        block: view._pendingSel?.block,
+      };
+    }), 15_000);
+    const labelledText = labelled.label || "";
+    if (!labelledText) throw new Error(`unexpected reading chip: ${JSON.stringify(labelled)}`);
+    await page.click(".qiaomu-reader-py-chip");
+    const painted = await waitFor("pinned reading in the flow", () => pinState(page), 15_000);
+    assert.ok(Number.isInteger(painted.pins[0]?.block), "a fixed-layout pin carries a block anchor");
+    assert.equal(painted.span?.py, labelledText);
+    await page.click(".qiaomu-reader-flow-pin");
+    const card = await waitFor("pin card for the flow pin", () => page.evaluate(
+      () => document.querySelector(".qiaomu-reader-pin-popup-on")?.textContent || ""), 10_000);
+    if (!card.includes("移除注音")) throw new Error(`unexpected pin card: ${card}`);
+    console.log("pdf: pinned reading painted and opens its card", char, labelledText);
+    await app.close();
+    fs.rmSync(`${userData}/Cache`, { recursive: true, force: true });
+
+    const again = await start();
+    page = await again.firstWindow();
+    try {
+      await page.waitForSelector(".qiaomu-reader-view", { timeout: 30_000 });
+      await waitFor("cjk pdf reopened", () => readerReady(page), 30_000);
+      const restored = await waitFor("pin restored after restart", async () => {
+        const state = await pinState(page);
+        return state.pins.length ? state : "";
+      }, 15_000);
+      assert.equal(restored.pins.length, 1, "the pin survived the restart");
+      const painted = await waitFor("reading painted again", async () => {
+        const state = await pinState(page);
+        return state.span ? state : "";
+      }, 10_000).catch(() => restored);
+      assert.equal(painted.span?.py, labelledText, `the reading is painted again: ${JSON.stringify(painted)}`);
+      console.log("pdf: pinned reading restored after a restart");
+    } finally {
+      await again.close().catch(() => {});
+    }
+  } finally {
+    await app.close().catch(() => {});
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+}
+
 async function runAiScenario() {
   const mock = await startMockAi();
   const base = `http://127.0.0.1:${mock.port}/v1`;
@@ -1017,6 +1116,7 @@ try {
   await runHomeScenario();
   await runEbookScenario();
   await runPdfScenario();
+  await runCjkPdfPinScenario();
   await runPinyinScenario();
   await runAiScenario();
   await runApiKeyScenario();

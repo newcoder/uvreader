@@ -50,14 +50,32 @@ test("toggling the same selection again removes the pin and its overlay", () => 
   assert.equal(pinyinPinFor(view, selection), null);
 });
 
-test("formats without the engine path keep the chip informational", () => {
-  const pdf = owner({ file: { path: "Book.pdf", extension: "pdf" } });
-  assert.equal(togglePinyinPin(pdf, selection, info, pdf.deps), null);
-  assert.deepEqual(pdf.calls.notices, ["pinyin-pin-unsupported"]);
+test("fixed-layout pages pin by block and offset instead of by CFI", () => {
+  const pdf = owner({
+    engine: null,
+    file: { path: "Book.pdf", extension: "pdf" },
+    _renderFlowPins() { this.flowRenders = (this.flowRenders || 0) + 1; },
+  });
+  const flowSelection = { text: "犇", block: 3, occ: 1, pre: "前文", post: "后文" };
+  const pin = togglePinyinPin(pdf, flowSelection, info, pdf.deps);
+  assert.ok(pin?.id);
+  assert.equal(pin.cfi, undefined, "a flow pin carries no CFI");
+  assert.equal(pin.block, 3);
+  assert.equal(pin.occ, 1);
+  assert.equal(pdf.plugin.getPins("Book.pdf").length, 1);
+  assert.equal(pdf.flowRenders, 1, "the flow repaints after pinning");
+  assert.equal(pinyinPinFor(pdf, flowSelection)?.id, pin.id);
+  assert.equal(pinyinPinFor(pdf, { ...flowSelection, occ: 2 }), null, "another occurrence is a different pin");
+  assert.equal(togglePinyinPin(pdf, flowSelection, info, pdf.deps), null);
   assert.deepEqual(pdf.plugin.getPins("Book.pdf"), []);
+  assert.equal(pdf.flowRenders, 2);
+});
+
+test("a selection that cannot be anchored keeps the chip informational", () => {
   const bare = owner({ engine: null });
   togglePinyinPin(bare, selection, info, bare.deps);
   assert.deepEqual(bare.calls.notices, ["pinyin-pin-unsupported"]);
+  assert.equal(pinyinPinFor(bare, selection), null);
 });
 
 test("stored pins repaint section by section and a broken anchor never blocks the rest", async () => {

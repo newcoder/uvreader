@@ -278,8 +278,9 @@ export function createSelectionActions({
       }
       return;
     }
-    const canPin = !!view.engine && view.file?.extension !== "pdf" && !!sel?.cfi
-      && typeof view._togglePinyinPin === "function";
+    // Engine formats anchor by CFI, fixed-layout pages by block and offset.
+    const canPin = !!view.file && typeof view._togglePinyinPin === "function"
+      && (view.engine ? !!sel?.cfi : Number.isInteger(sel?.block));
     const pinned = canPin && Boolean(view._pinyinPinFor?.(sel));
     const chip = canPin
       ? pop.createEl("button", { cls: "qiaomu-reader-py-chip" })

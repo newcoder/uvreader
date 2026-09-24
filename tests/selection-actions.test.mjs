@@ -146,6 +146,24 @@ test("selection popup shows the pinyin and glossary chip at the front", () => {
   f.close();
 });
 
+test("a fixed-layout selection pins through the block anchor without the engine", () => {
+  const lookup = (text) => (text === "犇" ? { text, pinyin: "bēn", gloss: "群牛受惊奔跑。", single: true, words: [] } : null);
+  const f = setup({ lookupPinyin: lookup });
+  const { api, view } = f;
+  const calls = [];
+  view._togglePinyinPin = (sel, info) => { calls.push({ sel, info }); return { id: "p1" }; };
+  view._pinyinPinFor = () => null;
+  view._pendingSel = { text: "犇", block: 2, occ: 0, pre: "", post: "" };
+  api.syncSelectionToolbar(view);
+  const chip = view.hlPopup.querySelector(".qiaomu-reader-py-chip");
+  assert.equal(chip.tagName, "BUTTON");
+  chip.click();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].sel.block, 2);
+  assert.equal(calls[0].info.pinyin, "bēn");
+  f.close();
+});
+
 test("the reading chip pins the selection and reflects the pinned state", () => {
   const lookup = (text) => (text === "犇"
     ? { text, pinyin: "bēn", gloss: "群牛受惊奔跑。", single: true, words: [] }

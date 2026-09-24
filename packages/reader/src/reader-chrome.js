@@ -21,6 +21,7 @@ export function createReaderChrome({
   selectionHud,
   addReadingMenuActions,
   openReaderPagePicker,
+  openFlowPin,
   syncPageButtons,
   addReaderNavigation,
   setupReaderSelection,
@@ -247,10 +248,23 @@ export function createReaderChrome({
         return;
       }
       const mark = el ? el.closest(".qiaomu-reader-hl") : null;
-      if (mark) {
+      const pinned = el ? el.closest("[data-py-pin]") : null;
+      if (pinned) {
+        ev.preventDefault();
+        openFlowPin(view, pinned.getAttribute("data-py-pin"));
+      } else if (mark) {
         ev.preventDefault();
         view._openHlEdit(mark.getAttribute("data-hl-id"));
       } else if (view._editHlId) view._hideHlPopup();
+    });
+    // The pinned span is focusable; Enter or Space opens its card.
+    view.areaEl.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Enter" && ev.key !== " ") return;
+      const el = ev.target instanceof win.HTMLElement ? ev.target : null;
+      const pinned = el ? el.closest("[data-py-pin]") : null;
+      if (!pinned) return;
+      ev.preventDefault();
+      openFlowPin(view, pinned.getAttribute("data-py-pin"));
     });
   }
 

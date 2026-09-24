@@ -318,6 +318,7 @@ const {
   selectionHud,
   addReadingMenuActions,
   openReaderPagePicker,
+  openFlowPin: openFlowPinPopup,
   syncPageButtons,
   addReaderNavigation,
   setupReaderSelection,
@@ -1658,6 +1659,19 @@ function openEnginePinPopup(view, hit) {
   }
 }
 
+// Clicking a pinned reading in the block flow (fixed-layout pages) reopens its
+// card; the pin is anchored by block and offset here, not by a CFI.
+function openFlowPinPopup(view, id) {
+  const pin = view.file ? view.plugin.getPins(view.file.path).find((item) => item.id === id) : null;
+  const span = view.pager?.flow?.querySelector(`[data-py-pin="${id}"]`);
+  if (!pin || !span) return;
+  view._hideHlPopup();
+  pinPopup.show(view, pin, span.getBoundingClientRect(), (removed) => {
+    view.plugin.removePin(view.file.path, removed.id);
+    view._renderFlowPins?.();
+  });
+}
+
 
 
 
@@ -2112,6 +2126,18 @@ function unwrapAllHighlights(flow) {
     parent.normalize();
   });
 }
+// Pinned readings inside the block flow used by fixed-layout PDFs. Highlights
+// and pins use different markers so each list can be repainted on its own.
+function unwrapAllPins(flow) {
+  if (!flow) return;
+  flow.querySelectorAll("[data-py-pin]").forEach((span) => {
+    const parent = span.parentNode;
+    if (!parent) return;
+    while (span.firstChild) parent.insertBefore(span.firstChild, span);
+    parent.removeChild(span);
+    parent.normalize();
+  });
+}
 // Collects the text nodes covered by [start, end), each trimmed to the part
 // that overlaps the range. Collection finishes before any DOM mutation so
 // the offsets stay valid while walking.
@@ -2131,15 +2157,24 @@ function hlSplitTargets(owner, block, start, end) {
 }
 
 // Isolates node[from, to) with splitText and wraps exactly that part in a
-// highlight span.
+// highlight or pinned-reading span.
 function wrapHlSlice(owner, node, from, to, spec) {
   let n = node;
   if (to < n.textContent.length) n.splitText(to);
   if (from > 0) n = n.splitText(from);
   const span = owner.createElement("span");
-  span.className = "qiaomu-reader-hl";
-  span.style.background = spec.color;
-  span.dataset.hlId = spec.id;
+  if (spec.pin) {
+    span.className = "qiaomu-reader-flow-pin";
+    span.dataset.pyPin = spec.id;
+    span.dataset.py = spec.pinyin || "";
+    span.setAttribute("role", "button");
+    span.setAttribute("tabindex", "0");
+    span.setAttribute("aria-label", `${spec.pinyin || ""} ${spec.text || ""}`.trim());
+  } else {
+    span.className = "qiaomu-reader-hl";
+    span.style.background = spec.color;
+    span.dataset.hlId = spec.id;
+  }
   const parent = n.parentNode;
   parent.insertBefore(span, n);
   span.appendChild(n);
@@ -2464,6 +2499,7 @@ const ReaderView = createReaderView({
   syncOpenAiSelectionContext,
   syncReaderAiCapability,
   unwrapAllHighlights,
+  unwrapAllPins,
   updateEngineLocation,
   wireReaderChrome,
   wrapBlockRange,
@@ -2630,6 +2666,7 @@ const ReaderModal = createReaderModal({
   syncOpenAiSelectionContext,
   syncReaderAiCapability,
   unwrapAllHighlights,
+  unwrapAllPins,
   updateEngineLocation,
   wireReaderChrome,
   wrapBlockRange,

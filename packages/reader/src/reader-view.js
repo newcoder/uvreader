@@ -14,7 +14,7 @@ import { pinyinPinFor, renderEnginePins, togglePinyinPin } from "./pinyin-pins.j
 import { warmWordGlosses } from "./pinyin-annotate.js";
 
 export function createReaderView({
-  ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, BookSetupModal, FONTS, InfoModal, ReadSettingsModal, VIEW_TYPE, addBookFileMenu, attachEngineChrome, attachReaderContentClick, attachReaderSwipeNav, bookNoteAction, buildFindPanelFor, buildReaderPageArea, buildReaderPanels, buildReaderSettPanelBody, buildReaderTopBar, buildTocItems, buildTocPanelFor, clearAiSource, clearFoundIn, createPdfPaginator, createPdfZoomControls, currentBookPage, enrichHighlights, ensureSelectedReaderFont, exportHighlightsMenu,   flowSelectionParts, handleReaderWheel, hidePinPopup, hlColorCss, loadReaderDocument, locateHl, markFoundIn, navigateEngineToc, openEngineHighlightPopup, openEnginePinPopup, openOrCreateBookNoteBeside, pageJump, pdfVisiblePageLabel, pdfZoom, persistCurrentReaderPosition, qiaomuReaderClearPaintedSelection, qiaomuReaderLocale, qiaomuReaderRevealWhenSettled, qiaomuReaderTheme, qiaomuReaderTranslate, raiseSelectionPopup, readerAiPanelContext, readerHud, readerIsPdf, readerPaginationMappingCollapsed, readerPdfPages, readerTimer, rememberReaderJump, renderHighlightPanel, renderReaderLoadError, renderVisibleFigures, resolveHighlightAnchor, restoreAiSource, restoreEngineHistory, selectionHud, setReaderTitle, setReadingFocus, settleReader, syncNavigationPanel, syncOpenAiReaderContext, syncOpenAiSelectionContext, syncReaderAiCapability, unwrapAllHighlights, updateEngineLocation, wireReaderChrome, wrapBlockRange,
+  ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, BookSetupModal, FONTS, InfoModal, ReadSettingsModal, VIEW_TYPE, addBookFileMenu, attachEngineChrome, attachReaderContentClick, attachReaderSwipeNav, bookNoteAction, buildFindPanelFor, buildReaderPageArea, buildReaderPanels, buildReaderSettPanelBody, buildReaderTopBar, buildTocItems, buildTocPanelFor, clearAiSource, clearFoundIn, createPdfPaginator, createPdfZoomControls, currentBookPage, enrichHighlights, ensureSelectedReaderFont, exportHighlightsMenu,   flowSelectionParts, handleReaderWheel, hidePinPopup, hlColorCss, loadReaderDocument, locateHl, markFoundIn, navigateEngineToc, openEngineHighlightPopup, openEnginePinPopup, openOrCreateBookNoteBeside, pageJump, pdfVisiblePageLabel, pdfZoom, persistCurrentReaderPosition, qiaomuReaderClearPaintedSelection, qiaomuReaderLocale, qiaomuReaderRevealWhenSettled, qiaomuReaderTheme, qiaomuReaderTranslate, raiseSelectionPopup, readerAiPanelContext, readerHud, readerIsPdf, readerPaginationMappingCollapsed, readerPdfPages, readerTimer, rememberReaderJump, renderHighlightPanel, renderReaderLoadError, renderVisibleFigures, resolveHighlightAnchor, restoreAiSource, restoreEngineHistory, selectionHud, setReaderTitle, setReadingFocus, settleReader, syncNavigationPanel, syncOpenAiReaderContext, syncOpenAiSelectionContext, syncReaderAiCapability,   unwrapAllHighlights, unwrapAllPins, updateEngineLocation, wireReaderChrome, wrapBlockRange,
 }) {
   return class ReaderView extends ItemView {
   constructor(leaf, plugin) {
@@ -898,6 +898,22 @@ export function createReaderView({
       const anchor = resolveHighlightAnchor(blocks, hl, this.file.extension === "pdf");
       if (!anchor) continue;
       wrapBlockRange(anchor.block, anchor.loc.start, anchor.loc.start + anchor.loc.len, { id: hl.id, color: hlColorCss(hl.color) });
+    }
+    this._renderFlowPins();
+  }
+  // Pinned readings in the block flow (fixed-layout pages) carry their pinyin
+  // in a wrapped span; block anchors relocate them after repagination.
+  _renderFlowPins() {
+    if (this.engine || !this.file || !this.pager.flow) return;
+    const flow = this.pager.flow;
+    unwrapAllPins(flow);
+    const blocks = flow.querySelectorAll(READER_BLOCK_SELECTOR);
+    for (const pin of this.plugin.getPins(this.file.path)) {
+      if (!Number.isInteger(pin.block) || !pin.pinyin) continue;
+      const anchor = resolveHighlightAnchor(blocks, pin, this.file.extension === "pdf");
+      if (!anchor) continue;
+      wrapBlockRange(anchor.block, anchor.loc.start, anchor.loc.start + anchor.loc.len,
+        { id: pin.id, pin: true, pinyin: pin.pinyin, text: pin.text });
     }
   }
   _scheduleSelCheck() {
