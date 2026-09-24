@@ -15,7 +15,7 @@ export function createPiTransport({ bridge, aiConfig, aiMessages }) {
     const unavailable = async () => {
       throw reasonError("desktop", "The desktop AI runtime is unavailable");
     };
-    return { aiExplain: unavailable, aiExplainStream: unavailable, aiProbe: unavailable };
+    return { aiExplain: unavailable, aiExplainStream: unavailable, aiExplainStep: unavailable, aiProbe: unavailable };
   }
 
   let nextRequest = 1;
@@ -36,7 +36,9 @@ export function createPiTransport({ bridge, aiConfig, aiMessages }) {
     };
   }
 
-  async function aiExplain(text, plugin, turns, book, options = {}) {
+  // One model round: the text plus whatever tool calls the model asked for.
+  // The loop and the tools live in the reader; this only carries them.
+  async function aiExplainStep(text, plugin, turns, book, options = {}) {
     const cfg = aiConfig(plugin);
     if (!cfg.provider) throw reasonError("notconfigured", "AI is not configured");
     if (cfg.needsKey && !cfg.key) throw reasonError("nokey", "no api key");
@@ -47,6 +49,7 @@ export function createPiTransport({ bridge, aiConfig, aiMessages }) {
     const requestId = `ai-${Date.now()}-${nextRequest++}`;
     const onAbort = () => { void bridge.abort(requestId); };
     options.signal?.addEventListener("abort", onAbort, { once: true });
+    const seenToolCalls = [];
     try {
       const result = await bridge.stream({
         requestId,
@@ -55,8 +58,10 @@ export function createPiTransport({ bridge, aiConfig, aiMessages }) {
         options: {
           sessionKey: options.sessionKey || "",
           connectionTest: options.connectionTest === true,
+          ...(Array.isArray(options.tools) && options.tools.length ? { tools: options.tools } : {}),
         },
       }, (delta) => {
+        if (delta.toolCall) seenToolCalls.push(delta.toolCall);
         if (typeof options.onDelta !== "function") return;
         options.onDelta({
           content: delta.content || "",
@@ -65,7 +70,14 @@ export function createPiTransport({ bridge, aiConfig, aiMessages }) {
           reasoningText: delta.reasoningText || "",
         });
       });
-      if (result?.ok) return result.answer;
+      if (result?.ok) {
+        const toolCalls = Array.isArray(result.toolCalls) && result.toolCalls.length ? result.toolCalls : seenToolCalls;
+        return {
+          answer: String(result.answer || ""),
+          toolCalls,
+          stopReason: result.stopReason || (toolCalls.length ? "toolUse" : "stop"),
+        };
+      }
       throw reasonError(result?.reason || "http", result?.message || "AI request failed", {
         qiaomuReaderReceived: result?.received === true,
       });
@@ -75,6 +87,12 @@ export function createPiTransport({ bridge, aiConfig, aiMessages }) {
     } finally {
       options.signal?.removeEventListener("abort", onAbort);
     }
+  }
+
+  // Text-only callers keep the old contract.
+  async function aiExplain(text, plugin, turns, book, options = {}) {
+    const step = await aiExplainStep(text, plugin, turns, book, options);
+    return step.answer;
   }
 
   // One-shot translation for the selection chip: a strict prompt, no chat
@@ -135,5 +153,5 @@ export function createPiTransport({ bridge, aiConfig, aiMessages }) {
     });
   }
 
-  return { aiExplain, aiExplainStream: aiExplain, aiTranslate, aiProbe };
+  return { aiExplain, aiExplainStream: aiExplain, aiExplainStep, aiTranslate, aiProbe };
 }

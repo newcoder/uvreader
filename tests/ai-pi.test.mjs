@@ -76,6 +76,25 @@ test("aiTranslate sends a strict translation prompt with the target language", a
   assert.deepEqual(payload.messages[1], { role: "user", content: "Hello world" });
 });
 
+test("aiExplainStep passes tools down and returns the model's tool calls", async () => {
+  const { calls, transport } = setup({
+    result: {
+      ok: true,
+      answer: "",
+      stopReason: "toolUse",
+      toolCalls: [{ id: "call_1", name: "read_page", arguments: { page: 3 } }],
+    },
+  });
+  const tools = [{ name: "read_page", description: "Read a page", parameters: { type: "object" } }];
+  const step = await transport.aiExplainStep("第三页讲了什么", { settings: {} }, [], "书", { tools });
+  assert.equal(step.answer, "");
+  assert.equal(step.stopReason, "toolUse");
+  assert.deepEqual(step.toolCalls, [{ id: "call_1", name: "read_page", arguments: { page: 3 } }]);
+  assert.deepEqual(calls.stream[0].options.tools, tools);
+  await transport.aiExplainStep("问题", { settings: {} }, [], "书", {});
+  assert.equal("tools" in calls.stream[1].options, false, "a turn without tools does not advertise any");
+});
+
 test("missing configuration and keys keep the reader reasons", async () => {
   const noProvider = setup({ cfg: { provider: null } });
   await assert.rejects(noProvider.transport.aiExplain("q", { settings: {} }, [], ""), (error) => error.qiaomuReaderReason === "notconfigured");

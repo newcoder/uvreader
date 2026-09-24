@@ -122,29 +122,55 @@ function messageContent(value) {
   return blocks.length ? blocks : "";
 }
 
+function toolCallBlocks(calls) {
+  return (Array.isArray(calls) ? calls : []).map((call) => ({
+    type: "toolCall",
+    id: String(call?.id || ""),
+    name: String(call?.name || ""),
+    arguments: call?.arguments && typeof call.arguments === "object" ? call.arguments : {},
+  })).filter((call) => call.id && call.name);
+}
+
 // pi takes the system prompt on the context, not as a message in the list.
 // Assistant turns must be full AssistantMessage shapes: `streamSimple` walks
 // the history for token estimation and expects content blocks plus usage.
-export function toPiContext(messages, config) {
+// Tool results are their own message kind; the model sees them in order.
+export function toPiContext(messages, config, options = {}) {
   const systemParts = [];
   const list = [];
   for (const message of Array.isArray(messages) ? messages : []) {
-    const role = message?.role === "assistant" ? "assistant" : message?.role === "system" ? "system" : "user";
+    const role = message?.role === "assistant" ? "assistant"
+      : message?.role === "system" ? "system"
+        : message?.role === "tool" || message?.role === "toolResult" ? "toolResult" : "user";
     const content = String(message?.content ?? "");
     if (role === "system") {
       if (content.trim()) systemParts.push(content);
       continue;
     }
     const timestamp = Number(message?.timestamp) || Date.now();
+    if (role === "toolResult") {
+      const blocks = messageContent(message?.content);
+      list.push({
+        role: "toolResult",
+        toolCallId: String(message?.toolCallId || ""),
+        toolName: String(message?.toolName || ""),
+        content: Array.isArray(blocks) ? blocks : [{ type: "text", text: blocks }],
+        isError: message?.isError === true,
+        timestamp,
+      });
+      continue;
+    }
     if (role === "assistant") {
+      const blocks = content ? [{ type: "text", text: content }] : [];
+      blocks.push(...toolCallBlocks(message?.toolCalls));
       list.push({
         role: "assistant",
-        content: [{ type: "text", text: content }],
+        content: blocks,
         api: PI_API,
         provider: String(config.id || ""),
         model: String(config.model || ""),
         usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
-        stopReason: "stop",
+        stopReason: message?.stopReason === "toolUse" ? "toolUse" : "stop",
         timestamp,
       });
       continue;
@@ -152,7 +178,10 @@ export function toPiContext(messages, config) {
     list.push({ role, content: messageContent(message?.content), timestamp });
   }
   const systemPrompt = systemParts.join("\n\n");
-  return systemPrompt ? { systemPrompt, messages: list } : { messages: list };
+  const context = systemPrompt ? { systemPrompt, messages: list } : { messages: list };
+  const tools = Array.isArray(options.tools) ? options.tools.filter((tool) => tool?.name && tool?.description) : [];
+  if (tools.length) context.tools = tools;
+  return context;
 }
 
 export function createAiRuntime({ modelsFor } = {}) {
@@ -180,12 +209,14 @@ export function createAiRuntime({ modelsFor } = {}) {
     let answer = "";
     let reasoning = "";
     let received = false;
+    let stopReason = "stop";
+    const toolCalls = [];
     const push = (delta) => {
       received = true;
       emit({ requestId, type: "delta", answer, reasoningText: reasoning, ...delta });
     };
     try {
-      const streamed = models.streamSimple(model, toPiContext(messages, config), {
+      const streamed = models.streamSimple(model, toPiContext(messages, config, { tools: options.tools }), {
         signal: controller.signal,
         apiKey: String(config.key || "") || undefined,
         temperature: 0.2,
@@ -203,18 +234,26 @@ export function createAiRuntime({ modelsFor } = {}) {
         } else if (event.type === "thinking_delta") {
           reasoning += event.delta;
           push({ reasoning: event.delta });
+        } else if (event.type === "toolcall_end" && event.toolCall) {
+          toolCalls.push(event.toolCall);
+          push({ toolCall: event.toolCall });
+        } else if (event.type === "done") {
+          if (event.reason) stopReason = event.reason;
         } else if (event.type === "error") {
           const reason = event.reason === "aborted" || controller.signal.aborted
             ? "cancelled"
             : classifyPiFailure(event.error, config);
-          return { ok: false, reason, message: event.error?.errorMessage || "", received };
+          return { ok: false, reason, message: event.error?.errorMessage || "", received, toolCalls };
         }
       }
-      if (!answer.trim()) return { ok: false, reason: reasoning.trim() ? "emptyanswer" : "empty", received };
-      return { ok: true, answer: answer.trim() };
+      // A turn may be tool calls only: that is a complete, successful answer.
+      if (!answer.trim() && !toolCalls.length) {
+        return { ok: false, reason: reasoning.trim() ? "emptyanswer" : "empty", received };
+      }
+      return { ok: true, answer: answer.trim(), toolCalls, stopReason: toolCalls.length ? "toolUse" : stopReason };
     } catch (error) {
-      if (controller.signal.aborted) return { ok: false, reason: "cancelled", received };
-      return { ok: false, reason: classifyPiFailure(error, config), message: String(error?.message || error), received };
+      if (controller.signal.aborted) return { ok: false, reason: "cancelled", received, toolCalls };
+      return { ok: false, reason: classifyPiFailure(error, config), message: String(error?.message || error), received, toolCalls };
     } finally {
       controllers.delete(requestId);
     }

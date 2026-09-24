@@ -29,7 +29,7 @@ test("stream maps text and thinking deltas into the reader delta contract", asyn
   faux.setResponses([fauxAssistantMessage([fauxThinking("想一下"), fauxText("你好，世界")])]);
   const { deltas, emit } = collect();
   const result = await runtime.stream({ requestId: "r1", config: CONFIG, messages: [{ role: "user", content: "hi" }] }, emit);
-  assert.deepEqual(result, { ok: true, answer: "你好，世界" });
+  assert.deepEqual(result, { ok: true, answer: "你好，世界", toolCalls: [], stopReason: "stop" });
   assert.equal(deltas.every((delta) => delta.requestId === "r1" && delta.type === "delta"), true);
   assert.equal(deltas.map((delta) => delta.content || "").join(""), "你好，世界");
   assert.equal(deltas.map((delta) => delta.reasoning || "").join(""), "想一下");
@@ -198,6 +198,45 @@ test("the tools probe reports a refusal as notools", async () => {
   const result = await runtime.probe({ config: CONFIG, kind: "tools", expected: "7" });
   assert.equal(result.ok, false);
   assert.equal(result.reason, "notools");
+});
+
+test("tool definitions, assistant calls and tool results survive the context mapping", () => {
+  const context = toPiContext([
+    { role: "user", content: "第三页讲了什么？" },
+    { role: "assistant", content: "我查一下。", toolCalls: [{ id: "call_1", name: "read_page", arguments: { page: 3 } }], stopReason: "toolUse" },
+    { role: "tool", toolCallId: "call_1", toolName: "read_page", content: "第 3 页正文", isError: false },
+  ], CONFIG, { tools: [{ name: "read_page", description: "Read a page", parameters: { type: "object", properties: { page: { type: "number" } } } }] });
+  assert.deepEqual(context.tools.map((tool) => tool.name), ["read_page"]);
+  const assistant = context.messages[1];
+  assert.deepEqual(assistant.content, [
+    { type: "text", text: "我查一下。" },
+    { type: "toolCall", id: "call_1", name: "read_page", arguments: { page: 3 } },
+  ]);
+  assert.equal(assistant.stopReason, "toolUse");
+  assert.deepEqual(context.messages[2], {
+    role: "toolResult",
+    toolCallId: "call_1",
+    toolName: "read_page",
+    content: [{ type: "text", text: "第 3 页正文" }],
+    isError: false,
+    timestamp: context.messages[2].timestamp,
+  });
+  const plain = toPiContext([{ role: "user", content: "hi" }], CONFIG);
+  assert.equal("tools" in plain, false, "no tools are advertised unless requested");
+});
+
+test("stream forwards tool calls and treats a call-only turn as complete", async () => {
+  const { faux, runtime } = fauxRuntime();
+  faux.setResponses([fauxAssistantMessage([fauxToolCall("read_page", { page: 3 })], { stopReason: "toolUse" })]);
+  const { deltas, emit } = collect();
+  const result = await runtime.stream({ requestId: "r4", config: CONFIG, messages: [{ role: "user", content: "p3?" }], options: { tools: [{ name: "read_page", description: "Read a page", parameters: { type: "object" } }] } }, emit);
+  assert.equal(result.ok, true);
+  assert.equal(result.answer, "");
+  assert.equal(result.stopReason, "toolUse");
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0].name, "read_page");
+  assert.deepEqual(result.toolCalls[0].arguments, { page: 3 });
+  assert.equal(deltas.some((delta) => delta.toolCall?.id), true, "the renderer sees the same call");
 });
 
 test("provider construction keeps the request shape stable", () => {
