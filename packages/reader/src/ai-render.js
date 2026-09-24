@@ -28,6 +28,7 @@ export function createAiRender({
   getConfirmModal,
   openReadSettings,
   openPluginAiSettings,
+  attachmentSrc,
 }) {
   function readerPageContext(view) {
     if (view?.engine && view.file) {
@@ -456,6 +457,46 @@ export function createAiRender({
     return { head, settings, close };
   }
 
+  function closeAiImagePreview(owner) {
+    owner?.imagePreview?.remove();
+    if (owner) owner.imagePreview = null;
+    owner?.imagePreviewCleanup?.();
+    if (owner) owner.imagePreviewCleanup = null;
+  }
+
+  // Double-clicking a thumbnail opens the real image: the in-memory bytes while
+  // the turn is still pending, the stored file after the conversation is saved.
+  async function openAiImagePreview(owner, attachment) {
+    const host = owner?.contentEl || null;
+    const doc = host?.ownerDocument || globalThis.document;
+    if (!doc?.body || !attachment) return;
+    closeAiImagePreview(owner);
+    const overlay = doc.body.createDiv("qiaomu-reader-image-preview");
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-label", translate("preview-image"));
+    const figure = overlay.createDiv("qiaomu-reader-image-preview-figure");
+    const image = figure.createEl("img", { attr: { alt: attachment.name || "" } });
+    const meta = figure.createDiv("qiaomu-reader-image-preview-meta");
+    meta.createSpan({ text: attachment.name || "" });
+    if (attachment.bytes) meta.createSpan({ text: bytesLabel(attachment.bytes) });
+    figure.createDiv({ cls: "qiaomu-reader-image-preview-hint", text: translate("tap-the-image-to-zoom-background-or-to-close") });
+    const close = () => closeAiImagePreview(owner);
+    const onKey = (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      close();
+    };
+    overlay.addEventListener("click", close);
+    doc.addEventListener("keydown", onKey, true);
+    owner.imagePreview = overlay;
+    owner.imagePreviewCleanup = () => doc.removeEventListener("keydown", onKey, true);
+    try {
+      const inline = attachment.data ? `data:${attachment.mimeType || "image/png"};base64,${attachment.data}` : "";
+      const src = inline || (typeof attachmentSrc === "function" ? await attachmentSrc(attachment, owner) : "") || attachment.thumb || "";
+      if (src) image.setAttribute("src", src);
+    } catch { /* the thumbnail is still shown, or nothing */ }
+  }
+
   // Attachment chips: thumbnails for images, a name/size row for text files.
   // Editable in the composer (remove button), read-only inside a sent turn.
   function renderAiAttachmentList(host, attachments, options = {}) {
@@ -471,6 +512,18 @@ export function createAiRender({
         const thumb = attachment.thumb || (attachment.data ? `data:${attachment.mimeType};base64,${attachment.data}` : "");
         if (thumb) chip.createEl("img", { cls: "qiaomu-reader-ai-attach-thumb", attr: { src: thumb, alt: "", loading: "lazy", decoding: "async" } });
         else svgIcon(chip.createSpan("qiaomu-reader-ai-attach-icon"), "image");
+        chip.tabIndex = 0;
+        chip.setAttribute("role", "button");
+        chip.setAttribute("aria-label", `${translate("preview-image")}: ${attachment.name}`);
+        chip.addEventListener("dblclick", (event) => {
+          event.preventDefault();
+          void openAiImagePreview(options.owner, attachment);
+        });
+        chip.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          void openAiImagePreview(options.owner, attachment);
+        });
       } else {
         svgIcon(chip.createSpan("qiaomu-reader-ai-attach-icon"), "note");
       }
@@ -527,11 +580,11 @@ export function createAiRender({
     return translateFn(key);
   }
 
-  function renderAiUserTurn(log, turn) {
+  function renderAiUserTurn(log, turn, owner = null) {
     const bubble = log.createDiv("qiaomu-reader-ai-msg qiaomu-reader-ai-msg-me");
     const context = normalizeAiTurnContext(turn?.context);
     if (context) renderAiContextQuote(bubble, context, { className: "qiaomu-reader-ai-msg-context" });
-    if (normalizeAiAttachments(turn?.attachments).length) renderAiAttachmentList(bubble, turn.attachments);
+    if (normalizeAiAttachments(turn?.attachments).length) renderAiAttachmentList(bubble, turn.attachments, { owner });
     if (turn?.content) bubble.createDiv({ cls: "qiaomu-reader-ai-msg-text", text: turn.content });
     return bubble;
   }
@@ -622,6 +675,8 @@ export function createAiRender({
     renderAiToolStep,
     openAiAttachMenu,
     closeAiAttachMenu,
+    openAiImagePreview,
+    closeAiImagePreview,
     bindReaderAiComposer,
     ReaderNameModal,
     contextualAiQuickPrompts,

@@ -413,6 +413,15 @@ const {
   getConfirmModal: () => ConfirmModal,
   openReadSettings: (app, readerView) => new ReadSettingsModal(app, readerView, "ai").open(),
   openPluginAiSettings,
+  // The preview loads the stored bytes so a saved conversation still opens the
+  // full image rather than the 160px thumbnail.
+  attachmentSrc: async (attachment, owner) => {
+    if (!attachment) return "";
+    if (attachment.data) return `data:${attachment.mimeType || "image/png"};base64,${attachment.data}`;
+    if (!attachment.file || !owner?.plugin) return attachment.thumb || "";
+    const data = await readAiAttachmentBytes(owner.plugin, attachment.file);
+    return data ? `data:${attachment.mimeType || "image/png"};base64,${data}` : (attachment.thumb || "");
+  },
 });
 // Settings defaults are assembled from concern-grouped fragments below. The
 // fragments are spread in the original key order, so the resulting object keeps

@@ -1328,6 +1328,7 @@ export default {
   "detect-automatically": "자동 감지",
   "force-supported": "지원으로 강제",
   "force-not-supported": "미지원으로 강제",
+  "preview-image": "이미지 미리보기",
   "ai-tools": "AI의 책 조회 허용",
   "let-the-assistant-look-up-pages-search-the-book-and-list-highlights": "읽기 전용: 답변 중에 페이지 확인, 책 검색, 하이라이트 목록을 사용할 수 있습니다.",
   "tool-running": "조회 중…",

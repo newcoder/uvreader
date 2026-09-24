@@ -309,7 +309,7 @@ export function createAiChatView({
   _renderStoredTurns() {
     this.turns.forEach((turn, index) => {
       if (turn.role === "user") {
-        renderAiUserTurn(this.log, turn);
+        renderAiUserTurn(this.log, turn, this);
         return;
       }
       // Tool results stay in the transcript for the model; the step cards
@@ -424,7 +424,9 @@ export function createAiChatView({
   close() {}
   async onClose() {
     this.plugin._companionWasVisible = false;
-    if (!this.plugin._unloading) await this.plugin._rememberCompanion(false);
+    // An explicit close means "don't auto-open the companion"; a route change
+    // (home, library) must not change that preference.
+    if (!this.plugin._unloading && !this.plugin._closingCompanionForRoute) await this.plugin._rememberCompanion(false);
     if (this.abortController) this.abortController.abort();
     this._rememberDraft();
     await this.plugin.aiDraftStore?.flush();

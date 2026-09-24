@@ -1104,6 +1104,13 @@ html.qbr-split-dragging .qiaomu-reader-relayouting .qiaomu-reader-area { filter:
 .qiaomu-reader-ai-attach-item .qiaomu-reader-ai-attach-icon { width:auto; height:auto; }
 .qiaomu-reader-ai-drop { outline:2px dashed color-mix(in srgb,var(--interactive-accent) 55%,transparent); outline-offset:-6px; }
 
+/* Thumbnail preview: the real image over the panel, click or Esc to close. */
+.qiaomu-reader-image-preview { position:fixed; inset:0; z-index:80; display:flex; align-items:center; justify-content:center; padding:24px; background:rgba(0,0,0,.62); cursor:zoom-out; }
+.qiaomu-reader-image-preview-figure { position:relative; display:flex; flex-direction:column; align-items:center; gap:8px; max-width:100%; max-height:100%; cursor:default; }
+.qiaomu-reader-image-preview-figure img { max-width:min(92vw,1200px); max-height:78vh; object-fit:contain; border-radius:var(--radius-m); background:var(--background-primary); box-shadow:0 20px 60px rgba(0,0,0,.45); }
+.qiaomu-reader-image-preview-meta { display:flex; align-items:center; gap:10px; color:#f2f2f2; font-size:var(--font-ui-smaller); }
+.qiaomu-reader-image-preview-hint { color:rgba(255,255,255,.72); font-size:var(--font-ui-smaller); }
+
 /* Drag-box screenshot overlay over the reading area. */
 .qiaomu-reader-shot { position:absolute; inset:0; z-index:60; cursor:crosshair; touch-action:none; opacity:0; transition:opacity .12s ease; }
 .qiaomu-reader-shot-on { opacity:1; }

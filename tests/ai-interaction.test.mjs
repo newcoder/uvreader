@@ -230,7 +230,7 @@ function chatHarness(explain, overrides = {}) {
 
 test("mobile AI header owns a safe close control that closes once", () => {
   const window = dom();
-  const helper = aiRenderSource.slice(aiRenderSource.indexOf("function renderMobileAiHeader("), aiRenderSource.indexOf("function renderAiUserTurn(log, turn) {"));
+  const helper = aiRenderSource.slice(aiRenderSource.indexOf("function renderMobileAiHeader("), aiRenderSource.indexOf("function renderAiUserTurn(log, turn, owner = null) {"));
   const render = vm.runInNewContext(`${helper}\nrenderMobileAiHeader`, {
     translate: (key) => key,
     renderAiHeadMeta() {},

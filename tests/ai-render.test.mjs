@@ -175,6 +175,48 @@ test("reader context helpers expose page, document and capability state", () => 
   assert.equal(aiBtn.getAttribute("aria-label"), "ai-reading");
 });
 
+test("double-clicking a thumbnail opens the real image and Esc closes it", async () => {
+  const { doc, window, render } = setup({
+    attachmentSrc: async (attachment) => `data:${attachment.mimeType};base64,${attachment.data || "STORED"}`,
+  });
+  const host = doc.createElement("div");
+  doc.body.appendChild(host);
+  const owner = { contentEl: host };
+  const image = { id: "att-1", kind: "image", name: "figure.png", mimeType: "image/png", bytes: 2048, thumb: "data:image/jpeg;base64,QQ==" };
+  render.renderAiAttachmentList(host, [image], { owner });
+  const chip = host.querySelector(".qiaomu-reader-ai-attach-chip");
+  assert.equal(chip.tabIndex, 0, "the thumbnail is reachable by keyboard");
+  assert.equal(owner.imagePreview, undefined);
+  chip.dispatchEvent(new window.MouseEvent("dblclick", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const overlay = doc.body.querySelector(".qiaomu-reader-image-preview");
+  assert.ok(overlay);
+  assert.equal(overlay.querySelector("img").getAttribute("src"), "data:image/png;base64,STORED", "stored bytes win over the thumbnail");
+  assert.match(overlay.querySelector(".qiaomu-reader-image-preview-meta").textContent, /figure\.png/);
+  assert.match(overlay.textContent, /tap-the-image-to-zoom-background-or-to-close/);
+  overlay.click();
+  assert.equal(doc.body.querySelector(".qiaomu-reader-image-preview"), null, "clicking the backdrop closes it");
+  assert.equal(owner.imagePreview, null);
+
+  chip.dispatchEvent(new window.MouseEvent("dblclick", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(doc.body.querySelector(".qiaomu-reader-image-preview"));
+  doc.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  assert.equal(doc.body.querySelector(".qiaomu-reader-image-preview"), null, "Esc closes it");
+});
+
+test("a text attachment chip never opens a preview", () => {
+  const { doc, render } = setup();
+  const host = doc.createElement("div");
+  doc.body.appendChild(host);
+  render.renderAiAttachmentList(host, [{ id: "t1", kind: "text", name: "notes.md", bytes: 10, text: "x" }], { owner: { contentEl: host } });
+  const chip = host.querySelector(".qiaomu-reader-ai-attach-chip");
+  assert.equal(chip.getAttribute("role"), null);
+  assert.equal(chip.tabIndex, -1);
+  chip.dispatchEvent(new doc.defaultView.MouseEvent("dblclick", { bubbles: true }));
+  assert.equal(doc.body.querySelector(".qiaomu-reader-image-preview"), null);
+});
+
 test("bindAiSlashPrompts filters prompts, chooses with the keyboard and closes", () => {
   const { doc, render } = setup({
     aiQuickPrompts: () => [

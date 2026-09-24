@@ -123,7 +123,7 @@ export function createAiExplainModal({
   _renderAttachments() {
     if (this.attachHost) {
       this.attachHost.replaceChildren();
-      renderAiAttachmentList(this.attachHost, this.attachments, { onRemove: (id) => { void removeAiAttachment(this, id); } });
+      renderAiAttachmentList(this.attachHost, this.attachments, { owner: this, onRemove: (id) => { void removeAiAttachment(this, id); } });
     }
     if (this.sendEl) this._setSending(!!this.busy);
   }
@@ -257,7 +257,7 @@ export function createAiExplainModal({
       ...(attachedContext ? { context: attachedContext } : {}),
       ...(attachedAttachments.length ? { attachments: attachedAttachments } : {}),
     };
-    const userBubble = renderAiUserTurn(this.log, userTurn);
+    const userBubble = renderAiUserTurn(this.log, userTurn, this);
     this.turns.push(userTurn);
     // One round is one visible assistant message. Tool-calling rounds finish
     // their message and are followed by the tool cards and the next round.

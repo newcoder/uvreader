@@ -959,6 +959,21 @@ async function runAiScenario() {
       return gloss.includes("MOCK STREAM ANSWER") ? gloss : "";
     }), 20_000);
     console.log("ai: selection translated", selected.slice(0, 18), "->", translated.slice(0, 24));
+
+    // Leaving the reader (the back button opens the library) closes the
+    // companion sidebar while keeping the saved preference.
+    const companion = await page.evaluate(
+      () => window.__qbrApp.workspace.getLeavesOfType("qiaomu-book-reader-ai-chat").length);
+    if (!companion) throw new Error("the companion should be open before the route change");
+    await page.evaluate(() => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view;
+      view?.contentEl?.querySelector(".qiaomu-reader-top .qiaomu-reader-ibtn")?.click();
+    });
+    await waitFor("companion closed on leaving the reader", () => page.evaluate(() => {
+      const leaves = window.__qbrApp.workspace.getLeavesOfType("qiaomu-book-reader-ai-chat");
+      return leaves.length === 0 && window.__qbrPlugin.settings.aiCompanionVisible !== false ? "closed" : "";
+    }), 10_000);
+    console.log("ai: companion closed on leaving the reader, preference kept");
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(userData, { recursive: true, force: true });
@@ -1188,6 +1203,18 @@ async function runCapabilityScenario() {
     }
     if (chipsBefore !== 0) throw new Error(`Esc should have cancelled without attachments, saw ${chipsBefore}`);
     console.log("screenshot:", shotChip, `${shot.width}x${shot.height}`, `${Math.round(shot.bytes / 1024)}KB`, "->", shot.file);
+
+    // Double-clicking a thumbnail previews the real image; Esc closes it.
+    await page.dblclick(".qiaomu-reader-ai-attach-slot .qiaomu-reader-ai-attach-chip");
+    const preview = await waitFor("image preview", () => page.evaluate(() => {
+      const overlay = document.querySelector(".qiaomu-reader-image-preview");
+      const src = overlay?.querySelector("img")?.getAttribute("src") || "";
+      return src.startsWith("data:image/") ? src.slice(0, 16) : "";
+    }), 10_000);
+    await page.keyboard.press("Escape");
+    await waitFor("image preview closed", () => page.evaluate(
+      () => !document.querySelector(".qiaomu-reader-image-preview")), 8_000);
+    console.log("preview:", preview, "opened and closed");
 
     // "Current page" from the same menu captures the page (or the visible
     // reading area) without drawing a box.

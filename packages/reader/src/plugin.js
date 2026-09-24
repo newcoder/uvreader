@@ -335,6 +335,17 @@ export function createPlugin({
     void this._showCompanionForBook(leaf.view);
     return leaf.view;
   }
+  // Leaving the reader (home page, library, settings) closes the companion
+  // sidebar: it belongs to the book, not to the app chrome. The saved "show the
+  // companion while reading" preference stays untouched.
+  closeReadingCompanion() {
+    const leaves = this.app.workspace.getLeavesOfType(AI_CHAT_VIEW_TYPE);
+    if (!leaves.length) return;
+    this._companionWasVisible = false;
+    this._closingCompanionForRoute = true;
+    for (const leaf of leaves) leaf.detach();
+    this._closingCompanionForRoute = false;
+  }
   async openAiChat(context = null, options = {}) {
     let target = null;
     if (!context) {
@@ -375,6 +386,9 @@ export function createPlugin({
     if (options.automatic && context?.readerView?.leaf) this.app.workspace.setActiveLeaf(context.readerView.leaf, { focus: false });
   }
   async openLibrary(inNewWindow = false) {
+    // The library is where the reading session ends for the desktop reader's
+    // back button; the companion sidebar closes with it.
+    this.closeReadingCompanion();
     const existing = this.app.workspace.getLeavesOfType(LIB_VIEW_TYPE);
     if (existing.length && !inNewWindow) {
       this.app.workspace.revealLeaf(existing[0]);

@@ -205,6 +205,9 @@ async function boot() {
   }
 
   async function showRoute(route) {
+    // The AI companion is part of the reading session; any route away from the
+    // reader closes its sidebar without touching the saved preference.
+    plugin.closeReadingCompanion?.();
     if (route === "library") {
       await plugin.openLibrary();
       return;

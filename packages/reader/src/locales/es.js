@@ -1328,6 +1328,7 @@ export default {
   "detect-automatically": "Detectar automáticamente",
   "force-supported": "Forzar compatible",
   "force-not-supported": "Forzar no compatible",
+  "preview-image": "Vista previa de la imagen",
   "ai-tools": "Permitir que el asistente consulte el libro",
   "let-the-assistant-look-up-pages-search-the-book-and-list-highlights": "Solo lectura: el asistente puede leer páginas, buscar en el libro y listar tus resaltados.",
   "tool-running": "Consultando…",
