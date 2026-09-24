@@ -172,7 +172,11 @@ export function createPdfPaginatorClass({
   _bookStyleCss(cfg, geo) {
     const innerH = geo.innerHeight;
     return [
-      ".qiaomu-reader-flow .qiaomu-reader-pdf-page-break{width:100%;height:100%;box-sizing:border-box;display:flex;align-items:flex-start;justify-content:flex-start;overflow:auto;overscroll-behavior:contain;break-inside:avoid;-webkit-column-break-inside:avoid}",
+      // The page is its own zoom/pan scroller. Its scrollbars are hidden (they
+      // would otherwise take width and force a second, horizontal bar); wheel
+      // and drag panning still work.
+      ".qiaomu-reader-flow .qiaomu-reader-pdf-page-break{width:100%;height:100%;box-sizing:border-box;display:flex;align-items:flex-start;justify-content:flex-start;overflow:auto;overscroll-behavior:contain;break-inside:avoid;-webkit-column-break-inside:avoid;scrollbar-width:none}",
+      ".qiaomu-reader-flow .qiaomu-reader-pdf-page-break::-webkit-scrollbar{display:none}",
       ".qiaomu-reader-flow .qiaomu-reader-pdf-page-break:not(.qiaomu-reader-pdf-last-page){break-after:column;-webkit-column-break-after:always}",
       ".qiaomu-reader-flow .qiaomu-reader-pdf-native-page{flex:none;margin:auto;padding:0;max-width:none;max-height:none;text-align:center;position:relative;"
         + "width:calc(var(--qiaomu-reader-pdf-fit-width,0px) * var(--qiaomu-reader-pdf-zoom,1));"

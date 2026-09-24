@@ -1192,7 +1192,9 @@ button.qiaomu-reader-py-chip:focus-visible { outline:2px solid color-mix(in srgb
   /* Only deliberate page turns may ask for smooth motion. Anchor restoration
      and source snapshots — programmatic scrollTop included — must stay
      synchronous. */
-.qiaomu-reader-clip.qiaomu-reader-clip-scroll { overflow-y: auto; overflow-x: auto; -webkit-overflow-scrolling: touch; scroll-behavior: auto; }
+/* Scrolling mode only moves vertically; without this the vertical scrollbar
+   narrows the content box and a second, horizontal bar appears. */
+.qiaomu-reader-clip.qiaomu-reader-clip-scroll { overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; scroll-behavior: auto; }
 .qiaomu-reader-clip.qiaomu-reader-clip-scroll .qiaomu-reader-flow { will-change: auto; }
 .qiaomu-reader-navclick .qiaomu-reader-clip-scroll { cursor: auto; }
 @media (prefers-reduced-motion: reduce) { .qiaomu-reader-clip.qiaomu-reader-clip-scroll { scroll-behavior: auto; } }

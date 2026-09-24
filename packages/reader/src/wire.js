@@ -1311,7 +1311,6 @@ function addPdfZoomMenuItems(menu, view) {
     .setIcon("scan")
     .setDisabled(Math.abs(zoom - PDF_ZOOM_DEFAULT) < 0.001)
     .onClick(() => pdfZoom.apply(view, PDF_ZOOM_DEFAULT, null, "page")));
-  menu.addItem((item) => item.setTitle(qiaomuReaderTranslate("fit-width")).setIcon("move-horizontal").onClick(() => pdfZoom.fitWidth(view)));
   menu.addItem((item) => item.setTitle(qiaomuReaderTranslate("custom-pdf-zoom")).setIcon("percent").onClick(() => new PdfZoomModal(view.app, view).open()));
   menu.addItem((item) => item.setTitle(qiaomuReaderTranslate("pan-pdf")).setIcon("hand").setChecked(!!view.pdfPanMode).onClick(() => pdfZoom.setPanMode(view, !view.pdfPanMode)));
   menu.addItem((item) => item

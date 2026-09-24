@@ -544,6 +544,8 @@ async function runPdfScenario() {
     const stored = await highlightFromPopup(page, highlightsPath, bookKey, { cfi: false });
     console.log("pdf: highlight stored", stored.id, stored.color);
 
+    // The fit toggle fills the reading slot (the zoom menu's old separate fit
+    // width is gone), so the page covers essentially the whole column.
     assert.equal(await clickTopButton(page, "适合页面"), true);
     const fitShare = await waitFor("pdf fit page fills the width", () => page.evaluate(() => {
       const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view;
@@ -553,7 +555,7 @@ async function runPdfScenario() {
       const slot = page?.clientWidth || 0;
       if (view?.plugin?.settings?.fitPage !== true || !width || !slot) return "";
       const share = (width * view.pdfZoom) / slot;
-      return share > 0.85 && share < 0.95 ? String(Math.round(share * 100)) : "";
+      return share > 0.97 && share < 1.01 ? String(Math.round(share * 100)) : "";
     }), 10_000);
     console.log("pdf: fit page fills the slot width", fitShare, "%");
   } finally {

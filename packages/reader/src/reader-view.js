@@ -518,8 +518,7 @@ export function createReaderView({
       this._renderFlowHighlights(); // re-wrap markers on the fresh blocks
       const [cur, tot] = restoreReadingAnchor(this.pager, anchor);
       restoreAiSource(this);
-      if (this.pdfZoomMode === "fit-page-width") pdfZoom.fitPageWidth(this);
-      else if (this.pdfZoomMode === "width") pdfZoom.fitWidth(this);
+      if (this.pdfZoomMode === "width") pdfZoom.fitWidth(this);
       this._readingAnchor = anchor;
       this.updateUI(cur, tot); if (this._tocRender) this._tocRender();
       this._findCorpus = null; if (this._foundQuery) this._markFound(this._foundQuery);
@@ -673,7 +672,9 @@ export function createReaderView({
     if (readerIsPdf(this)) {
       if (!this.bookHtml) return;
       const apply = () => {
-        if (fit) pdfZoom.fitPageWidth(this, 0.9);
+        // Fill the reading slot: the zoom menu's old "fit width" and this
+        // toggle are one control now, and the fill is what readers want.
+        if (fit) pdfZoom.fitWidth(this);
         else pdfZoom.apply(this, PDF_ZOOM_DEFAULT, null, "page");
       };
       void this.repaginate().then(apply, apply);

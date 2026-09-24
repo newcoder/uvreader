@@ -96,17 +96,6 @@ export function createPdfZoomUi({ translate, isPdf }) {
     if (width) apply(view, Math.max(1, (page.clientWidth - 4) / width), null, "width");
   }
 
-  // "Fit page" for PDFs: zoom until the page width covers the given share of its
-  // reading slot (portrait pages fill the window instead of leaving empty sides).
-  function fitPageWidth(view, ratio = 0.9) {
-    const page = view.pager?.currentPdfPageElement?.();
-    const figure = page?.querySelector(".qiaomu-reader-pdf-native-page");
-    const width = parseFloat(figure?.style.getPropertyValue("--qiaomu-reader-pdf-fit-width"));
-    const slot = page?.clientWidth || view.areaEl?.clientWidth || 0;
-    if (!width || !slot) return;
-    apply(view, (slot * ratio) / width, null, "fit-page-width");
-  }
-
   function setPanMode(view, enabled) {
     view.pdfPanMode = enabled;
     view.contentEl?.toggleClass("qiaomu-reader-pdf-pan", enabled);
@@ -114,5 +103,5 @@ export function createPdfZoomUi({ translate, isPdf }) {
     view._hideHlPopup?.();
   }
 
-  return { syncControls, visiblePageScrollers, apply, change, fitWidth, fitPageWidth, setPanMode };
+  return { syncControls, visiblePageScrollers, apply, change, fitWidth, setPanMode };
 }
