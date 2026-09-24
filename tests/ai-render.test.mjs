@@ -157,12 +157,15 @@ test("reader context helpers expose page, document and capability state", () => 
   assert.equal(document.label, "full-pdf-condensed");
   assert.equal(document.page, "0-pages:12");
   assert.equal(render.readerSupportsAiContext(pdfView), true);
-  const scanned = { file: { path: "b.pdf", extension: "pdf" }, pdfDocumentContext: { text: "" } };
-  assert.equal(render.readerSupportsAiContext(scanned), false);
-  const unavailable = render.readerAiPanelContext({ file: scanned.file, bookHtml: "<p>x</p>" });
-  assert.equal(unavailable.unavailable, true);
-  assert.equal(unavailable.bookFile, scanned.file);
-  assert.ok(unavailable.readerView);
+  // A scanned PDF has no text to send, but its page images are available, so
+  // the chat stays open and the send path attaches the current page.
+  const scanned = { file: { path: "b.pdf", extension: "pdf" }, bookHtml: "<p>x</p>", pdfDocumentContext: { text: "" } };
+  assert.equal(render.readerSupportsAiContext(scanned), true);
+  const scannedContext = render.readerAiPanelContext({ file: scanned.file, bookHtml: "<p>x</p>" });
+  assert.equal(scannedContext.scanned, true);
+  assert.equal(scannedContext.text, undefined);
+  assert.equal(scannedContext.bookFile, scanned.file);
+  assert.ok(scannedContext.readerView);
   const coverPage = render.readerAiPanelContext({ file: { path: "c.epub", extension: "epub" }, bookHtml: "<p>x</p>" });
   assert.equal(coverPage.kind, undefined);
   assert.equal(coverPage.bookFile.path, "c.epub");

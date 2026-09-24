@@ -26,6 +26,17 @@ export function clampShotRect(rect, bounds) {
   return { x: left, y: top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
 }
 
+// The visible part of an element inside its container and the viewport — used
+// to screenshot a whole page without drawing a box.
+export function visibleRegion(element, container) {
+  if (!element?.getBoundingClientRect || !container?.getBoundingClientRect) return null;
+  const region = clampShotRect(element.getBoundingClientRect(), container.getBoundingClientRect());
+  const win = container.ownerDocument?.defaultView;
+  if (!win?.innerWidth || !win?.innerHeight) return region.width && region.height ? region : null;
+  const viewport = clampShotRect(region, { x: 0, y: 0, width: win.innerWidth, height: win.innerHeight });
+  return viewport.width >= 1 && viewport.height >= 1 ? viewport : null;
+}
+
 // The PDF fallback for hosts without a screen-capture bridge: how each
 // intersected page image is cropped and where its fragment lands on the
 // stitched canvas. `pages` entries are { rect, imageWidth, imageHeight } in

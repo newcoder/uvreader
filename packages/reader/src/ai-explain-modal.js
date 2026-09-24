@@ -5,7 +5,7 @@ import { svgIcon } from "./reader-icons.js";
 import { verifiedQuotes } from "./reading-workflow.js";
 
 export function createAiExplainModal({
-  Component, Menu, Modal, Notice, aiExplain, aiLogFollowsTail, aiTurnsHaveAttachments, bindAiAttachmentIntake, captureAiScreenshot, bindAiSlashPrompts, bindReaderAiComposer, bookNoteLinkFor, copyToClipboard, createAiChatLog, createAiStreamingMarkdownRenderer, createNoteFromAiAnswer, jumpToAiQuote, newAiSessionKey, normalizeAiTurnContext, noteAiImageFailure, openAiAttachMenu, pickAiAttachments, prepareAiTurns, qiaomuReaderTranslate, readerHud, removeAiAttachment, renderAiAttachmentList, renderAiComposerPrompts, renderAiContextQuote, renderAiUserTurn, renderMobileAiHeader, stripAiAttachmentData,
+  Component, Menu, Modal, Notice, aiExplain, aiLogFollowsTail, aiNeedsPageImage, aiTurnsHaveAttachments, bindAiAttachmentIntake, captureAiScreenshot, bindAiSlashPrompts, bindReaderAiComposer, bookNoteLinkFor, copyToClipboard, createAiChatLog, createAiStreamingMarkdownRenderer, createNoteFromAiAnswer, jumpToAiQuote, newAiSessionKey, normalizeAiTurnContext, noteAiImageFailure, openAiAttachMenu, pickAiAttachments, prepareAiTurns, qiaomuReaderTranslate, readerHud, removeAiAttachment, renderAiAttachmentList, renderAiComposerPrompts, renderAiContextQuote, renderAiUserTurn, renderMobileAiHeader, stripAiAttachmentData,
 }) {
   return class AiExplainModal extends Modal {
   constructor(app, plugin, context) {
@@ -15,6 +15,7 @@ export function createAiExplainModal({
     this._markdownComponent = new Component();
     this.pendingContext = normalizeAiTurnContext(context);
     this.structuredContext = true;
+    this.scannedPdf = context?.scanned === true;
     this.text = this.pendingContext?.text || "";
     this.bookFile = context?.bookFile || null;
     this.readerView = context?.readerView || null;
@@ -57,6 +58,7 @@ export function createAiExplainModal({
     attach.setAttribute("aria-label", qiaomuReaderTranslate("attach-image-or-file"));
     attach.addEventListener("click", () => openAiAttachMenu(attach, this, {
       pick: (kind) => { void pickAiAttachments(this, kind); },
+      page: () => { void captureAiScreenshot(this, { page: true }); },
       shot: () => { void captureAiScreenshot(this); },
     }));
     this.attachButton = attach;
@@ -137,6 +139,9 @@ export function createAiExplainModal({
     svgIcon(empty.createDiv("qiaomu-reader-ai-empty-icon"), "wand-sparkles");
     empty.createDiv({ cls: "qiaomu-reader-ai-empty-title", text: qiaomuReaderTranslate("what-would-you-like-to-ask") });
     empty.createDiv({ cls: "qiaomu-reader-ai-empty-sub", text: qiaomuReaderTranslate("choose-a-quick-prompt-or-write-your-own") });
+    if (this.scannedPdf) {
+      empty.createDiv({ cls: "qiaomu-reader-ai-empty-sub qiaomu-reader-ai-empty-note", text: qiaomuReaderTranslate("scanned-pdf-the-current-page-image-is-attached-automatically") });
+    }
     this.empty = empty;
   }
   _scroll() { this._readingEarlier = false; this.log.scrollTop = this.log.scrollHeight; }
@@ -230,6 +235,11 @@ export function createAiExplainModal({
     if (this.busy || this._historySaving || (!text && !(this.attachments || []).length)) return false;
     if (!this._regeneratingContext) this._prepareContext?.();
     this._regeneratingContext = false;
+    // A scanned PDF has no text to send; its page image rides along instead.
+    if (aiNeedsPageImage?.(this)) {
+      try { await captureAiScreenshot(this, { page: true }); }
+      catch { /* the turn still goes out, just without the page image */ }
+    }
     this.busy = true;
     this.abortController = new AbortController();
     this._setSending(true);

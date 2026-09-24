@@ -578,7 +578,7 @@ test("desktop AI chat keeps per-book threads and structured document or selectio
   assert.match(aiRenderSource, /function readerPageContext\(view\)/);
   assert.match(aiRenderSource, /function readerDefaultAiContext\(view\)/);
   assert.match(aiRenderSource, /function readerAiPanelContext\(view\)/);
-  assert.match(aiRenderSource, /unavailable: true,[\s\S]*bookFile: view\.file,[\s\S]*readerView: view/);
+  assert.match(aiRenderSource, /scanned: true,[\s\S]*bookFile: view\.file,[\s\S]*readerView: view/);
   assert.match(aiRenderSource, /kind: "document"/);
   assert.match(pdfSource, /pdfDocumentContext: packPdfDocumentContext/);
   assert.match(aiRenderSource, /getClientRects/);

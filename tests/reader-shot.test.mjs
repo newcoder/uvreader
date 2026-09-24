@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 
-import { SHOT_MIN_SIZE, planRegionStitch, openShotOverlay, clampShotRect } from "../packages/reader/src/reader-shot.js";
+import { SHOT_MIN_SIZE, planRegionStitch, openShotOverlay, clampShotRect, visibleRegion } from "../packages/reader/src/reader-shot.js";
 
 function makeHost() {
   const dom = new JSDOM("<div id='area'></div>");
@@ -99,6 +99,19 @@ test("a cross-page region is cropped per page and stitched on one canvas", () =>
   assert.deepEqual(plan.items[0].target, { x: 0, y: 0, width: 100, height: 200 });
   assert.deepEqual(plan.items[1].source, { x: 0, y: 0, width: 100, height: 200 });
   assert.deepEqual(plan.items[1].target, { x: 200, y: 0, width: 100, height: 200 });
+});
+
+test("visibleRegion clamps a page to its container and the viewport", () => {
+  const doc = { defaultView: { innerWidth: 700, innerHeight: 500 }, ownerDocument: null };
+  const container = {
+    ownerDocument: doc,
+    getBoundingClientRect: () => ({ x: 0, y: 0, left: 0, top: 0, width: 600, height: 450, right: 600, bottom: 450 }),
+  };
+  const page = { getBoundingClientRect: () => ({ x: 40, y: 40, left: 40, top: 40, width: 500, height: 700, right: 540, bottom: 740 }) };
+  assert.deepEqual(visibleRegion(page, container), { x: 40, y: 40, width: 500, height: 410 });
+  const offscreen = { getBoundingClientRect: () => ({ x: 900, y: 900, left: 900, top: 900, width: 100, height: 100, right: 1000, bottom: 1000 }) };
+  assert.equal(visibleRegion(offscreen, container), null);
+  assert.equal(visibleRegion(null, container), null);
 });
 
 test("a region that misses every page yields no plan", () => {

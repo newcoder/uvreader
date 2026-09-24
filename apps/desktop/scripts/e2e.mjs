@@ -1147,6 +1147,18 @@ async function runCapabilityScenario() {
     }
     if (chipsBefore !== 0) throw new Error(`Esc should have cancelled without attachments, saw ${chipsBefore}`);
     console.log("screenshot:", shotChip, `${shot.width}x${shot.height}`, `${Math.round(shot.bytes / 1024)}KB`, "->", shot.file);
+
+    // "Current page" from the same menu captures the page (or the visible
+    // reading area) without drawing a box.
+    await page.click(".qiaomu-reader-ai-attach");
+    if (await clickAttachItem("当前页图片") !== "clicked") throw new Error("the current-page entry is missing");
+    const pageShot = await waitFor("current page attachment", () => page.evaluate(() => {
+      const leaf = window.__qbrApp.workspace.getLeavesOfType("qiaomu-book-reader-ai-chat")[0];
+      const list = (leaf?.view?.attachments || []).filter((item) => item.source === "shot");
+      const wide = list.find((item) => item.width >= 400);
+      return wide ? `${wide.width}x${wide.height}` : "";
+    }), 15_000);
+    console.log("current page:", pageShot);
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(userData, { recursive: true, force: true });

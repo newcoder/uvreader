@@ -19,6 +19,7 @@ export function createAiChatView({
     this.attachments = [];
     this.pendingContext = null;
     this.structuredContext = true;
+    this.scannedPdf = false;
     this.aiSessionKey = window.crypto?.randomUUID?.() || `reader-${Date.now()}-${Math.random()}`;
     this.contextUnavailable = false;
     this.drafts = this.plugin.aiDraftStore?.texts || new Map();
@@ -119,6 +120,7 @@ export function createAiChatView({
       return;
     }
     const context = normalizeAiTurnContext(value);
+    this.scannedPdf = value?.scanned === true;
     const bookFile = value?.bookFile || null;
     const readerView = value?.readerView || null;
     const bookPath = bookFile?.path || "";
@@ -352,6 +354,7 @@ export function createAiChatView({
     attach.setAttribute("aria-label", qiaomuReaderTranslate("attach-image-or-file"));
     attach.addEventListener("click", () => openAiAttachMenu(attach, this, {
       pick: (kind) => { void pickAiAttachments(this, kind); },
+      page: () => { void captureAiScreenshot(this, { page: true }); },
       shot: () => { void captureAiScreenshot(this); },
     }));
     this.attachButton = attach;

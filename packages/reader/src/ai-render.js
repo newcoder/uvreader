@@ -107,7 +107,7 @@ export function createAiRender({
 
   function readerAiPanelContext(view) {
     const context = readerDefaultAiContext(view);
-    if (context) return context;
+    if (String(context?.text || "").trim()) return context;
     if (!view?.file || !view?.bookHtml) return null;
     // A text-capable EPUB can legitimately open on an image-only cover.
     // That is not the same state as a scanned PDF: keep the book thread and
@@ -118,8 +118,10 @@ export function createAiRender({
         readerView: view,
       };
     }
+    // A scanned PDF has no text; the current page image is attached to the
+    // next turn instead (see the send path).
     return {
-      unavailable: true,
+      scanned: true,
       bookFile: view.file,
       readerView: view,
     };
@@ -127,8 +129,9 @@ export function createAiRender({
 
   function readerSupportsAiContext(view) {
     if (!view?.file || !view?.bookHtml) return false;
-    if (view.file.extension !== "pdf") return true;
-    return !!String(view.pdfDocumentContext?.text || "").trim();
+    // Every format can be discussed now: text books send their text, fixed
+    // layouts and scans send page images.
+    return true;
   }
 
   function syncReaderAiCapability(view) {
@@ -520,6 +523,7 @@ export function createAiRender({
     };
     item("image", translate("attach-image"), () => actions.pick?.("image"));
     item("note", translate("attach-file"), () => actions.pick?.("file"));
+    if (actions.page) item("download", translate("attach-current-page-image"), () => actions.page?.());
     if (actions.shot) item("crop", translate("screenshot"), () => actions.shot?.());
     chat.attachMenu = menu;
     chat.attachButton?.setAttribute("aria-expanded", "true");

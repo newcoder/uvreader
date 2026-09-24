@@ -70,7 +70,7 @@ import { createPdfZoomUi } from "./pdf-zoom-ui.js";
 import { createSelectionActions } from "./selection-actions.js";
 import { lookupSelection, lookupWordGloss } from "./pinyin-annotate.js";
 import { createPinPopup } from "./pin-popup.js";
-import { openShotOverlay, planRegionStitch } from "./reader-shot.js";
+import { openShotOverlay, planRegionStitch, visibleRegion } from "./reader-shot.js";
 import { createReaderTimer } from "./reader-timer.js";
 import { createReaderHud } from "./reader-hud.js";
 import { createReaderView } from "./reader-view.js";
@@ -1651,25 +1651,57 @@ async function capturePdfRegion(view, region) {
   return { data, mimeType: "image/png", bytes: Math.ceil((data.length * 3) / 4), width: plan.width, height: plan.height, source: "shot" };
 }
 
-// Draw a box over the reading area and attach the captured region. The
-// capability gate from the attachment path decides whether images may go out
-// at all, so the entry point can stay available.
-async function captureAiScreenshot(chat) {
-  const view = chat?.readerView?.areaEl?.isConnected ? chat.readerView : chat?.plugin?._openReaderModal;
+function readerViewForChat(chat) {
+  return chat?.readerView?.areaEl?.isConnected ? chat.readerView : chat?.plugin?._openReaderModal || null;
+}
+
+// The current page (PDF) or the visible reading area (other formats).
+function currentPageRegion(view) {
+  if (!view?.areaEl) return null;
+  if (readerIsPdf(view)) {
+    const page = view.pager?.currentPdfPageElement?.();
+    if (page) return visibleRegion(page, view.areaEl);
+  }
+  return visibleRegion(view.areaEl, view.areaEl);
+}
+
+// A scanned PDF (no usable text layer) can only be discussed through images;
+// its page rides along with the next turn unless the reader attached something.
+function aiNeedsPageImage(chat) {
+  const view = readerViewForChat(chat);
+  if (!view || !readerIsPdf(view)) return false;
+  if (String(view.pdfDocumentContext?.text || "").trim()) return false;
+  return !(chat.attachments || []).length;
+}
+
+// Draw a box over the reading area (or grab the current page) and attach the
+// captured region. The capability gate from the attachment path decides whether
+// images may go out at all, so the entry point can stay available.
+async function captureAiScreenshot(chat, options = {}) {
+  const view = readerViewForChat(chat);
   if (!view?.areaEl) {
     new Notice(qiaomuReaderTranslate("open-a-book-first"), 6000);
-    return;
+    return false;
   }
-  const overlay = openShotOverlay({ host: view.areaEl, translate: qiaomuReaderTranslate });
-  const rect = await overlay.promise;
-  if (!rect) return;
+  let rect = null;
+  if (options.page) {
+    rect = currentPageRegion(view);
+    if (!rect) {
+      new Notice(qiaomuReaderTranslate("screenshot-failed-try-again"), 6000);
+      return false;
+    }
+  } else {
+    const overlay = openShotOverlay({ host: view.areaEl, translate: qiaomuReaderTranslate });
+    rect = await overlay.promise;
+    if (!rect) return false;
+  }
   const bridge = typeof window !== "undefined" && window.qbrDesktop ? window.qbrDesktop.ai : null;
   let entry = null;
   if (bridge?.captureRegion) {
     const result = await bridge.captureRegion(rect);
     if (!result?.ok) {
       new Notice(qiaomuReaderTranslate("screenshot-failed-try-again"), 6000);
-      return;
+      return false;
     }
     entry = {
       data: result.data,
@@ -1683,11 +1715,12 @@ async function captureAiScreenshot(chat) {
     entry = await capturePdfRegion(view, rect);
     if (!entry) {
       new Notice(qiaomuReaderTranslate(readerIsPdf(view) ? "screenshot-failed-try-again" : "screenshots-in-this-format-need-the-desktop-app"), 8000);
-      return;
+      return false;
     }
   }
   entry.name = screenshotName();
   await attachAiFiles(chat, [aiAttachmentFile(entry)], "shot");
+  return (chat.attachments || []).length > 0;
 }
 
 // Detect whether the configured model accepts image parts or a tools array.
@@ -1735,6 +1768,7 @@ const AiExplainModal = createAiExplainModal({
   Notice,
   aiExplain,
   aiLogFollowsTail,
+  aiNeedsPageImage,
   aiTurnsHaveAttachments,
   bindAiAttachmentIntake,
   bindAiSlashPrompts,
