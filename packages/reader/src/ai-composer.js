@@ -14,7 +14,8 @@ export function bindAiComposer(input, send, chat, { blurOnSend = false, onDraftC
   const submit = async (providedQuestion) => {
     if (chat.busy || composing || pending) return;
     const question = providedQuestion || input.value.trim();
-    if (!question) return;
+    // Attachments count as content: "look at this image" needs no typed text.
+    if (!question && !(chat.attachments || []).length) return;
     const sentRevision = revision;
     pending = true;
     if (blurOnSend) input.blur();

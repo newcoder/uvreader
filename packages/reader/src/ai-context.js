@@ -3,6 +3,7 @@
 // highlight locating) are injected so the module stays testable.
 
 import { aiProviderFor, normalizeAiBase } from "./ai-providers.js";
+import { aiAttachmentBlocks, normalizeAiAttachments, stripAttachmentData } from "./ai-attachments.js";
 import { deriveAiSetupState } from "./ai-setup-state.js";
 import { PDF_AI_CONTEXT_MAX_CHARS } from "./pdf-page-mode.js";
 import { textPoint } from "./reader-experience.js";
@@ -126,6 +127,9 @@ export function createAiContext({ translate, platform, win = globalThis, locateH
         ...(turn?.role !== "assistant" && normalizeAiTurnContext(turn?.context)
           ? { context: normalizeAiTurnContext(turn.context) }
           : {}),
+        ...(turn?.role !== "assistant" && normalizeAiAttachments(turn?.attachments).length
+          ? { attachments: stripAttachmentData(turn.attachments) }
+          : {}),
       })).filter((turn) => turn.content) : [];
       const firstUser = turns.find((turn) => turn.role === "user");
       if (!item?.contextVersion && legacyText && firstUser && !firstUser.context) {
@@ -178,10 +182,9 @@ export function createAiContext({ translate, platform, win = globalThis, locateH
       }
       const context = normalizeAiTurnContext(turn.context)
         || (i === 0 && text ? normalizeAiTurnContext({ kind: "selection", text }) : null);
-      msgs.push({
-        role: "user",
-        content: context ? `${aiContextMessage(context, from)}\n\n问题：${turn.content}` : turn.content,
-      });
+      const prompt = context ? `${aiContextMessage(context, from)}\n\n问题：${turn.content}` : turn.content;
+      const blocks = aiAttachmentBlocks(turn.attachments);
+      msgs.push({ role: "user", content: blocks.length ? [{ type: "text", text: prompt }, ...blocks] : prompt });
     });
     return msgs;
   }

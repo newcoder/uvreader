@@ -5,7 +5,7 @@ import { svgIcon } from "./reader-icons.js";
 import { verifiedQuotes } from "./reading-workflow.js";
 
 export function createAiExplainModal({
-  Component, Menu, Modal, Notice, aiExplain, aiLogFollowsTail, bindAiSlashPrompts, bindReaderAiComposer, bookNoteLinkFor, copyToClipboard, createAiChatLog, createAiStreamingMarkdownRenderer, createNoteFromAiAnswer, jumpToAiQuote, newAiSessionKey, normalizeAiTurnContext, qiaomuReaderTranslate, readerHud, renderAiComposerPrompts, renderAiContextQuote, renderAiUserTurn, renderMobileAiHeader,
+  Component, Menu, Modal, Notice, aiExplain, aiLogFollowsTail, aiTurnsHaveAttachments, bindAiAttachmentIntake, bindAiSlashPrompts, bindReaderAiComposer, bookNoteLinkFor, copyToClipboard, createAiChatLog, createAiStreamingMarkdownRenderer, createNoteFromAiAnswer, jumpToAiQuote, newAiSessionKey, normalizeAiTurnContext, noteAiImageFailure, openAiAttachMenu, pickAiAttachments, prepareAiTurns, qiaomuReaderTranslate, readerHud, removeAiAttachment, renderAiAttachmentList, renderAiComposerPrompts, renderAiContextQuote, renderAiUserTurn, renderMobileAiHeader, stripAiAttachmentData,
 }) {
   return class AiExplainModal extends Modal {
   constructor(app, plugin, context) {
@@ -20,6 +20,7 @@ export function createAiExplainModal({
     this.readerView = context?.readerView || null;
     this.book = this.bookFile ? bookNoteLinkFor(plugin, this.bookFile) || this.bookFile.basename : "";
     this.turns = [];
+    this.attachments = [];
     this.aiSessionKey = newAiSessionKey();
   }
   async onOpen() {
@@ -44,15 +45,23 @@ export function createAiExplainModal({
     });
     this.pendingContextEl = rendered?.card || null;
     this.contextClearEl = rendered?.clear || null;
+    this.attachHost = bar.createDiv("qiaomu-reader-ai-attach-slot");
     const slashMenu = bar.createDiv("qiaomu-reader-ai-slash-menu");
     slashMenu.hidden = true;
     const footer = bar.createDiv("qiaomu-reader-ai-composer-foot");
     const input = footer.createEl("input", { cls: "qiaomu-reader-ai-input", type: "text" });
     input.placeholder = qiaomuReaderTranslate("message");
     input.setAttribute("aria-label", qiaomuReaderTranslate("message"));
+    const attach = footer.createEl("button", { cls: "qiaomu-reader-ai-attach", attr: { type: "button", "aria-expanded": "false" } });
+    svgIcon(attach, "paperclip");
+    attach.setAttribute("aria-label", qiaomuReaderTranslate("attach-image-or-file"));
+    attach.addEventListener("click", () => openAiAttachMenu(attach, this, { pick: (kind) => { void pickAiAttachments(this, kind); } }));
+    this.attachButton = attach;
     const send = footer.createEl("button", { cls: "qiaomu-reader-ai-send" });
     this.inputEl = input;
     this.sendEl = send;
+    bindAiAttachmentIntake(this, c, input);
+    this._renderAttachments();
     this.canCancel = true;
     bindAiSlashPrompts(slashMenu, input, this);
     this.inputController = bindReaderAiComposer(this, input, send, footer, true);
@@ -72,8 +81,9 @@ export function createAiExplainModal({
     svgIcon(this.sendEl, stopping ? "square" : "send");
     this.sendEl.setAttribute("aria-label", stopping ? qiaomuReaderTranslate("stop-generating") : qiaomuReaderTranslate("send"));
     this.sendEl.toggleClass("is-stop", stopping);
-    this.sendEl.disabled = busy ? !this.canCancel : !this.inputEl?.value.trim();
-    this.sendEl.toggleClass("is-empty", !busy && !this.inputEl?.value.trim());
+    const empty = !this.inputEl?.value.trim() && !(this.attachments || []).length;
+    this.sendEl.disabled = busy ? !this.canCancel : empty;
+    this.sendEl.toggleClass("is-empty", !busy && empty);
     if (this.contextClearEl) this.contextClearEl.disabled = !!busy;
     for (const button of this.quickPromptButtons || []) button.disabled = !!busy;
     for (const button of this.sessionButtons || []) button.disabled = !!busy;
@@ -100,6 +110,22 @@ export function createAiExplainModal({
   _hideKeyboardInset(modal) {
     modal.removeClass("qiaomu-reader-kb-up");
     modal.style.removeProperty("--qiaomu-reader-kb");
+  }
+  _renderAttachments() {
+    if (this.attachHost) {
+      this.attachHost.replaceChildren();
+      renderAiAttachmentList(this.attachHost, this.attachments, { onRemove: (id) => { void removeAiAttachment(this, id); } });
+    }
+    if (this.sendEl) this._setSending(!!this.busy);
+  }
+  // The turn went out: keep attachment metadata in the conversation (the bytes
+  // are already on disk) and clear the composer strip.
+  _finishAttachments(userTurn) {
+    if (userTurn?.attachments?.length) userTurn.attachments = stripAiAttachmentData(userTurn.attachments);
+    if ((this.attachments || []).length) {
+      this.attachments = [];
+      this._renderAttachments();
+    }
   }
   // Start with the recurring jobs readers actually have. These are prompts,
   // not modes: after any one of them the conversation remains fully open.
@@ -198,7 +224,7 @@ export function createAiExplainModal({
     regenerate.addClass("qiaomu-reader-ai-regenerate");
   }
   async _send(text) {
-    if (this.busy || this._historySaving || !text) return false;
+    if (this.busy || this._historySaving || (!text && !(this.attachments || []).length)) return false;
     if (!this._regeneratingContext) this._prepareContext?.();
     this._regeneratingContext = false;
     this.busy = true;
@@ -207,7 +233,13 @@ export function createAiExplainModal({
     for (const button of this.log.querySelectorAll(".qiaomu-reader-ai-regenerate")) button.remove();
     if (this.empty) { this.empty.remove(); this.empty = null; }
     const attachedContext = normalizeAiTurnContext(this.pendingContext);
-    const userTurn = { role: "user", content: text, ...(attachedContext ? { context: attachedContext } : {}) };
+    const attachedAttachments = this.attachments || [];
+    const userTurn = {
+      role: "user",
+      content: text,
+      ...(attachedContext ? { context: attachedContext } : {}),
+      ...(attachedAttachments.length ? { attachments: attachedAttachments } : {}),
+    };
     const userBubble = renderAiUserTurn(this.log, userTurn);
     this.turns.push(userTurn);
     const group = this.log.createDiv("qiaomu-reader-ai-group");
@@ -258,10 +290,17 @@ export function createAiExplainModal({
       }
     };
     try {
-      answer = await aiExplain(this.structuredContext ? "" : this.text, this.plugin, this.turns, this.book, {
+      // Hydration plus the image-support gate; a blocked turn throws with a
+      // reason the failure branch below already understands. A text-only send
+      // stays on the original turns so nothing about it becomes asynchronous.
+      const outbound = aiTurnsHaveAttachments(this.turns)
+        ? await prepareAiTurns(this, this.turns)
+        : { turns: this.turns, vision: false };
+      answer = await aiExplain(this.structuredContext ? "" : this.text, this.plugin, outbound.turns, this.book, {
         signal: this.abortController.signal,
         onDelta,
         sessionKey: this.aiSessionKey,
+        vision: outbound.vision,
       });
     } catch (e) {
       const followTail = aiLogFollowsTail(this.log);
@@ -273,6 +312,7 @@ export function createAiExplainModal({
       if (answer.trim()) {
         await markdownRenderer.finish(answer);
         this.turns.push({ role: "assistant", content: answer, interrupted: true });
+        this._finishAttachments(userTurn);
         this._consumePendingContext(attachedContext);
         bubble.removeClass("qiaomu-reader-ai-msg-streaming");
         bubble.removeAttribute("aria-busy");
@@ -299,6 +339,11 @@ export function createAiExplainModal({
         reasoningBox.remove();
       }
       this.turns.pop();
+      if (attachedAttachments.length) {
+        // The composer still holds the attachments for a retry.
+        this._renderAttachments();
+        if (why === "novision") noteAiImageFailure?.(this);
+      }
       if (why !== "cancelled") bubble.addClass("qiaomu-reader-ai-msg-err");
       bubble.setText(
         why === "cancelled" ? qiaomuReaderTranslate("generation-stopped")
@@ -309,6 +354,7 @@ export function createAiExplainModal({
           : why === "cliauth" ? qiaomuReaderTranslate("the-cli-is-not-signed-in-complete-its-login-flow-in-terminal-fir")
           : why === "model" ? qiaomuReaderTranslate("the-model-name-is-unavailable-leave-it-empty-to-use-the-cli-defa")
           : why === "timeout" ? qiaomuReaderTranslate("the-ai-request-timed-out-try-again-later")
+          : why === "novision" ? qiaomuReaderTranslate("the-model-does-not-support-images-remove-them-or-switch-models")
           : why === "inputtoolong" ? qiaomuReaderTranslate("the-pdf-or-selection-is-too-long-use-a-smaller-selection-or-remo")
           : why === "outputtoolong" ? qiaomuReaderTranslate("the-ai-response-was-too-long-and-has-been-stopped")
           : why === "acpsession" ? qiaomuReaderTranslate("the-acp-session-expired-and-automatic-reconnection-failed-try-ag")
@@ -345,6 +391,7 @@ export function createAiExplainModal({
       return false;
     }
     this.turns.push({ role: "assistant", content: answer });
+    this._finishAttachments(userTurn);
     this._consumePendingContext(attachedContext);
     this.answer = answer;
     if (!reasoning) reasoningBox.remove();

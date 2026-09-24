@@ -5,7 +5,7 @@ import { shouldFollowContext } from "./reader-experience.js";
 import { svgIcon } from "./reader-icons.js";
 
 export function createAiChatView({
-  ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, AiChatHistoryModal, ReadSettingsModal, ReaderView, aiChatTitle, aiConfig, aiConnectionErrorMessage, aiSetupState, aiTurnsHaveDocumentContext, bindAiSlashPrompts, bindReaderAiComposer, bookNoteLinkFor, clearAiSource, createAiChatLog, newAiSessionKey, normalizeAiChatHistory, normalizeAiTurnContext, openPluginAiSettings, qiaomuReaderTranslate, readerAiPanelContext, readerDefaultAiContext, readerHud, renderAiComposerPrompts, renderAiContextQuote, renderAiHeadMeta, renderAiMarkdown, renderAiUserTurn, testAndEnableAi,
+  ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, AiChatHistoryModal, ReadSettingsModal, ReaderView, aiChatTitle, aiConfig, aiConnectionErrorMessage, aiSetupState, aiTurnsHaveDocumentContext, bindAiAttachmentIntake, bindAiSlashPrompts, bindReaderAiComposer, bookNoteLinkFor, clearAiSource, createAiChatLog, newAiSessionKey, normalizeAiChatHistory, normalizeAiTurnContext, openAiAttachMenu, openPluginAiSettings, pickAiAttachments, qiaomuReaderTranslate, readerAiPanelContext, readerDefaultAiContext, readerHud, renderAiComposerPrompts, renderAiContextQuote, renderAiHeadMeta, renderAiMarkdown, renderAiUserTurn, stripAiAttachmentData, testAndEnableAi,
 }) {
   return class AiChatView extends ItemView {
   constructor(leaf, plugin) {
@@ -16,6 +16,7 @@ export function createAiChatView({
     this.readerView = null;
     this.book = "";
     this.turns = [];
+    this.attachments = [];
     this.pendingContext = null;
     this.structuredContext = true;
     this.aiSessionKey = window.crypto?.randomUUID?.() || `reader-${Date.now()}-${Math.random()}`;
@@ -272,6 +273,7 @@ export function createAiChatView({
         ...(turn.interrupted ? { interrupted: true } : {}),
         ...(turn.savedNotePath ? { savedNotePath: turn.savedNotePath } : {}),
         ...(turn.context ? { context: normalizeAiTurnContext(turn.context) } : {}),
+        ...(turn.attachments?.length ? { attachments: stripAiAttachmentData(turn.attachments) } : {}),
       })),
       updatedAt: Date.now(),
     };
@@ -337,6 +339,7 @@ export function createAiChatView({
     const bar = c.createDiv("qiaomu-reader-ai-composer");
     this.pendingContextHost = bar.createDiv("qiaomu-reader-ai-context-slot");
     this._renderPendingContext(this.pendingContextHost);
+    this.attachHost = bar.createDiv("qiaomu-reader-ai-attach-slot");
     const slashMenu = bar.createDiv("qiaomu-reader-ai-slash-menu");
     slashMenu.hidden = true;
     const input = bar.createEl("textarea", { cls: "qiaomu-reader-ai-input" });
@@ -344,12 +347,19 @@ export function createAiChatView({
     input.placeholder = qiaomuReaderTranslate("message");
     input.setAttribute("aria-label", qiaomuReaderTranslate("message"));
     const footer = bar.createDiv("qiaomu-reader-ai-composer-foot");
+    const attach = footer.createEl("button", { cls: "qiaomu-reader-ai-attach", attr: { type: "button", "aria-expanded": "false" } });
+    svgIcon(attach, "paperclip");
+    attach.setAttribute("aria-label", qiaomuReaderTranslate("attach-image-or-file"));
+    attach.addEventListener("click", () => openAiAttachMenu(attach, this, { pick: (kind) => { void pickAiAttachments(this, kind); } }));
+    this.attachButton = attach;
     const send = footer.createEl("button", { cls: "qiaomu-reader-ai-send" });
     this.inputEl = input;
     this.sendEl = send;
     this.canCancel = true;
     bindAiSlashPrompts(slashMenu, input, this);
+    bindAiAttachmentIntake(this, c, input);
     this.inputController = bindReaderAiComposer(this, input, send, footer);
+    this._renderAttachments();
     input.value = this.drafts.get(this.bookFile?.path) || "";
     this.inputController.refresh();
     if (options.focusInput !== false) readerHud.autoFocus(input);

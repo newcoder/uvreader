@@ -80,6 +80,22 @@ function safeChatId(id) {
   return String(id || "chat").replace(/[^a-z0-9._-]+/gi, "-").slice(0, 120);
 }
 
+// The desktop shell stores conversations under data/chat/<id>.json (the
+// settings file keeps only an index); find the user turn that carried an
+// attachment.
+function chatTurnWithAttachment(userData) {
+  const dir = path.join(userData, "data", "chat");
+  if (!fs.existsSync(dir)) return null;
+  for (const entry of fs.readdirSync(dir)) {
+    if (!entry.endsWith(".json") || entry === "index.json") continue;
+    let chat = null;
+    try { chat = JSON.parse(fs.readFileSync(path.join(dir, entry), "utf8")); } catch { continue; }
+    const turn = (chat?.turns || []).find((item) => item.role === "user" && Array.isArray(item.attachments) && item.attachments.length);
+    if (turn) return turn;
+  }
+  return null;
+}
+
 function startMockAi(options = {}) {
   const state = {
     requests: 0,
@@ -91,6 +107,7 @@ function startMockAi(options = {}) {
     probeDigit: options.probeDigit || "7",
     sawImage: false,
     sawTools: false,
+    imageRequests: 0,
   };
   const server = http.createServer((request, response) => {
     let body = "";
@@ -110,7 +127,7 @@ function startMockAi(options = {}) {
           && message.content.some((part) => part?.type === "image_url"),
       );
       const hasTools = Array.isArray(payload.tools) && payload.tools.length > 0;
-      if (hasImage) state.sawImage = true;
+      if (hasImage) { state.sawImage = true; state.imageRequests += 1; }
       if (hasTools) state.sawTools = true;
       if (hasImage && !state.vision) {
         response.writeHead(400, { ...cors, "Content-Type": "application/json" });
@@ -927,7 +944,7 @@ async function runCapabilityScenario() {
           aiProvider: "custom",
           aiBases: { custom: base },
           aiModels: { custom: "mock-vision-model" },
-          aiEnabled: false,
+          aiEnabled: true,
           aiNeedsVerification: false,
         },
       }, null, 2));
@@ -1018,8 +1035,63 @@ async function runCapabilityScenario() {
     const forced = await capabilityRow("图片识别");
     const forcedSettings = await page.evaluate(() => ({ mode: window.__qbrPlugin.settings.aiVisionMode, saved: window.__qbrPlugin.settings.aiCapabilities }));
     if (forcedSettings.mode !== "no") throw new Error(`the override was not stored: ${JSON.stringify(forcedSettings)}`);
-    if (!forced.desc.includes("当前模型不支持")) throw new Error(`the override did not repaint the row: ${JSON.stringify(forced)}`);
+    if (!forced.desc.includes("当前模型不支持")) throw new Error(`the override did not repaint the row as: ${JSON.stringify(forced)}`);
     console.log("capability: manual override repainted the row as", forced.desc);
+    // Back to automatic so the image turn below uses the detected capability.
+    await page.evaluate(async () => {
+      window.__qbrPlugin.settings.aiVisionMode = "auto";
+      await window.__qbrPlugin.saveAll();
+    });
+
+    // An image turn: paste a PNG, see the chip, send it with no typed text, and
+    // find the image part in the request plus the stored turn on disk.
+    await page.evaluate(async () => {
+      try { await window.__qbrPlugin.openAiChat(); } catch {}
+    });
+    await page.waitForSelector(".qiaomu-reader-ai-input", { timeout: 20_000 });
+    const pasted = await page.evaluate(async () => {
+      const input = document.querySelector(".qiaomu-reader-ai-input");
+      if (!input) return "no composer";
+      const canvas = document.createElement("canvas");
+      canvas.width = 96;
+      canvas.height = 48;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, 96, 48);
+      ctx.fillStyle = "#111111";
+      ctx.font = "600 34px sans-serif";
+      ctx.fillText("4", 34, 38);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+      const file = new File([blob], "figure.png", { type: "image/png" });
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      input.dispatchEvent(new ClipboardEvent("paste", { clipboardData: transfer, bubbles: true, cancelable: true }));
+      return "pasted";
+    });
+    if (pasted !== "pasted") throw new Error(`paste failed: ${pasted}`);
+    const chip = await waitFor("attachment chip", () => page.evaluate(() => {
+      const chip = document.querySelector(".qiaomu-reader-ai-attach-chip");
+      return chip ? chip.querySelector(".qiaomu-reader-ai-attach-name")?.textContent || "chip" : "";
+    }), 20_000);
+    const imagesBefore = mock.state.imageRequests;
+    await page.click(".qiaomu-reader-ai-send");
+    const answer = await waitFor("image turn answered", () => page.evaluate(() => {
+      const bubbles = [...document.querySelectorAll(".qiaomu-reader-ai-msg-ai")];
+      return bubbles.some((bubble) => bubble.textContent.trim() === "4") ? "4" : "";
+    }), 20_000);
+    if (mock.state.imageRequests <= imagesBefore) throw new Error("the sent turn did not carry the image part");
+    const cleared = await waitFor("composer cleared after sending", () => page.evaluate(
+      () => (document.querySelector(".qiaomu-reader-ai-attach-slot")?.textContent || "").trim() === "" ? "cleared" : ""), 10_000);
+    const storedTurn = await waitFor("stored attachment metadata", () => {
+      const turn = chatTurnWithAttachment(userData);
+      return turn?.attachments?.[0]?.file ? turn : "";
+    }, 15_000);
+    if (storedTurn.attachments[0].data) {
+      throw new Error(`the stored attachment kept bytes: ${JSON.stringify(storedTurn.attachments[0]).slice(0, 160)}`);
+    }
+    const savedFile = path.join(userData, "library", storedTurn.attachments[0].file);
+    if (!fs.existsSync(savedFile)) throw new Error(`the attachment file is missing: ${savedFile}`);
+    console.log("attachment:", chip, "sent with the image part and stored at", storedTurn.attachments[0].file, "->", answer, cleared);
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(userData, { recursive: true, force: true });

@@ -193,6 +193,12 @@ function chatHarness(explain, overrides = {}) {
     normalizeAiTurnContext: (value) => value ? { ...value } : null,
     svgIcon() {}, verifiedQuotes, aiExplain: explain, copyToClipboard: async () => true, Notice: class {},
     createNoteFromAiAnswer: async () => null,
+    prepareAiTurns: async (_chat, turns) => ({ turns: turns || [], vision: false }),
+    aiTurnsHaveAttachments: (turns) => (turns || []).some((turn) => turn?.attachments?.length > 0),
+    stripAiAttachmentData: (list) => list || [],
+    renderAiAttachmentList: () => ({ row: null, empty: true }),
+    removeAiAttachment: async () => {},
+    noteAiImageFailure: async () => {},
     renderAiUserTurn: (log, turn) => log.createDiv({ cls: "qiaomu-reader-ai-msg-me", text: turn.content }),
     createAiStreamingMarkdownRenderer: (_owner, el, _path, opts) => ({
       update(text) { const follow = opts.beforeRender(); el.setText(text); opts.afterRender(follow); },
@@ -389,6 +395,8 @@ function sidebarHarness() {
   const context = {
     window, ItemView: class {}, TFile: File, qiaomuReaderTranslate: (s) => s, Notice: class {},
     normalizeAiTurnContext: (value) => value?.text ? { kind: value.kind, text: value.text } : null,
+    normalizeAiAttachments: (value) => (Array.isArray(value) ? value : []),
+    stripAttachmentData: (value) => value || [],
     newAiSessionKey: () => window.crypto.randomUUID(), aiChatTitle: () => "会话",
     clearAiSource() {}, readerHud: { autoFocus() {} }, shouldFollowContext,
     bookNoteLinkFor: () => "", aiTurnsHaveDocumentContext: (turns) => turns.some((turn) => turn.context?.kind === "document"),

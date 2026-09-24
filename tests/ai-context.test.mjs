@@ -141,6 +141,50 @@ test("aiMessages turns UI turns and structured context into model messages", () 
   assert.equal(custom.length, 1);
 });
 
+test("stored conversations keep attachment metadata but never the base64 payload", () => {
+  const ctx = makeContext();
+  const history = ctx.normalizeAiChatHistory([{
+    id: "c2",
+    title: "T",
+    bookPath: "Books/a.epub",
+    updatedAt: 7,
+    turns: [{
+      role: "user",
+      content: "look",
+      attachments: [
+        { id: "att-1", kind: "image", name: "shot.png", mimeType: "image/png", bytes: 1200, thumb: "data:image/jpeg;base64,QQ==", file: "plugin/ai-files/att-1.png", data: "SHOULD_NOT_PERSIST" },
+        { id: "", kind: "image" },
+      ],
+    }, { role: "assistant", content: "seen" }],
+  }]);
+  const attachments = history[0].turns[0].attachments;
+  assert.equal(attachments.length, 1);
+  assert.equal(attachments[0].file, "plugin/ai-files/att-1.png");
+  assert.equal("data" in attachments[0], false);
+  assert.equal("text" in attachments[0], false);
+});
+
+test("aiMessages sends attachment parts after the prompt and text files inline", () => {
+  const ctx = makeContext();
+  const turns = [{
+    role: "user",
+    content: "看图",
+    attachments: [
+      { id: "att-1", kind: "image", mimeType: "image/png", data: "AAAA", bytes: 3 },
+      { id: "att-2", kind: "text", name: "notes.md", text: "hello", bytes: 5 },
+    ],
+  }];
+  const msgs = ctx.aiMessages("", { aiInto: "中文" }, turns, "Book");
+  const content = msgs[1].content;
+  assert.equal(Array.isArray(content), true);
+  assert.equal(content[0].type, "text");
+  assert.match(content[0].text, /看图/);
+  assert.match(content[1].text, /【附件：notes.md】/);
+  assert.deepEqual(content[2], { type: "image", data: "AAAA", mimeType: "image/png" });
+  const plain = ctx.aiMessages("", { aiInto: "中文" }, [{ role: "user", content: "plain" }], "");
+  assert.equal(typeof plain[1].content, "string");
+});
+
 test("aiChatTitle and aiTurnsHaveDocumentContext summarize the thread", () => {
   const ctx = makeContext();
   assert.equal(ctx.aiChatTitle([{ role: "user", content: "  hello   world " }], ""), "hello world");

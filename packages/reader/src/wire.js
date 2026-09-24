@@ -30,6 +30,18 @@ import {
   makeProbeImage,
   rememberCapability,
 } from "./ai-capability.js";
+import {
+  MAX_AI_ATTACHMENTS,
+  aiAttachmentPath,
+  aiAttachmentsHaveImages,
+  base64FromBytes,
+  blobFromBase64,
+  bytesFromBase64,
+  hydrateAiAttachments,
+  intakeAiFiles,
+  normalizeAiAttachments,
+  stripAttachmentData,
+} from "./ai-attachments.js";
 import { composeAiAnswerNote } from "./ai-note.js";
 import { suggestAiNoteTitle } from "./ai-note-title.js";
 import { addMissingQuoteLinks, highlightBacklink, jumpToEngineHighlight } from "./highlight-navigation.js";
@@ -370,6 +382,9 @@ const {
   createAiChatLog,
   createAiStreamingMarkdownRenderer,
   renderAiContextQuote,
+  renderAiAttachmentList,
+  openAiAttachMenu,
+  closeAiAttachMenu,
   bindReaderAiComposer,
   ReaderNameModal,
   contextualAiQuickPrompts,
@@ -1397,6 +1412,183 @@ const { aiExplainStream, aiExplain, aiTranslate, aiProbe } = createPiTransport({
   aiMessages,
 });
 
+// --- AI attachments --------------------------------------------------------
+// Images and small text files for the next turn. Only metadata and a
+// thumbnail are persisted with the conversation; the bytes live in the data
+// folder and are re-read when a saved chat is sent again.
+function aiAttachmentFolder(settings) {
+  const folder = String(settings?.dataFolder || "plugin").replace(/[\\/]+$/, "");
+  return `${folder}/ai-files`;
+}
+
+async function ensureAiAttachmentFolder(plugin) {
+  const folder = aiAttachmentFolder(plugin.settings);
+  if (plugin.app.vault.getAbstractFileByPath(folder)) return folder;
+  try { await plugin.app.vault.createFolder(folder); } catch { /* already there */ }
+  return folder;
+}
+
+async function saveAiAttachment(plugin, attachment) {
+  if (!attachment?.data || attachment.file) return attachment;
+  const path = aiAttachmentPath(plugin.settings.dataFolder, attachment);
+  try {
+    await ensureAiAttachmentFolder(plugin);
+    await plugin.app.vault.createBinary(path, bytesFromBase64(attachment.data).buffer);
+    return { ...attachment, file: path };
+  } catch {
+    return attachment;
+  }
+}
+
+// Whether any user turn carries an attachment; a text-only send then skips the
+// async preparation entirely.
+function aiTurnsHaveAttachments(turns) {
+  return (turns || []).some((turn) => turn?.role === "user" && normalizeAiAttachments(turn.attachments).length > 0);
+}
+
+// The outbound history: previous turns re-read their stored image bytes so a
+// follow-up question stays in context. An image turn also has to prove the
+// model supports images first (detected or manually overridden); a model that
+// does not gets no image request at all. `vision` tells the runtime whether the
+// request may carry images.
+async function prepareAiTurns(chat, turns) {
+  const out = [];
+  for (const turn of turns || []) {
+    if (turn?.role !== "user" || !normalizeAiAttachments(turn.attachments).length) { out.push(turn); continue; }
+    out.push({ ...turn, attachments: await hydrateAiAttachments(turn.attachments, (path) => readAiAttachmentBytes(chat.plugin, path)) });
+  }
+  const vision = out.some((turn) => turn?.attachments?.some((attachment) => attachment.kind === "image" && attachment.data));
+  if (vision) {
+    const plugin = chat.plugin;
+    const cfg = aiConfig(plugin);
+    const target = { id: cfg.id, base: cfg.base, model: cfg.model };
+    let capability = effectiveCapability(plugin.settings, target, "image");
+    if (capability.state === "unknown" && capability.source === "none") {
+      try { capability = { state: (await detectAiCapability(plugin, "image")).state, source: "probe", at: Date.now() }; }
+      catch (error) { if (!(error && error.qiaomuReaderReason)) throw error; }
+    }
+    if (capability.state === "no") {
+      const error = new Error("the model does not support images");
+      error.qiaomuReaderReason = "novision";
+      throw error;
+    }
+  }
+  return { turns: out, vision };
+}
+
+// A send that failed because the endpoint refused the image: remember that as
+// the endpoint's real answer instead of retrying into the same wall.
+async function noteAiImageFailure(chat) {
+  const plugin = chat?.plugin;
+  if (!plugin) return;
+  const cfg = aiConfig(plugin);
+  rememberCapability(plugin.settings, { id: cfg.id, base: cfg.base, model: cfg.model }, "image", "no");
+  await plugin.saveAll();
+  chat._renderAttachments?.();
+}
+
+async function readAiAttachmentBytes(plugin, path) {
+  try {
+    const file = plugin.app.vault.getAbstractFileByPath(path);
+    if (!file) return "";
+    return base64FromBytes(await plugin.app.vault.readBinary(file));
+  } catch {
+    return "";
+  }
+}
+
+function aiAttachmentNotice(errors) {
+  for (const error of errors || []) {
+    const key = error.reason === "imagetooolarge" ? "image-is-too-large-keep-it-under-6-mb"
+      : error.reason === "texttoolarge" ? "text-file-is-too-large-keep-it-under-200-kb"
+        : error.reason === "unsupported" ? "only-images-and-small-text-files-can-be-attached"
+          : "the-file-could-not-be-read";
+    new Notice(qiaomuReaderTranslate(key), 6000);
+  }
+}
+
+function aiAttachmentFile(entry) {
+  const blob = blobFromBase64(entry.data, entry.mimeType || "");
+  const ctor = typeof File === "function" ? File : null;
+  if (!ctor) throw new Error("qiaomu-reader-file-unavailable");
+  return new ctor([blob], entry.name || "image", { type: entry.mimeType || blob.type || "" });
+}
+
+async function attachAiFiles(chat, files, source = "pick") {
+  const list = Array.from(files || []);
+  if (!list.length) return;
+  const room = MAX_AI_ATTACHMENTS - (chat.attachments?.length || 0);
+  if (room <= 0) {
+    new Notice(qiaomuReaderTranslate("at-most-4-attachments"), 6000);
+    return;
+  }
+  const result = await intakeAiFiles(list.slice(0, room), { win: window, source });
+  aiAttachmentNotice(result.errors);
+  const saved = [];
+  for (const attachment of result.attachments) saved.push(await saveAiAttachment(chat.plugin, attachment));
+  chat.attachments = normalizeAiAttachments([...(chat.attachments || []), ...saved]);
+  chat._renderAttachments?.();
+}
+
+async function pickAiAttachments(chat, kind = "image") {
+  const bridge = typeof window !== "undefined" && window.qbrDesktop ? window.qbrDesktop.ai : null;
+  if (bridge?.pickFiles) {
+    let result = null;
+    try { result = await bridge.pickFiles(kind); } catch { result = null; }
+    if (!result) { new Notice(qiaomuReaderTranslate("the-file-could-not-be-read"), 6000); return; }
+    const files = [];
+    for (const entry of result.files || []) {
+      if (!entry?.ok) { aiAttachmentNotice([{ reason: entry?.reason || "unreadable" }]); continue; }
+      try { files.push(aiAttachmentFile(entry)); } catch { aiAttachmentNotice([{ reason: "unreadable" }]); }
+    }
+    if (files.length) await attachAiFiles(chat, files, "pick");
+    return;
+  }
+  // Hosts without the desktop bridge (Obsidian, mobile): a hidden file input.
+  const doc = docOf(chat.contentEl);
+  const input = doc.createElement("input");
+  input.type = "file";
+  input.multiple = true;
+  input.accept = kind === "image"
+    ? "image/png,image/jpeg,image/webp,image/gif"
+    : ".txt,.md,.markdown,.csv,.json,.log,image/png,image/jpeg,image/webp,image/gif";
+  input.addEventListener("change", () => { void attachAiFiles(chat, input.files, "pick"); });
+  input.click();
+}
+
+async function removeAiAttachment(chat, id) {
+  const attachment = (chat.attachments || []).find((item) => item.id === id);
+  chat.attachments = (chat.attachments || []).filter((item) => item.id !== id);
+  chat._renderAttachments?.();
+  if (!attachment?.file) return;
+  try {
+    const file = chat.plugin.app.vault.getAbstractFileByPath(attachment.file);
+    if (file) await chat.plugin.app.vault.delete(file);
+  } catch { /* an orphan file is harmless */ }
+}
+
+function bindAiAttachmentIntake(chat, host, input) {
+  const hasFiles = (event) => Array.from(event.dataTransfer?.types || []).includes("Files");
+  host.addEventListener("dragover", (event) => {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    host.addClass("qiaomu-reader-ai-drop");
+  });
+  host.addEventListener("dragleave", () => host.removeClass("qiaomu-reader-ai-drop"));
+  host.addEventListener("drop", (event) => {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    host.removeClass("qiaomu-reader-ai-drop");
+    void attachAiFiles(chat, event.dataTransfer?.files, "drop");
+  });
+  input?.addEventListener("paste", (event) => {
+    const files = Array.from(event.clipboardData?.files || []).filter((file) => String(file.type || "").startsWith("image/"));
+    if (!files.length) return;
+    event.preventDefault();
+    void attachAiFiles(chat, files, "paste");
+  });
+}
+
 // Detect whether the configured model accepts image parts or a tools array.
 // The probe runs once per provider/base/model and the result is remembered, so
 // the reader never claims a capability the endpoint did not prove.
@@ -1442,6 +1634,8 @@ const AiExplainModal = createAiExplainModal({
   Notice,
   aiExplain,
   aiLogFollowsTail,
+  aiTurnsHaveAttachments,
+  bindAiAttachmentIntake,
   bindAiSlashPrompts,
   bindReaderAiComposer,
   bookNoteLinkFor,
@@ -1452,12 +1646,19 @@ const AiExplainModal = createAiExplainModal({
   jumpToAiQuote,
   newAiSessionKey,
   normalizeAiTurnContext,
+  noteAiImageFailure,
+  openAiAttachMenu,
+  pickAiAttachments,
+  prepareAiTurns,
   qiaomuReaderTranslate,
   readerHud,
+  removeAiAttachment,
+  renderAiAttachmentList,
   renderAiComposerPrompts,
   renderAiContextQuote,
   renderAiUserTurn,
   renderMobileAiHeader,
+  stripAiAttachmentData: stripAttachmentData,
 });
 async function aiTestConnection(plugin) {
   const cfg = aiConfig(plugin);
@@ -2575,6 +2776,7 @@ const AiChatView = createAiChatView({
   aiConnectionErrorMessage,
   aiSetupState,
   aiTurnsHaveDocumentContext,
+  bindAiAttachmentIntake,
   bindAiSlashPrompts,
   bindReaderAiComposer,
   bookNoteLinkFor,
@@ -2583,7 +2785,9 @@ const AiChatView = createAiChatView({
   newAiSessionKey,
   normalizeAiChatHistory,
   normalizeAiTurnContext,
+  openAiAttachMenu,
   openPluginAiSettings,
+  pickAiAttachments,
   qiaomuReaderTranslate,
   readerAiPanelContext,
   readerDefaultAiContext,
@@ -2593,10 +2797,11 @@ const AiChatView = createAiChatView({
   renderAiHeadMeta,
   renderAiMarkdown,
   renderAiUserTurn,
+  stripAiAttachmentData: stripAttachmentData,
   testAndEnableAi,
 });
 
-for (const method of ["_setSending", "_buildEmpty", "_scroll", "_consumePendingContext", "_actions", "_send"]) {
+for (const method of ["_setSending", "_buildEmpty", "_scroll", "_consumePendingContext", "_actions", "_send", "_renderAttachments", "_finishAttachments"]) {
   AiChatView.prototype[method] = AiExplainModal.prototype[method];
 }
 const LibraryModal = createLibraryModal({

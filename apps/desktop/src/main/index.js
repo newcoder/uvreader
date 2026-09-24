@@ -35,6 +35,50 @@ function sendOpen(filePath) {
   else launchFile = filePath;
 }
 
+// Attachments for AI chats: the main process owns the file dialog and reads
+// the bytes so the renderer never touches the filesystem directly.
+const AI_ATTACHMENT_FILTERS = [
+  { name: "图片", extensions: ["png", "jpg", "jpeg", "webp", "gif"] },
+  { name: "文本", extensions: ["txt", "md", "markdown", "csv", "json", "log"] },
+  { name: "所有文件", extensions: ["*"] },
+];
+const AI_ATTACHMENT_MAX_BYTES = 6 * 1024 * 1024;
+const AI_ATTACHMENT_MIME = {
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif",
+};
+
+function readAiAttachment(filePath) {
+  try {
+    const target = String(filePath || "");
+    const stat = fs.statSync(target);
+    if (!stat.isFile()) return { ok: false, path: target, reason: "unreadable" };
+    const name = path.basename(target);
+    const ext = path.extname(target).slice(1).toLowerCase();
+    if (stat.size > AI_ATTACHMENT_MAX_BYTES) return { ok: false, path: target, name, bytes: stat.size, reason: "toolarge" };
+    return {
+      ok: true,
+      path: target,
+      name,
+      bytes: stat.size,
+      mimeType: AI_ATTACHMENT_MIME[ext] || "",
+      data: fs.readFileSync(target).toString("base64"),
+    };
+  } catch {
+    return { ok: false, path: String(filePath || ""), reason: "unreadable" };
+  }
+}
+
+async function pickAiAttachments() {
+  const options = {
+    title: "选择附件",
+    properties: ["openFile", "multiSelections"],
+    filters: AI_ATTACHMENT_FILTERS,
+  };
+  const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+  if (result.canceled) return { ok: true, files: [] };
+  return { ok: true, files: result.filePaths.slice(0, 4).map(readAiAttachment) };
+}
+
 async function openBookDialog() {
   const options = {
     title: "打开书籍",
@@ -181,6 +225,8 @@ ipcMain.handle("qbr:ai:stream", (event, payload = {}) =>
 ipcMain.handle("qbr:ai:abort", (_event, requestId) => aiRuntime.abort(String(requestId || "")));
 ipcMain.handle("qbr:ai:test", (_event, config) => aiRuntime.test(config || {}));
 ipcMain.handle("qbr:ai:probe", (_event, payload) => aiRuntime.probe(payload || {}));
+ipcMain.handle("qbr:ai:pick-files", () => pickAiAttachments());
+ipcMain.handle("qbr:ai:read-file", (_event, target) => readAiAttachment(target));
 ipcMain.on("qbr:secret-sync", (event, id) => {
   const store = readSecrets();
   event.returnValue = id && store[id] ? decryptSecret(store[id]) : null;

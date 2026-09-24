@@ -7,6 +7,7 @@
 
 import { isNonChineseSource } from "./ai-source-language.js";
 import { svgIcon } from "./reader-icons.js";
+import { bytesLabel, normalizeAiAttachments } from "./ai-attachments.js";
 import { bindAiComposer } from "./ai-composer.js";
 import { DRAFT_LIMIT } from "./ai-drafts.js";
 import { createAiStreamingMarkdownRendererFactory } from "./ai-streaming-markdown.js";
@@ -452,12 +453,93 @@ export function createAiRender({
     return { head, settings, close };
   }
 
+  // Attachment chips: thumbnails for images, a name/size row for text files.
+  // Editable in the composer (remove button), read-only inside a sent turn.
+  function renderAiAttachmentList(host, attachments, options = {}) {
+    const items = normalizeAiAttachments(attachments);
+    const row = host.createDiv("qiaomu-reader-ai-attach-row");
+    if (!items.length) {
+      row.hidden = true;
+      return { row, empty: true };
+    }
+    for (const attachment of items) {
+      const chip = row.createDiv(`qiaomu-reader-ai-attach-chip qiaomu-reader-ai-attach-${attachment.kind}`);
+      if (attachment.kind === "image") {
+        const thumb = attachment.thumb || (attachment.data ? `data:${attachment.mimeType};base64,${attachment.data}` : "");
+        if (thumb) chip.createEl("img", { cls: "qiaomu-reader-ai-attach-thumb", attr: { src: thumb, alt: "", loading: "lazy", decoding: "async" } });
+        else svgIcon(chip.createSpan("qiaomu-reader-ai-attach-icon"), "image");
+      } else {
+        svgIcon(chip.createSpan("qiaomu-reader-ai-attach-icon"), "note");
+      }
+      const meta = chip.createDiv("qiaomu-reader-ai-attach-meta");
+      meta.createDiv({ cls: "qiaomu-reader-ai-attach-name", text: attachment.name });
+      meta.createDiv({ cls: "qiaomu-reader-ai-attach-size", text: bytesLabel(attachment.bytes) });
+      chip.setAttribute("title", `${attachment.name} · ${bytesLabel(attachment.bytes)}`);
+      if (options.onRemove) {
+        const remove = chip.createEl("button", { cls: "qiaomu-reader-ai-attach-remove" });
+        svgIcon(remove, "x");
+        remove.setAttribute("aria-label", `${translate("remove-attachment")}: ${attachment.name}`);
+        remove.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          options.onRemove(attachment.id);
+        });
+      }
+    }
+    return { row, empty: false };
+  }
+
   function renderAiUserTurn(log, turn) {
     const bubble = log.createDiv("qiaomu-reader-ai-msg qiaomu-reader-ai-msg-me");
     const context = normalizeAiTurnContext(turn?.context);
     if (context) renderAiContextQuote(bubble, context, { className: "qiaomu-reader-ai-msg-context" });
-    bubble.createDiv({ cls: "qiaomu-reader-ai-msg-text", text: turn?.content || "" });
+    if (normalizeAiAttachments(turn?.attachments).length) renderAiAttachmentList(bubble, turn.attachments);
+    if (turn?.content) bubble.createDiv({ cls: "qiaomu-reader-ai-msg-text", text: turn.content });
     return bubble;
+  }
+
+  // Small popover for the composer: attach an image or a small text file.
+  function closeAiAttachMenu(chat) {
+    chat.attachMenu?.remove();
+    chat.attachMenu = null;
+    chat.attachButton?.setAttribute("aria-expanded", "false");
+    const cleanup = chat.attachMenuCleanup;
+    chat.attachMenuCleanup = null;
+    cleanup?.();
+  }
+
+  function openAiAttachMenu(anchor, chat, actions = {}) {
+    if (chat.attachMenu) { closeAiAttachMenu(chat); return; }
+    const menu = anchor.parentElement.createDiv("qiaomu-reader-ai-attach-menu");
+    menu.setAttribute("role", "menu");
+    const item = (icon, label, run) => {
+      const button = menu.createEl("button", { cls: "qiaomu-reader-ai-attach-item", attr: { type: "button", role: "menuitem" } });
+      svgIcon(button.createSpan("qiaomu-reader-ai-attach-icon"), icon);
+      button.createSpan({ text: label });
+      button.addEventListener("click", () => { closeAiAttachMenu(chat); run(); });
+    };
+    item("image", translate("attach-image"), () => actions.pick?.("image"));
+    item("note", translate("attach-file"), () => actions.pick?.("file"));
+    chat.attachMenu = menu;
+    chat.attachButton?.setAttribute("aria-expanded", "true");
+    const doc = menu.ownerDocument;
+    const onDown = (event) => {
+      if (!menu.contains(event.target) && !anchor.contains(event.target)) closeAiAttachMenu(chat);
+    };
+    const onKey = (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      closeAiAttachMenu(chat);
+      anchor.focus?.();
+    };
+    chat.attachMenuCleanup = () => {
+      doc.removeEventListener("pointerdown", onDown, true);
+      doc.removeEventListener("keydown", onKey, true);
+    };
+    doc.addEventListener("pointerdown", onDown, true);
+    doc.addEventListener("keydown", onKey, true);
+    return menu;
   }
 
   function syncOpenAiSelectionContext(view, range) {
@@ -496,6 +578,9 @@ export function createAiRender({
     createAiChatLog,
     createAiStreamingMarkdownRenderer,
     renderAiContextQuote,
+    renderAiAttachmentList,
+    openAiAttachMenu,
+    closeAiAttachMenu,
     bindReaderAiComposer,
     ReaderNameModal,
     contextualAiQuickPrompts,
