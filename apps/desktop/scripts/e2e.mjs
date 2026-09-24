@@ -80,8 +80,18 @@ function safeChatId(id) {
   return String(id || "chat").replace(/[^a-z0-9._-]+/gi, "-").slice(0, 120);
 }
 
-function startMockAi() {
-  const state = { requests: 0, auth: "" };
+function startMockAi(options = {}) {
+  const state = {
+    requests: 0,
+    auth: "",
+    // Capability probes read these live, so a scenario can flip them between
+    // checks without restarting the server.
+    vision: options.vision !== false,
+    tools: options.tools !== false,
+    probeDigit: options.probeDigit || "7",
+    sawImage: false,
+    sawTools: false,
+  };
   const server = http.createServer((request, response) => {
     let body = "";
     request.on("data", (chunk) => {
@@ -95,22 +105,79 @@ function startMockAi() {
         payload = JSON.parse(body || "{}");
       } catch {}
       const cors = { "Access-Control-Allow-Origin": "*" };
-      if (payload.stream) {
+      const hasImage = Array.isArray(payload.messages) && payload.messages.some(
+        (message) => Array.isArray(message?.content)
+          && message.content.some((part) => part?.type === "image_url"),
+      );
+      const hasTools = Array.isArray(payload.tools) && payload.tools.length > 0;
+      if (hasImage) state.sawImage = true;
+      if (hasTools) state.sawTools = true;
+      if (hasImage && !state.vision) {
+        response.writeHead(400, { ...cors, "Content-Type": "application/json" });
+        response.end(JSON.stringify({ error: { message: "this model does not support image input" } }));
+        return;
+      }
+      if (hasTools && !state.tools) {
+        response.writeHead(400, { ...cors, "Content-Type": "application/json" });
+        response.end(JSON.stringify({ error: { message: "tools are not supported by this endpoint" } }));
+        return;
+      }
+      // pi collects even `completeSimple` through the streaming API, so the
+      // probe answers must be delivered as SSE.
+      const sse = (events, { streamed = false } = {}) => {
         response.writeHead(200, { ...cors, "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
-        const chunks = ["MOCK ", "STREAM ", "ANSWER"];
-        let index = 0;
-        const timer = setInterval(() => {
-          if (index < chunks.length) {
-            response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: chunks[index++] } }] })}\n\n`);
-          } else {
-            clearInterval(timer);
-            response.write("data: [DONE]\n\n");
-            response.end();
-          }
-        }, 30);
-      } else {
+        const write = (data) => response.write(`data: ${JSON.stringify(data)}\n\n`);
+        if (streamed) {
+          let index = 0;
+          const timer = setInterval(() => {
+            if (index < events.length) write(events[index++]);
+            else {
+              clearInterval(timer);
+              response.write("data: [DONE]\n\n");
+              response.end();
+            }
+          }, 30);
+          return;
+        }
+        for (const event of events) write(event);
+        response.write("data: [DONE]\n\n");
+        response.end();
+      };
+      const json = (body) => {
         response.writeHead(200, { ...cors, "Content-Type": "application/json" });
-        response.end(JSON.stringify({ choices: [{ message: { content: "MOCK CONNECTION OK" } }] }));
+        response.end(JSON.stringify(body));
+      };
+      if (hasImage && !hasTools && !payload.stream) {
+        json({ choices: [{ message: { content: state.probeDigit } }] });
+        return;
+      }
+      if (hasImage && !hasTools) {
+        sse([{ choices: [{ delta: { content: state.probeDigit } }] }]);
+        return;
+      }
+      if (hasTools && !payload.stream) {
+        json({
+          choices: [{
+            message: {
+              content: "",
+              tool_calls: [{ id: "call_probe", type: "function", function: { name: "probe_number", arguments: JSON.stringify({ n: 7 }) } }],
+            },
+          }],
+        });
+        return;
+      }
+      if (hasTools) {
+        sse([
+          { choices: [{ delta: { tool_calls: [{ index: 0, id: "call_probe", type: "function", function: { name: "probe_number", arguments: "" } }] } }] },
+          { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: JSON.stringify({ n: 7 }) } }] } }] },
+          { choices: [{ delta: {}, finish_reason: "tool_calls" }] },
+        ]);
+        return;
+      }
+      if (payload.stream) {
+        sse(["MOCK ", "STREAM ", "ANSWER"].map((content) => ({ choices: [{ delta: { content } }] })), { streamed: true });
+      } else {
+        json({ choices: [{ message: { content: "MOCK CONNECTION OK" } }] });
       }
     });
   });
@@ -841,6 +908,125 @@ async function runAiScenario() {
   }
 }
 
+// The AI settings state what the endpoint proved it can do: one minimal probe
+// per capability, remembered per provider/base/model, with the manual override
+// as the only way to contradict the result.
+async function runCapabilityScenario() {
+  const mock = await startMockAi({ probeDigit: "4" });
+  const base = `http://127.0.0.1:${mock.port}/v1`;
+  const { app, page, userData } = await launch(book, {
+    seed: (dir) => {
+      fs.mkdirSync(path.join(dir, "data"), { recursive: true });
+      fs.writeFileSync(path.join(dir, "data", "data.json"), JSON.stringify({
+        settings: {
+          onboarded: true,
+          language: "zh",
+          bookNotesFolder: "notes",
+          dataFolder: "plugin",
+          lastSeenVersion: appPackage.version,
+          aiProvider: "custom",
+          aiBases: { custom: base },
+          aiModels: { custom: "mock-vision-model" },
+          aiEnabled: false,
+          aiNeedsVerification: false,
+        },
+      }, null, 2));
+    },
+  });
+  try {
+    await page.waitForSelector(".qiaomu-reader-view", { timeout: 30_000 });
+    // Render the AI settings group and pin the probe digit so the mock can
+    // answer it without reading pixels.
+    const painted = await page.evaluate(() => {
+      Math.random = () => 0.4;
+      const plugin = window.__qbrPlugin;
+      const host = document.createElement("div");
+      host.id = "e2e-ai-settings";
+      document.body.appendChild(host);
+      const redraw = () => {
+        host.replaceChildren();
+        plugin.settingsTab._groupAi(host, redraw, {});
+      };
+      plugin.settingsTab._groupAi(host, redraw, {});
+      return [...host.querySelectorAll(".setting-item")].map((row) => row.querySelector(".setting-item-name")?.textContent || "");
+    });
+    if (!painted.includes("图片识别") || !painted.includes("工具调用")) {
+      throw new Error(`capability rows are missing: ${JSON.stringify(painted)}`);
+    }
+    const clickCapability = (name) => page.evaluate((label) => {
+      const row = [...document.querySelectorAll("#e2e-ai-settings .setting-item")]
+        .find((item) => item.querySelector(".setting-item-name")?.textContent === label);
+      const button = row?.querySelector("button");
+      if (!button) return false;
+      button.click();
+      return true;
+    }, name);
+    const capabilityRow = (name) => page.evaluate((label) => {
+      const row = [...document.querySelectorAll("#e2e-ai-settings .setting-item")]
+        .find((item) => item.querySelector(".setting-item-name")?.textContent === label);
+      return { desc: row?.querySelector(".setting-item-description")?.textContent || "", button: row?.querySelector("button")?.textContent || "" };
+    }, name);
+
+    if (!(await clickCapability("图片识别"))) throw new Error("the image capability check is missing");
+    const imageState = await waitFor("image support detected", async () => {
+      const row = await capabilityRow("图片识别");
+      return row.desc.includes("已支持") ? row : "";
+    }, 20_000);
+    if (!mock.state.sawImage) throw new Error("the probe did not send an image part");
+    const afterImage = await page.evaluate(() => window.__qbrPlugin.settings.aiCapabilities);
+    const key = Object.keys(afterImage)[0] || "";
+    if (afterImage[key]?.image?.state !== "yes") throw new Error(`image capability not remembered: ${JSON.stringify(afterImage)}`);
+    console.log("capability: image probe proved support", `(${imageState.button})`, "key", key);
+
+    // The same endpoint can refuse a tools array; the probe reports it and the
+    // remembered fact flips to "not supported".
+    mock.state.tools = false;
+    if (!(await clickCapability("工具调用"))) throw new Error("the tools capability check is missing");
+    const toolsState = await waitFor("tools refusal detected", async () => {
+      const row = await capabilityRow("工具调用");
+      return row.desc.includes("当前模型不支持") ? row : "";
+    }, 20_000);
+    const afterTools = await page.evaluate(() => window.__qbrPlugin.settings.aiCapabilities);
+    if (afterTools[key]?.tools?.state !== "no") throw new Error(`tools capability not remembered: ${JSON.stringify(afterTools)}`);
+    console.log("capability: tools probe reported", toolsState.desc);
+
+    // Re-checking after the endpoint starts accepting tools flips it back.
+    mock.state.tools = true;
+    if (!(await clickCapability("工具调用"))) throw new Error("the tools re-check is missing");
+    await waitFor("tools support re-checked", async () => {
+      const row = await capabilityRow("工具调用");
+      return row.desc.includes("已支持") ? row : "";
+    }, 20_000);
+    const persisted = JSON.parse(fs.readFileSync(path.join(userData, "data", "data.json"), "utf8")).settings.aiCapabilities;
+    if (persisted[key]?.tools?.state !== "yes") throw new Error(`re-checked capability not persisted: ${JSON.stringify(persisted)}`);
+    console.log("capability: re-check persisted", JSON.stringify(persisted[key]));
+
+    // A manual override wins over any detection result and repaints the row.
+    // The name appears twice (the state row and the advanced override row), so
+    // pick the row that actually carries the dropdown.
+    const overrideSelect = (name) => page.evaluate((label) => {
+      const rows = [...document.querySelectorAll("#e2e-ai-settings .setting-item")]
+        .filter((item) => item.querySelector(".setting-item-name")?.textContent === label);
+      const select = rows.map((item) => item.querySelector("select")).find(Boolean);
+      if (!select) return false;
+      select.value = "no";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    }, name);
+    if (!(await overrideSelect("图片识别"))) throw new Error("the capability override is missing from the advanced section");
+    await sleep(300);
+    const forced = await capabilityRow("图片识别");
+    const forcedSettings = await page.evaluate(() => ({ mode: window.__qbrPlugin.settings.aiVisionMode, saved: window.__qbrPlugin.settings.aiCapabilities }));
+    if (forcedSettings.mode !== "no") throw new Error(`the override was not stored: ${JSON.stringify(forcedSettings)}`);
+    if (!forced.desc.includes("当前模型不支持")) throw new Error(`the override did not repaint the row: ${JSON.stringify(forced)}`);
+    console.log("capability: manual override repainted the row as", forced.desc);
+  } finally {
+    await app.close().catch(() => {});
+    fs.rmSync(userData, { recursive: true, force: true });
+    mock.server.close();
+  }
+}
+
 async function runApiKeyScenario() {
   const mock = await startMockAi();
   const base = `http://127.0.0.1:${mock.port}/v1`;
@@ -1238,6 +1424,7 @@ try {
   await runPinyinScenario();
   await runAiScenario();
   await runApiKeyScenario();
+  await runCapabilityScenario();
   await runScrollScenario();
   console.log("E2E OK");
 } catch (error) {

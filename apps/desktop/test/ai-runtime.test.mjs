@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxThinking } from "@earendil-works/pi-ai";
+import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxThinking, fauxToolCall } from "@earendil-works/pi-ai";
 
-import { buildPiModel, classifyPiFailure, createAiRuntime, normalizeBaseUrl, toPiContext } from "../src/main/ai-runtime.js";
+import { buildPiModel, classifyCapabilityFailure, classifyPiFailure, createAiRuntime, normalizeBaseUrl, toPiContext } from "../src/main/ai-runtime.js";
 
 const CONFIG = { id: "test-ai", model: "test-model", base: "http://localhost:11434/v1", thinking: true, key: "" };
 
@@ -98,6 +98,106 @@ test("history assistant turns keep the full message shape pi expects", () => {
   assert.equal(typeof assistant.timestamp, "number");
   const empty = toPiContext([{ role: "user", content: "hi" }], {});
   assert.equal("systemPrompt" in empty, false);
+});
+
+test("image input is declared only when the request may carry images", () => {
+  assert.deepEqual(buildPiModel(CONFIG).input, ["text"]);
+  assert.deepEqual(buildPiModel({ ...CONFIG, vision: true }).input, ["text", "image"]);
+  assert.deepEqual(buildPiModel(CONFIG, { imageInput: true }).input, ["text", "image"], "a probe must exercise the endpoint");
+});
+
+test("user turns keep image parts and text blocks while staying strings when plain", () => {
+  const context = toPiContext([
+    { role: "user", content: "plain" },
+    {
+      role: "user",
+      content: [
+        { type: "text", text: "看图" },
+        { type: "image", data: "AAAA", mimeType: "image/png" },
+        { type: "image", data: "" },
+      ],
+    },
+  ], CONFIG);
+  assert.equal(context.messages[0].content, "plain");
+  assert.deepEqual(context.messages[1].content, [
+    { type: "text", text: "看图" },
+    { type: "image", data: "AAAA", mimeType: "image/png" },
+  ], "an image without data is dropped instead of breaking the request");
+});
+
+test("capability failures become distinct reasons instead of generic transport errors", () => {
+  assert.equal(classifyCapabilityFailure("image", { errorMessage: "unsupported content type image_url" }), "novision");
+  assert.equal(classifyCapabilityFailure("image", { errorMessage: "this model does not support vision" }), "novision");
+  assert.equal(classifyCapabilityFailure("tools", { errorMessage: "tools are not supported" }), "notools");
+  assert.equal(classifyCapabilityFailure("tools", { errorMessage: "function calling not available" }), "notools");
+  assert.equal(classifyCapabilityFailure("tools", { errorMessage: "invalid function name in tools" }), "notools");
+  assert.equal(classifyCapabilityFailure("image", { errorMessage: "401 Unauthorized" }), "auth");
+  assert.equal(classifyCapabilityFailure("tools", { errorMessage: "request timed out" }), "timeout");
+});
+
+test("the image probe sends the image part and reports the answer", async () => {
+  const { faux, runtime } = fauxRuntime();
+  let received = null;
+  faux.setResponses([(context) => {
+    received = context.messages.at(-1);
+    return fauxAssistantMessage("7");
+  }]);
+  const result = await runtime.probe({
+    config: CONFIG,
+    kind: "image",
+    image: { data: "aGVsbG8=", mimeType: "image/png" },
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.kind, "image");
+  assert.equal(result.answer, "7");
+  assert.deepEqual(received.content[1], { type: "image", data: "aGVsbG8=", mimeType: "image/png" });
+});
+
+test("the image probe keeps provider rejections as a reason", async () => {
+  const { faux, runtime } = fauxRuntime();
+  faux.setResponses([fauxAssistantMessage([], { stopReason: "error", errorMessage: "image input is not supported by this model" })]);
+  const result = await runtime.probe({ config: CONFIG, kind: "image", image: { data: "AA==", mimeType: "image/png" } });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "novision");
+});
+
+test("the tools probe passes a tool and reports the returned call", async () => {
+  const { faux, runtime } = fauxRuntime();
+  let toolNames = [];
+  faux.setResponses([(context) => {
+    toolNames = (context.tools || []).map((tool) => tool.name);
+    return fauxAssistantMessage([fauxToolCall("probe_number", { n: 7 })], { stopReason: "toolUse" });
+  }]);
+  const result = await runtime.probe({ config: CONFIG, kind: "tools", expected: "7" });
+  assert.deepEqual(toolNames, ["probe_number"]);
+  assert.equal(result.ok, true);
+  assert.equal(result.toolCalled, true);
+  assert.equal(result.toolArguments.n, 7);
+});
+
+test("probes pass their image-input requirement to the model builder", async () => {
+  const seen = [];
+  const faux = fauxProvider({ provider: "test-ai", models: [{ id: "test-model", reasoning: true }] });
+  faux.setResponses([fauxAssistantMessage("7"), fauxAssistantMessage("7")]);
+  const runtime = createAiRuntime({
+    modelsFor: (config, options) => {
+      seen.push(options?.imageInput === true);
+      const models = createModels();
+      models.setProvider(faux.provider);
+      return models;
+    },
+  });
+  await runtime.probe({ config: CONFIG, kind: "image", image: { data: "AA==", mimeType: "image/png" } });
+  await runtime.probe({ config: CONFIG, kind: "tools", expected: "7" });
+  assert.deepEqual(seen, [true, false], "only the image probe needs image input declared");
+});
+
+test("the tools probe reports a refusal as notools", async () => {
+  const { faux, runtime } = fauxRuntime();
+  faux.setResponses([fauxAssistantMessage([], { stopReason: "error", errorMessage: "tools parameter is not supported" })]);
+  const result = await runtime.probe({ config: CONFIG, kind: "tools", expected: "7" });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "notools");
 });
 
 test("provider construction keeps the request shape stable", () => {

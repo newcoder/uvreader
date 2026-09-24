@@ -40,5 +40,6 @@ window.qbrDesktop = {
     },
     abort: (requestId) => ipcRenderer.invoke("qbr:ai:abort", requestId),
     test: (config) => ipcRenderer.invoke("qbr:ai:test", config),
+    probe: (payload) => ipcRenderer.invoke("qbr:ai:probe", payload),
   },
 };

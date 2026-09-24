@@ -44,7 +44,7 @@ function setup(provider, model = "", key = "") {
   const settings = { aiProvider: provider, aiModel: model, aiModels: {}, aiSecrets: {}, aiBases: {} };
   let saved = 0, redrawn = 0;
   const tab = new Tab({}, { settings, saveAll: async () => { saved++; } });
-  for (const method of ["_aiSecretRow", "_aiBaseRow", "_aiThinkingRow", "_aiTestRow", "_aiTailRows"]) tab[method] = host => host.createDiv({ cls: method });
+  for (const method of ["_aiSecretRow", "_aiBaseRow", "_aiThinkingRow", "_aiTestRow", "_aiTailRows", "_aiCapabilityRows", "_aiCapabilityModeRow"]) tab[method] = host => host.createDiv({ cls: method });
   const host = document.querySelector("main");
   tab._groupAi(host, () => { redrawn++; });
   return { host, settings, window, counts: () => ({ saved, redrawn }) };

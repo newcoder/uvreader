@@ -2,13 +2,14 @@
 // reader helpers, so the module runs outside Obsidian; pure helpers are
 // imported directly.
 import { AI_PROVIDERS, AI_PROVIDER_CATEGORIES, normalizeAiBase } from "./ai-providers.js";
+import { capabilityMode, capabilityStateHint, capabilityStateLabel } from "./ai-capability.js";
 import { READER_THEME_CHOICES } from "./reader-themes.js";
 import { UI_LANGUAGES } from "./i18n-languages.js";
 import { selectionActionPreferences } from "./selection-preferences.js";
 import { svgIcon } from "./reader-icons.js";
 
 export function createSettingsTab({
-  Notice, Platform, PluginSettingTab, SecretComponent, Setting, setIcon, HL_COLORS, OnboardingModal, QUOTE_TEMPLATE_DEFAULT, SettingsGroupModal, TRANSLATION_LANGUAGE_CHOICES, VIEW_TYPE, WHATS_NEW, WhatsNewModal, addFolderPathControl, addMarkdownFilePathControl, aiConfig, aiConnectionErrorMessage, aiSetupMessage, aiSetupState, aiTestConnection, bindSettingsTabKeys, buildCustomFontInput, buildPageButtonsSetting, copyToClipboard, ensureAiCliReady, fmtReadTime, openPluginAiSettings, qiaomuReaderDeviceKey, qiaomuReaderFontLabel, qiaomuReaderReaderFonts, qiaomuReaderSetLanguage, qiaomuReaderTranslate, readerThemeLabel, readerTimer, readerTodayKey, readingStats, selectedReaderTheme, setReaderTheme, testAndEnableAi, withSliderValue,
+  Notice, Platform, PluginSettingTab, SecretComponent, Setting, setIcon, HL_COLORS, OnboardingModal, QUOTE_TEMPLATE_DEFAULT, SettingsGroupModal, TRANSLATION_LANGUAGE_CHOICES, VIEW_TYPE, WHATS_NEW, WhatsNewModal, addFolderPathControl, addMarkdownFilePathControl, aiConfig, aiConnectionErrorMessage, aiSetupMessage, aiSetupState, aiTestConnection, aiCapabilityState, bindSettingsTabKeys, buildCustomFontInput, buildPageButtonsSetting, copyToClipboard, detectAiCapability, ensureAiCliReady, fmtReadTime, openPluginAiSettings, qiaomuReaderDeviceKey, qiaomuReaderFontLabel, qiaomuReaderReaderFonts, qiaomuReaderSetLanguage, qiaomuReaderTranslate, readerThemeLabel, readerTimer, readerTodayKey, readingStats, selectedReaderTheme, setReaderTheme, testAndEnableAi, withSliderValue,
 }) {
   return class SettingsTab extends PluginSettingTab {
   _group(c, { name, desc, build }) {
@@ -263,6 +264,7 @@ export function createSettingsTab({
     if (!cfg.provider) return;
     const p = cfg.provider;
     this._aiModelPicker(c, s, p, redraw);
+    this._aiCapabilityRows(c, s);
     const needsSecret = p.needsKey && !cfg.key;
     if (needsSecret || cfg.id === "custom") this._aiSecretRow(c, s, p);
     if (cfg.id === "custom") this._aiBaseRow(c, s, p);
@@ -280,6 +282,8 @@ export function createSettingsTab({
     const advanced = this._settingsDisclosure(c, "advanced");
     advanced.parentElement.setAttribute("data-ai-advanced", "");
     if (p.supportsThinking) this._aiThinkingRow(advanced, s);
+    this._aiCapabilityModeRow(advanced, s, "image", "image-recognition", redraw);
+    this._aiCapabilityModeRow(advanced, s, "tools", "tool-calling", redraw);
     const connection = this._settingsDisclosure(advanced, "ai-connection-settings");
     connection.parentElement.setAttribute("data-ai-connection", "");
     if (p.needsKey && !needsSecret) this._aiSecretRow(connection, s, p);
@@ -417,6 +421,69 @@ export function createSettingsTab({
     if (p.apiKeyUrl) {
       keySetting.addButton((b) => b.setButtonText(qiaomuReaderTranslate("get-api-key")).onClick(() => window.open(p.apiKeyUrl, "_blank")));
     }
+  }
+  // Readiness the reader can verify: the endpoint must accept an image part or
+  // a tools array before the UI offers them. Detection is per provider, base
+  // and model; the button re-runs it, the advanced rows can override it.
+  _aiCapabilityRows(host, s) {
+    const t = qiaomuReaderTranslate;
+    const cfg = aiConfig(this.plugin);
+    const target = { id: cfg.id, base: cfg.base, model: cfg.model };
+    const rows = [];
+    const paint = () => {
+      for (const row of rows) {
+        const capability = aiCapabilityState(s, target, row.kind);
+        const hint = capabilityStateHint(t, capability);
+        row.setting.setDesc(hint
+          ? `${capabilityStateLabel(t, capability.state)} · ${hint}`
+          : capabilityStateLabel(t, capability.state));
+        row.button.setButtonText(capability.source === "none" ? t("detect") : t("re-detect"));
+      }
+    };
+    const entries = [
+      { kind: "image", name: "image-recognition" },
+      { kind: "tools", name: "tool-calling" },
+    ];
+    for (const entry of entries) {
+      let button = null;
+      const setting = new Setting(host)
+        .setName(t(entry.name))
+        .addButton((b) => {
+          button = b;
+          b.onClick(async () => {
+            b.setDisabled(true).setButtonText(t("detecting"));
+            try {
+              const { state } = await detectAiCapability(this.plugin, entry.kind);
+              new Notice(t(state === "yes" ? "capability-supported"
+                : state === "no" ? "capability-not-supported"
+                  : "capability-unclear"), state === "yes" ? 4000 : 8000);
+            } catch (error) {
+              new Notice(aiConnectionErrorMessage(error), 9000);
+            } finally {
+              b.setDisabled(false);
+              paint();
+            }
+          });
+        });
+      rows.push({ kind: entry.kind, setting, button });
+    }
+    paint();
+  }
+  _aiCapabilityModeRow(host, s, kind, nameKey, redraw) {
+    const settingKey = kind === "image" ? "aiVisionMode" : "aiToolsMode";
+    new Setting(host)
+      .setName(qiaomuReaderTranslate(nameKey))
+      .setDesc(qiaomuReaderTranslate("detected-automatically-override-only-when-the-detection-is-wrong"))
+      .addDropdown((dropdown) => {
+        dropdown.addOption("auto", qiaomuReaderTranslate("detect-automatically"));
+        dropdown.addOption("yes", qiaomuReaderTranslate("force-supported"));
+        dropdown.addOption("no", qiaomuReaderTranslate("force-not-supported"));
+        dropdown.setValue(capabilityMode(s, kind)).onChange(async (value) => {
+          s[settingKey] = value === "yes" || value === "no" ? value : "auto";
+          await this._saveAll();
+          if (typeof redraw === "function") redraw();
+        });
+      });
   }
   _aiThinkingRow(host, s) {
     if (!s.aiThinking || typeof s.aiThinking !== "object") s.aiThinking = {};

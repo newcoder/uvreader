@@ -10,9 +10,24 @@ import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completio
 const PI_API = "openai-completions";
 const DEFAULT_MAX_TOKENS = 2400;
 const CONNECTION_TEST_MAX_TOKENS = 16;
+const PROBE_MAX_TOKENS = 16;
+const PROBE_TIMEOUT_MS = 20_000;
 const DEFAULT_TIMEOUT_MS = 45_000;
 // pi requires a non-empty client key; keyless local servers ignore the header.
 const KEYLESS_PLACEHOLDER = "not-required";
+
+// A trivial function tool used only to see whether an endpoint accepts the
+// `tools` parameter and actually answers with a tool call.
+const PROBE_TOOL = {
+  name: "probe_number",
+  description: "Return the number given by the user. Call this tool exactly once.",
+  parameters: {
+    type: "object",
+    properties: { n: { type: "number", description: "The number from the user message." } },
+    required: ["n"],
+    additionalProperties: false,
+  },
+};
 
 export function normalizeBaseUrl(value) {
   return String(value || "").trim().replace(/\/+$/, "");
@@ -34,7 +49,10 @@ export function buildPiModel(config, options = {}) {
     // turned thinking off: the per-request `reasoning: "off"` then maps to an
     // explicit "thinking disabled" field (DeepSeek otherwise defaults to on).
     reasoning: config.supportsThinking === true,
-    input: ["text"],
+    // pi drops image parts when the model does not declare image input, so a
+    // capability probe must declare it to really test the endpoint. Normal
+    // requests follow the detected/declared capability.
+    input: options.imageInput === true || config.vision === true ? ["text", "image"] : ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: Number(config.contextWindow) || 128_000,
     maxTokens: connectionTest ? CONNECTION_TEST_MAX_TOKENS : Number(config.maxTokens) || DEFAULT_MAX_TOKENS,
@@ -46,7 +64,7 @@ export function buildPiModel(config, options = {}) {
   return model;
 }
 
-export function buildPiProvider(config) {
+export function buildPiProvider(config, options = {}) {
   const key = String(config.key || "");
   const name = String(config.name || config.id || "AI");
   return createProvider({
@@ -60,7 +78,7 @@ export function buildPiProvider(config) {
         resolve: async () => ({ auth: { apiKey: key || KEYLESS_PLACEHOLDER } }),
       },
     },
-    models: [buildPiModel(config)],
+    models: [buildPiModel(config, options)],
     api: openAICompletionsApi(),
   });
 }
@@ -76,6 +94,32 @@ export function classifyPiFailure(error, config = {}) {
     return /localhost|127\.0\.0\.1|0\.0\.0\.0/i.test(String(config.base || "")) ? "local" : "http";
   }
   return "http";
+}
+
+// Capability probes need a sharper signal than the generic classifier: a
+// rejected image or tools array is a capability fact, not a request failure.
+export function classifyCapabilityFailure(kind, error) {
+  const text = String(error?.errorMessage || error?.message || error || "");
+  if (kind === "image" && /image|vision|multimodal|图片|图像/i.test(text)) return "novision";
+  if (kind === "tools" && /tool|function.?call|工具/i.test(text)) return "notools";
+  if (/tool|function.?call/i.test(text)) return "notools";
+  return classifyPiFailure(error);
+}
+
+// User turns may carry text or image parts; pi expects the block form when a
+// message mixes both.
+function messageContent(value) {
+  if (!Array.isArray(value)) return String(value ?? "");
+  const blocks = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    if (item.type === "image" && item.data && item.mimeType) {
+      blocks.push({ type: "image", data: String(item.data), mimeType: String(item.mimeType) });
+    } else if (item.type === "text" || typeof item.text === "string") {
+      blocks.push({ type: "text", text: String(item.text || "") });
+    }
+  }
+  return blocks.length ? blocks : "";
 }
 
 // pi takes the system prompt on the context, not as a message in the list.
@@ -105,7 +149,7 @@ export function toPiContext(messages, config) {
       });
       continue;
     }
-    list.push({ role, content, timestamp });
+    list.push({ role, content: messageContent(message?.content), timestamp });
   }
   const systemPrompt = systemParts.join("\n\n");
   return systemPrompt ? { systemPrompt, messages: list } : { messages: list };
@@ -113,9 +157,12 @@ export function toPiContext(messages, config) {
 
 export function createAiRuntime({ modelsFor } = {}) {
   const controllers = new Map();
-  const buildModels = modelsFor || ((config) => {
+  // The per-call options reach the model builder: a capability probe must
+  // declare image input on the model or pi downgrades the image to a text
+  // placeholder and the probe would "pass" without testing anything.
+  const buildModels = modelsFor || ((config, options) => {
     const models = createModels();
-    models.setProvider(buildPiProvider(config));
+    models.setProvider(buildPiProvider(config, options));
     return models;
   });
 
@@ -207,5 +254,59 @@ export function createAiRuntime({ modelsFor } = {}) {
     }
   }
 
-  return { stream, abort, test };
+  // Capability probe: send the smallest possible request that exercises the
+  // feature and report what the endpoint did. "ok" plus a plausible answer is
+  // the only proof of support; a rejection reports the distinct reason.
+  async function probe(payload = {}) {
+    const { config = {}, kind = "image", image = null, expected = "", prompt = "" } = payload || {};
+    const { models, model } = modelFor(config, { imageInput: kind === "image" });
+    if (!model) return { ok: false, kind, reason: "notconfigured", message: "AI model is not configured" };
+    if (kind === "image" && (!image?.data || !image?.mimeType)) {
+      return { ok: false, kind, reason: "payload", message: "missing probe image" };
+    }
+    const started = Date.now();
+    const options = {
+      apiKey: String(config.key || "") || undefined,
+      temperature: 0,
+      maxTokens: PROBE_MAX_TOKENS,
+      reasoning: "off",
+      timeoutMs: PROBE_TIMEOUT_MS,
+    };
+    try {
+      const userContent = kind === "image"
+        ? [
+          { type: "text", text: prompt || "只回答图中的数字，不要解释。" },
+          { type: "image", data: String(image.data), mimeType: String(image.mimeType) },
+        ]
+        : prompt || `必须调用 probe_number 工具，参数 n 填 ${expected || "7"}。`;
+      const context = {
+        messages: [{ role: "user", content: userContent, timestamp: Date.now() }],
+        ...(kind === "tools" ? { tools: [PROBE_TOOL] } : {}),
+      };
+      const message = await models.completeSimple(model, context, options);
+      if (message?.stopReason === "error" || message?.stopReason === "aborted") {
+        return {
+          ok: false,
+          kind,
+          reason: classifyCapabilityFailure(kind, { errorMessage: message.errorMessage }),
+          message: message.errorMessage || "",
+        };
+      }
+      const call = (Array.isArray(message?.content) ? message.content : [])
+        .find((block) => block?.type === "toolCall" && String(block.name || ""));
+      return {
+        ok: true,
+        kind,
+        answer: contentText(message?.content || []).trim(),
+        toolCalled: Boolean(call),
+        toolName: call?.name || "",
+        toolArguments: call?.arguments ?? null,
+        latency: Date.now() - started,
+      };
+    } catch (error) {
+      return { ok: false, kind, reason: classifyCapabilityFailure(kind, error), message: String(error?.message || error) };
+    }
+  }
+
+  return { stream, abort, test, probe };
 }

@@ -23,6 +23,13 @@ const BOOK_EXTENSIONS = new Set([...ENGINE_EXTENSIONS, "pdf"]);
 // required compatibility layer while exposing the same API.
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import { classifyAiHttpStatus } from "./ai-providers.js";
+import {
+  effectiveCapability,
+  interpretImageProbe,
+  interpretToolsProbe,
+  makeProbeImage,
+  rememberCapability,
+} from "./ai-capability.js";
 import { composeAiAnswerNote } from "./ai-note.js";
 import { suggestAiNoteTitle } from "./ai-note-title.js";
 import { addMissingQuoteLinks, highlightBacklink, jumpToEngineHighlight } from "./highlight-navigation.js";
@@ -456,6 +463,10 @@ const DEFAULT_AI = {
   // service default (thinking enabled), while an explicit false survives
   // switching to another provider and back.
   aiThinking: {},
+  // What the configured endpoint proved it can do (probe results per
+  // provider/base/model) plus the manual override for a wrong probe.
+  aiCapabilities: {},
+  aiVisionMode: "auto", aiToolsMode: "auto",
   aiInto: "中文", aiSystem: "",
   // null = use the six built-in reading prompts in the current UI language.
   // Once edited this becomes an array of { id, name, prompt } objects. Keeping
@@ -1380,11 +1391,29 @@ function setupPdfZoomInteractions(view) {
 // The desktop shell exposes its pi-ai runtime through the preload bridge; the
 // reader only sees the stable aiExplain contract.
 const aiRuntimeBridge = typeof window !== "undefined" && window.qbrDesktop ? window.qbrDesktop.ai || null : null;
-const { aiExplainStream, aiExplain, aiTranslate } = createPiTransport({
+const { aiExplainStream, aiExplain, aiTranslate, aiProbe } = createPiTransport({
   bridge: aiRuntimeBridge,
   aiConfig,
   aiMessages,
 });
+
+// Detect whether the configured model accepts image parts or a tools array.
+// The probe runs once per provider/base/model and the result is remembered, so
+// the reader never claims a capability the endpoint did not prove.
+async function detectAiCapability(plugin, kind) {
+  const cfg = aiConfig(plugin);
+  const target = { id: cfg.id, base: cfg.base, model: cfg.model };
+  const probeImage = kind === "image"
+    ? makeProbeImage(typeof window !== "undefined" ? window : globalThis)
+    : null;
+  if (kind === "image" && !probeImage) throw new Error("the probe image could not be created");
+  const expected = kind === "image" ? probeImage.digits : "7";
+  const result = await aiProbe(kind, plugin, { image: probeImage?.image || null, expected });
+  const state = kind === "image" ? interpretImageProbe(result, expected) : interpretToolsProbe(result, expected);
+  rememberCapability(plugin.settings, target, kind, state);
+  await plugin.saveAll();
+  return { state, result };
+}
 
 // The selection chip translates non-Han text with the configured AI service.
 // The target language is the one chosen for the translate action.
@@ -2817,7 +2846,9 @@ const SettingsTab = createSettingsTab({
   aiSetupMessage,
   aiSetupState,
   aiTestConnection,
+  aiCapabilityState: effectiveCapability,
   bindSettingsTabKeys,
+  detectAiCapability,
   buildCustomFontInput,
   buildPageButtonsSetting,
   copyToClipboard,

@@ -15,10 +15,26 @@ export function createPiTransport({ bridge, aiConfig, aiMessages }) {
     const unavailable = async () => {
       throw reasonError("desktop", "The desktop AI runtime is unavailable");
     };
-    return { aiExplain: unavailable, aiExplainStream: unavailable };
+    return { aiExplain: unavailable, aiExplainStream: unavailable, aiProbe: unavailable };
   }
 
   let nextRequest = 1;
+
+  // Per-request runtime config shared by chat, translation and probes.
+  function runtimeConfig(cfg, options = {}) {
+    return {
+      id: cfg.id,
+      name: cfg.provider?.label || cfg.id,
+      base: cfg.base,
+      model: cfg.model,
+      thinking: options.thinking !== undefined ? options.thinking === true : cfg.thinking === true,
+      supportsThinking: cfg.provider?.supportsThinking === true,
+      compat: cfg.provider?.compat || null,
+      key: cfg.key || "",
+      needsKey: cfg.needsKey === true,
+      vision: options.vision === true,
+    };
+  }
 
   async function aiExplain(text, plugin, turns, book, options = {}) {
     const cfg = aiConfig(plugin);
@@ -34,17 +50,7 @@ export function createPiTransport({ bridge, aiConfig, aiMessages }) {
     try {
       const result = await bridge.stream({
         requestId,
-        config: {
-          id: cfg.id,
-          name: cfg.provider?.label || cfg.id,
-          base: cfg.base,
-          model: cfg.model,
-          thinking: cfg.thinking === true,
-          supportsThinking: cfg.provider?.supportsThinking === true,
-          compat: cfg.provider?.compat || null,
-          key: cfg.key || "",
-          needsKey: cfg.needsKey === true,
-        },
+        config: runtimeConfig(cfg, options),
         messages,
         options: {
           sessionKey: options.sessionKey || "",
@@ -95,17 +101,7 @@ export function createPiTransport({ bridge, aiConfig, aiMessages }) {
     try {
       const result = await bridge.stream({
         requestId,
-        config: {
-          id: cfg.id,
-          name: cfg.provider?.label || cfg.id,
-          base: cfg.base,
-          model: cfg.model,
-          thinking: false,
-          supportsThinking: cfg.provider?.supportsThinking === true,
-          compat: cfg.provider?.compat || null,
-          key: cfg.key || "",
-          needsKey: cfg.needsKey === true,
-        },
+        config: runtimeConfig(cfg, { thinking: false }),
         messages,
         options: { sessionKey: "", connectionTest: false },
       }, (delta) => {
@@ -123,5 +119,21 @@ export function createPiTransport({ bridge, aiConfig, aiMessages }) {
     }
   }
 
-  return { aiExplain, aiExplainStream: aiExplain, aiTranslate };
+  // Capability probe: one minimal request that exercises the feature. The
+  // caller interprets the answer; this never guesses on its own.
+  async function aiProbe(kind, plugin, options = {}) {
+    const cfg = aiConfig(plugin);
+    if (!cfg.provider) throw reasonError("notconfigured", "AI is not configured");
+    if (cfg.needsKey && !cfg.key) throw reasonError("nokey", "no api key");
+    if (!cfg.base || !cfg.model) throw reasonError("notconfigured", "AI is not configured");
+    if (typeof bridge.probe !== "function") throw reasonError("desktop", "The desktop AI runtime is unavailable");
+    return bridge.probe({
+      config: runtimeConfig(cfg),
+      kind,
+      image: options.image || null,
+      expected: options.expected || "",
+    });
+  }
+
+  return { aiExplain, aiExplainStream: aiExplain, aiTranslate, aiProbe };
 }

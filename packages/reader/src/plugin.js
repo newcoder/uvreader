@@ -6,6 +6,7 @@ import { STARTER_BOOKS } from "./starter-book-data.js";
 import { addMissingQuoteLinks, highlightBacklink, jumpToEngineHighlight } from "./highlight-navigation.js";
 import { sortHighlightsByPosition } from "./highlight-order.js";
 import { aiProviderFor, normalizeAiBase } from "./ai-providers.js";
+import { normalizeAiCapabilities } from "./ai-capability.js";
 import { cloneJson, createSerialTaskQueue, isPlainRecord, mergeReadingProgress, readJsonRecordStore, writeVerifiedJsonRecord } from "./storage.js";
 import { createStarterLibraryInstaller } from "./starter-library.js";
 import { disposeReaderFonts } from "./reader-fonts.js";
@@ -454,6 +455,7 @@ export function createPlugin({
     this.settings.aiSecrets = { ...(this.settings.aiSecrets || {}) };
     this.settings.aiBases = { ...(this.settings.aiBases || {}) };
     this.settings.aiThinking = { ...(this.settings.aiThinking || {}) };
+    this.settings.aiCapabilities = normalizeAiCapabilities(this.settings.aiCapabilities);
     this.settings.aiChatHistory = normalizeAiChatHistory(this.settings.aiChatHistory);
     this.settings.locationMarks = normalizeLocationMarks(this.settings.locationMarks);
     if (this.settings.aiProvider && this.settings.aiModel && !this.settings.aiModels[this.settings.aiProvider]) {

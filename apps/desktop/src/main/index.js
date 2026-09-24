@@ -180,6 +180,7 @@ ipcMain.handle("qbr:ai:stream", (event, payload = {}) =>
   }));
 ipcMain.handle("qbr:ai:abort", (_event, requestId) => aiRuntime.abort(String(requestId || "")));
 ipcMain.handle("qbr:ai:test", (_event, config) => aiRuntime.test(config || {}));
+ipcMain.handle("qbr:ai:probe", (_event, payload) => aiRuntime.probe(payload || {}));
 ipcMain.on("qbr:secret-sync", (event, id) => {
   const store = readSecrets();
   event.returnValue = id && store[id] ? decryptSecret(store[id]) : null;
