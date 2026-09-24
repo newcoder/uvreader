@@ -1690,6 +1690,22 @@ function openFlowPinPopup(view, id) {
 // modal. The owner supplies the mutating callbacks, so late-bound state
 // (file, plugin, app) is still read at event time exactly as before; delAria
 // is optional because the modal historically ships without it.
+// Where a highlight sits: the PDF page, the chapter of a reflowable book, or
+// the chapter a CFI resolves to. Used as the [第 N 页] prefix of every entry.
+function highlightWhere(owner, hl) {
+  if (typeof hl?.block === "number") {
+    if (owner.file?.extension === "pdf" && owner.pager?.flow) {
+      const page = pageForBlock(owner.pager.flow, hl.block);
+      if (page) return qiaomuReaderTranslate("page-0", page);
+    }
+    return chapterForBlock(owner.tocItems || [], hl.block);
+  }
+  if (hl?.cfi && typeof owner.engine?.labelForCfi === "function") {
+    return owner.engine.labelForCfi(hl.cfi);
+  }
+  return "";
+}
+
 function renderHighlightPanel(p, owner, opts) {
   p.empty();
   p.createDiv("qiaomu-reader-pan-title").setText(qiaomuReaderTranslate("highlights"));
@@ -1709,7 +1725,9 @@ function renderHighlightPanel(p, owner, opts) {
     dot.style.background = hlColorCss(hl.color);
     const body = item.createDiv("qiaomu-reader-hl-body");
     const txt = body.createDiv("qiaomu-reader-hl-text");
-    txt.setText(hl.text.length > 160 ? hl.text.slice(0, 160) + "…" : hl.text);
+    const where = highlightWhere(owner, hl);
+    if (where) txt.createSpan({ cls: "qiaomu-reader-hl-where", text: `[${where}]` });
+    txt.createSpan({ text: hl.text.length > 160 ? hl.text.slice(0, 160) + "…" : hl.text });
     if (hl.comment) body.createDiv("qiaomu-reader-hl-comment").setText(hl.comment);
     const showMenu = (e) => {
       e.preventDefault();

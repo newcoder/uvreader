@@ -364,6 +364,30 @@ export class EpubEngine {
         return { title: m.title ?? "", author: m.author ?? "" };
     }
 
+    // Chapter label of a stored highlight: the table-of-contents entry that
+    // starts at or before the CFI's section.
+    labelForCfi(cfi) {
+        const view = this.#view;
+        const book = this.#book;
+        if (!view || !book || !cfi) return "";
+        let index = null;
+        try { index = view.resolveNavigation(cfi)?.index ?? null; } catch { index = null; }
+        if (!Number.isInteger(index)) return "";
+        const sectionIndex = (href) => {
+            try { return book.resolveHref?.(href)?.index ?? null; } catch { return null; }
+        };
+        let best = "";
+        const walk = (items) => {
+            for (const item of items || []) {
+                const at = item?.href ? sectionIndex(item.href) : null;
+                if (Number.isInteger(at) && at <= index && item.label) best = item.label;
+                if (item?.subitems?.length) walk(item.subitems);
+            }
+        };
+        walk(this.toc());
+        return String(best).slice(0, 40);
+    }
+
     // ── highlights ──────────────────────────────────────────────────────────
     // id is the caller's stable key (the reading-note anchor id); the engine
     // only maps it to the CFI range it is asked to paint.

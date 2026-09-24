@@ -234,6 +234,8 @@ export function createReaderView({
     try { warmWordGlosses(); } catch (e) { console.warn("UV Reader: could not preload the word glossary", e); }
     syncReaderAiCapability(this);
     this.buildSettPanel(); this._maybePromptBookNote(file);
+    // The docked list must follow the book that just opened.
+    this.buildHlPanel();
     this._sessionSec = 0; this._running = false;
     const todaySeconds = this.plugin.getTodaySeconds();
     this._goalNotified = todaySeconds >= this.plugin.getGoalSeconds();
@@ -479,9 +481,10 @@ export function createReaderView({
   _clearFound() {
     clearFoundIn(this);
   }
-  _jumpToBlock(block, flash = true) {
+  async _jumpToBlock(block, flash = true) {
     if (!readerIsPdf(this) || !this.bookHtml || typeof block !== "number") return;
     rememberReaderJump(this);
+    await this._settleLayoutBeforeJump();
     const [cur, tot] = restoreReadingAnchor(this.pager, { block, offset: 0, pct: this.pager.currentPct });
     this.updateUI(cur, tot);
     if (this.file) this.plugin.saveProgress(this.file.path, cur, tot, this.pager.currentBlockIndex());
@@ -1018,6 +1021,17 @@ export function createReaderView({
     this._editHlId = null;
     if (this.hlPopup) this.hlPopup.classList.remove("qiaomu-reader-hl-popup-on");
   }
+  // A pending reflow restores its own reading anchor, which would overwrite a
+  // jump issued while the pages are being rebuilt (the dock opening or a window
+  // resize schedules one). Let it finish first so the jump sticks.
+  async _settleLayoutBeforeJump() {
+    if (this._resizeTimer) {
+      window.clearTimeout(this._resizeTimer);
+      this._resizeTimer = null;
+      await this.repaginate().catch(() => {});
+    }
+    if (this._layoutPromise) await this._layoutPromise.catch(() => {});
+  }
   async goToHighlight(id) { // panel click: reveal the highlight and flash it
     rememberReaderJump(this);
     if (this.engine) {
@@ -1026,6 +1040,7 @@ export function createReaderView({
       catch { new Notice(qiaomuReaderTranslate("highlight-not-found")); }
       return;
     }
+    await this._settleLayoutBeforeJump();
     this._jumpToHighlightRecord(id);
   }
   // Shared tail of every highlight jump: repaint, persist the position, close.

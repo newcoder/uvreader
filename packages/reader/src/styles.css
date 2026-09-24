@@ -274,6 +274,7 @@ img.qiaomu-reader-pdf-lazy:not([data-loaded="1"]) { background:color-mix(in srgb
 .qiaomu-reader-flow-pin:focus-visible { outline:2px solid color-mix(in srgb, var(--qiaomu-reader-accent) 48%, transparent); outline-offset:1px; }
 .qiaomu-reader-hl-flash { animation:qiaomu-reader-hl-flash 1.2s ease; }
 @keyframes qiaomu-reader-hl-flash { 0%,100%{ box-shadow:none; } 30%{ box-shadow:0 0 0 3px var(--qiaomu-reader-accent); } }
+.qiaomu-reader-hl-where { color:var(--qiaomu-reader-muted); margin-right:6px; font-variant-numeric:tabular-nums; flex-shrink:0; }
 .qiaomu-reader-hl-popup { position:absolute; z-index:35; display:flex; flex-direction:column; align-items:stretch; gap:0; padding:7px 9px; border-radius:14px; background:var(--qiaomu-reader-ui); border:1px solid var(--qiaomu-reader-border); box-shadow:0 10px 32px rgba(0,0,0,.25); opacity:0; transform:translateY(4px) scale(.96); pointer-events:none; transition:opacity .13s,transform .13s,width .16s ease; }
 .qiaomu-reader-hl-popup.qiaomu-reader-hl-popup-on { opacity:1; transform:translateY(0) scale(1); pointer-events:all; }
 .qiaomu-reader-hl-actions { display:flex; align-items:center; justify-content:center; gap:6px; }

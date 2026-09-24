@@ -509,20 +509,29 @@ async function runPdfScenario() {
     await waitFor("pdf ready", () => readerReady(page), 30_000);
     console.log("pdf: reader ready");
 
-    const selected = await waitFor("pdf selection", () => page.evaluate(() => {
-      const spans = [...document.querySelectorAll(".qiaomu-reader-pdf-text-layer span")]
-        .filter((span) => span.textContent.trim().length > 3);
-      const el = spans[0];
-      if (!el) return "";
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      const selection = document.getSelection();
-      selection.removeAllRanges();
-      selection.addRange(range);
-      document.dispatchEvent(new Event("selectionchange", { bubbles: true }));
-      el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true }));
-      return selection.toString().trim();
-    }), 20_000);
+    // The selection popup follows the debounced selection check; retry the
+    // whole step instead of assuming the first dispatch always lands.
+    const selected = await waitFor("pdf selection with popup", async () => {
+      const text = await page.evaluate(() => {
+        const spans = [...document.querySelectorAll(".qiaomu-reader-pdf-text-layer span")]
+          .filter((span) => span.textContent.trim().length > 3);
+        const el = spans[0];
+        if (!el) return "";
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const selection = document.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        document.dispatchEvent(new Event("selectionchange", { bubbles: true }));
+        el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true }));
+        return selection.toString().trim();
+      });
+      if (!text) return "";
+      await sleep(250);
+      const open = await page.evaluate(() => window.__qbrApp?.workspace?.getLeavesOfType("qiaomu-reader")[0]
+        ?.view?.hlPopup?.classList.contains("qiaomu-reader-hl-popup-on") || false);
+      return open ? text : "";
+    }, 20_000);
     console.log("pdf: selected", selected.slice(0, 40));
 
     const highlightsPath = path.join(userData, "library", "plugin", "reading-highlights.json");
@@ -656,11 +665,14 @@ async function runCjkPdfPinScenario() {
         view.togglePanel("highlights");
         await new Promise((resolve) => setTimeout(resolve, 500));
         const items = [...document.querySelectorAll(".qiaomu-reader-hl-item")];
+        const entry = items[items.length - 1]?.querySelector(".qiaomu-reader-hl-text");
+        const entryText = entry?.textContent || "";
         items[items.length - 1]?.click();
         await new Promise((resolve) => setTimeout(resolve, 800));
-        return { before, after: view.pager.currentPdfPageNumber(), items: items.length };
+        return { before, after: view.pager.currentPdfPageNumber(), items: items.length, entryText };
       });
       if (jumped.error) throw new Error(jumped.error);
+      if (!/^\[第 4 页\]/.test(jumped.entryText)) throw new Error(`the entry has no page prefix: ${jumped.entryText}`);
       if (jumped.after === jumped.before) throw new Error(`the highlight did not jump: ${JSON.stringify(jumped)}`);
       console.log("pdf: highlight entry jumped to page", jumped.after);
     } finally {

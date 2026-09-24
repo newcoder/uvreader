@@ -232,6 +232,7 @@ export function createReaderModal({
       const settled = await this._openLoadedDocument(result, loadToken);
       if (!settled) return;
       this._buildSettPanel(); this._maybePromptBookNote(this.file);
+      this._buildHlPanel();
     } catch (e) {
       if (isReaderLoadAbort(e, loadToken.signal) || !this._loadCoordinator.isCurrent(loadToken)) return;
       console.error("UV Reader: could not open file in the mobile reader", e);
@@ -776,6 +777,8 @@ export function createReaderModal({
       catch { new Notice(qiaomuReaderTranslate("highlight-not-found")); }
       return;
     }
+    // A queued reflow would restore its own anchor over this jump.
+    if (this._layoutPromise) await this._layoutPromise.catch(() => {});
     const blocks = this.pager.flow?.querySelectorAll(READER_BLOCK_SELECTOR) || [];
     const anchor = resolveHighlightAnchor(blocks, hl, this.file?.extension === "pdf");
     if (!anchor) {

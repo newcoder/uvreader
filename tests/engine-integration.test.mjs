@@ -222,6 +222,36 @@ test("engine searches createDocument sections, returns readable excerpts and can
   } finally { engine.destroy(); dom.window.close(); }
 });
 
+test("engine labels a stored highlight with its chapter", async () => {
+  const dom = new JSDOM("<body><main></main></body>", { runScripts: "outside-only" });
+  const elements = foliateElements(root);
+  const { EpubEngine } = evaluate(dom, await bundle(elements));
+  const View = dom.window.customElements.get(JSON.parse(elements.define.__QBR_ENGINE_VIEW_TAG__));
+  const sections = [0, 1, 2].map((index) => ({ createDocument: async () => new dom.window.DOMParser().parseFromString(`<p>s${index}</p>`, "text/html") }));
+  const book = {
+    sections,
+    metadata: { language: "en" },
+    toc: [
+      { label: "第一章", href: "ch1" },
+      { label: "第二章", href: "ch2", subitems: [{ label: "第二节", href: "ch2b" }] },
+    ],
+    resolveHref: (href) => ({ index: { ch1: 0, ch2: 1, ch2b: 2 }[href] ?? 0 }),
+  };
+  View.prototype.open = async function () { this.book = book; };
+  View.prototype.init = async function () { this.lastLocation = { cfi: "test" }; this.renderer = { getContents: () => [{ doc: dom.window.document }] }; };
+  View.prototype.close = function () {};
+  View.prototype.resolveNavigation = (target) => ({ index: target === "epubcfi(2/0)" ? 2 : target === "epubcfi(1/0)" ? 1 : 0 });
+  const engine = new EpubEngine(dom.window.document.querySelector("main"));
+  try {
+    engine.open = EpubEngine.prototype.open.bind(engine);
+    await engine.open(new Uint8Array(), "test.epub");
+    assert.equal(engine.labelForCfi("epubcfi(0/0)"), "第一章");
+    assert.equal(engine.labelForCfi("epubcfi(1/0)"), "第二章");
+    assert.equal(engine.labelForCfi("epubcfi(2/0)"), "第二节");
+    assert.equal(engine.labelForCfi(""), "");
+  } finally { engine.destroy(); dom.window.close(); }
+});
+
 test("layout supports explicit one/two columns, narrow panes and scroll mode; iframe keys respect editing", async () => {
   const dom = new JSDOM('<body><input><p tabindex="0">text</p></body>', { runScripts: "outside-only" });
   const { engineLayout, bindEngineKeys } = evaluate(dom, await bundle(foliateElements(root)));
