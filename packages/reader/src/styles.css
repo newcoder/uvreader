@@ -1103,6 +1103,13 @@ html.qbr-split-dragging .qiaomu-reader-relayouting .qiaomu-reader-area { filter:
 .qiaomu-reader-ai-attach-item:focus-visible { outline:2px solid color-mix(in srgb,var(--interactive-accent) 58%,transparent); outline-offset:1px; }
 .qiaomu-reader-ai-attach-item .qiaomu-reader-ai-attach-icon { width:auto; height:auto; }
 .qiaomu-reader-ai-drop { outline:2px dashed color-mix(in srgb,var(--interactive-accent) 55%,transparent); outline-offset:-6px; }
+
+/* Drag-box screenshot overlay over the reading area. */
+.qiaomu-reader-shot { position:absolute; inset:0; z-index:60; cursor:crosshair; touch-action:none; opacity:0; transition:opacity .12s ease; }
+.qiaomu-reader-shot-on { opacity:1; }
+.qiaomu-reader-shot-box { position:absolute; border:1px solid color-mix(in srgb,var(--interactive-accent) 82%,transparent); background:transparent; box-shadow:0 0 0 9999px rgba(0,0,0,.28); pointer-events:none; }
+.qiaomu-reader-shot-size { position:absolute; transform:translateX(-50%); padding:2px 6px; border-radius:var(--radius-s); background:var(--background-primary); color:var(--text-normal); font-size:var(--font-ui-smaller); white-space:nowrap; pointer-events:none; box-shadow:0 1px 4px rgba(0,0,0,.2); }
+.qiaomu-reader-shot-hint { position:absolute; left:50%; bottom:16px; transform:translateX(-50%); padding:4px 10px; border-radius:999px; background:var(--background-primary); color:var(--text-muted); font-size:var(--font-ui-smaller); white-space:nowrap; pointer-events:none; box-shadow:0 1px 6px rgba(0,0,0,.18); }
 .qiaomu-reader-rs button.qiaomu-reader-col-btn { height: auto; margin: 0; box-shadow: none; font: inherit; }
 .qiaomu-reader-rs button.qiaomu-reader-col-btn:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 2px; }
 .qiaomu-reader-ai-context-detached { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--text-muted); font-size: 12px; padding: 4px; }

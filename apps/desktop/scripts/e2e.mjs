@@ -1092,6 +1092,61 @@ async function runCapabilityScenario() {
     const savedFile = path.join(userData, "library", storedTurn.attachments[0].file);
     if (!fs.existsSync(savedFile)) throw new Error(`the attachment file is missing: ${savedFile}`);
     console.log("attachment:", chip, "sent with the image part and stored at", storedTurn.attachments[0].file, "->", answer, cleared);
+
+    // Screenshot: drag a box over the reading area. Esc cancels first, then a
+    // real drag attaches the captured region as an image.
+    const clickAttachItem = (label) => page.evaluate((text) => {
+      const items = [...document.querySelectorAll(".qiaomu-reader-ai-attach-menu .qiaomu-reader-ai-attach-item")];
+      const item = items.find((el) => el.textContent.trim() === text);
+      if (!item) return [...items].map((el) => el.textContent.trim()).join("|");
+      item.click();
+      return "clicked";
+    }, label);
+    await page.click(".qiaomu-reader-ai-attach");
+    const menu = await page.evaluate(() => [...document.querySelectorAll(".qiaomu-reader-ai-attach-menu .qiaomu-reader-ai-attach-item")]
+      .map((el) => el.textContent.trim()));
+    if (!menu.includes("截图")) throw new Error(`the screenshot entry is missing: ${JSON.stringify(menu)}`);
+    await clickAttachItem("截图");
+    await waitFor("screenshot overlay", () => page.evaluate(
+      () => Boolean(document.querySelector(".qiaomu-reader-shot"))), 8_000);
+    await page.keyboard.press("Escape");
+    await waitFor("screenshot overlay cancelled", () => page.evaluate(
+      () => !document.querySelector(".qiaomu-reader-shot")), 8_000);
+    const chipsBefore = await page.evaluate(
+      () => document.querySelectorAll(".qiaomu-reader-ai-attach-slot .qiaomu-reader-ai-attach-chip").length);
+
+    await page.click(".qiaomu-reader-ai-attach");
+    await clickAttachItem("截图");
+    await waitFor("screenshot overlay again", () => page.evaluate(
+      () => Boolean(document.querySelector(".qiaomu-reader-shot"))), 8_000);
+    const area = await page.evaluate(() => {
+      const rect = document.querySelector(".qiaomu-reader-area").getBoundingClientRect();
+      return { x: rect.left, y: rect.top };
+    });
+    await page.mouse.move(area.x + 40, area.y + 60);
+    await page.mouse.down();
+    await page.mouse.move(area.x + 300, area.y + 220, { steps: 8 });
+    await page.mouse.up();
+    const shotChip = await waitFor("screenshot chip", () => page.evaluate(() => {
+      const chips = [...document.querySelectorAll(".qiaomu-reader-ai-attach-slot .qiaomu-reader-ai-attach-chip")];
+      const chip = chips.find((el) => /截图|Screenshot/.test(el.querySelector(".qiaomu-reader-ai-attach-name")?.textContent || ""));
+      return chip ? chip.querySelector(".qiaomu-reader-ai-attach-name").textContent : "";
+    }), 15_000);
+    const shot = await page.evaluate(() => {
+      const leaf = window.__qbrApp.workspace.getLeavesOfType("qiaomu-book-reader-ai-chat")[0];
+      const list = leaf?.view?.attachments || [];
+      const entry = list.find((item) => item.source === "shot");
+      return entry ? { source: entry.source, width: entry.width, height: entry.height, bytes: entry.bytes, file: entry.file } : null;
+    });
+    if (!shot) throw new Error("the screenshot attachment is missing from the composer");
+    if (shot.width < 200 || shot.width > 900 || shot.height < 120 || shot.height > 600) {
+      throw new Error(`the captured region has the wrong size: ${JSON.stringify(shot)}`);
+    }
+    if (shot.file && !fs.existsSync(path.join(userData, "library", shot.file))) {
+      throw new Error(`the screenshot file is missing: ${shot.file}`);
+    }
+    if (chipsBefore !== 0) throw new Error(`Esc should have cancelled without attachments, saw ${chipsBefore}`);
+    console.log("screenshot:", shotChip, `${shot.width}x${shot.height}`, `${Math.round(shot.bytes / 1024)}KB`, "->", shot.file);
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(userData, { recursive: true, force: true });

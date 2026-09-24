@@ -5,7 +5,7 @@ import { svgIcon } from "./reader-icons.js";
 import { verifiedQuotes } from "./reading-workflow.js";
 
 export function createAiExplainModal({
-  Component, Menu, Modal, Notice, aiExplain, aiLogFollowsTail, aiTurnsHaveAttachments, bindAiAttachmentIntake, bindAiSlashPrompts, bindReaderAiComposer, bookNoteLinkFor, copyToClipboard, createAiChatLog, createAiStreamingMarkdownRenderer, createNoteFromAiAnswer, jumpToAiQuote, newAiSessionKey, normalizeAiTurnContext, noteAiImageFailure, openAiAttachMenu, pickAiAttachments, prepareAiTurns, qiaomuReaderTranslate, readerHud, removeAiAttachment, renderAiAttachmentList, renderAiComposerPrompts, renderAiContextQuote, renderAiUserTurn, renderMobileAiHeader, stripAiAttachmentData,
+  Component, Menu, Modal, Notice, aiExplain, aiLogFollowsTail, aiTurnsHaveAttachments, bindAiAttachmentIntake, captureAiScreenshot, bindAiSlashPrompts, bindReaderAiComposer, bookNoteLinkFor, copyToClipboard, createAiChatLog, createAiStreamingMarkdownRenderer, createNoteFromAiAnswer, jumpToAiQuote, newAiSessionKey, normalizeAiTurnContext, noteAiImageFailure, openAiAttachMenu, pickAiAttachments, prepareAiTurns, qiaomuReaderTranslate, readerHud, removeAiAttachment, renderAiAttachmentList, renderAiComposerPrompts, renderAiContextQuote, renderAiUserTurn, renderMobileAiHeader, stripAiAttachmentData,
 }) {
   return class AiExplainModal extends Modal {
   constructor(app, plugin, context) {
@@ -55,7 +55,10 @@ export function createAiExplainModal({
     const attach = footer.createEl("button", { cls: "qiaomu-reader-ai-attach", attr: { type: "button", "aria-expanded": "false" } });
     svgIcon(attach, "paperclip");
     attach.setAttribute("aria-label", qiaomuReaderTranslate("attach-image-or-file"));
-    attach.addEventListener("click", () => openAiAttachMenu(attach, this, { pick: (kind) => { void pickAiAttachments(this, kind); } }));
+    attach.addEventListener("click", () => openAiAttachMenu(attach, this, {
+      pick: (kind) => { void pickAiAttachments(this, kind); },
+      shot: () => { void captureAiScreenshot(this); },
+    }));
     this.attachButton = attach;
     const send = footer.createEl("button", { cls: "qiaomu-reader-ai-send" });
     this.inputEl = input;

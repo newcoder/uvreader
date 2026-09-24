@@ -520,6 +520,7 @@ export function createAiRender({
     };
     item("image", translate("attach-image"), () => actions.pick?.("image"));
     item("note", translate("attach-file"), () => actions.pick?.("file"));
+    if (actions.shot) item("crop", translate("screenshot"), () => actions.shot?.());
     chat.attachMenu = menu;
     chat.attachButton?.setAttribute("aria-expanded", "true");
     const doc = menu.ownerDocument;

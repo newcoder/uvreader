@@ -70,6 +70,7 @@ import { createPdfZoomUi } from "./pdf-zoom-ui.js";
 import { createSelectionActions } from "./selection-actions.js";
 import { lookupSelection, lookupWordGloss } from "./pinyin-annotate.js";
 import { createPinPopup } from "./pin-popup.js";
+import { openShotOverlay, planRegionStitch } from "./reader-shot.js";
 import { createReaderTimer } from "./reader-timer.js";
 import { createReaderHud } from "./reader-hud.js";
 import { createReaderView } from "./reader-view.js";
@@ -1589,6 +1590,106 @@ function bindAiAttachmentIntake(chat, host, input) {
   });
 }
 
+// --- Screenshots -----------------------------------------------------------
+// A drag-box screenshot of the reading area. The desktop shell captures the
+// composited frame (so spreads, scroll mode and iframes all work); hosts
+// without that bridge fall back to cropping the rendered PDF page images.
+function screenshotName(now = new Date()) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return `截图 ${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}.${pad(now.getMinutes())}.${pad(now.getSeconds())}.png`;
+}
+
+async function capturePdfRegion(view, region) {
+  const flow = view?.pager?.flow;
+  const doc = docOf(view?.areaEl || view?.contentEl);
+  if (!flow || !doc) return null;
+  const pages = [...flow.querySelectorAll(".qiaomu-reader-pdf-page-break[data-pdf-page-no]")];
+  const entries = [];
+  for (const page of pages) {
+    const image = page.querySelector(".qiaomu-reader-pdf-page-img");
+    const rect = (image || page).getBoundingClientRect();
+    if (rect.bottom < region.y || rect.top > region.y + region.height
+      || rect.right < region.x || rect.left > region.x + region.width) continue;
+    let source = image;
+    if (!source || !source.naturalWidth) {
+      // A page that has not rasterised yet (or a text page): render it now.
+      const pageNumber = Number(page.dataset.pdfPageNo) || 0;
+      const rendered = pageNumber ? await view._pdfLazy?.render?.(pageNumber, doc).catch(() => null) : null;
+      if (rendered?.src) {
+        source = await new Promise((resolve) => {
+          const img = doc.createElement("img");
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = rendered.src;
+        });
+      }
+    }
+    if (!source?.naturalWidth) continue;
+    entries.push({
+      rect: source.getBoundingClientRect(),
+      imageWidth: source.naturalWidth,
+      imageHeight: source.naturalHeight,
+      node: source,
+    });
+  }
+  const plan = planRegionStitch(region, entries);
+  if (!plan) return null;
+  const canvas = doc.createElement("canvas");
+  canvas.width = plan.width;
+  canvas.height = plan.height;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  for (const item of plan.items) {
+    ctx.drawImage(item.page.node, item.source.x, item.source.y, item.source.width, item.source.height,
+      item.target.x, item.target.y, item.target.width, item.target.height);
+  }
+  const data = String(canvas.toDataURL("image/png")).split(",")[1] || "";
+  canvas.width = 0;
+  canvas.height = 0;
+  if (!data) return null;
+  return { data, mimeType: "image/png", bytes: Math.ceil((data.length * 3) / 4), width: plan.width, height: plan.height, source: "shot" };
+}
+
+// Draw a box over the reading area and attach the captured region. The
+// capability gate from the attachment path decides whether images may go out
+// at all, so the entry point can stay available.
+async function captureAiScreenshot(chat) {
+  const view = chat?.readerView?.areaEl?.isConnected ? chat.readerView : chat?.plugin?._openReaderModal;
+  if (!view?.areaEl) {
+    new Notice(qiaomuReaderTranslate("open-a-book-first"), 6000);
+    return;
+  }
+  const overlay = openShotOverlay({ host: view.areaEl, translate: qiaomuReaderTranslate });
+  const rect = await overlay.promise;
+  if (!rect) return;
+  const bridge = typeof window !== "undefined" && window.qbrDesktop ? window.qbrDesktop.ai : null;
+  let entry = null;
+  if (bridge?.captureRegion) {
+    const result = await bridge.captureRegion(rect);
+    if (!result?.ok) {
+      new Notice(qiaomuReaderTranslate("screenshot-failed-try-again"), 6000);
+      return;
+    }
+    entry = {
+      data: result.data,
+      mimeType: result.mimeType || "image/png",
+      bytes: Number(result.bytes) || Math.ceil((String(result.data || "").length * 3) / 4),
+      width: Number(result.width) || 0,
+      height: Number(result.height) || 0,
+      source: "shot",
+    };
+  } else {
+    entry = await capturePdfRegion(view, rect);
+    if (!entry) {
+      new Notice(qiaomuReaderTranslate(readerIsPdf(view) ? "screenshot-failed-try-again" : "screenshots-in-this-format-need-the-desktop-app"), 8000);
+      return;
+    }
+  }
+  entry.name = screenshotName();
+  await attachAiFiles(chat, [aiAttachmentFile(entry)], "shot");
+}
+
 // Detect whether the configured model accepts image parts or a tools array.
 // The probe runs once per provider/base/model and the result is remembered, so
 // the reader never claims a capability the endpoint did not prove.
@@ -1639,6 +1740,7 @@ const AiExplainModal = createAiExplainModal({
   bindAiSlashPrompts,
   bindReaderAiComposer,
   bookNoteLinkFor,
+  captureAiScreenshot,
   copyToClipboard,
   createAiChatLog,
   createAiStreamingMarkdownRenderer,
@@ -2780,6 +2882,7 @@ const AiChatView = createAiChatView({
   bindAiSlashPrompts,
   bindReaderAiComposer,
   bookNoteLinkFor,
+  captureAiScreenshot,
   clearAiSource,
   createAiChatLog,
   newAiSessionKey,

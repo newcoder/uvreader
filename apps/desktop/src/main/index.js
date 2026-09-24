@@ -68,6 +68,53 @@ function readAiAttachment(filePath) {
   }
 }
 
+// Screen-region capture for AI screenshots. The renderer sends CSS pixels
+// (getBoundingClientRect), the page zoom maps them to DIP, and capturePage
+// returns the composited frame — so one call covers spreads, scroll mode,
+// EPUB iframes and manual zoom alike.
+const CAPTURE_MAX_EDGE = 2400;
+
+async function captureRegion(rect) {
+  if (!mainWindow || mainWindow.isDestroyed()) return { ok: false, reason: "unavailable" };
+  const source = rect || {};
+  const factor = mainWindow.webContents.getZoomFactor?.() || 1;
+  const [contentWidth, contentHeight] = mainWindow.getContentSize();
+  const scale = (value) => Math.max(0, Math.round(Number(value) * factor));
+  const area = {
+    x: scale(source.x),
+    y: scale(source.y),
+    width: Math.max(1, scale(source.width)),
+    height: Math.max(1, scale(source.height)),
+  };
+  area.width = Math.min(area.width, Math.max(1, contentWidth - area.x));
+  area.height = Math.min(area.height, Math.max(1, contentHeight - area.y));
+  if (area.width < 8 || area.height < 8) return { ok: false, reason: "empty" };
+  try {
+    let image = await mainWindow.webContents.capturePage(area);
+    if (!image || image.isEmpty()) return { ok: false, reason: "empty" };
+    const size = image.getSize();
+    const longest = Math.max(size.width, size.height);
+    if (longest > CAPTURE_MAX_EDGE) {
+      const ratio = CAPTURE_MAX_EDGE / longest;
+      image = image.resize({
+        width: Math.max(1, Math.round(size.width * ratio)),
+        height: Math.max(1, Math.round(size.height * ratio)),
+        quality: "good",
+      });
+    }
+    const finalSize = image.getSize();
+    return {
+      ok: true,
+      mimeType: "image/png",
+      data: image.toPNG().toString("base64"),
+      width: finalSize.width,
+      height: finalSize.height,
+    };
+  } catch (error) {
+    return { ok: false, reason: "capture", message: String(error?.message || error) };
+  }
+}
+
 async function pickAiAttachments() {
   const options = {
     title: "选择附件",
@@ -227,6 +274,7 @@ ipcMain.handle("qbr:ai:test", (_event, config) => aiRuntime.test(config || {}));
 ipcMain.handle("qbr:ai:probe", (_event, payload) => aiRuntime.probe(payload || {}));
 ipcMain.handle("qbr:ai:pick-files", () => pickAiAttachments());
 ipcMain.handle("qbr:ai:read-file", (_event, target) => readAiAttachment(target));
+ipcMain.handle("qbr:ai:capture-region", (_event, rect) => captureRegion(rect));
 ipcMain.on("qbr:secret-sync", (event, id) => {
   const store = readSecrets();
   event.returnValue = id && store[id] ? decryptSecret(store[id]) : null;
