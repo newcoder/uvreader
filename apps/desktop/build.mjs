@@ -116,7 +116,13 @@ const preloadConfig = {
 
 function writeAssets() {
   fs.mkdirSync(dist, { recursive: true });
+  // AI answers carry LaTeX: bundle KaTeX's stylesheet and fonts so formulas
+  // typeset offline (the Obsidian host renders them itself).
+  const katexDist = path.join(repoRoot, "node_modules/katex/dist");
+  const katexCss = fs.readFileSync(path.join(katexDist, "katex.min.css"), "utf8");
+  fs.cpSync(path.join(katexDist, "fonts"), path.join(dist, "fonts"), { recursive: true });
   const css = fs.readFileSync(path.join(repoRoot, "packages/reader/src/styles.css"), "utf8")
+    + `\n/* KaTeX (MIT) */\n${katexCss}\n`
     + `\n/* Bundled reading subset: SIL OFL 1.1\n${fontLicense}\n*/\n`
     + `@font-face { font-family: 'QBR Zhuque Fangsong'; src: url('data:font/woff2;base64,${fontData}') format('woff2'); font-style: normal; font-weight: 400; font-display: swap; }\n`;
   fs.writeFileSync(path.join(dist, "styles.css"), css);

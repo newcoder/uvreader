@@ -235,7 +235,12 @@ function startMockAi(options = {}) {
         return;
       }
       if (payload.stream) {
-        sse(["MOCK ", "STREAM ", "ANSWER"].map((content) => ({ choices: [{ delta: { content } }] })), { streamed: true });
+        // A marked message streams a LaTeX answer so the desktop can prove it
+        // typesets formulas instead of showing raw TeX.
+        const chunks = lastText.includes("MATH QUESTION")
+          ? ["答案：", "前面已证 $\\mathrm{Re}(f,g) \\leq \\frac{1}{2}$。"]
+          : ["MOCK ", "STREAM ", "ANSWER"];
+        sse(chunks.map((content) => ({ choices: [{ delta: { content } }] })), { streamed: true });
       } else {
         json({ choices: [{ message: { content: "MOCK CONNECTION OK" } }] });
       }
@@ -982,6 +987,26 @@ async function runAiScenario() {
       return bubbles.some((bubble) => bubble.textContent.includes("MOCK STREAM ANSWER")) ? "yes" : "";
     }), 20_000);
     console.log("ai: answer streamed");
+
+    // LaTeX in an answer is typeset (KaTeX), not shown as raw dollar code.
+    await page.fill(".qiaomu-reader-ai-input", "MATH QUESTION");
+    await page.press(".qiaomu-reader-ai-input", "Enter");
+    await waitFor("math answer", () => page.evaluate(() => {
+      const bubbles = [...document.querySelectorAll(".qiaomu-reader-ai-msg-ai")];
+      const bubble = bubbles.find((entry) => entry.textContent.includes("答案"));
+      return bubble?.querySelector(".katex math") ? "yes" : "";
+    }), 25_000);
+    const mathInfo = await page.evaluate(() => {
+      const math = document.querySelector(".qiaomu-reader-ai-msg-ai .katex math");
+      return {
+        tag: math?.tagName || "",
+        tex: math?.querySelector('annotation[encoding="application/x-tex"]')?.textContent || "",
+      };
+    });
+    if (mathInfo.tag.toLowerCase() !== "math" || !/frac/.test(mathInfo.tex)) {
+      throw new Error(`the formula did not typeset: ${JSON.stringify(mathInfo)}`);
+    }
+    console.log("ai: latex formula rendered", mathInfo.tex.slice(0, 30));
 
     const chatIndex = path.join(userData, "data", "chat", "index.json");
     const record = await waitFor("chat history file", () => {

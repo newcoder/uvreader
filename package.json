@@ -42,6 +42,7 @@
   "dependencies": {
     "foliate-js": "^1.0.1",
     "jszip": "^3.10.1",
+    "katex": "^0.18.9",
     "localforage": "^1.10.0",
     "pdfjs-dist": "^6.2.108",
     "pinyin-pro": "3.29.4"

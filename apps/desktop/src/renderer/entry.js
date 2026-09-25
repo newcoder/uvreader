@@ -4,6 +4,7 @@ import { marked } from "marked";
 import QiaomuBookReader from "../../../../packages/reader/src/main.js";
 import { isBookFile } from "../shared/books.js";
 import { iconResolver } from "./icons.js";
+import { renderMathIn } from "./math.js";
 import { createHomeView, createNoteView, createSettingsView, createTocView } from "./views.js";
 
 const bridge = window.qbrDesktop || { paths: {} };
@@ -99,6 +100,7 @@ async function boot() {
     iconResolver,
     renderMarkdown: (markdown, element) => {
       element.innerHTML = renderMarkdown(markdown);
+      renderMathIn(element);
     },
     secrets: bridge.secrets || null,
   });
