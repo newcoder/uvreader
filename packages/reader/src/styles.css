@@ -58,7 +58,7 @@ img.qiaomu-reader-pdf-lazy:not([data-loaded="1"]) { background:color-mix(in srgb
 .qiaomu-reader-top-title { flex:1 1 auto; min-width:0; text-align:left; font-size:12px; font-weight:500; font-family:'Inter',system-ui,sans-serif; color:#555; opacity:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .qiaomu-reader-top-right { display:flex; gap:2px; align-items:center; min-width:0; }
 /* Search box at the end of the toolbar: type, press Enter, see results. */
-.qiaomu-reader-top-find { width:150px; min-width:96px; max-width:24vw; height:28px; padding:0 9px; box-sizing:border-box; border:1px solid var(--qiaomu-reader-border,#ddd9ce); border-radius:999px; background:transparent; color:var(--qiaomu-reader-text,#333); font-size:12px; flex:0 1 auto; }
+.qiaomu-reader-top-find { width:170px; min-width:96px; max-width:24vw; height:28px; padding:0 9px; box-sizing:border-box; border:1px solid var(--qiaomu-reader-border,#ddd9ce); border-radius:999px; background:transparent; color:var(--qiaomu-reader-text,#333); font-size:12px; flex:0 1 auto; }
 .qiaomu-reader-top-find::placeholder { color:var(--qiaomu-reader-muted,#8a867c); opacity:.9; }
 .qiaomu-reader-top-find:focus { outline:2px solid color-mix(in srgb,var(--qiaomu-reader-accent,#4f7cff) 55%,transparent); outline-offset:1px; border-color:transparent; }
 @media (max-width: 700px) { .qiaomu-reader-top-find { display:none; } }
@@ -1360,6 +1360,13 @@ html.qbr-split-dragging .qiaomu-reader-relayouting .qiaomu-reader-area { filter:
 .qiaomu-reader-navigation-open .qiaomu-reader-bot { z-index: 41; }
 .qiaomu-reader-note-back { z-index: 42; }
 .qiaomu-reader-panel.qiaomu-reader-navigation-panel { top: auto; right: auto; left: 8px; bottom: 48px; width: min(420px, calc(100% - 16px)); max-height: min(45%, 380px); border-radius: 12px; border: 1px solid var(--background-modifier-border); padding: 12px; gap: 6px; }
+
+/* Search results hang right below the toolbar under the search box instead of
+   floating at the bottom-left like the contents card. The reader measures the
+   box and sets `left` when it opens the card. */
+.qiaomu-reader-view .qiaomu-reader-panel.qiaomu-reader-navigation-panel.qiaomu-reader-find-panel { top: 46px; right: auto; left: 8px; bottom: auto; width: min(440px, calc(100% - 16px)); max-height: min(60vh, 520px); box-shadow: 0 16px 44px rgba(0,0,0,.24); }
+.qiaomu-reader-view .qiaomu-reader-find-panel.qiaomu-reader-panel-open { animation: qiaomu-reader-find-drop .16s cubic-bezier(.2,.8,.3,1); }
+@keyframes qiaomu-reader-find-drop { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
 .qiaomu-reader-navigation-panel .qiaomu-reader-pan-title { margin: 0; padding: 0 0 8px; font-size: 13px; }
 .qiaomu-reader-navigation-panel .qiaomu-reader-toc-find,
 .qiaomu-reader-navigation-panel .qiaomu-reader-toc-filter { padding: 0; margin: 0; }

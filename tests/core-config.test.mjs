@@ -713,6 +713,9 @@ test("immersive reader chrome overlays the page and retracts without reserving r
   assert.doesNotMatch(viewSource, /trayButton\("reading-note"/);
   assert.doesNotMatch(viewSource, /trayButton\("rotate-ccw", "reset-timer"/);
   assert.match(viewSource, /qiaomu-reader-top-find/);
+  // The search box keeps its place after the settings button; the PDF zoom
+  // control is created last so it stays the final group of the toolbar.
+  assert.ok(viewSource.indexOf("qiaomu-reader-top-find") < viewSource.indexOf("createPdfZoomControls(tray, this)"));
   assert.match(bookNotesSource, /setTitle\(translate\("the-book-note"\)\)/);
   assert.match(viewSource, /trayButton\("sliders"/); // settings button rides the data-driven tray
   assert.equal((viewSource.match(/addBookFileMenu\(this\.app, menu, this\.file, this\.plugin\);/g) || []).length, 1);

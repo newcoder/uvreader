@@ -566,7 +566,6 @@ export function createReaderView({
       title: "UV Reader",
       onBack: () => this.plugin.openLibrary(),
     });
-    createPdfZoomControls(tray, this);
     readerTimer.buildButton(tray, this);
     // Tray buttons share an icon, accessible label and click handler.
     // The companion entry stays available before service setup.
@@ -603,8 +602,10 @@ export function createReaderView({
     trayButton("highlighter", "highlights", () => this.togglePanel("highlights"));
     trayButton("sliders", "reading-settings", () => new ReadSettingsModal(this.app, this).open());
     pageJump.build(this, tray);
-    // Search sits last: a box that searches on Enter, then the button that
-    // opens the results panel (prefilled with whatever the box holds).
+    // Search sits right after the reading settings, in its original place: a
+    // box that searches on Enter, then the button that opens the results panel
+    // (prefilled with whatever the box holds). The PDF zoom control stays the
+    // last group, pinned to the far right of the toolbar.
     const findBox = tray.createEl("input", {
       cls: "qiaomu-reader-top-find",
       attr: {
@@ -619,12 +620,17 @@ export function createReaderView({
       event.preventDefault();
       this._findFromToolbar(findBox.value);
     });
-    this.findBtn = trayButton("search", "search-the-book", () => {
+    const findBtn = tray.createEl("button", { cls: "qiaomu-reader-ibtn", attr: { type: "button" } });
+    svgIcon(findBtn, "search");
+    findBtn.setAttribute("aria-label", qiaomuReaderTranslate("search-the-book"));
+    findBtn.addEventListener("click", () => {
       const query = findBox.value.trim();
       if (query) { this._findFromToolbar(query); return; }
       this.togglePanel("find");
       if (this.panelOpen === "find" && this._findInput) readerHud.autoFocus(this._findInput, 60);
     });
+    this.findBtn = findBtn;
+    createPdfZoomControls(tray, this);
     buildReaderPageArea(this, root, "qiaomu-reader-area");
     buildReaderPanels(this, root, {
       dismiss: () => this.closePanel(),
@@ -910,6 +916,7 @@ export function createReaderView({
     this.settPan.classList.toggle("qiaomu-reader-panel-open", name === "settings");
     this.tocPan.classList.toggle("qiaomu-reader-panel-open", name === "toc");
     this.findPan.classList.toggle("qiaomu-reader-panel-open", name === "find");
+    if (name === "find") this._positionFindPanel();
     if (name === "toc" && this._tocRender) this._tocRender();
     this.overlayEl.classList.add("qiaomu-reader-overlay-on");
   }
@@ -1069,6 +1076,23 @@ export function createReaderView({
     if (this.panelOpen !== "find") this.togglePanel("find");
     this._searchFromToolbar?.(value);
     if (this._findInput) readerHud.autoFocus(this._findInput, 60);
+  }
+  // The results card hangs right under the search box. The toolbar spans the
+  // whole window (fixed, in the desktop shell) while the card lives in the
+  // reading pane, so measure both instead of guessing.
+  _positionFindPanel() {
+    const panel = this.findPan;
+    const anchor = this.findBoxEl;
+    if (!panel || !anchor || this.panelOpen !== "find") return;
+    const view = this.contentEl.getBoundingClientRect();
+    const box = anchor.getBoundingClientRect();
+    const bar = this.contentEl.querySelector(".qiaomu-reader-top")?.getBoundingClientRect();
+    const width = panel.offsetWidth || 440;
+    const left = Math.max(8, Math.min(view.width - width - 8, box.left - view.left));
+    const top = bar ? Math.max(0, bar.bottom - view.top + 2) : 46;
+    panel.style.left = `${Math.round(left)}px`;
+    panel.style.right = "auto";
+    panel.style.top = `${Math.round(top)}px`;
   }
   // A pending reflow restores its own reading anchor, which would overwrite a
   // jump issued while the pages are being rebuilt (the dock opening or a window

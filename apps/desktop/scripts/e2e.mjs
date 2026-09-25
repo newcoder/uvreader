@@ -325,16 +325,27 @@ async function runEbookScenario() {
       };
       const top = document.querySelector(".qiaomu-reader-top");
       const buttons = [...top.querySelectorAll(".qiaomu-reader-ibtn")];
+      const right = top.querySelector(".qiaomu-reader-top-right");
+      // Quiet UI appends hidden label spans inside the tray; skip them.
+      const groups = [...(right?.children || [])].filter((el) => !el.classList.contains("qiaomu-reader-a11y-label"));
       return {
         labels: buttons.map(nameOf),
-        last: buttons.length ? nameOf(buttons.at(-1)) : "",
+        lastCls: String(groups.at(-1)?.className || ""),
         hasBox: Boolean(top.querySelector(".qiaomu-reader-top-find")),
+        boxBeforeSearch: (() => {
+          const box = top.querySelector(".qiaomu-reader-top-find");
+          const next = box?.nextElementSibling;
+          return Boolean(next && next.classList.contains("qiaomu-reader-ibtn"));
+        })(),
       };
     });
     if (tray.labels.includes("本书阅读笔记")) throw new Error("the note button is still in the tray");
     if (tray.labels.includes("重置计时器")) throw new Error("the reset-timer button is still in the tray");
     if (!tray.hasBox) throw new Error("the toolbar search box is missing");
-    if (tray.last !== "书内搜索") throw new Error(`the search button is not last: ${JSON.stringify(tray.labels)}`);
+    if (!tray.boxBeforeSearch) throw new Error("the search button should follow its box");
+    if (!/qiaomu-reader-pdf-zoom-control/.test(tray.lastCls)) {
+      throw new Error(`the PDF zoom control should be the last toolbar group: ${JSON.stringify(tray)}`);
+    }
     await page.fill(".qiaomu-reader-top-find", "Alice");
     await page.press(".qiaomu-reader-top-find", "Enter");
     const toolbarHits = await waitFor("toolbar search results", () => page.evaluate(() => {
@@ -342,7 +353,28 @@ async function runEbookScenario() {
       const items = document.querySelectorAll(".qiaomu-reader-find-item").length;
       return panel?.classList.contains("qiaomu-reader-panel-open") && items > 0 ? String(items) : "";
     }), 20_000);
-    console.log("epub: toolbar search from the box found", toolbarHits, "results");
+    // The results card hangs below the toolbar, directly under the search box.
+    const findCard = await page.evaluate(() => {
+      const panel = document.querySelector(".qiaomu-reader-find-panel");
+      const top = document.querySelector(".qiaomu-reader-top");
+      const box = document.querySelector(".qiaomu-reader-top-find");
+      if (!panel || !top || !box) return null;
+      const card = panel.getBoundingClientRect();
+      const bar = top.getBoundingClientRect();
+      const input = box.getBoundingClientRect();
+      return {
+        below: Math.round(card.top - bar.bottom),
+        leftGap: Math.round(card.left - input.left),
+        width: Math.round(card.width),
+      };
+    });
+    if (!findCard || findCard.below < -6 || findCard.below > 12) {
+      throw new Error(`the search panel should hang right under the toolbar: ${JSON.stringify(findCard)}`);
+    }
+    if (Math.abs(findCard.leftGap) > 14) {
+      throw new Error(`the search panel should hang under the search box: ${JSON.stringify(findCard)}`);
+    }
+    console.log("epub: toolbar search from the box found", toolbarHits, "results; card", JSON.stringify(findCard));
     await page.evaluate(() => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view.closePanel?.());
 
     const locationOf = () => page.evaluate(() => JSON.stringify(

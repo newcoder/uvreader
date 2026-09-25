@@ -58,8 +58,11 @@ export function createReaderHud({ translate, notice, window, platform, isPdf, ju
 
   function autoFocus(el, delayMs) {
     if (!el || isMobile()) return;
-    if (delayMs) window.setTimeout(() => { try { el.focus(); } catch { /* optional step; a failure here must not interrupt reading */ } }, delayMs);
-    else { try { el.focus(); } catch { /* optional step; a failure here must not interrupt reading */ } }
+    // preventScroll: focusing a control near the top must not scroll the page
+    // (that would drag absolutely positioned panels away from the toolbar).
+    const focus = () => { try { el.focus({ preventScroll: true }); } catch { /* optional step; a failure here must not interrupt reading */ } };
+    if (delayMs) window.setTimeout(focus, delayMs);
+    else focus();
   }
 
   function isMobile(app) {
