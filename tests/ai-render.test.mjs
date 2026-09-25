@@ -208,6 +208,29 @@ test("double-clicking a thumbnail opens the real image and Esc closes it", async
   assert.equal(doc.body.querySelector(".qiaomu-reader-image-preview"), null, "Esc closes it");
 });
 
+test("a tool step shows a fitting icon, its title, status and result", () => {
+  const { doc, render } = setup();
+  const log = doc.createElement("div");
+  doc.body.appendChild(log);
+  const search = render.renderAiToolStep(log, { name: "search_book", arguments: { query: "Alice" } });
+  assert.match(search.card.querySelector(".qiaomu-reader-ai-tool-title").textContent, /tool-search-book：Alice/);
+  assert.equal(search.card.querySelector(".qiaomu-reader-ai-tool-status").textContent, "tool-running");
+  assert.ok(search.card.querySelector(".qiaomu-reader-ai-tool-icon svg"), "the step carries an icon");
+  search.finish({ text: "命中：Alice", isError: false });
+  assert.equal(search.card.querySelector(".qiaomu-reader-ai-tool-status").textContent, "tool-done");
+  assert.equal(search.card.querySelector(".qiaomu-reader-ai-tool-text").textContent, "命中：Alice");
+  assert.equal(search.card.classList.contains("is-done"), true);
+
+  const pages = render.renderAiToolStep(log, { name: "read_pages", arguments: { start: 26, count: 3 } });
+  assert.match(pages.card.querySelector(".qiaomu-reader-ai-tool-title").textContent, /tool-read-pages 26–28/);
+  pages.finish({ text: "失败", isError: true });
+  assert.equal(pages.card.classList.contains("is-error"), true);
+  assert.equal(pages.card.querySelector(".qiaomu-reader-ai-tool-status").textContent, "tool-failed");
+
+  const outline = render.renderAiToolStep(log, { name: "get_book_outline", arguments: {} });
+  assert.equal(outline.card.querySelector(".qiaomu-reader-ai-tool-title").textContent, "tool-get-book-outline");
+});
+
 test("a user turn shows where the question was asked and the chip jumps back", () => {
   const jumps = [];
   const { doc, render } = setup({

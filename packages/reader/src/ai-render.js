@@ -550,10 +550,18 @@ export function createAiRender({
 
   // One tool call in the conversation: a title, a live status and a foldable
   // result. The reader runs the tool; this only draws it.
+  function toolStepIcon(name) {
+    if (name === "read_pages") return "note";
+    if (name === "get_book_outline") return "list";
+    if (name === "list_highlights") return "highlighter";
+    if (name === "get_reading_position") return "bookmark";
+    return "search";
+  }
+
   function renderAiToolStep(log, call) {
     const card = log.createDiv("qiaomu-reader-ai-tool");
     const head = card.createDiv("qiaomu-reader-ai-tool-head");
-    svgIcon(head.createSpan("qiaomu-reader-ai-tool-icon"), "search");
+    svgIcon(head.createSpan("qiaomu-reader-ai-tool-icon"), toolStepIcon(String(call?.name || "")));
     head.createSpan({ cls: "qiaomu-reader-ai-tool-title", text: toolStepTitle(call, translate) });
     const status = head.createSpan({ cls: "qiaomu-reader-ai-tool-status", text: translate("tool-running") });
     const body = card.createEl("details", { cls: "qiaomu-reader-ai-tool-body" });

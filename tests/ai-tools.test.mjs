@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { AI_TOOL_DEFINITIONS, createAiTools } from "../packages/reader/src/ai-tools.js";
+import { AI_TOOL_DEFINITIONS, createAiTools, pageTextQuality } from "../packages/reader/src/ai-tools.js";
 
 function setup(state = {}) {
   return createAiTools({
@@ -54,6 +54,28 @@ test("read_pages clamps the range and explains scanned pages", async () => {
   const clamped = setup({ pageCount: 10, readPages: (start, count) => { calls.push([start, count]); return []; } });
   await clamped.run("read_pages", { start: -5, count: -1 });
   assert.deepEqual(calls.at(-1), [1, 1]);
+});
+
+test("page text quality flags empty and noisy pages honestly", () => {
+  assert.equal(pageTextQuality(""), "empty");
+  assert.equal(pageTextQuality("短"), "short");
+  assert.equal(pageTextQuality("这是一段正常的中文正文，句子完整、标点齐全，读起来没有障碍，可以放心交给模型阅读。"), "ok");
+  assert.equal(pageTextQuality("第一行是完整的中文正文，标点齐全。\n第二行继续说明，仍然是可以阅读的句子。\n第三行结束。"), "ok");
+  assert.equal(pageTextQuality("The operator preserves the inner product, so the two formulations agree on every state of the space."), "ok");
+  assert.equal(pageTextQuality("句\n)\n，也\nknuZ\nPAυ\nl'2\n句\n)'20uz2nuz\nzυ\nJ俗\n'2nuznuzv\n∞∞\nrlL"), "noise");
+});
+
+test("read_pages explains empty and noisy pages instead of handing over noise", async () => {
+  const tools = setup({
+    pageCount: 5,
+    readPages: () => [
+      { page: 26, text: "句\n)\n，也\nknuZ\nPAυ\nl'2\n句\n)'20uz2nuz\nzυ\nJ俗\n'2nuznuzv\n∞∞\nrlL" },
+      { page: 27, text: "" },
+    ],
+  });
+  const result = await tools.run("read_pages", { start: 26, count: 2 });
+  assert.match(result.text, /【第 26 页】\n（此页文字层质量较差/);
+  assert.match(result.text, /【第 27 页】\n（此页没有可提取的文字/);
 });
 
 test("read_pages falls back to the current section for non-paged formats", async () => {

@@ -1325,12 +1325,18 @@ async function runCapabilityScenario() {
     if (!toolInfo.title.includes("检索全书")) throw new Error(`the tool step has the wrong title: ${JSON.stringify(toolInfo)}`);
     if (toolInfo.status !== "完成") throw new Error(`the tool step did not finish: ${JSON.stringify(toolInfo)}`);
     if (!/Alice/.test(toolInfo.result)) throw new Error(`the tool result has no search hit: ${JSON.stringify(toolInfo).slice(0, 200)}`);
+    const toolIcon = await page.evaluate(() => {
+      const card = [...document.querySelectorAll(".qiaomu-reader-ai-tool")].at(-1);
+      const svg = card?.querySelector(".qiaomu-reader-ai-tool-icon svg");
+      return svg ? Math.round(svg.getBoundingClientRect().width) : 0;
+    });
+    if (!toolIcon || toolIcon > 20) throw new Error(`the tool step icon should be small and present: ${toolIcon}px`);
     const storedTool = await waitFor("stored tool turn", () => {
       const turn = storedChatTurns(userData).find((item) => item.role === "tool");
       return turn?.toolName === "search_book" ? turn : "";
     }, 15_000);
     if (storedTool.isError) throw new Error("the stored tool turn is an error");
-    console.log("tools:", toolInfo.title, "->", toolInfo.status, `(${toolInfo.result.length} chars)`, "stored as", storedTool.toolName);
+    console.log("tools:", toolInfo.title, "->", toolInfo.status, `(${toolInfo.result.length} chars)`, `${toolIcon}px icon`, "stored as", storedTool.toolName);
 
     // Every question carries where the reader was when it was submitted.
     const locatedTurn = await waitFor("stored question location", () => {

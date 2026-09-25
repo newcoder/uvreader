@@ -58,6 +58,21 @@ export const AI_TOOL_DEFINITIONS = Object.freeze([
   },
 ]);
 
+// Text layers can be formula soup or half-broken scans. Handing that to the
+// model as if it were prose wastes the turn; say what it is instead.
+export function pageTextQuality(text) {
+  const value = String(text || "").trim();
+  if (!value) return "empty";
+  if (value.length < 40) return "short";
+  // Prose keeps long readable runs and long lines; a broken text layer (formula
+  // soup, scan artefacts) is short fragments stacked one per line.
+  const runs = value.match(/[\p{Script=Han}A-Za-z0-9]{2,}/gu) || [];
+  const inRuns = runs.reduce((sum, run) => sum + run.length, 0);
+  const lines = value.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const averageLine = value.length / Math.max(1, lines.length);
+  return inRuns / value.length >= 0.55 && averageLine >= 12 ? "ok" : "noise";
+}
+
 function boundedNumber(value, fallback, min, max) {
   const number = Math.round(Number(value));
   if (!Number.isFinite(number)) return fallback;
@@ -88,7 +103,14 @@ export function createAiTools({ state = {}, maxChars = AI_TOOL_LIMITS.resultChar
       const count = boundedNumber(args.count, 1, 1, AI_TOOL_LIMITS.readPages);
       const pages = state.readPages?.(start, count);
       if (Array.isArray(pages) && pages.length) {
-        return pages.map((entry) => `【第 ${entry.page} 页】\n${entry.text || "（此页没有可提取的文字，可能是扫描图片）"}`).join("\n\n");
+        return pages.map((entry) => {
+          const text = String(entry.text || "").trim();
+          const quality = pageTextQuality(text);
+          const label = `【第 ${entry.page} 页】`;
+          if (quality === "empty") return `${label}\n（此页没有可提取的文字，可能是扫描图片；可以让读者发页面截图）`;
+          if (quality === "noise") return `${label}\n（此页文字层质量较差，内容可能不完整——公式、图表或扫描页；必要时让读者发页面截图）\n${text}`;
+          return `${label}\n${text}`;
+        }).join("\n\n");
       }
       const current = state.readCurrent?.();
       if (current) return `【${current.label || "当前章节"}】\n${current.text || "（当前章节没有可提取的文字）"}`;
