@@ -56,7 +56,12 @@ img.qiaomu-reader-pdf-lazy:not([data-loaded="1"]) { background:color-mix(in srgb
 /* ── Edge-aligned chrome: bars, buttons and location readout ─────────────── */
 .qiaomu-reader-top { position:absolute; top:0; left:0; right:0; height:40px; display:flex; align-items:center; padding:4px 8px; gap:6px; box-sizing:border-box; border:0; border-bottom:1px solid; border-radius:0; box-shadow:none; z-index:16; }
 .qiaomu-reader-top-title { flex:1 1 auto; min-width:0; text-align:left; font-size:12px; font-weight:500; font-family:'Inter',system-ui,sans-serif; color:#555; opacity:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.qiaomu-reader-top-right { display:flex; gap:2px; align-items:center; }
+.qiaomu-reader-top-right { display:flex; gap:2px; align-items:center; min-width:0; }
+/* Search box at the end of the toolbar: type, press Enter, see results. */
+.qiaomu-reader-top-find { width:150px; min-width:96px; max-width:24vw; height:28px; padding:0 9px; box-sizing:border-box; border:1px solid var(--qiaomu-reader-border,#ddd9ce); border-radius:999px; background:transparent; color:var(--qiaomu-reader-text,#333); font-size:12px; flex:0 1 auto; }
+.qiaomu-reader-top-find::placeholder { color:var(--qiaomu-reader-muted,#8a867c); opacity:.9; }
+.qiaomu-reader-top-find:focus { outline:2px solid color-mix(in srgb,var(--qiaomu-reader-accent,#4f7cff) 55%,transparent); outline-offset:1px; border-color:transparent; }
+@media (max-width: 700px) { .qiaomu-reader-top-find { display:none; } }
 .qiaomu-reader-ibtn { width:36px; height:36px; padding:0; display:flex; align-items:center; justify-content:center; box-sizing:border-box; border:1px solid var(--background-modifier-border); box-shadow:none; background:color-mix(in srgb,var(--text-normal) 4%,transparent); border-radius:10px; cursor:pointer; color:var(--text-muted); opacity:.82; transition:opacity .15s,background .13s,border-color .13s,transform .1s; flex-shrink:0; }
 .qiaomu-reader-ibtn:hover { opacity:1; background:var(--background-modifier-hover); border-color:color-mix(in srgb,var(--text-muted) 35%,var(--background-modifier-border)); }
 .qiaomu-reader-ibtn:active { transform:scale(.87); }

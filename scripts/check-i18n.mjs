@@ -155,7 +155,7 @@ if (!source.includes('await reader.plugin.saveProgress(reader.file.path, current
   errors.push("Automatic reading progress is not flushed when the reader closes");
 }
 if (!readerSources.includes("openOrCreateBookNoteBeside")
-  || !viewSource.includes('trayButton("reading-note", "the-book-note", () => openOrCreateBookNoteBeside(this.plugin, this.file))')
+  || !bookNotesSource.includes('setTitle(translate("the-book-note"))')
   || !readerSources.includes('add("the-book-note", "file-text", () => openOrCreateBookNoteBeside(this.plugin, this.file))')
   || !bookNotesSource.includes('{ mode: "split" }')) {
   errors.push("The reader chrome does not create or open the reading note beside the book");

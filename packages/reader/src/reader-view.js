@@ -40,7 +40,7 @@ export function createReaderView({
   }
   onPaneMenu(menu, source) {
     super.onPaneMenu(menu, source);
-    addBookFileMenu(this.app, menu, this.file);
+    addBookFileMenu(this.app, menu, this.file, this.plugin);
   }
   getDisplayText() {
     let _a, _b;
@@ -579,7 +579,8 @@ export function createReaderView({
       if (onClick) btn.addEventListener("click", onClick);
       return btn;
     };
-    trayButton("reading-note", "the-book-note", () => openOrCreateBookNoteBeside(this.plugin, this.file));
+    // The book note stays reachable from the more menu and the context menus;
+    // the tray keeps reading actions only.
     this.aiBtn = trayButton(null, "ai-reading", () => {
       void this.plugin.openAiChat(readerAiPanelContext(this));
     }, { lucide: "sparkles" });
@@ -592,9 +593,6 @@ export function createReaderView({
       attr: { type: "button", "aria-pressed": String(this.plugin.settings.fitPage === true) },
       lucide: "maximize",
     });
-    const findBtn = trayButton("search", "search-the-book", () => {
-      this.togglePanel("find"); if (this._findInput) readerHud.autoFocus(this._findInput, 60);
-    });
     this.tocBtn = trayButton("list", "table-of-contents", () => {
       if (typeof this.plugin.app.qbrDesktopOpenToc === "function") {
         void this.plugin.app.qbrDesktopOpenToc(this);
@@ -602,11 +600,31 @@ export function createReaderView({
       }
       this.togglePanel("toc");
     });
-    this.findBtn = findBtn;
     trayButton("highlighter", "highlights", () => this.togglePanel("highlights"));
     trayButton("sliders", "reading-settings", () => new ReadSettingsModal(this.app, this).open());
-    trayButton("rotate-ccw", "reset-timer", () => readerTimer.reset(this));
     pageJump.build(this, tray);
+    // Search sits last: a box that searches on Enter, then the button that
+    // opens the results panel (prefilled with whatever the box holds).
+    const findBox = tray.createEl("input", {
+      cls: "qiaomu-reader-top-find",
+      attr: {
+        type: "search",
+        placeholder: qiaomuReaderTranslate("search-the-book"),
+        "aria-label": qiaomuReaderTranslate("search-the-book"),
+      },
+    });
+    this.findBoxEl = findBox;
+    findBox.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.isComposing || event.keyCode === 229) return;
+      event.preventDefault();
+      this._findFromToolbar(findBox.value);
+    });
+    this.findBtn = trayButton("search", "search-the-book", () => {
+      const query = findBox.value.trim();
+      if (query) { this._findFromToolbar(query); return; }
+      this.togglePanel("find");
+      if (this.panelOpen === "find" && this._findInput) readerHud.autoFocus(this._findInput, 60);
+    });
     buildReaderPageArea(this, root, "qiaomu-reader-area");
     buildReaderPanels(this, root, {
       dismiss: () => this.closePanel(),
@@ -1042,6 +1060,15 @@ export function createReaderView({
     this._pendingSel = null;
     this._editHlId = null;
     if (this.hlPopup) this.hlPopup.classList.remove("qiaomu-reader-hl-popup-on");
+  }
+  // The toolbar box drives the find panel: same search, first hit revealed.
+  _findFromToolbar(query) {
+    const value = String(query || "").trim();
+    if (!value) return;
+    // Ensure open: a toggle here would close the panel the button just opened.
+    if (this.panelOpen !== "find") this.togglePanel("find");
+    this._searchFromToolbar?.(value);
+    if (this._findInput) readerHud.autoFocus(this._findInput, 60);
   }
   // A pending reflow restores its own reading anchor, which would overwrite a
   // jump issued while the pages are being rebuilt (the dock opening or a window

@@ -366,7 +366,7 @@ export function createLibraryModal({
     }));
     return (ev) => {
       ev.preventDefault(); ev.stopPropagation();
-      const menu = addBookFileMenu(this.app, new Menu(), file);
+      const menu = addBookFileMenu(this.app, new Menu(), file, this.plugin);
       menu.addSeparator(); removeItem(menu);
       menu.showAtMouseEvent(ev);
     };

@@ -225,6 +225,9 @@ function createWindow() {
     title: "UV Reader",
     backgroundColor: "#1e1e1e",
     show: false,
+    // Reading app: the native menu bar stays hidden (Alt still reveals it, so
+    // the accelerators keep working).
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       nodeIntegration: true,
@@ -235,6 +238,7 @@ function createWindow() {
     },
   });
   mainWindow.once("ready-to-show", () => mainWindow.show());
+  mainWindow.setMenuBarVisibility(false);
   mainWindow.on("closed", () => {
     mainWindow = null;
   });

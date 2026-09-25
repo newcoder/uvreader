@@ -313,6 +313,38 @@ async function runEbookScenario() {
     await waitFor("reader ready", () => readerReady(page), 30_000);
     console.log("epub: reader ready");
 
+    // Toolbar: reading actions only — no note or reset-timer buttons — and the
+    // search button last with its own box that searches on Enter.
+    const tray = await page.evaluate(() => {
+      // Quiet UI turns aria-label into a hidden sibling referenced by
+      // aria-labelledby, so read the accessible name from either.
+      const nameOf = (el) => {
+        const id = el.getAttribute("aria-labelledby");
+        const label = id ? el.ownerDocument.getElementById(id) : null;
+        return (label?.textContent || el.getAttribute("aria-label") || "").trim();
+      };
+      const top = document.querySelector(".qiaomu-reader-top");
+      const buttons = [...top.querySelectorAll(".qiaomu-reader-ibtn")];
+      return {
+        labels: buttons.map(nameOf),
+        last: buttons.length ? nameOf(buttons.at(-1)) : "",
+        hasBox: Boolean(top.querySelector(".qiaomu-reader-top-find")),
+      };
+    });
+    if (tray.labels.includes("本书阅读笔记")) throw new Error("the note button is still in the tray");
+    if (tray.labels.includes("重置计时器")) throw new Error("the reset-timer button is still in the tray");
+    if (!tray.hasBox) throw new Error("the toolbar search box is missing");
+    if (tray.last !== "书内搜索") throw new Error(`the search button is not last: ${JSON.stringify(tray.labels)}`);
+    await page.fill(".qiaomu-reader-top-find", "Alice");
+    await page.press(".qiaomu-reader-top-find", "Enter");
+    const toolbarHits = await waitFor("toolbar search results", () => page.evaluate(() => {
+      const panel = document.querySelector(".qiaomu-reader-find-panel");
+      const items = document.querySelectorAll(".qiaomu-reader-find-item").length;
+      return panel?.classList.contains("qiaomu-reader-panel-open") && items > 0 ? String(items) : "";
+    }), 20_000);
+    console.log("epub: toolbar search from the box found", toolbarHits, "results");
+    await page.evaluate(() => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view.closePanel?.());
+
     const locationOf = () => page.evaluate(() => JSON.stringify(
       window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view.engine.currentLocation(),
     ));
@@ -376,7 +408,14 @@ async function runEbookScenario() {
     });
     await waitFor("toc panel closed", () => page.evaluate(() => !window.__qbrApp.workspace.getLeavesOfType("qbr-toc").length), 8_000);
 
-    assert.equal(await clickTopButton(page, "笔记"), true);
+    // The book note left the tray: the book's own menus (library card, mobile
+    // overflow) open it, and it still opens beside the reader.
+    await page.evaluate(async () => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view;
+      const plugin = view.plugin;
+      const note = await plugin.createBookNote(view.file, view.file.basename, "notes");
+      await plugin.app.qbrDesktopOpenNote?.(note, plugin);
+    });
     await page.waitForSelector(".qbr-note-panel", { timeout: 15_000 });
     const notePanel = await waitFor("note panel beside the reader", () => page.evaluate(() => {
       const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view;
@@ -1411,6 +1450,13 @@ async function runHomeScenario() {
     if (!clicked) throw new Error("the home page has no Alice in Wonderland card");
     await waitFor("reader opened from the home page", () => readerReady(page), 30_000);
     console.log("home: opened a book from the home page", cards, "cards");
+    // The native menu bar stays hidden (Alt still reveals it).
+    const menuBarVisible = await app.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      return window ? window.isMenuBarVisible() : null;
+    });
+    if (menuBarVisible !== false) throw new Error(`the native menu bar should be hidden, saw ${menuBarVisible}`);
+    console.log("home: native menu bar hidden");
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(userData, { recursive: true, force: true });

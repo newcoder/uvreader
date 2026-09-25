@@ -682,6 +682,7 @@ test("reader chrome stays white and removes only the reader's redundant host hea
 test("immersive reader chrome overlays the page and retracts without reserving rows", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   const chromeSource = fs.readFileSync(new URL("../packages/reader/src/reader-chrome.js", import.meta.url), "utf8");
+  const bookNotesSource = fs.readFileSync(new URL("../packages/reader/src/book-notes.js", import.meta.url), "utf8");
   const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   const chinese = fs.readFileSync(new URL("../packages/reader/src/i18n-zh.js", import.meta.url), "utf8");
   assert.match(css, /\.qiaomu-reader-top \{[^}]*position:absolute;[^}]*height:40px;[^}]*border-radius:0/s);
@@ -707,9 +708,14 @@ test("immersive reader chrome overlays the page and retracts without reserving r
   assert.equal(((chromeSource + viewSource).match(/setReaderTitle\(/g) || []).length, 3); // definition + factory + one direct call
   const icons = fs.readFileSync(new URL("../packages/reader/src/reader-icons.js", import.meta.url), "utf8");
   assert.match(icons, /"reading-note": `<svg[^`]+<path[^`]+<path[^`]+<path/s);
-  assert.match(viewSource, /trayButton\("reading-note"/); // note button rides the data-driven top-bar tray
+  // The tray keeps reading actions only: the book note lives in the book's
+  // menus and the reset-timer button is gone; search sits last with its box.
+  assert.doesNotMatch(viewSource, /trayButton\("reading-note"/);
+  assert.doesNotMatch(viewSource, /trayButton\("rotate-ccw", "reset-timer"/);
+  assert.match(viewSource, /qiaomu-reader-top-find/);
+  assert.match(bookNotesSource, /setTitle\(translate\("the-book-note"\)\)/);
   assert.match(viewSource, /trayButton\("sliders"/); // settings button rides the data-driven tray
-  assert.equal((viewSource.match(/addBookFileMenu\(this\.app, menu, this\.file\);/g) || []).length, 1);
+  assert.equal((viewSource.match(/addBookFileMenu\(this\.app, menu, this\.file, this\.plugin\);/g) || []).length, 1);
   assert.match(chinese, /上下控制层会完全收起/);
 });
 

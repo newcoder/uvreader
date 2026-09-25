@@ -283,9 +283,16 @@ export function createBookNotes({
     if (typeof plugin.app.qbrDesktopOpenNote === "function") return plugin.app.qbrDesktopOpenNote(note, plugin);
     return openNoteBesideBook(plugin.app, plugin, note, null, { mode: "split" });
   }
-  function addBookFileMenu(app, menu, file) {
+  function addBookFileMenu(app, menu, file, plugin = null) {
     if (!file) return menu;
     menu.addSeparator();
+    // The reading note is no longer a tray button: the book's own menus carry
+    // it, so the toolbar stays about reading.
+    if (plugin) {
+      menu.addItem((it) => it.setTitle(translate("the-book-note")).setIcon("file-text").onClick(() => {
+        void openOrCreateBookNoteBeside(plugin, file);
+      }));
+    }
     menu.addItem((it) => it.setTitle(translate("reveal-in-file-explorer")).setIcon("folder-open").onClick(() => {
       const explorer = app.workspace.getLeavesOfType("file-explorer")[0];
       if (!explorer) return;

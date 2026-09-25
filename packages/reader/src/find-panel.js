@@ -131,6 +131,16 @@ export function createBuildFindPanelFor({
       row.addEventListener("click", () => visit(index));
     }
   };
+  // The toolbar's search box hands its query over: fill the input, run the
+  // same search and reveal the first hit when results are already available.
+  view._searchFromToolbar = (query) => {
+    const value = String(query ?? "");
+    input.value = value;
+    if (lastQuery !== value) search();
+    if (matches.length) visit(0);
+  };
+  const cleared = () => { if (view.findBoxEl) view.findBoxEl.value = ""; };
+  clearBtn.addEventListener("click", cleared);
   const cancelTyping = bindComposingSearch(input, ime, search);
   panel.onkeydown = (e) => {
     if (ime.active || e.isComposing || e.keyCode === 229) return;
