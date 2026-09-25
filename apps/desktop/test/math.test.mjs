@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 
-import { renderMathIn } from "../src/renderer/math.js";
+import { looksLikeMath, mathSegments, renderMathIn } from "../src/renderer/math.js";
 
 function makeElement(html) {
   const { window } = new JSDOM(`<div id="root">${html}</div>`);
@@ -34,6 +34,23 @@ test("code blocks keep their dollars and plain text is untouched", () => {
   const before = plain.element.innerHTML;
   renderMathIn(plain.element);
   assert.equal(plain.element.innerHTML, before);
+});
+
+test("dollars around prices or prose are not math", () => {
+  assert.equal(looksLikeMath("5 到 "), false, "CJK between dollars is a price range");
+  assert.equal(looksLikeMath("5 USD"), false);
+  assert.equal(looksLikeMath("hello world"), false);
+  assert.equal(looksLikeMath("x"), true);
+  assert.equal(looksLikeMath("n+1"), true);
+  assert.equal(looksLikeMath("\\mathrm{Re}(f,g) \\leq \\frac{1}{2}"), true);
+  assert.equal(looksLikeMath("\\text{中文}"), true, "an explicit wrapper may contain CJK");
+  assert.equal(looksLikeMath("a $ b"), false);
+
+  const { element } = makeElement("<p>价格 $5 到 $10 之间，其中 $x$ 表示数量。</p>");
+  renderMathIn(element);
+  assert.equal(element.querySelectorAll("math").length, 1, "only the variable typesets");
+  assert.match(element.textContent, /\$5 到 \$10/);
+  assert.match(element.textContent, /其中 x+ 表示数量/, "the variable still typesets");
 });
 
 test("a broken formula stays readable instead of throwing", () => {
