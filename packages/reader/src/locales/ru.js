@@ -1340,6 +1340,7 @@ export default {
   "tool-result": "Результат",
   "tool-get-reading-position": "Позиция чтения",
   "tool-get-book-outline": "Оглавление",
+  "tool-read-page-image": "Просмотр изображения страницы",
   "tool-read-pages": "Прочитать страницу",
   "tool-search-book": "Поиск по книге",
   "tool-list-highlights": "Сохранённые выделения",

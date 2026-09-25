@@ -229,6 +229,17 @@ test("a tool step shows a fitting icon, its title, status and result", () => {
 
   const outline = render.renderAiToolStep(log, { name: "get_book_outline", arguments: {} });
   assert.equal(outline.card.querySelector(".qiaomu-reader-ai-tool-title").textContent, "tool-get-book-outline");
+
+  // A page image the tool read shows as a small preview next to the text.
+  const page = render.renderAiToolStep(log, { name: "read_page_image", arguments: { page: 26 } }, { contentEl: doc.body });
+  page.finish({
+    text: "【第 26 页图片】",
+    images: [{ data: "AAAA", mimeType: "image/jpeg", page: 26 }],
+    isError: false,
+  });
+  const thumb = page.card.querySelector(".qiaomu-reader-ai-tool-image");
+  assert.ok(thumb, "the page image renders in the step");
+  assert.equal(thumb.getAttribute("src"), "data:image/jpeg;base64,AAAA");
 });
 
 test("a user turn shows where the question was asked and the chip jumps back", () => {

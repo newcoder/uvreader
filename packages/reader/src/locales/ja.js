@@ -1338,6 +1338,7 @@ export default {
   "tool-result": "結果",
   "tool-get-reading-position": "読書位置を確認",
   "tool-get-book-outline": "目次を確認",
+  "tool-read-page-image": "ページ画像を読む",
   "tool-read-pages": "ページを読む",
   "tool-search-book": "書籍内を検索",
   "tool-list-highlights": "ハイライトを確認",

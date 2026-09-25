@@ -225,6 +225,27 @@ test("tool definitions, assistant calls and tool results survive the context map
   assert.equal("tools" in plain, false, "no tools are advertised unless requested");
 });
 
+test("tool results keep image blocks so a vision model can read a page", () => {
+  const context = toPiContext([
+    { role: "user", content: "看看第 26 页" },
+    { role: "assistant", content: "", toolCalls: [{ id: "call_1", name: "read_pages", arguments: { start: 26 } }], stopReason: "toolUse" },
+    {
+      role: "tool",
+      toolCallId: "call_1",
+      toolName: "read_pages",
+      content: [
+        { type: "text", text: "【第 26 页】文字层较差" },
+        { type: "image", data: "AAAA", mimeType: "image/jpeg" },
+      ],
+      isError: false,
+    },
+  ], CONFIG);
+  assert.deepEqual(context.messages[2].content, [
+    { type: "text", text: "【第 26 页】文字层较差" },
+    { type: "image", data: "AAAA", mimeType: "image/jpeg" },
+  ]);
+});
+
 test("stream forwards tool calls and treats a call-only turn as complete", async () => {
   const { faux, runtime } = fauxRuntime();
   faux.setResponses([fauxAssistantMessage([fauxToolCall("read_page", { page: 3 })], { stopReason: "toolUse" })]);

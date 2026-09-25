@@ -558,7 +558,7 @@ export function createAiRender({
     return "search";
   }
 
-  function renderAiToolStep(log, call) {
+  function renderAiToolStep(log, call, owner = null) {
     const card = log.createDiv("qiaomu-reader-ai-tool");
     const head = card.createDiv("qiaomu-reader-ai-tool-head");
     svgIcon(head.createSpan("qiaomu-reader-ai-tool-icon"), toolStepIcon(String(call?.name || "")));
@@ -574,6 +574,29 @@ export function createAiRender({
         status.setText(result?.isError ? translate("tool-failed") : translate("tool-done"));
         card.toggleClass("is-error", result?.isError === true);
         card.toggleClass("is-done", result?.isError !== true);
+        // Page images the tool read travel with the step: a small preview that
+        // opens full size on double click.
+        const images = Array.isArray(result?.images) ? result.images : [];
+        if (images.length) {
+          const wrap = body.createDiv("qiaomu-reader-ai-tool-images");
+          for (const image of images) {
+            const thumb = wrap.createEl("img", {
+              cls: "qiaomu-reader-ai-tool-image",
+              attr: { alt: "", src: `data:${image.mimeType};base64,${image.data}`, loading: "lazy", decoding: "async" },
+            });
+            if (owner) {
+              thumb.addEventListener("dblclick", (event) => {
+                event.preventDefault();
+                void openAiImagePreview(owner, {
+                  kind: "image",
+                  name: image.page ? translate("page-0", image.page) : translate("preview-image"),
+                  mimeType: image.mimeType,
+                  data: image.data,
+                });
+              });
+            }
+          }
+        }
       },
     };
   }

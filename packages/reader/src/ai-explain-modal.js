@@ -207,7 +207,17 @@ export function createAiExplainModal({
     }
     if (savedNote) save.querySelector("span")?.setText(qiaomuReaderTranslate("saved-open-note"));
     const targetIndex = this.turns.indexOf(targetUser);
-    const sources = targetIndex >= 0 ? this.turns.slice(0, targetIndex + 1).map((turn) => turn.context?.text) : [source.context?.text];
+    // Quotes are verified against the attached sources and against the page
+    // text the tools actually read, so a cited passage can jump back.
+    const toolTexts = this.turns
+      .filter((turn) => turn.role === "tool")
+      .map((turn) => Array.isArray(turn.content)
+        ? turn.content.filter((block) => block?.type === "text").map((block) => block.text).join("\n")
+        : turn.content);
+    const sources = [
+      ...(targetIndex >= 0 ? this.turns.slice(0, targetIndex + 1).map((turn) => turn.context?.text) : [source.context?.text]),
+      ...toolTexts,
+    ];
     const quotes = verifiedQuotes(answer, sources);
     if (bookFile && quotes.length) {
       const links = group.createDiv("qiaomu-reader-ai-citations");
@@ -362,13 +372,20 @@ export function createAiExplainModal({
         await round.finishBubble();
         this.turns.push({ role: "assistant", content: round.answer, toolCalls: step.toolCalls, stopReason: "toolUse" });
         for (const call of step.toolCalls) {
-          const card = renderAiToolStep(this.log, call);
+          const card = renderAiToolStep(this.log, call, this);
           this._scroll();
           let result = null;
           try { result = await toolSet.run(call.name, call.arguments); }
           catch (error) { result = { text: `工具执行失败：${String(error?.message || error)}`, isError: true }; }
           card.finish(result);
-          this.turns.push({ role: "tool", toolCallId: call.id, toolName: call.name, content: result.text, isError: result.isError });
+          // Pages the tool rendered travel on as image content blocks.
+          this.turns.push({
+            role: "tool",
+            toolCallId: call.id,
+            toolName: call.name,
+            content: result.blocks || result.text,
+            isError: result.isError,
+          });
         }
         outbound = await prepareAiTurns(this, this.turns);
         round = buildRound();

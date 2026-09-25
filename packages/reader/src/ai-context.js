@@ -134,13 +134,29 @@ export function createAiContext({ translate, platform, win = globalThis, locateH
     return parts.join(" · ");
   }
 
+  // Tool results may carry page images; a saved conversation keeps the text
+  // and notes that the picture was dropped (the bytes would bloat settings).
+  function normalizeToolTurnContent(value) {
+    if (!Array.isArray(value)) return String(value || "").slice(0, 4_000);
+    const text = value
+      .filter((block) => block?.type === "text")
+      .map((block) => String(block.text || ""))
+      .join("\n")
+      .trim();
+    const images = value.filter((block) => block?.type === "image" && block.data).length;
+    const marker = images ? `${text ? "\n" : ""}（页面图片已省略）` : "";
+    return `${text.slice(0, 3_600)}${marker}`.slice(0, 4_000);
+  }
+
   function normalizeAiChatHistory(value) {
     if (!Array.isArray(value)) return [];
     return value.slice(0, 30).map((item) => {
       const legacyText = String(item?.text || "").slice(0, 50_000);
       const turns = Array.isArray(item?.turns) ? item.turns.slice(-40).map((turn) => ({
         role: turn?.role === "assistant" ? "assistant" : turn?.role === "tool" ? "tool" : "user",
-        content: String(turn?.content || "").slice(0, turn?.role === "tool" ? 4_000 : 50_000),
+        content: turn?.role === "tool"
+          ? normalizeToolTurnContent(turn?.content)
+          : String(turn?.content || "").slice(0, 50_000),
         ...(turn?.role === "tool" && turn.toolCallId
           ? { toolCallId: String(turn.toolCallId).slice(0, 120), toolName: String(turn.toolName || "").slice(0, 80), isError: turn.isError === true }
           : {}),
@@ -288,6 +304,7 @@ export function createAiContext({ translate, platform, win = globalThis, locateH
     normalizeAiChatHistory,
     normalizeAiTurnContext,
     normalizeAiTurnLocation,
+    normalizeToolTurnContent,
     locationLine,
     aiChatTitle,
     newAiSessionKey,

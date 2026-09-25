@@ -17,10 +17,13 @@ function setup(state = {}) {
 
 test("the schemas stay minimal and are advertised as-is", () => {
   assert.deepEqual(AI_TOOL_DEFINITIONS.map((tool) => tool.name), [
-    "get_reading_position", "get_book_outline", "read_pages", "search_book", "list_highlights",
+    "get_reading_position", "get_book_outline", "read_page_image", "read_pages", "search_book", "list_highlights",
   ]);
   const { definitions } = setup();
-  assert.deepEqual(definitions, AI_TOOL_DEFINITIONS.map(({ name, description, parameters }) => ({ name, description, parameters })));
+  assert.deepEqual(definitions, AI_TOOL_DEFINITIONS
+    .filter((tool) => tool.name !== "read_page_image")
+    .map(({ name, description, parameters }) => ({ name, description, parameters })),
+    "without vision the image tool is not advertised");
   assert.equal(definitions.every((tool) => tool.parameters.type === "object"), true);
 });
 
@@ -88,6 +91,54 @@ test("read_pages falls back to the current section for non-paged formats", async
   assert.match(result.text, /当前段落文字/);
   const none = await createAiTools({ state: {} }).run("read_pages", { start: 1 });
   assert.match(none.text, /暂不支持按页读取/);
+});
+
+test("read_page_image is offered only with vision and returns an image block", async () => {
+  const rendered = { data: "AAAA", mimeType: "image/jpeg" };
+  const blind = setup({ pageCount: 10 });
+  assert.equal(blind.definitions.some((tool) => tool.name === "read_page_image"), false, "no image tool without vision");
+  const blindCall = await blind.run("read_page_image", { page: 26 });
+  assert.match(blindCall.text, /当前模型不支持图片/);
+  assert.equal(blindCall.images.length, 0);
+
+  const seeing = setup({ pageCount: 30, canSeeImages: true, renderPageImage: async () => rendered });
+  assert.equal(seeing.definitions.some((tool) => tool.name === "read_page_image"), true);
+  const call = await seeing.run("read_page_image", { page: 26 });
+  assert.equal(call.isError, false);
+  assert.equal(call.text, "【第 26 页图片】");
+  assert.deepEqual(call.blocks, [
+    { type: "text", text: "【第 26 页图片】" },
+    { type: "image", data: "AAAA", mimeType: "image/jpeg" },
+  ]);
+  assert.equal(call.images.length, 1);
+
+  const noRender = await setup({ pageCount: 30, canSeeImages: true, renderPageImage: async () => null })
+    .run("read_page_image", { page: 3 });
+  assert.match(noRender.text, /无法把第 3 页渲染成图片/);
+});
+
+test("read_pages attaches the page image when the text layer is broken", async () => {
+  const noise = "句\n)\n，也\nknuZ\nPAυ\nl'2\n句\n)'20uz2nuz\nzυ\nJ俗\n'2nuznuzv\n∞∞\nrlL";
+  const rendered = [];
+  const seeing = setup({
+    pageCount: 30,
+    canSeeImages: true,
+    readPages: () => [{ page: 26, text: noise }, { page: 27, text: "第二页是正常的中文正文，句子完整、标点齐全，可以阅读。" }],
+    renderPageImage: async (page) => { rendered.push(page); return { data: "BBBB", mimeType: "image/jpeg" }; },
+  });
+  const result = await seeing.run("read_pages", { start: 26, count: 2 });
+  assert.deepEqual(rendered, [26], "only the broken page is rasterised");
+  assert.match(result.text, /【第 26 页】\n（此页文字层质量较差[\s\S]*已附上页面图片）/, "the note says the image is attached");
+  assert.equal(result.images.length, 1);
+  assert.equal(result.blocks.filter((block) => block.type === "image").length, 1);
+
+  const blind = setup({
+    pageCount: 30,
+    readPages: () => [{ page: 26, text: noise }],
+  });
+  const blindResult = await blind.run("read_pages", { start: 26, count: 1 });
+  assert.match(blindResult.text, /发页面截图/);
+  assert.equal(blindResult.images.length, 0);
 });
 
 test("search_book reports hits, emptiness and unsupported formats", async () => {

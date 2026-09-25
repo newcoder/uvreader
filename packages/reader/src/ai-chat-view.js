@@ -5,7 +5,7 @@ import { shouldFollowContext } from "./reader-experience.js";
 import { svgIcon } from "./reader-icons.js";
 
 export function createAiChatView({
-  ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, AiChatHistoryModal, ReadSettingsModal, ReaderView, aiChatTitle, aiConfig, aiConnectionErrorMessage, aiSetupState, aiTurnsHaveDocumentContext, bindAiAttachmentIntake, bindAiSlashPrompts, bindReaderAiComposer, bookNoteLinkFor, captureAiScreenshot, clearAiSource, createAiChatLog, newAiSessionKey, normalizeAiChatHistory, normalizeAiTurnContext, normalizeAiTurnLocation, openAiAttachMenu, openPluginAiSettings, pickAiAttachments, qiaomuReaderTranslate, readerAiPanelContext, readerDefaultAiContext, readerHud, renderAiComposerPrompts, renderAiContextQuote, renderAiHeadMeta, renderAiMarkdown, renderAiUserTurn, stripAiAttachmentData, testAndEnableAi,
+  ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, AiChatHistoryModal, ReadSettingsModal, ReaderView, aiChatTitle, aiConfig, aiConnectionErrorMessage, aiSetupState, aiTurnsHaveDocumentContext, bindAiAttachmentIntake, bindAiSlashPrompts, bindReaderAiComposer, bookNoteLinkFor, captureAiScreenshot, clearAiSource, createAiChatLog, newAiSessionKey, normalizeAiChatHistory, normalizeAiTurnContext, normalizeAiTurnLocation, normalizeToolTurnContent, openAiAttachMenu, openPluginAiSettings, pickAiAttachments, qiaomuReaderTranslate, readerAiPanelContext, readerDefaultAiContext, readerHud, renderAiComposerPrompts, renderAiContextQuote, renderAiHeadMeta, renderAiMarkdown, renderAiUserTurn, stripAiAttachmentData, testAndEnableAi,
 }) {
   return class AiChatView extends ItemView {
   constructor(leaf, plugin) {
@@ -271,7 +271,7 @@ export function createAiChatView({
       contextVersion: 1,
       turns: completeTurns.map((turn) => ({
         role: turn.role,
-        content: turn.content,
+        content: turn.role === "tool" ? normalizeToolTurnContent(turn.content) : turn.content,
         ...(turn.interrupted ? { interrupted: true } : {}),
         ...(turn.savedNotePath ? { savedNotePath: turn.savedNotePath } : {}),
         ...(turn.context ? { context: normalizeAiTurnContext(turn.context) } : {}),

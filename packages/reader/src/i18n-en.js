@@ -1338,6 +1338,7 @@ export const QIAOMU_READER_EN = {
   "tool-result": "Result",
   "tool-get-reading-position": "Reading position",
   "tool-get-book-outline": "Book outline",
+  "tool-read-page-image": "Read page image",
   "tool-read-pages": "Read page",
   "tool-search-book": "Search the book",
   "tool-list-highlights": "Saved highlights",

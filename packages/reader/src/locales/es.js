@@ -1338,6 +1338,7 @@ export default {
   "tool-result": "Resultado",
   "tool-get-reading-position": "Posición de lectura",
   "tool-get-book-outline": "Índice del libro",
+  "tool-read-page-image": "Leer imagen de la página",
   "tool-read-pages": "Leer página",
   "tool-search-book": "Buscar en el libro",
   "tool-list-highlights": "Resaltados guardados",

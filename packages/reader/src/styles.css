@@ -1108,6 +1108,8 @@ html.qbr-split-dragging .qiaomu-reader-relayouting .qiaomu-reader-area { filter:
 .qiaomu-reader-ai-tool-body { border-top: 1px solid var(--background-modifier-border); background: var(--background-primary); }
 .qiaomu-reader-ai-tool-body > summary { padding: 5px 9px; font-size: var(--font-ui-smaller); color: var(--text-muted); cursor: pointer; }
 .qiaomu-reader-ai-tool-text { margin: 0; padding: 7px 9px 9px; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: var(--font-ui-smaller); color: var(--text-muted); background: transparent; }
+.qiaomu-reader-ai-tool-images { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 9px 9px; }
+.qiaomu-reader-ai-tool-image { max-width: min(240px, 100%); max-height: 170px; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-s); cursor: zoom-in; }
 
 /* Where the question was asked: a quiet chip that goes back to that spot. */
 .qiaomu-reader-ai-location { display:flex; justify-content:flex-end; padding:0 0 4px; }

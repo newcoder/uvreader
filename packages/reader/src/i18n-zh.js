@@ -1784,6 +1784,7 @@ Object.assign(QIAOMU_READER_ZH_CN, {
   "tool-result": "查询结果",
   "tool-get-reading-position": "查看阅读位置",
   "tool-get-book-outline": "查看目录",
+  "tool-read-page-image": "查看页面图片",
   "tool-read-pages": "阅读页面",
   "tool-search-book": "检索全书",
   "tool-list-highlights": "查看划线",

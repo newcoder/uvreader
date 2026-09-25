@@ -22,8 +22,18 @@ export const AI_TOOL_DEFINITIONS = Object.freeze([
     parameters: { type: "object", properties: {}, additionalProperties: false },
   },
   {
+    name: "read_page_image",
+    description: "把指定页渲染成图片后交给视觉模型阅读。适合公式、图表、扫描页，或文字层是乱码的页面。参数 page（页码，从 1 开始）。",
+    parameters: {
+      type: "object",
+      properties: { page: { type: "number", description: "页码，从 1 开始。" } },
+      required: ["page"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "read_pages",
-    description: "读取指定页码的正文文字（最多 3 页）。只适用于有文字层的页面；扫描页没有可提取文字。",
+    description: "读取指定页码的正文文字（最多 3 页）。只适用于有文字层的页面；扫描页和乱码页会自动附上页面图片（如果模型支持图片）。",
     parameters: {
       type: "object",
       properties: {
@@ -98,19 +108,32 @@ export function createAiTools({ state = {}, maxChars = AI_TOOL_LIMITS.resultChar
       if (!outline.length) return "这本书没有可用的目录。";
       return outline.map((item, index) => `${index + 1}. ${item.label}${item.page ? `（第 ${item.page} 页）` : ""}`).join("\n");
     },
-    read_pages(args = {}) {
+    async read_pages(args = {}) {
       const start = boundedNumber(args.start, 1, 1, Math.max(1, Number(state.pageCount) || 1));
       const count = boundedNumber(args.count, 1, 1, AI_TOOL_LIMITS.readPages);
       const pages = state.readPages?.(start, count);
       if (Array.isArray(pages) && pages.length) {
-        return pages.map((entry) => {
-          const text = String(entry.text || "").trim();
-          const quality = pageTextQuality(text);
-          const label = `【第 ${entry.page} 页】`;
-          if (quality === "empty") return `${label}\n（此页没有可提取的文字，可能是扫描图片；可以让读者发页面截图）`;
-          if (quality === "noise") return `${label}\n（此页文字层质量较差，内容可能不完整——公式、图表或扫描页；必要时让读者发页面截图）\n${text}`;
-          return `${label}\n${text}`;
+        const qualityOf = (entry) => pageTextQuality(String(entry.text || "").trim());
+        // Short pages are fine (a title page, a section end); only empty or
+        // broken text layers need the picture.
+        const broken = pages.find((entry) => ["empty", "noise"].includes(qualityOf(entry)));
+        // A formula soup or a scan is not readable text: hand the page itself
+        // over when the model can actually see it.
+        const images = [];
+        if (broken && state.canSeeImages) {
+          const image = await state.renderPageImage?.(broken.page);
+          if (image?.data) images.push({ ...image, page: broken.page });
+        }
+        const attachedPage = images.length ? images[0].page : 0;
+        const text = pages.map((entry) => {
+          const quality = qualityOf(entry);
+          if (quality !== "noise" && quality !== "empty") return `【第 ${entry.page} 页】\n${String(entry.text).trim()}`;
+          if (quality === "empty") {
+            return `【第 ${entry.page} 页】\n（此页没有可提取的文字，可能是扫描图片${attachedPage === entry.page ? "；已附上页面图片" : "；可以让读者发页面截图"}）`;
+          }
+          return `【第 ${entry.page} 页】\n（此页文字层质量较差，内容可能不完整——公式、图表或扫描页${attachedPage === entry.page ? "；已附上页面图片" : "；必要时让读者发页面截图"}）\n${String(entry.text || "").trim()}`;
         }).join("\n\n");
+        return { text, images };
       }
       const current = state.readCurrent?.();
       if (current) return `【${current.label || "当前章节"}】\n${current.text || "（当前章节没有可提取的文字）"}`;
@@ -130,6 +153,13 @@ export function createAiTools({ state = {}, maxChars = AI_TOOL_LIMITS.resultChar
         return `${index + 1}. ${where}：${String(hit.snippet || "").trim()}`;
       }).join("\n");
     },
+    async read_page_image(args = {}) {
+      if (!state.canSeeImages) return "当前模型不支持图片：可以让读者发页面截图，或换一个支持图片的模型。";
+      const page = boundedNumber(args.page, 1, 1, Math.max(1, Number(state.pageCount) || 1));
+      const image = await state.renderPageImage?.(page);
+      if (!image?.data) return `无法把第 ${page} 页渲染成图片（此格式或页面不支持，可以让读者用截图）。`;
+      return { text: `【第 ${page} 页图片】`, images: [{ ...image, page }] };
+    },
     list_highlights(args = {}) {
       const limit = boundedNumber(args.limit, 12, 1, AI_TOOL_LIMITS.highlights);
       const items = (state.highlights?.() || []).slice(0, limit);
@@ -143,14 +173,27 @@ export function createAiTools({ state = {}, maxChars = AI_TOOL_LIMITS.resultChar
   };
 
   return {
-    definitions: AI_TOOL_DEFINITIONS.map(({ name, description, parameters }) => ({ name, description, parameters })),
+    // The image tool is only offered when the model can actually see images.
+    definitions: AI_TOOL_DEFINITIONS
+      .filter((tool) => tool.name !== "read_page_image" || state.canSeeImages === true)
+      .map(({ name, description, parameters }) => ({ name, description, parameters })),
     async run(name, args) {
       const handler = handlers[String(name || "")];
-      if (!handler) return { text: `未知工具：${name}`, isError: true };
+      if (!handler) {
+        const text = `未知工具：${name}`;
+        return { text, blocks: [{ type: "text", text }], isError: true };
+      }
       try {
-        return { text: clamp(await handler(args || {})), isError: false };
+        const raw = await handler(args || {});
+        const value = typeof raw === "string" ? { text: raw } : (raw || {});
+        const text = clamp(value.text);
+        const images = (value.images || []).filter((image) => image?.data && image?.mimeType);
+        const blocks = [{ type: "text", text }];
+        for (const image of images) blocks.push({ type: "image", data: image.data, mimeType: image.mimeType });
+        return { text, blocks, images, isError: value.isError === true };
       } catch (error) {
-        return { text: `工具执行失败：${String(error?.message || error)}`, isError: true };
+        const text = `工具执行失败：${String(error?.message || error)}`;
+        return { text, blocks: [{ type: "text", text }], isError: true };
       }
     },
   };

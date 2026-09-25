@@ -445,6 +445,7 @@ function sidebarHarness() {
     normalizeAiTurnContext: (value) => value?.text ? { kind: value.kind, text: value.text } : null,
     normalizeAiAttachments: (value) => (Array.isArray(value) ? value : []),
     stripAttachmentData: (value) => value || [],
+    normalizeToolTurnContent: (value) => String(value || ""),
     normalizeAiTurnLocation: (value) => (value && (value.page || value.label)
       ? { label: value.label || "", page: value.page || 0, percent: value.percent || 0 }
       : null),

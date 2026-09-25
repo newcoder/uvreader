@@ -214,6 +214,38 @@ test("tool calls and tool results survive the stored-conversation round trip", (
   assert.equal(turns[2].toolName, "read_pages");
 });
 
+test("tool turns keep image blocks in the model request but not in saved history", () => {
+  const ctx = makeContext();
+  const content = [
+    { type: "text", text: "【第 26 页】\n（文字层较差；已附上页面图片）" },
+    { type: "image", data: "AAAA", mimeType: "image/jpeg" },
+  ];
+  const msgs = ctx.aiMessages("", { aiInto: "中文" }, [
+    { role: "user", content: "看看第 26 页" },
+    { role: "assistant", content: "", toolCalls: [{ id: "call_1", name: "read_pages", arguments: { start: 26 } }], stopReason: "toolUse" },
+    { role: "tool", toolCallId: "call_1", toolName: "read_pages", content, isError: false },
+  ], "书");
+  assert.deepEqual(msgs[3].content, content, "the page image reaches the model");
+  assert.equal(msgs[3].toolCallId, "call_1");
+
+  assert.equal(ctx.normalizeToolTurnContent(content), "【第 26 页】\n（文字层较差；已附上页面图片）\n（页面图片已省略）");
+  assert.equal(ctx.normalizeToolTurnContent("纯文本结果"), "纯文本结果");
+  assert.equal(ctx.normalizeToolTurnContent([{ type: "image", data: "AAAA", mimeType: "image/jpeg" }]), "（页面图片已省略）");
+  const history = ctx.normalizeAiChatHistory([{
+    id: "c5",
+    title: "T",
+    bookPath: "Books/a.pdf",
+    updatedAt: 4,
+    turns: [
+      { role: "user", content: "看看第 26 页" },
+      { role: "tool", toolCallId: "call_1", toolName: "read_pages", content, isError: false },
+      { role: "assistant", content: "看到了" },
+    ],
+  }]);
+  assert.match(history[0].turns[1].content, /（页面图片已省略）$/);
+  assert.equal(JSON.stringify(history[0]).includes("AAAA"), false, "no image bytes in history");
+});
+
 test("aiMessages sends tool turns and assistant calls back to the model", () => {
   const ctx = makeContext();
   const msgs = ctx.aiMessages("", { aiInto: "中文" }, [

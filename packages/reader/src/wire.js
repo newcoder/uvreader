@@ -30,6 +30,7 @@ import {
   makeProbeImage,
   rememberCapability,
 } from "./ai-capability.js";
+import { createAiTools } from "./ai-tools.js";
 import {
   MAX_AI_ATTACHMENTS,
   aiAttachmentPath,
@@ -70,7 +71,6 @@ import { createPdfZoomUi } from "./pdf-zoom-ui.js";
 import { createSelectionActions } from "./selection-actions.js";
 import { lookupSelection, lookupWordGloss } from "./pinyin-annotate.js";
 import { createPinPopup } from "./pin-popup.js";
-import { createAiTools } from "./ai-tools.js";
 import { openShotOverlay, planRegionStitch, visibleRegion } from "./reader-shot.js";
 import { createReaderTimer } from "./reader-timer.js";
 import { createReaderHud } from "./reader-hud.js";
@@ -169,6 +169,7 @@ const {
   normalizeAiChatHistory,
   normalizeAiTurnContext,
   normalizeAiTurnLocation,
+  normalizeToolTurnContent,
   locationLine,
   aiChatTitle,
   newAiSessionKey,
@@ -1485,7 +1486,7 @@ async function jumpToAiLocation(chat, value) {
 // --- AI tools --------------------------------------------------------------
 // The tools read through the reader and the plugin; the tools module sees only
 // this state object, which keeps the formatting and schemas testable.
-function aiToolState(view, plugin) {
+function aiToolState(view, plugin, options = {}) {
   const pager = view?.pager;
   const engine = view?.engine;
   const format = String(view?.file?.extension || "").toLowerCase();
@@ -1500,6 +1501,8 @@ function aiToolState(view, plugin) {
   return {
     format,
     pageCount: total,
+    // Only a model that was checked for images gets page pictures.
+    canSeeImages: options.canSeeImages === true,
     position: () => {
       if (engine) {
         const location = engine.currentLocation?.() || {};
@@ -1536,6 +1539,18 @@ function aiToolState(view, plugin) {
         label: engine.currentLocation?.()?.tocItem?.label || "",
         text: String(engine.visibleText?.() || "").slice(0, 6_000),
       })
+      : null,
+    // Rasterise one PDF page for the model (same renderer the reader shows).
+    renderPageImage: format === "pdf"
+      ? async (page) => {
+        try {
+          const rendered = await view._pdfLazy?.render?.(page, docOf(view.areaEl || view.contentEl));
+          const data = String(rendered?.src || "").split(",")[1] || "";
+          return data ? { data, mimeType: "image/jpeg" } : null;
+        } catch {
+          return null;
+        }
+      }
       : null,
     search: format === "pdf"
       ? (query, limit) => searchBookBlocks(blockTexts(), query, limit).map((hit) => ({
@@ -1575,7 +1590,13 @@ async function prepareAiTools(chat) {
     catch { return null; }
   }
   if (capability.state === "no") return null;
-  return createAiTools({ state: aiToolState(view, plugin) });
+  // Page images ride along only when the model was checked for images too.
+  let imageCapability = effectiveCapability(plugin.settings, target, "image");
+  if (imageCapability.state === "unknown" && imageCapability.source === "none") {
+    try { imageCapability = { state: (await detectAiCapability(plugin, "image")).state, source: "probe", at: Date.now() }; }
+    catch { imageCapability = { state: "unknown", source: "probe", at: Date.now() }; }
+  }
+  return createAiTools({ state: aiToolState(view, plugin, { canSeeImages: imageCapability.state === "yes" }) });
 }
 
 // Whether any user turn carries an attachment; a text-only send then skips the
@@ -1595,7 +1616,9 @@ async function prepareAiTurns(chat, turns) {
     if (turn?.role !== "user" || !normalizeAiAttachments(turn.attachments).length) { out.push(turn); continue; }
     out.push({ ...turn, attachments: await hydrateAiAttachments(turn.attachments, (path) => readAiAttachmentBytes(chat.plugin, path)) });
   }
-  const vision = out.some((turn) => turn?.attachments?.some((attachment) => attachment.kind === "image" && attachment.data));
+  const vision = out.some((turn) => turn?.attachments?.some((attachment) => attachment.kind === "image" && attachment.data))
+    || out.some((turn) => turn?.role === "tool" && Array.isArray(turn.content)
+      && turn.content.some((block) => block?.type === "image" && block.data));
   if (vision) {
     const plugin = chat.plugin;
     const cfg = aiConfig(plugin);
@@ -3064,6 +3087,7 @@ const AiChatView = createAiChatView({
   normalizeAiChatHistory,
   normalizeAiTurnContext,
   normalizeAiTurnLocation,
+  normalizeToolTurnContent,
   openAiAttachMenu,
   openPluginAiSettings,
   pickAiAttachments,

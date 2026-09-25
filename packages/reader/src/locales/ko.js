@@ -1338,6 +1338,7 @@ export default {
   "tool-result": "결과",
   "tool-get-reading-position": "읽기 위치",
   "tool-get-book-outline": "목차",
+  "tool-read-page-image": "페이지 이미지 읽기",
   "tool-read-pages": "페이지 읽기",
   "tool-search-book": "책 검색",
   "tool-list-highlights": "저장한 하이라이트",
