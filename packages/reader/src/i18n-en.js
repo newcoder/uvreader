@@ -1328,6 +1328,7 @@ export const QIAOMU_READER_EN = {
   "detect-automatically": "Detect automatically",
   "force-supported": "Force supported",
   "force-not-supported": "Force not supported",
+  "jump-to-the-question-position": "Jump to where the question was asked",
   "preview-image": "Preview image",
   "ai-tools": "Let the assistant query the book",
   "let-the-assistant-look-up-pages-search-the-book-and-list-highlights": "Read-only: the assistant may read pages, search the book and list your highlights while answering.",

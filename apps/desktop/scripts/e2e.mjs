@@ -123,6 +123,7 @@ function startMockAi(options = {}) {
     sawImage: false,
     sawTools: false,
     imageRequests: 0,
+    lastUserText: "",
   };
   const server = http.createServer((request, response) => {
     let body = "";
@@ -149,6 +150,7 @@ function startMockAi(options = {}) {
       // a search, and the round after the tool result answers.
       const wantsTool = hasTools && lastRole === "user" && lastText.includes("工具") && !lastText.includes("probe_number");
       const afterTool = hasTools && lastRole === "tool";
+      if (lastRole === "user" && lastText) state.lastUserText = lastText;
       if (hasImage) { state.sawImage = true; state.imageRequests += 1; }
       if (hasTools) state.sawTools = true;
       if (hasImage && !state.vision) {
@@ -1329,6 +1331,21 @@ async function runCapabilityScenario() {
     }, 15_000);
     if (storedTool.isError) throw new Error("the stored tool turn is an error");
     console.log("tools:", toolInfo.title, "->", toolInfo.status, `(${toolInfo.result.length} chars)`, "stored as", storedTool.toolName);
+
+    // Every question carries where the reader was when it was submitted.
+    const locatedTurn = await waitFor("stored question location", () => {
+      const turn = storedChatTurns(userData).find((item) => item.role === "user" && item.location?.page);
+      return turn ? turn.location : "";
+    }, 15_000);
+    if (!mock.state.lastUserText.includes("提问时位置")) {
+      throw new Error(`the model did not receive the position: ${mock.state.lastUserText.slice(0, 120)}`);
+    }
+    const locationChip = await page.evaluate(() => {
+      const chip = document.querySelector(".qiaomu-reader-ai-location-chip");
+      return chip ? chip.textContent.trim() : "";
+    });
+    await page.evaluate(() => document.querySelector(".qiaomu-reader-ai-location-chip")?.click());
+    console.log("location:", JSON.stringify(locatedTurn), "->", locationChip, "chip jumps back");
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(userData, { recursive: true, force: true });

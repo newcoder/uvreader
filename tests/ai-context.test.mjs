@@ -164,6 +164,34 @@ test("stored conversations keep attachment metadata but never the base64 payload
   assert.equal("text" in attachments[0], false);
 });
 
+test("the submit-time location is clamped, kept in history and sent to the model", () => {
+  const ctx = makeContext();
+  assert.equal(ctx.normalizeAiTurnLocation(null), null);
+  assert.deepEqual(ctx.normalizeAiTurnLocation({ label: " 第三章 ", page: 12.4, percent: 1.5 }), { label: "第三章", page: 12, percent: 1 });
+  assert.equal(ctx.normalizeAiTurnLocation({ percent: -1 }), null, "an empty location is dropped");
+  assert.equal(ctx.normalizeAiTurnLocation({ label: "", page: 0, percent: 0 }), null);
+
+  const msgs = ctx.aiMessages("", { aiInto: "中文" }, [
+    { role: "user", content: "这里是什么意思？", location: { label: "第三章", page: 12, percent: 0.34 } },
+    { role: "assistant", content: "回答" },
+  ], "书");
+  assert.match(msgs[1].content, /提问时位置：第三章 · page-0:12 · 34%/);
+  assert.equal(msgs[2].content, "回答");
+
+  const history = ctx.normalizeAiChatHistory([{
+    id: "c4",
+    title: "T",
+    bookPath: "Books/a.pdf",
+    updatedAt: 3,
+    turns: [
+      { role: "user", content: "问", location: { label: "第四章", page: 40, percent: 0.5 } },
+      { role: "assistant", content: "答" },
+    ],
+  }]);
+  assert.deepEqual(history[0].turns[0].location, { label: "第四章", page: 40, percent: 0.5 });
+  assert.equal("location" in history[0].turns[1], false);
+});
+
 test("tool calls and tool results survive the stored-conversation round trip", () => {
   const ctx = makeContext();
   const history = ctx.normalizeAiChatHistory([{

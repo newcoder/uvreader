@@ -1774,6 +1774,7 @@ Object.assign(QIAOMU_READER_ZH_CN, {
   "detect-automatically": "自动检测",
   "force-supported": "强制支持",
   "force-not-supported": "强制不支持",
+  "jump-to-the-question-position": "回到提问位置",
   "preview-image": "预览图片",
   "ai-tools": "允许 AI 查询书籍",
   "let-the-assistant-look-up-pages-search-the-book-and-list-highlights": "只读：回答时可以读取页面、检索全书并查看你的划线。",

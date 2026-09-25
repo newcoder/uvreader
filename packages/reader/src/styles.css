@@ -1095,6 +1095,12 @@ html.qbr-split-dragging .qiaomu-reader-relayouting .qiaomu-reader-area { filter:
 .qiaomu-reader-ai-attach-remove svg { width:12px; height:12px; }
 .qiaomu-reader-ai-attach-remove:hover { background:var(--background-modifier-hover); color:var(--text-normal); }
 .qiaomu-reader-ai-attach-remove:focus-visible { outline:2px solid color-mix(in srgb,var(--interactive-accent) 58%,transparent); outline-offset:1px; }
+/* Where the question was asked: a quiet chip that goes back to that spot. */
+.qiaomu-reader-ai-location { display:flex; justify-content:flex-end; padding:0 0 4px; }
+.qiaomu-reader-ai-location-chip { display:inline-flex; align-items:center; gap:5px; max-width:100%; padding:2px 8px; border:1px dashed color-mix(in srgb,var(--text-muted) 42%,transparent); border-radius:999px; background:transparent; color:var(--text-muted); font-size:var(--font-ui-smaller); cursor:pointer; }
+.qiaomu-reader-ai-location-chip:hover { color:var(--text-normal); border-color:color-mix(in srgb,var(--text-muted) 68%,transparent); background:var(--background-modifier-hover); }
+.qiaomu-reader-ai-location-chip:focus-visible { outline:2px solid color-mix(in srgb,var(--interactive-accent) 58%,transparent); outline-offset:1px; }
+.qiaomu-reader-ai-location-chip svg { width:12px; height:12px; }
 .qiaomu-reader-ai-msg-me .qiaomu-reader-ai-attach-row { justify-content:flex-end; padding:0 0 6px; }
 .qiaomu-reader-ai-msg-me .qiaomu-reader-ai-attach-chip { background:var(--background-primary); }
 .qiaomu-reader-ai-attach { flex:0 0 auto; width:32px; height:32px; padding:0; display:flex; align-items:center; justify-content:center; border:0; border-radius:50%; background:transparent; color:var(--text-muted); cursor:pointer; }

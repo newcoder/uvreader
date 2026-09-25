@@ -5,7 +5,7 @@ import { shouldFollowContext } from "./reader-experience.js";
 import { svgIcon } from "./reader-icons.js";
 
 export function createAiChatView({
-  ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, AiChatHistoryModal, ReadSettingsModal, ReaderView, aiChatTitle, aiConfig, aiConnectionErrorMessage, aiSetupState, aiTurnsHaveDocumentContext, bindAiAttachmentIntake, bindAiSlashPrompts, bindReaderAiComposer, bookNoteLinkFor, captureAiScreenshot, clearAiSource, createAiChatLog, newAiSessionKey, normalizeAiChatHistory, normalizeAiTurnContext, openAiAttachMenu, openPluginAiSettings, pickAiAttachments, qiaomuReaderTranslate, readerAiPanelContext, readerDefaultAiContext, readerHud, renderAiComposerPrompts, renderAiContextQuote, renderAiHeadMeta, renderAiMarkdown, renderAiUserTurn, stripAiAttachmentData, testAndEnableAi,
+  ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, AiChatHistoryModal, ReadSettingsModal, ReaderView, aiChatTitle, aiConfig, aiConnectionErrorMessage, aiSetupState, aiTurnsHaveDocumentContext, bindAiAttachmentIntake, bindAiSlashPrompts, bindReaderAiComposer, bookNoteLinkFor, captureAiScreenshot, clearAiSource, createAiChatLog, newAiSessionKey, normalizeAiChatHistory, normalizeAiTurnContext, normalizeAiTurnLocation, openAiAttachMenu, openPluginAiSettings, pickAiAttachments, qiaomuReaderTranslate, readerAiPanelContext, readerDefaultAiContext, readerHud, renderAiComposerPrompts, renderAiContextQuote, renderAiHeadMeta, renderAiMarkdown, renderAiUserTurn, stripAiAttachmentData, testAndEnableAi,
 }) {
   return class AiChatView extends ItemView {
   constructor(leaf, plugin) {
@@ -275,6 +275,7 @@ export function createAiChatView({
         ...(turn.interrupted ? { interrupted: true } : {}),
         ...(turn.savedNotePath ? { savedNotePath: turn.savedNotePath } : {}),
         ...(turn.context ? { context: normalizeAiTurnContext(turn.context) } : {}),
+        ...(turn.location ? { location: normalizeAiTurnLocation(turn.location) } : {}),
         ...(turn.attachments?.length ? { attachments: stripAiAttachmentData(turn.attachments) } : {}),
         ...(turn.toolCalls?.length ? { toolCalls: turn.toolCalls } : {}),
         ...(turn.role === "tool" ? { toolCallId: turn.toolCallId, toolName: turn.toolName, isError: turn.isError === true } : {}),

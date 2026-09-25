@@ -20,6 +20,9 @@ function setup(overrides = {}) {
       page: value.page || "",
       text: value.text,
     } : null),
+    normalizeAiTurnLocation: (value) => (value?.page || value?.label ? { label: value.label || "", page: value.page || 0, percent: value.percent || 0 } : null),
+    locationLine: (location) => [location.label, `page-0:${location.page}`, `${Math.round(location.percent * 100)}%`].filter(Boolean).join(" · "),
+    jumpToAiLocation: async () => {},
     aiQuickPrompts: () => [{ id: "explain", name: "explain-it", prompt: "p-explain" }],
     paintAiSource() {},
     readerHud: { autoFocus() {} },
@@ -203,6 +206,33 @@ test("double-clicking a thumbnail opens the real image and Esc closes it", async
   assert.ok(doc.body.querySelector(".qiaomu-reader-image-preview"));
   doc.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   assert.equal(doc.body.querySelector(".qiaomu-reader-image-preview"), null, "Esc closes it");
+});
+
+test("a user turn shows where the question was asked and the chip jumps back", () => {
+  const jumps = [];
+  const { doc, render } = setup({
+    normalizeAiTurnLocation: (value) => (value?.page ? { label: value.label || "", page: value.page, percent: value.percent || 0 } : null),
+    locationLine: (location) => [location.label, `page-0:${location.page}`, `${Math.round(location.percent * 100)}%`].filter(Boolean).join(" · "),
+    jumpToAiLocation: (owner, location) => { jumps.push({ owner, location }); },
+  });
+  const owner = { contentEl: doc.body };
+  const log = doc.createElement("div");
+  doc.body.appendChild(log);
+  const bubble = render.renderAiUserTurn(log, {
+    role: "user",
+    content: "这里是什么意思？",
+    location: { label: "第三章", page: 12, percent: 0.34 },
+  }, owner);
+  const chip = bubble.querySelector(".qiaomu-reader-ai-location-chip");
+  assert.ok(chip, "the location chip renders");
+  assert.match(chip.textContent, /第三章 · page-0:12 · 34%/);
+  chip.dispatchEvent(new doc.defaultView.MouseEvent("click", { bubbles: true }));
+  assert.equal(jumps.length, 1);
+  assert.equal(jumps[0].owner, owner);
+  assert.deepEqual(jumps[0].location, { label: "第三章", page: 12, percent: 0.34 });
+
+  const plain = render.renderAiUserTurn(log, { role: "user", content: "没有位置" }, owner);
+  assert.equal(plain.querySelector(".qiaomu-reader-ai-location-chip"), null);
 });
 
 test("a text attachment chip never opens a preview", () => {

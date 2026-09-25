@@ -168,6 +168,8 @@ const {
   aiQuickPrompts,
   normalizeAiChatHistory,
   normalizeAiTurnContext,
+  normalizeAiTurnLocation,
+  locationLine,
   aiChatTitle,
   newAiSessionKey,
   aiContextMessage,
@@ -404,6 +406,9 @@ const {
   MarkdownRenderer,
   Component,
   normalizeAiTurnContext,
+  normalizeAiTurnLocation,
+  locationLine,
+  jumpToAiLocation,
   aiQuickPrompts,
   paintAiSource,
   readerHud,
@@ -1455,6 +1460,28 @@ async function saveAiAttachment(plugin, attachment) {
   }
 }
 
+// Where the reader is right now: attached to every question so the model (and
+// the conversation itself) knows which page "here" means.
+function readerAiPosition(view) {
+  if (!view?.file || view._closed) return null;
+  try { return normalizeAiTurnLocation(aiToolState(view, null).position?.()); }
+  catch { return null; }
+}
+
+// A location chip in the conversation goes back to that spot in the book.
+async function jumpToAiLocation(chat, value) {
+  const location = normalizeAiTurnLocation(value);
+  const view = readerViewForChat(chat);
+  if (!location || !view) return;
+  const leaf = view.leaf;
+  if (leaf) { try { await chat.plugin.app.workspace.revealLeaf(leaf); } catch { /* stay where we are */ } }
+  if (view.engine) {
+    if (location.percent) { void view.engine.goToFraction(location.percent); }
+    return;
+  }
+  if (location.page) pageJump.jump(view, location.page);
+}
+
 // --- AI tools --------------------------------------------------------------
 // The tools read through the reader and the plugin; the tools module sees only
 // this state object, which keeps the formatting and schemas testable.
@@ -1899,6 +1926,7 @@ const AiExplainModal = createAiExplainModal({
   prepareAiTools,
   prepareAiTurns,
   qiaomuReaderTranslate,
+  readerAiPosition,
   readerHud,
   removeAiAttachment,
   renderAiAttachmentList,
@@ -3035,6 +3063,7 @@ const AiChatView = createAiChatView({
   newAiSessionKey,
   normalizeAiChatHistory,
   normalizeAiTurnContext,
+  normalizeAiTurnLocation,
   openAiAttachMenu,
   openPluginAiSettings,
   pickAiAttachments,

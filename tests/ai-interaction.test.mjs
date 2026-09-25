@@ -197,6 +197,7 @@ function chatHarness(explain, overrides = {}) {
     aiTurnsHaveAttachments: (turns) => (turns || []).some((turn) => turn?.attachments?.length > 0),
     prepareAiTools: null,
     aiExplainStep: null,
+    readerAiPosition: () => null,
     renderAiToolStep: () => ({ card: null, finish() {} }),
     stripAiAttachmentData: (list) => list || [],
     renderAiAttachmentList: () => ({ row: null, empty: true }),
@@ -348,6 +349,21 @@ test("sending refreshes the page once and freezes source while generation contin
   assert.equal(chat.turns[0].context.text, "发送瞬间页面");
 });
 
+test("the position at submit time is attached to that turn", async () => {
+  let turnsAtRequest = null;
+  const { chat } = chatHarness(async (_text, _plugin, turns) => {
+    turnsAtRequest = turns.map((turn) => turn.location || null);
+    return "回答";
+  }, {
+    readerAiPosition: () => ({ label: "第三章", page: 12, percent: 0.34 }),
+  });
+  await chat._send("这里是什么意思？");
+  assert.deepEqual(chat.turns[0].location, { label: "第三章", page: 12, percent: 0.34 });
+  assert.equal(chat.turns[1].role, "assistant");
+  assert.equal("location" in chat.turns[1], false, "only the question carries the position");
+  assert.deepEqual(turnsAtRequest, [{ label: "第三章", page: 12, percent: 0.34 }]);
+});
+
 test("a tool-calling round runs the tool and answers with its results", async () => {
   const calls = [];
   let steps = 0;
@@ -429,6 +445,9 @@ function sidebarHarness() {
     normalizeAiTurnContext: (value) => value?.text ? { kind: value.kind, text: value.text } : null,
     normalizeAiAttachments: (value) => (Array.isArray(value) ? value : []),
     stripAttachmentData: (value) => value || [],
+    normalizeAiTurnLocation: (value) => (value && (value.page || value.label)
+      ? { label: value.label || "", page: value.page || 0, percent: value.percent || 0 }
+      : null),
     newAiSessionKey: () => window.crypto.randomUUID(), aiChatTitle: () => "会话",
     clearAiSource() {}, readerHud: { autoFocus() {} }, shouldFollowContext,
     bookNoteLinkFor: () => "", aiTurnsHaveDocumentContext: (turns) => turns.some((turn) => turn.context?.kind === "document"),

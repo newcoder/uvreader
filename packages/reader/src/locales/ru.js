@@ -1330,6 +1330,7 @@ export default {
   "detect-automatically": "Определять автоматически",
   "force-supported": "Считать поддерживаемым",
   "force-not-supported": "Считать неподдерживаемым",
+  "jump-to-the-question-position": "Вернуться к месту вопроса",
   "preview-image": "Просмотр изображения",
   "ai-tools": "Разрешить ИИ обращаться к книге",
   "let-the-assistant-look-up-pages-search-the-book-and-list-highlights": "Только чтение: ассистент может читать страницы, искать по книге и показывать ваши выделения.",

@@ -6,7 +6,7 @@ import { verifiedQuotes } from "./reading-workflow.js";
 
 export function createAiExplainModal({
   Component, Menu, Modal, Notice, aiExplain, aiExplainStep, aiLogFollowsTail, aiNeedsPageImage, aiTurnsHaveAttachments, bindAiAttachmentIntake, captureAiScreenshot, bindAiSlashPrompts, bindReaderAiComposer, bookNoteLinkFor, copyToClipboard, createAiChatLog, createAiStreamingMarkdownRenderer, createNoteFromAiAnswer, jumpToAiQuote, newAiSessionKey, normalizeAiTurnContext, noteAiImageFailure, openAiAttachMenu, pickAiAttachments, prepareAiTools, prepareAiTurns, qiaomuReaderTranslate,
-  readerHud, removeAiAttachment, renderAiAttachmentList, renderAiComposerPrompts, renderAiContextQuote, renderAiToolStep, renderAiUserTurn, renderMobileAiHeader, stripAiAttachmentData,
+  readerAiPosition, readerHud, removeAiAttachment, renderAiAttachmentList, renderAiComposerPrompts, renderAiContextQuote, renderAiToolStep, renderAiUserTurn, renderMobileAiHeader, stripAiAttachmentData,
 }) {
   // How many tool-call rounds a single question may take before the model has
   // to answer with what it already read.
@@ -251,10 +251,14 @@ export function createAiExplainModal({
     if (this.empty) { this.empty.remove(); this.empty = null; }
     const attachedContext = normalizeAiTurnContext(this.pendingContext);
     const attachedAttachments = this.attachments || [];
+    // The position at submit time belongs to this turn: the conversation shows
+    // where each question was asked, and the model receives the same marker.
+    const attachedLocation = readerAiPosition?.(this.readerView) || null;
     const userTurn = {
       role: "user",
       content: text,
       ...(attachedContext ? { context: attachedContext } : {}),
+      ...(attachedLocation ? { location: attachedLocation } : {}),
       ...(attachedAttachments.length ? { attachments: attachedAttachments } : {}),
     };
     const userBubble = renderAiUserTurn(this.log, userTurn, this);

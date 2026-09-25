@@ -1328,6 +1328,7 @@ export default {
   "detect-automatically": "Automatisch erkennen",
   "force-supported": "Unterstützt erzwingen",
   "force-not-supported": "Nicht unterstützt erzwingen",
+  "jump-to-the-question-position": "Zur Stelle der Frage springen",
   "preview-image": "Bildvorschau",
   "ai-tools": "Assistent darf im Buch nachsehen",
   "let-the-assistant-look-up-pages-search-the-book-and-list-highlights": "Nur lesend: Der Assistent kann Seiten lesen, das Buch durchsuchen und deine Markierungen auflisten.",

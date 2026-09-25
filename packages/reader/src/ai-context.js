@@ -114,6 +114,26 @@ export function createAiContext({ translate, platform, win = globalThis, locateH
     };
   }
 
+  // Where the reader was when the question was asked. Small on purpose: it is
+  // shown in the chat and handed to the model with every turn.
+  function normalizeAiTurnLocation(value) {
+    if (!value || typeof value !== "object") return null;
+    const label = String(value.label || "").trim().slice(0, 80);
+    const page = Number.isFinite(Number(value.page)) && Number(value.page) > 0 ? Math.round(Number(value.page)) : 0;
+    const percent = Number.isFinite(Number(value.percent)) ? Math.min(1, Math.max(0, Number(value.percent))) : 0;
+    if (!label && !page && !percent) return null;
+    return { label, page, percent };
+  }
+
+  function locationLine(location) {
+    if (!location) return "";
+    const parts = [];
+    if (location.label) parts.push(location.label);
+    if (location.page) parts.push(translate("page-0", location.page));
+    if (location.percent) parts.push(`${Math.round(location.percent * 100)}%`);
+    return parts.join(" · ");
+  }
+
   function normalizeAiChatHistory(value) {
     if (!Array.isArray(value)) return [];
     return value.slice(0, 30).map((item) => {
@@ -141,6 +161,9 @@ export function createAiContext({ translate, platform, win = globalThis, locateH
           : {}),
         ...(turn?.role !== "assistant" && normalizeAiAttachments(turn?.attachments).length
           ? { attachments: stripAttachmentData(turn.attachments) }
+          : {}),
+        ...(turn?.role !== "assistant" && normalizeAiTurnLocation(turn?.location)
+          ? { location: normalizeAiTurnLocation(turn.location) }
           : {}),
       })).filter((turn) => turn.content) : [];
       const firstUser = turns.find((turn) => turn.role === "user");
@@ -208,7 +231,9 @@ export function createAiContext({ translate, platform, win = globalThis, locateH
       }
       const context = normalizeAiTurnContext(turn.context)
         || (i === 0 && text ? normalizeAiTurnContext({ kind: "selection", text }) : null);
-      const prompt = context ? `${aiContextMessage(context, from)}\n\n问题：${turn.content}` : turn.content;
+      const base = context ? `${aiContextMessage(context, from)}\n\n问题：${turn.content}` : turn.content;
+      const where = locationLine(normalizeAiTurnLocation(turn.location));
+      const prompt = where ? `${base}\n\n提问时位置：${where}` : base;
       const blocks = aiAttachmentBlocks(turn.attachments);
       msgs.push({ role: "user", content: blocks.length ? [{ type: "text", text: prompt }, ...blocks] : prompt });
     });
@@ -262,6 +287,8 @@ export function createAiContext({ translate, platform, win = globalThis, locateH
     aiQuickPrompts,
     normalizeAiChatHistory,
     normalizeAiTurnContext,
+    normalizeAiTurnLocation,
+    locationLine,
     aiChatTitle,
     newAiSessionKey,
     aiContextMessage,

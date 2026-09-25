@@ -19,6 +19,9 @@ export function createAiRender({
   MarkdownRenderer,
   Component,
   normalizeAiTurnContext,
+  normalizeAiTurnLocation,
+  locationLine,
+  jumpToAiLocation,
   aiQuickPrompts,
   paintAiSource,
   readerHud,
@@ -584,6 +587,17 @@ export function createAiRender({
     const bubble = log.createDiv("qiaomu-reader-ai-msg qiaomu-reader-ai-msg-me");
     const context = normalizeAiTurnContext(turn?.context);
     if (context) renderAiContextQuote(bubble, context, { className: "qiaomu-reader-ai-msg-context" });
+    // Where the reader was when the question was asked; tapping goes back.
+    const location = normalizeAiTurnLocation(turn?.location);
+    const where = location ? locationLine(location) : "";
+    if (where) {
+      const row = bubble.createDiv("qiaomu-reader-ai-location");
+      const chip = row.createEl("button", { cls: "qiaomu-reader-ai-location-chip", attr: { type: "button" } });
+      svgIcon(chip.createSpan("qiaomu-reader-ai-location-icon"), "bookmark");
+      chip.createSpan({ text: where });
+      chip.setAttribute("aria-label", `${translate("jump-to-the-question-position")}: ${where}`);
+      chip.addEventListener("click", () => { if (owner) void jumpToAiLocation?.(owner, location); });
+    }
     if (normalizeAiAttachments(turn?.attachments).length) renderAiAttachmentList(bubble, turn.attachments, { owner });
     if (turn?.content) bubble.createDiv({ cls: "qiaomu-reader-ai-msg-text", text: turn.content });
     return bubble;

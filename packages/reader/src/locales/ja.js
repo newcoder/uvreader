@@ -1328,6 +1328,7 @@ export default {
   "detect-automatically": "自動判定",
   "force-supported": "対応として扱う",
   "force-not-supported": "非対応として扱う",
+  "jump-to-the-question-position": "質問した位置に戻る",
   "preview-image": "画像をプレビュー",
   "ai-tools": "AI に書籍の参照を許可",
   "let-the-assistant-look-up-pages-search-the-book-and-list-highlights": "読み取り専用：回答中にページの参照・全文検索・ハイライトの確認ができます。",

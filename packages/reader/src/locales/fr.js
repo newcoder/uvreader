@@ -1328,6 +1328,7 @@ export default {
   "detect-automatically": "Détection automatique",
   "force-supported": "Forcer la prise en charge",
   "force-not-supported": "Forcer la non-prise en charge",
+  "jump-to-the-question-position": "Revenir à l’endroit de la question",
   "preview-image": "Aperçu de l’image",
   "ai-tools": "Autoriser l’assistant à consulter le livre",
   "let-the-assistant-look-up-pages-search-the-book-and-list-highlights": "Lecture seule : l’assistant peut lire des pages, chercher dans le livre et lister vos surlignages.",

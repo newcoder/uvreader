@@ -1077,22 +1077,22 @@ export function createReaderView({
     this._searchFromToolbar?.(value);
     if (this._findInput) readerHud.autoFocus(this._findInput, 60);
   }
-  // The results card hangs right under the search box. The toolbar spans the
-  // whole window (fixed, in the desktop shell) while the card lives in the
-  // reading pane, so measure both instead of guessing.
+  // The results card hangs right under the search box. The toolbar is fixed in
+  // the desktop shell and any ancestor scroll would drag an absolutely
+  // positioned card away from it, so pin the card in viewport coordinates.
   _positionFindPanel() {
     const panel = this.findPan;
     const anchor = this.findBoxEl;
     if (!panel || !anchor || this.panelOpen !== "find") return;
-    const view = this.contentEl.getBoundingClientRect();
     const box = anchor.getBoundingClientRect();
     const bar = this.contentEl.querySelector(".qiaomu-reader-top")?.getBoundingClientRect();
     const width = panel.offsetWidth || 440;
-    const left = Math.max(8, Math.min(view.width - width - 8, box.left - view.left));
-    const top = bar ? Math.max(0, bar.bottom - view.top + 2) : 46;
-    panel.style.left = `${Math.round(left)}px`;
+    const maxLeft = Math.max(8, (window.innerWidth || box.right + width) - width - 8);
+    panel.style.position = "fixed";
+    panel.style.left = `${Math.round(Math.min(maxLeft, Math.max(8, box.left)))}px`;
     panel.style.right = "auto";
-    panel.style.top = `${Math.round(top)}px`;
+    panel.style.top = `${Math.round((bar ? bar.bottom : 40) + 2)}px`;
+    panel.style.bottom = "auto";
   }
   // A pending reflow restores its own reading anchor, which would overwrite a
   // jump issued while the pages are being rebuilt (the dock opening or a window
