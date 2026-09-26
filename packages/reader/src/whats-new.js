@@ -4,6 +4,14 @@ export function createWhatsNew({
   qiaomuReaderTranslate,
 }) {
   const WHATS_NEW = [
+  { v: "0.2.0", items: [
+    qiaomuReaderTranslate("whats-new-0-2-0-images"),
+    qiaomuReaderTranslate("whats-new-0-2-0-tools"),
+    qiaomuReaderTranslate("whats-new-0-2-0-math"),
+    qiaomuReaderTranslate("whats-new-0-2-0-pinyin"),
+    qiaomuReaderTranslate("whats-new-0-2-0-location"),
+    qiaomuReaderTranslate("whats-new-0-2-0-toolbar")
+  ]},
   { v: "4.0.1", items: [
     qiaomuReaderTranslate("ai-assistance-now-binds-to-the-newly-opened-book-immediately-so"),
     qiaomuReaderTranslate("fixed-blank-first-screens-collapsed-pagination-during-sidebar-ch"),

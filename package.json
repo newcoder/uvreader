@@ -1,6 +1,6 @@
 {
   "name": "uvreader",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "中文优先的独立桌面阅读器，支持 EPUB、PDF、FB2、MOBI、AZW3 与 CBZ，含划线、批注、阅读笔记和可选 AI 伴读。",
   "type": "module",
   "scripts": {
