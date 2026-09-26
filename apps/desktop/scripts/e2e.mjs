@@ -299,6 +299,43 @@ function readStoredHighlights(userData, bookKey) {
   return null;
 }
 
+function readStoredMarks(userData, bookKey) {
+  const pluginDir = path.join(userData, "library", "plugin");
+  try {
+    const index = JSON.parse(fs.readFileSync(path.join(pluginDir, "reading", "index.json"), "utf8"));
+    const folder = index?.books?.[bookKey]?.folder;
+    if (folder) {
+      const file = path.join(pluginDir, "reading", folder, "marks.json");
+      if (fs.existsSync(file)) {
+        const payload = JSON.parse(fs.readFileSync(file, "utf8"));
+        if (Array.isArray(payload?.data)) return payload.data;
+      }
+    }
+  } catch { /* fall through to the legacy settings copy */ }
+  return null;
+}
+
+function readStoredDraft(userData, bookKey) {
+  const pluginDir = path.join(userData, "library", "plugin");
+  try {
+    const index = JSON.parse(fs.readFileSync(path.join(pluginDir, "reading", "index.json"), "utf8"));
+    const folder = index?.books?.[bookKey]?.folder;
+    if (folder) {
+      const file = path.join(pluginDir, "reading", folder, "drafts.json");
+      if (fs.existsSync(file)) {
+        const payload = JSON.parse(fs.readFileSync(file, "utf8"));
+        return payload?.data?.text ? payload.data : null;
+      }
+    }
+  } catch { /* fall through to the legacy file */ }
+  try {
+    const legacy = JSON.parse(fs.readFileSync(path.join(pluginDir, "ai-drafts.json"), "utf8"));
+    return legacy?.[bookKey]?.text ? legacy[bookKey] : null;
+  } catch {
+    return null;
+  }
+}
+
 async function highlightFromPopup(page, userData, bookKey, expected) {
   await waitFor("highlight popup", () => page.evaluate(() => {
     const view = window.__qbrApp?.workspace?.getLeavesOfType("qiaomu-reader")[0]?.view;
@@ -573,6 +610,23 @@ async function runEbookScenario() {
 
     const stored = await highlightFromPopup(page, userData, bookKey, { cfi: true });
     console.log("epub: highlight stored", stored.id, stored.color);
+
+    // Reading-position bookmarks follow their book's folder too.
+    await page.evaluate(() => {
+      const plugin = window.__qbrPlugin;
+      const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view;
+      const cfi = view.engine?.currentLocation()?.cfi;
+      if (!cfi) return;
+      plugin.settings.locationMarks = [...(plugin.settings.locationMarks || []), {
+        id: "e2e-location-mark", bookPath: view.file.path, title: "E2E 位置", excerpt: "", anchor: { cfi },
+      }];
+    });
+    await page.evaluate(() => window.__qbrPlugin.saveLocationMarks());
+    const marks = await waitFor("bookmark stored in the book folder", () => readStoredMarks(userData, bookKey) || "", 10_000);
+    if (!marks.some((mark) => mark.id === "e2e-location-mark")) {
+      throw new Error(`the bookmark did not reach the book folder: ${JSON.stringify(marks).slice(0, 160)}`);
+    }
+    console.log("epub: bookmark stored in the book folder");
 
     // The undo toast must follow the passage, not sit at the page bottom.
     const placedToast = await waitFor("placed highlight toast", () => page.evaluate(() => {
@@ -1177,6 +1231,16 @@ async function runAiScenario() {
     }), 20_000);
     console.log("ai: selection translated", selected.slice(0, 18), "->", translated.slice(0, 24));
 
+    // Unsent composer text belongs to the book and lands in its folder.
+    await page.evaluate(() => {
+      const input = document.querySelector(".qiaomu-reader-ai-composer .qiaomu-reader-ai-input");
+      if (!input) return;
+      input.value = "DRAFT-MARKER-42";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const draft = await waitFor("draft stored in the book folder", () => readStoredDraft(userData, bookKey), 15_000);
+    console.log("ai: draft stored in the book folder", draft.text.slice(0, 24));
+
     // Leaving the reader (the back button opens the library) closes the
     // companion sidebar while keeping the saved preference.
     const companion = await page.evaluate(
@@ -1204,6 +1268,16 @@ async function runAiScenario() {
         return chat && JSON.stringify(chat.turns || []).includes("MOCK STREAM ANSWER") ? chat.id : "";
       }, record.id), 20_000);
       console.log("ai: chat restored after restart", restored);
+
+      await second.page.evaluate(async () => {
+        if (!document.querySelector(".qiaomu-reader-ai-input")) await window.__qbrPlugin.openAiChat?.();
+      });
+      await waitFor("composer after restart", () => second.page.evaluate(
+        () => Boolean(document.querySelector(".qiaomu-reader-ai-composer .qiaomu-reader-ai-input"))), 20_000);
+      const draftBack = await waitFor("draft restored after restart", () => second.page.evaluate(
+        () => document.querySelector(".qiaomu-reader-ai-composer .qiaomu-reader-ai-input")?.value || "",
+      ).then((value) => (value.includes("DRAFT-MARKER-42") ? value : "")), 20_000);
+      console.log("ai: draft restored after restart", draftBack.slice(0, 24));
     } finally {
       await second.app.close().catch(() => {});
     }

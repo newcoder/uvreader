@@ -17,7 +17,7 @@ import { cloneJson, createSerialTaskQueue, readJsonRecordStore, writeVerifiedJso
 
 export const READING_STORE_SCHEMA = 1;
 export const READING_STORE_FILES = Object.freeze([
-  "progress", "highlights", "pins",
+  "progress", "highlights", "pins", "drafts", "marks",
 ]);
 
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
@@ -42,6 +42,7 @@ export function readingBookPaths(root, folder) {
     progress: `${base}/progress.json`,
     highlights: `${base}/highlights.json`,
     pins: `${base}/pins.json`,
+    marks: `${base}/marks.json`,
     chats: `${base}/chats`,
     attachments: `${base}/attachments`,
     drafts: `${base}/drafts.json`,
@@ -81,6 +82,8 @@ function summarize(entry, values) {
   if (Array.isArray(values.highlights)) next.highlights = values.highlights.length;
   if (Array.isArray(values.pins)) next.pins = values.pins.length;
   if (Array.isArray(values.chats)) next.chats = values.chats.length;
+  if (Array.isArray(values.marks)) next.marks = values.marks.length;
+  if (values.drafts && typeof values.drafts === "object") next.draft = Boolean(String(values.drafts.text || "").trim());
   return next;
 }
 
@@ -186,7 +189,7 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
   // an unreadable one is reported so the caller can keep it blocked.
   async function loadBookFrom(folder) {
     const paths = readingBookPaths(base, folder);
-    const values = { progress: null, highlights: null, pins: null, chats: [], blocked: [] };
+    const values = { progress: null, highlights: null, pins: null, drafts: null, marks: null, chats: [], blocked: [] };
     for (const kind of READING_STORE_FILES) {
       const result = await readJsonRecordStore(adapter, paths[kind], kind);
       if (result.status === "unreadable") { values.blocked.push(paths[kind]); continue; }
@@ -217,7 +220,7 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
   async function loadBook(bookPath) {
     const index = await readIndex();
     const entry = index.books[bookPath];
-    if (!entry?.folder) return { progress: null, highlights: null, pins: null, chats: [], blocked: [] };
+    if (!entry?.folder) return { progress: null, highlights: null, pins: null, drafts: null, marks: null, chats: [], blocked: [] };
     return loadBookFrom(entry.folder);
   }
 
@@ -276,6 +279,27 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
     values[kind] = value;
     index.books[bookPath] = summarize(entry, values);
     await writeIndexUnlocked(index);
+    return true;
+  }
+
+  // Drops one kind's file for a book (a cleared draft is no file instead of an
+  // empty record) and refreshes the summary flag.
+  async function clearBookUnlocked(bookPath, kind) {
+    if (!READING_STORE_FILES.includes(kind)) throw new Error(`unknown reading store kind: ${kind}`);
+    const index = await readIndex();
+    const entry = index.books[bookPath];
+    if (!entry?.folder) return false;
+    const paths = readingBookPaths(base, entry.folder);
+    try { await adapter.remove(paths[kind]); } catch { /* nothing to remove */ }
+    const summary = kind === "drafts" ? { draft: false } : kind === "marks" ? { marks: 0 } : null;
+    if (summary) {
+      const fresh = await readIndex();
+      const current = fresh.books[bookPath];
+      if (current) {
+        fresh.books[bookPath] = { ...current, ...summary, updatedAt: now() };
+        await writeIndexUnlocked(fresh);
+      }
+    }
     return true;
   }
 
@@ -365,6 +389,7 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
   const writeIndex = (index) => queue.run(() => writeIndexUnlocked(index));
   const rebuildIndex = (books = []) => queue.run(() => rebuildIndexUnlocked(books));
   const migrate = (data = {}) => queue.run(() => migrateUnlocked(data));
+  const clearBook = (bookPath, kind) => queue.run(() => clearBookUnlocked(bookPath, kind));
   const saveChat = (bookPath, chat, meta = {}) => {
     const snapshot = cloneJson(chat);
     return queue.run(() => saveChatUnlocked(bookPath, snapshot, meta));
@@ -381,6 +406,7 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
     loadBookFrom,
     rebuildIndex,
     saveBook,
+    clearBook,
     migrate,
     saveChat,
     deleteChat,

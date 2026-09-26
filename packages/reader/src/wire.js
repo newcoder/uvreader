@@ -1114,8 +1114,11 @@ function showLocationMarks(view) {
     const save = async (items) => {
       const previous = view.plugin.settings.locationMarks;
       view.plugin.settings.locationMarks = items;
-      try { await view.plugin.saveAll(); modal.onOpen(); }
-      catch (error) { view.plugin.settings.locationMarks = previous; throw error; }
+      try {
+        await view.plugin.saveLocationMarks?.(items);
+        await view.plugin.saveAll();
+        modal.onOpen();
+      } catch (error) { view.plugin.settings.locationMarks = previous; throw error; }
     };
     for (const mark of marks) {
       const row = c.createDiv("qiaomu-reader-location-mark");
@@ -1164,7 +1167,7 @@ function addLocationMark(view) {
   new ReaderNameModal(view.app, qiaomuReaderTranslate("bookmark-this-location"), label, async (title) => {
     const old = view.plugin.settings.locationMarks;
     view.plugin.settings.locationMarks = normalizeLocationMarks([...normalizeLocationMarks(old), { id: newAiSessionKey(), bookPath: file.path, title, excerpt, anchor }]);
-    try { await view.plugin.saveAll(); }
+    try { await view.plugin.saveLocationMarks?.(view.plugin.settings.locationMarks); await view.plugin.saveAll(); }
     catch (error) { view.plugin.settings.locationMarks = old; throw error; }
   }).open();
 }

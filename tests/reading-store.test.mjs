@@ -227,6 +227,34 @@ test("conversations live one file per book and follow deletions", async () => {
   assert.equal((await store.loadBook("Books/b.pdf")).chats.length, 1, "the other book keeps its own");
 });
 
+test("a draft saves per book and clearing removes the file", async () => {
+  const adapter = memoryAdapter();
+  const store = createReadingStore({ adapter, root: "reading" });
+  await store.saveBook("Books/a.pdf", "drafts", { text: "半句", updatedAt: 5 }, { title: "一本书" });
+  const loaded = await store.loadBook("Books/a.pdf");
+  assert.deepEqual(loaded.drafts, { text: "半句", updatedAt: 5 });
+  assert.equal((await store.readIndex()).books["Books/a.pdf"].draft, true);
+
+  await store.clearBook("Books/a.pdf", "drafts");
+  const after = await store.loadBook("Books/a.pdf");
+  assert.equal(after.drafts, null);
+  assert.equal((await store.readIndex()).books["Books/a.pdf"].draft, false);
+  assert.equal(adapter.files.has(readingBookPaths("reading", "一本书").drafts), false);
+});
+
+test("bookmarks save per book and clearing removes the file", async () => {
+  const adapter = memoryAdapter();
+  const store = createReadingStore({ adapter, root: "reading" });
+  await store.saveBook("Books/a.pdf", "marks", [{ id: "m1", title: "位置", anchor: { cfi: "x" } }], { title: "一本书" });
+  const loaded = await store.loadBook("Books/a.pdf");
+  assert.equal(loaded.marks.length, 1);
+  assert.equal((await store.readIndex()).books["Books/a.pdf"].marks, 1);
+
+  await store.clearBook("Books/a.pdf", "marks");
+  assert.equal((await store.loadBook("Books/a.pdf")).marks, null);
+  assert.equal((await store.readIndex()).books["Books/a.pdf"].marks, 0);
+});
+
 test("a damaged chat file is reported without losing the others", async () => {
   const adapter = memoryAdapter();
   const store = createReadingStore({ adapter, root: "reading" });

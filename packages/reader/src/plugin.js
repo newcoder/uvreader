@@ -13,7 +13,7 @@ import { createReadingStore } from "./reading-store.js";
 import { cloneJson, createSerialTaskQueue, isPlainRecord, mergeReadingProgress, readJsonRecordStore, writeVerifiedJsonRecord } from "./storage.js";
 import { createStarterLibraryInstaller } from "./starter-library.js";
 import { disposeReaderFonts } from "./reader-fonts.js";
-import { loadAiDrafts } from "./ai-drafts.js";
+import { createAiDraftStore, loadAiDrafts, normalizeDrafts } from "./ai-drafts.js";
 import { migrateCoverCache } from "./book-cover.js";
 import { migrateReaderTheme } from "./reader-themes.js";
 import { normalizeLocationMarks } from "./reading-workflow.js";
@@ -33,6 +33,7 @@ export function createPlugin({
     this.pins = {};
     this._readingStoreCache = null;
     this._aiChatsAdopted = false;
+    this._marksAdopted = false;
     this.progressBackups = {};
     this._progressQueue = createSerialTaskQueue();
     this._localDataQueue = createSerialTaskQueue();
@@ -135,7 +136,37 @@ export function createPlugin({
   }
   async _attachAiDraftStore() {
     const onDraftStoreFailure = () => new Notice(qiaomuReaderTranslate("drafts-could-not-be-saved-they-remain-in-memory-check-plugin-fol"));
-    this.aiDraftStore = await loadAiDrafts(this.app.vault.adapter, `${this.manifest.dir}/ai-drafts.json`, onDraftStoreFailure);
+    const legacyPath = `${this.manifest.dir}/ai-drafts.json`;
+    if (this.settings.storageLayout === "books") {
+      const adapter = this.app.vault.adapter;
+      const store = this._readingStore();
+      const loaded = this._loadedDrafts || {};
+      this.aiDraftStore = await createAiDraftStore({
+        load: async () => {
+          const drafts = { ...loaded };
+          // Drafts that only exist in the old global file are adopted once;
+          // note paths never become book folders.
+          const legacy = await readJsonRecordStore(adapter, legacyPath, "AI drafts");
+          if (legacy.status === "ok") {
+            for (const [key, record] of Object.entries(normalizeDrafts(legacy.value))) {
+              if (!record?.text || drafts[key] || this.app.vault.getAbstractFileByPath(key)?.extension === "md") continue;
+              drafts[key] = record;
+              try { await store.saveBook(key, "drafts", record, this._bookMeta(key)); }
+              catch { /* retry on the next start */ }
+            }
+          }
+          return drafts;
+        },
+        save: async (changed) => {
+          for (const [key, record] of Object.entries(changed)) {
+            if (record?.text) await store.saveBook(key, "drafts", record, this._bookMeta(key));
+            else await store.clearBook(key, "drafts");
+          }
+        },
+      }, onDraftStoreFailure, window);
+    } else {
+      this.aiDraftStore = await loadAiDrafts(this.app.vault.adapter, legacyPath, onDraftStoreFailure);
+    }
     this.register(() => { void this.aiDraftStore.flush(); });
   }
   _registerReaderViews() {
@@ -695,6 +726,63 @@ export function createPlugin({
     for (const kind of ["progress", "highlights", "pins"]) this._adoptBooksLayout(result, kind);
     await this._restoreAiChats(result);
     await this._migrateAiAttachments();
+    const drafts = {};
+    const marks = [];
+    for (const [bookPath, values] of Object.entries(result?.values || {})) {
+      if (values.drafts?.text) drafts[bookPath] = values.drafts;
+      for (const mark of values.marks || []) {
+        if (mark?.id) marks.push({ ...mark, bookPath: mark.bookPath || bookPath });
+      }
+    }
+    this._loadedDrafts = drafts;
+    await this._restoreLocationMarks(marks);
+  }
+  // Reading-position bookmarks live in their book's folder like the rest of the
+  // traces. Bookmarks that only exist in the plugin data are adopted once.
+  async _restoreLocationMarks(stored) {
+    const known = new Set(stored.map((mark) => mark?.id).filter(Boolean));
+    const legacy = normalizeLocationMarks(this.settings.locationMarks);
+    const adopt = legacy.filter((mark) => mark?.id && mark.bookPath && !known.has(mark.id));
+    const all = normalizeLocationMarks([...stored, ...adopt]);
+    this.settings.locationMarks = all;
+    const byBook = new Map();
+    for (const mark of all) {
+      if (!mark.bookPath) continue;
+      const list = byBook.get(mark.bookPath) || [];
+      list.push(mark);
+      byBook.set(mark.bookPath, list);
+    }
+    this._marksByBook = byBook;
+    if (!adopt.length) { this._marksAdopted = true; return; }
+    const store = this._readingStore();
+    const written = await Promise.all([...new Set(adopt.map((mark) => mark.bookPath))].map((bookPath) => (
+      store.saveBook(bookPath, "marks", byBook.get(bookPath) || [], this._bookMeta(bookPath))
+        .then(() => true).catch(() => false)
+    )));
+    this._marksAdopted = written.every(Boolean);
+    if (!this._marksAdopted) console.error("UV Reader: some bookmarks could not be adopted; the plugin data stays authoritative");
+  }
+  // Called after the bookmark panel changed the in-memory list. Books that lost
+  // their last bookmark get their file removed.
+  async saveLocationMarks(items = this.settings.locationMarks) {
+    const groups = new Map();
+    for (const mark of normalizeLocationMarks(items)) {
+      if (!mark.bookPath) continue;
+      const list = groups.get(mark.bookPath) || [];
+      list.push(mark);
+      groups.set(mark.bookPath, list);
+    }
+    const previous = this._marksByBook || new Map();
+    this._marksByBook = groups;
+    if (this.settings.storageLayout !== "books" || !this._marksAdopted) return false;
+    const store = this._readingStore();
+    await Promise.all([...groups].map(([bookPath, list]) => (
+      store.saveBook(bookPath, "marks", list, this._bookMeta(bookPath)).catch(() => false)
+    )));
+    for (const bookPath of previous.keys()) {
+      if (!groups.has(bookPath)) await store.clearBook(bookPath, "marks").catch(() => false);
+    }
+    return true;
   }
   // Conversations follow their book's folder. The in-memory history is the
   // working copy: the store's copies come first, conversations that only exist
@@ -926,12 +1014,16 @@ export function createPlugin({
   }
   _saveLocalData() {
     captureDeviceProfile(this.settings);
-    // In the per-book layout conversations live in their book's folder; only
-    // chat without a book still belongs to the host's history file. Until every
-    // adoption write landed the host file keeps the full history as a mirror.
-    const settings = this.settings.storageLayout === "books" && this._aiChatsAdopted
-      ? { ...this.settings, aiChatHistory: (this.settings.aiChatHistory || []).filter((chat) => !chat?.bookPath) }
-      : this.settings;
+    // In the per-book layout conversations and bookmarks live in their book's
+    // folder; only entries without a book still belong to the plugin data.
+    // Until every adoption write landed the data file keeps the full list.
+    let settings = this.settings;
+    if (this.settings.storageLayout === "books") {
+      const patch = {};
+      if (this._aiChatsAdopted) patch.aiChatHistory = (this.settings.aiChatHistory || []).filter((chat) => !chat?.bookPath);
+      if (this._marksAdopted) patch.locationMarks = (this.settings.locationMarks || []).filter((mark) => !mark?.bookPath);
+      if (Object.keys(patch).length) settings = { ...this.settings, ...patch };
+    }
     const snapshot = cloneJson({
       settings,
       progressBackups: this.progressBackups,
