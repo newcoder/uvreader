@@ -899,6 +899,70 @@ async function runRestartScenario() {
   }
 }
 
+// Reading projects: the traces move into the project folder, identity and
+// bookmarks stay with the book, and deleting the project brings everything back.
+async function runProjectsScenario() {
+  const bookKey = book.replace(/\\/g, "/");
+  const { app, page, userData } = await launch(book);
+  try {
+    await page.waitForSelector(".qiaomu-reader-view", { timeout: 30_000 });
+    await waitFor("reader ready", () => readerReady(page), 30_000);
+    await page.evaluate((key) => window.__qbrPlugin.addHighlight(key, {
+      id: "project-hl", color: "yellow", text: "项目测试划线", cfi: "epubcfi(/6/2!/4/2,/1:0,/1:6)", created: Date.now(),
+    }), bookKey);
+    const before = await waitFor("highlight in the book folder", () => readStoredHighlights(userData, bookKey), 15_000);
+    if (!before.some((hl) => hl.id === "project-hl")) throw new Error("the highlight did not reach the book folder");
+
+    const created = await page.evaluate(() => window.__qbrPlugin.createReadingProject("E2E 项目"));
+    if (created !== "E2E 项目") throw new Error(`unexpected project name: ${created}`);
+    const moved = await page.evaluate((key) => window.__qbrPlugin.moveBookToReadingProject(key, "E2E 项目"), bookKey);
+    if (!moved?.moved) throw new Error(`the move reported nothing: ${JSON.stringify(moved)}`);
+
+    const readingRoot = path.join(userData, "library", "plugin", "reading");
+    const index = JSON.parse(fs.readFileSync(path.join(readingRoot, "index.json"), "utf8"));
+    const folder = index.books[bookKey]?.folder;
+    if (!folder) throw new Error("the index lost the book");
+    const projectDir = path.join(readingRoot, "_projects", "E2E 项目", folder);
+    if (!fs.existsSync(path.join(projectDir, "highlights.json"))) throw new Error("highlights did not move into the project");
+    if (!fs.existsSync(path.join(readingRoot, folder, "book.json"))) throw new Error("book.json left the book folder");
+    const project = JSON.parse(fs.readFileSync(path.join(readingRoot, "_projects", "E2E 项目", "project.json"), "utf8"));
+    if (project.books[0]?.path !== bookKey) throw new Error(`project.json does not list the book: ${JSON.stringify(project.books)}`);
+    const inMemory = await page.evaluate((key) => window.__qbrPlugin.getHighlights(key).length, bookKey);
+    if (inMemory !== before.length) throw new Error(`the reader lost highlights after the move: ${inMemory} vs ${before.length}`);
+    console.log("projects: traces moved into the project, identity stayed", folder);
+
+    // The home page shows the project and opens the manager.
+    await page.evaluate(async () => {
+      const leaf = window.__qbrApp.workspace.getLeaf(true);
+      await leaf.setViewState({ type: "qbr-home", active: true });
+    });
+    await page.waitForSelector(".qbr-home-view", { timeout: 15_000 });
+    const card = await waitFor("project card on the home page", () => page.evaluate(() => {
+      const cards = [...document.querySelectorAll(".qbr-home-card")];
+      return cards.some((item) => item.textContent.includes("E2E 项目")) ? "found" : "";
+    }), 15_000);
+    if (card !== "found") throw new Error("the home page did not list the project");
+    await page.evaluate(() => {
+      const buttons = [...document.querySelectorAll(".qbr-home-actions button")];
+      buttons.find((button) => button.textContent.includes("阅读项目"))?.click();
+    });
+    await page.waitForSelector(".qiaomu-reader-projects-modal", { timeout: 15_000 });
+    console.log("projects: home page lists the project and the manager opens");
+
+    // Deleting the project moves the traces back and removes the folder.
+    const result = await page.evaluate(() => window.__qbrPlugin.deleteReadingProject("E2E 项目"));
+    if (result.failed.length) throw new Error(`delete reported failures: ${JSON.stringify(result.failed)}`);
+    if (!fs.existsSync(path.join(readingRoot, folder, "highlights.json"))) throw new Error("highlights did not move back");
+    if (fs.existsSync(path.join(readingRoot, "_projects", "E2E 项目", "project.json"))) throw new Error("the project folder survived the delete");
+    const restored = readStoredHighlights(userData, bookKey) || [];
+    if (!restored.some((hl) => hl.id === "project-hl")) throw new Error("the highlight was lost in the round trip");
+    console.log("projects: deleting the project moved everything back");
+  } finally {
+    await app.close().catch(() => {});
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+}
+
 async function runPdfScenario() {
   const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-pdf-"));
   const fixture = path.join(fixtureDir, "sample.pdf");
@@ -1994,6 +2058,7 @@ const scenarios = [
   ["home", runHomeScenario],
   ["ebook", runEbookScenario],
   ["restart", runRestartScenario],
+  ["projects", runProjectsScenario],
   ["pdf", runPdfScenario],
   ["cjk-pin", runCjkPdfPinScenario],
   ["pinyin", runPinyinScenario],

@@ -34,18 +34,29 @@ export function sanitizeReadingFolder(title) {
   return value.slice(0, 60).trim() || "未命名书籍";
 }
 
-export function readingBookPaths(root, folder) {
-  const base = `${root}/${folder}`;
+export function readingProjectPath(root, project) {
+  return `${root}/_projects/${project}`;
+}
+
+// Two locations per book. Its own folder holds the identity and everything
+// bound to the text itself (book.json, pinned pinyin, reading-position
+// bookmarks, later derivatives). The moveable reading traces (progress,
+// highlights, drafts, conversations, attachments) live in the same folder by
+// default, or under the project folder once the book joins a reading project.
+export function readingBookPaths(root, folder, project = "") {
+  const book = `${root}/${folder}`;
+  const traces = project ? `${readingProjectPath(root, project)}/${folder}` : book;
   return {
-    dir: base,
-    meta: `${base}/book.json`,
-    progress: `${base}/progress.json`,
-    highlights: `${base}/highlights.json`,
-    pins: `${base}/pins.json`,
-    marks: `${base}/marks.json`,
-    chats: `${base}/chats`,
-    attachments: `${base}/attachments`,
-    drafts: `${base}/drafts.json`,
+    dir: book,
+    tracesDir: traces,
+    meta: `${book}/book.json`,
+    pins: `${book}/pins.json`,
+    marks: `${book}/marks.json`,
+    progress: `${traces}/progress.json`,
+    highlights: `${traces}/highlights.json`,
+    drafts: `${traces}/drafts.json`,
+    chats: `${traces}/chats`,
+    attachments: `${traces}/attachments`,
   };
 }
 
@@ -185,10 +196,10 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
     return { folder: entry.folder, entry };
   }
 
-  // Reads one book's files from its folder. A missing file is "no data yet";
+  // Reads one book's files from its folder(s). A missing file is "no data yet";
   // an unreadable one is reported so the caller can keep it blocked.
-  async function loadBookFrom(folder) {
-    const paths = readingBookPaths(base, folder);
+  async function loadBookFrom(folder, project = "") {
+    const paths = readingBookPaths(base, folder, project);
     const values = { progress: null, highlights: null, pins: null, drafts: null, marks: null, chats: [], blocked: [] };
     for (const kind of READING_STORE_FILES) {
       const result = await readJsonRecordStore(adapter, paths[kind], kind);
@@ -221,7 +232,7 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
     const index = await readIndex();
     const entry = index.books[bookPath];
     if (!entry?.folder) return { progress: null, highlights: null, pins: null, drafts: null, marks: null, chats: [], blocked: [] };
-    return loadBookFrom(entry.folder);
+    return loadBookFrom(entry.folder, entry.project);
   }
 
   // The index is a cache: if it is lost, the folders' book.json files rebuild
@@ -243,9 +254,14 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
         }
       }
       if (!folder) continue;
-      const values = await loadBookFrom(folder);
+      // book.json knows whether the traces live in a project folder.
+      let project = "";
+      const meta = await readJsonRecordStore(adapter, readingBookPaths(base, folder).meta, "book");
+      if (meta.status === "ok") project = String(meta.value?.project || "");
+      const values = await loadBookFrom(folder, project);
       index.books[book.bookPath] = summarize({
         folder,
+        project,
         title: String(book.title || ""),
         author: String(book.author || ""),
         format: String(book.format || ""),
@@ -272,8 +288,8 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
       entry = index.books[bookPath];
     }
     if (!entry?.folder) throw new Error("book has no reading folder");
-    const paths = readingBookPaths(base, entry.folder);
-    await ensureFolderUnlocked(paths.dir);
+    const paths = readingBookPaths(base, entry.folder, entry.project);
+    await ensureFolderUnlocked(paths[kind].substring(0, paths[kind].lastIndexOf("/")));
     await writeVerifiedJsonRecord(adapter, paths[kind], { schemaVersion: READING_STORE_SCHEMA, data: value }, { validateExisting: false });
     const values = {};
     values[kind] = value;
@@ -289,7 +305,7 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
     const index = await readIndex();
     const entry = index.books[bookPath];
     if (!entry?.folder) return false;
-    const paths = readingBookPaths(base, entry.folder);
+    const paths = readingBookPaths(base, entry.folder, entry.project);
     try { await adapter.remove(paths[kind]); } catch { /* nothing to remove */ }
     const summary = kind === "drafts" ? { draft: false } : kind === "marks" ? { marks: 0 } : null;
     if (summary) {
@@ -322,8 +338,8 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
 
   async function saveChatUnlocked(bookPath, chat, meta = {}) {
     if (!chat?.id) throw new Error("chat has no id");
-    const { folder } = await ensureBookUnlocked(bookPath, meta);
-    const paths = readingBookPaths(base, folder);
+    const { folder, entry } = await ensureBookUnlocked(bookPath, meta);
+    const paths = readingBookPaths(base, folder, entry.project);
     await ensureFolderUnlocked(paths.chats);
     await writeVerifiedJsonRecord(adapter, `${paths.chats}/${sanitizeReadingFileName(chat.id)}.json`, {
       schemaVersion: READING_STORE_SCHEMA,
@@ -333,11 +349,17 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
     return true;
   }
 
+  // Vault path for one attachment's bytes (in the book's trace folder).
+  async function attachmentPathUnlocked(bookPath, fileName) {
+    const { folder, entry } = await ensureBookUnlocked(bookPath, {});
+    return `${readingBookPaths(base, folder, entry.project).attachments}/${fileName}`;
+  }
+
   async function deleteChatUnlocked(bookPath, chatId) {
     const index = await readIndex();
     const entry = index.books[bookPath];
     if (!entry?.folder) return false;
-    const paths = readingBookPaths(base, entry.folder);
+    const paths = readingBookPaths(base, entry.folder, entry.project);
     try { await adapter.remove(`${paths.chats}/${sanitizeReadingFileName(chatId)}.json`); }
     catch { /* the file is already gone */ }
     await updateChatCountUnlocked(bookPath, paths);
@@ -380,6 +402,147 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
     return report;
   }
 
+  // ── reading projects ───────────────────────────────────────────────────────
+  // A project groups the moveable traces of related books so they can travel
+  // together. Identity, pinned pinyin and bookmarks always stay with the book.
+  const TRACE_MEMBERS = Object.freeze(["progress.json", "highlights.json", "drafts.json", "chats", "attachments"]);
+
+  async function writeProjectUnlocked(project, patch = {}) {
+    const dir = readingProjectPath(base, project);
+    await ensureFolderUnlocked(dir);
+    const file = `${dir}/project.json`;
+    const current = await readJsonRecordStore(adapter, file, "project");
+    const baseValue = current.status === "ok"
+      ? current.value
+      : { schemaVersion: READING_STORE_SCHEMA, createdAt: now(), books: [] };
+    const next = { ...baseValue, ...patch, schemaVersion: READING_STORE_SCHEMA, name: project, updatedAt: now() };
+    await writeVerifiedJsonRecord(adapter, file, next, { validateExisting: false });
+    return next;
+  }
+
+  async function readProjectUnlocked(project) {
+    const result = await readJsonRecordStore(adapter, `${readingProjectPath(base, project)}/project.json`, "project");
+    if (result.status !== "ok") return { name: project, books: [] };
+    return {
+      ...result.value,
+      name: String(result.value.name || project),
+      books: Array.isArray(result.value.books) ? result.value.books : [],
+    };
+  }
+
+  async function listProjectsUnlocked() {
+    const dir = `${base}/_projects`;
+    const out = [];
+    try {
+      if (await adapter.exists(dir)) {
+        for (const name of await adapter.list(dir)) {
+          if (!await adapter.exists(`${dir}/${name}/project.json`)) continue;
+          out.push(await readProjectUnlocked(name));
+        }
+      }
+    } catch { /* no projects folder yet */ }
+    out.sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0));
+    return out;
+  }
+
+  function projectBookPath(item) {
+    return typeof item === "string" ? item : String(item?.path || "");
+  }
+
+  async function addProjectBookUnlocked(project, bookPath, folder, title) {
+    const data = await readProjectUnlocked(project);
+    const books = data.books.filter((item) => projectBookPath(item) !== bookPath);
+    books.push({ path: bookPath, folder, title: String(title || "") });
+    await writeProjectUnlocked(project, { books });
+  }
+
+  async function removeProjectBookUnlocked(project, bookPath) {
+    const data = await readProjectUnlocked(project);
+    await writeProjectUnlocked(project, { books: data.books.filter((item) => projectBookPath(item) !== bookPath) });
+  }
+
+  async function createProjectUnlocked(name) {
+    const wanted = sanitizeReadingFolder(String(name || "").trim()).slice(0, 40) || "未命名项目";
+    const taken = new Set();
+    for (const project of await listProjectsUnlocked()) taken.add(project.name.toLowerCase());
+    let project = wanted;
+    let suffix = 2;
+    while (taken.has(project.toLowerCase())) project = `${wanted} (${suffix++})`;
+    await writeProjectUnlocked(project, { books: [] });
+    return project;
+  }
+
+  // Moves a book's traces between its own folder and a project folder (or
+  // between projects). Every member that moved is moved back if anything
+  // fails, so the book never ends up half in a project.
+  async function moveBookUnlocked(bookPath, project) {
+    const index = await readIndex();
+    const entry = index.books[bookPath];
+    if (!entry?.folder) throw new Error("book has no reading folder");
+    const from = String(entry.project || "");
+    const to = String(project || "");
+    if (from === to) return { moved: 0, project: to, from };
+    const bookDir = `${base}/${entry.folder}`;
+    const fromDir = from ? `${readingProjectPath(base, from)}/${entry.folder}` : bookDir;
+    const toDir = to ? `${readingProjectPath(base, to)}/${entry.folder}` : bookDir;
+    const moved = [];
+    try {
+      await ensureFolderUnlocked(toDir);
+      for (const member of TRACE_MEMBERS) {
+        const source = `${fromDir}/${member}`;
+        if (!await adapter.exists(source)) continue;
+        const target = `${toDir}/${member}`;
+        if (await adapter.exists(target)) throw new Error(`目标目录里已有同名内容：${member}`);
+        await adapter.rename(source, target);
+        moved.push(member);
+      }
+    } catch (error) {
+      for (const member of moved.reverse()) {
+        try { await adapter.rename(`${toDir}/${member}`, `${fromDir}/${member}`); }
+        catch { /* the file stays in the target and is reported */ }
+      }
+      throw error;
+    }
+    const rollback = async () => {
+      for (const member of moved.reverse()) {
+        try { await adapter.rename(`${toDir}/${member}`, `${fromDir}/${member}`); }
+        catch { /* reported to the caller */ }
+      }
+    };
+    try {
+      const metaPath = `${bookDir}/book.json`;
+      const meta = await readJsonRecordStore(adapter, metaPath, "book");
+      if (meta.status === "ok") {
+        await writeVerifiedJsonRecord(adapter, metaPath, { ...meta.value, project: to || null }, { validateExisting: false });
+      }
+      index.books[bookPath] = { ...entry, project: to, updatedAt: now() };
+      await writeIndexUnlocked(index);
+      if (to) await addProjectBookUnlocked(to, bookPath, entry.folder, entry.title);
+      if (from) await removeProjectBookUnlocked(from, bookPath);
+      return { moved: moved.length, project: to, from };
+    } catch (error) {
+      await rollback();
+      throw error;
+    }
+  }
+
+  async function deleteProjectUnlocked(project, { moveBooks = true } = {}) {
+    const data = await readProjectUnlocked(project);
+    const result = { moved: [], failed: [] };
+    if (moveBooks) {
+      for (const item of data.books) {
+        const bookPath = projectBookPath(item);
+        if (!bookPath) continue;
+        try { await moveBookUnlocked(bookPath, ""); result.moved.push(bookPath); }
+        catch { result.failed.push(bookPath); }
+      }
+    }
+    if (!result.failed.length) {
+      try { await adapter.remove(readingProjectPath(base, project)); } catch { /* left in place */ }
+    }
+    return result;
+  }
+
   const ensureBook = (bookPath, meta = {}) => queue.run(() => ensureBookUnlocked(bookPath, meta));
   // The snapshot is taken when the call is made, not when the queued write runs.
   const saveBook = (bookPath, kind, value, meta = {}) => {
@@ -395,6 +558,11 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
     return queue.run(() => saveChatUnlocked(bookPath, snapshot, meta));
   };
   const deleteChat = (bookPath, chatId) => queue.run(() => deleteChatUnlocked(bookPath, chatId));
+  const attachmentPath = (bookPath, fileName) => queue.run(() => attachmentPathUnlocked(bookPath, fileName));
+  const listProjects = () => queue.run(() => listProjectsUnlocked());
+  const createProject = (name) => queue.run(() => createProjectUnlocked(name));
+  const moveBook = (bookPath, project) => queue.run(() => moveBookUnlocked(bookPath, project));
+  const deleteProject = (project, options) => queue.run(() => deleteProjectUnlocked(project, options));
 
   return {
     root: base,
@@ -410,6 +578,11 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
     migrate,
     saveChat,
     deleteChat,
+    attachmentPath,
+    listProjects,
+    createProject,
+    moveBook,
+    deleteProject,
     // Resolves when every queued write has settled, so a read right after a
     // save sees the file it just wrote.
     drain: () => queue.drain(),

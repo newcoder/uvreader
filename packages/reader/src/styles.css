@@ -184,6 +184,8 @@ img.qiaomu-reader-pdf-lazy:not([data-loaded="1"]) { background:color-mix(in srgb
 .qiaomu-reader-lib-title { font-size:25px; font-weight:700; letter-spacing:-.035em; color:var(--qiaomu-reader-lib-text,#1a1a2e); line-height:1.08; }
 .qiaomu-reader-lib-sub { font-size:12px; font-weight:450; letter-spacing:.01em; color:var(--qiaomu-reader-lib-muted,#8a8678); margin-top:5px; }
 .qiaomu-reader-lib-tools { display:flex; align-items:center; gap:12px; padding-bottom:18px; border-bottom:1px solid var(--qiaomu-reader-lib-border,#ddd9ce); }
+.qiaomu-reader-lib-projects { display:inline-flex; align-items:center; height:38px; padding:0 14px; border-radius:9px; cursor:pointer; background:transparent; border:1px solid var(--qiaomu-reader-lib-border); color:var(--qiaomu-reader-lib-text); font-size:12.5px; font-weight:600; white-space:nowrap; font-family:inherit; transition:border-color .13s,color .13s; }
+.qiaomu-reader-lib-projects:hover { border-color:var(--qiaomu-reader-lib-accent); color:var(--qiaomu-reader-lib-accent); }
 .qiaomu-reader-lib-search { display:flex; align-items:center; gap:9px; padding:0 13px; height:40px; border-radius:9px; background:color-mix(in srgb,var(--qiaomu-reader-lib-text) 3%,transparent); border:1px solid var(--qiaomu-reader-lib-border); flex:1 1 420px; min-width:190px; transition:border-color .15s,background .15s; }
 .qiaomu-reader-lib-search:focus-within { border-color:color-mix(in srgb,var(--qiaomu-reader-lib-accent) 65%,var(--qiaomu-reader-lib-border)); background:transparent; }
 .qiaomu-reader-lib-search-ic { display:flex; color:var(--qiaomu-reader-lib-muted); opacity:.75; }
@@ -380,6 +382,17 @@ button.qiaomu-reader-py-chip:focus-visible { outline:2px solid color-mix(in srgb
 
 /* ── Settings-page callouts, store recovery, ACP guide ───────────────────── */
 .qiaomu-reader-set-note { font-size:12.5px; line-height:1.6; color:var(--text-muted); background:var(--background-secondary); border:1px solid var(--background-modifier-border); border-radius:9px; padding:11px 13px; margin:6px 0 14px; }
+.qiaomu-reader-projects-bar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
+.qiaomu-reader-projects-current { font-size:12.5px; color:var(--text-muted); }
+.qiaomu-reader-projects-list { display:flex; flex-direction:column; gap:12px; max-height:52vh; overflow-y:auto; }
+.qiaomu-reader-project-row { border:1px solid var(--background-modifier-border); border-radius:11px; padding:12px 14px; background:var(--background-secondary); }
+.qiaomu-reader-project-head { display:flex; align-items:center; gap:10px; }
+.qiaomu-reader-project-name { font-size:14.5px; font-weight:650; color:var(--text-normal); }
+.qiaomu-reader-project-count { font-size:12px; color:var(--text-muted); }
+.qiaomu-reader-project-actions { display:flex; align-items:center; gap:8px; margin-left:auto; }
+.qiaomu-reader-project-books { display:flex; flex-direction:column; gap:6px; margin-top:10px; }
+.qiaomu-reader-project-book { display:flex; align-items:center; gap:10px; font-size:12.5px; color:var(--text-muted); }
+.qiaomu-reader-project-book-title { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .qiaomu-reader-set-note code { font-size:11.5px; background:var(--background-modifier-hover); padding:1px 5px; border-radius:4px; word-break:break-all; }
 .qiaomu-reader-store-recovery { margin:10px 0 18px; padding:13px 14px; border:1px solid color-mix(in srgb,var(--text-warning,#d98a00) 45%,var(--background-modifier-border)); border-radius:10px; background:color-mix(in srgb,var(--text-warning,#d98a00) 7%,var(--background-secondary)); }
 .qiaomu-reader-store-recovery-title { display:flex; align-items:center; gap:8px; color:var(--text-normal); font-size:13.5px; font-weight:700; }

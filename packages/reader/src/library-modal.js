@@ -146,6 +146,8 @@ export function createLibraryModal({
   }
   _buildLibTools(hdr) {
     const tools = hdr.createDiv("qiaomu-reader-lib-tools");
+    const projects = tools.createEl("button", { cls: "qiaomu-reader-lib-projects", text: qiaomuReaderTranslate("reading-projects") });
+    projects.addEventListener("click", () => this.plugin.openReadingProjects?.({ mode: "manage" }));
     const search = tools.createDiv("qiaomu-reader-lib-search");
     const searchIcon = search.createDiv("qiaomu-reader-lib-search-ic");
     svgIcon(searchIcon, "search");
@@ -364,10 +366,14 @@ export function createLibraryModal({
       const afterGone = () => this._refresh();
       deleteBookFromVault(this.app, this.plugin, file, afterGone);
     }));
+    const projectsItem = (menu) => menu.addItem((it) => it.setTitle(qiaomuReaderTranslate("add-to-reading-project"))
+      .setIcon("folder-plus").onClick(() => {
+        this.plugin.openReadingProjects?.({ mode: "pick", bookFile: file, onDone: () => this._refresh() });
+      }));
     return (ev) => {
       ev.preventDefault(); ev.stopPropagation();
       const menu = addBookFileMenu(this.app, new Menu(), file, this.plugin);
-      menu.addSeparator(); removeItem(menu);
+      menu.addSeparator(); projectsItem(menu); menu.addSeparator(); removeItem(menu);
       menu.showAtMouseEvent(ev);
     };
   }

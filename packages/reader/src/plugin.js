@@ -504,8 +504,7 @@ export function createPlugin({
   async resolveAttachmentPath(bookPath, attachment) {
     if (this.settings.storageLayout !== "books" || !bookPath) return "";
     try {
-      const { folder } = await this._readingStore().ensureBook(bookPath, this._bookMeta(bookPath));
-      return `${this._readingRoot()}/${folder}/attachments/${aiAttachmentFileName(attachment)}`;
+      return await this._readingStore().attachmentPath(bookPath, aiAttachmentFileName(attachment));
     } catch (error) {
       console.error("UV Reader: could not resolve the attachment folder", error);
       return "";
@@ -851,6 +850,42 @@ export function createPlugin({
     }
     if (moved) console.info(`UV Reader: moved ${moved} attachment(s) into their book folders`);
     return moved;
+  }
+  // ── reading projects ───────────────────────────────────────────────────────
+  // A project groups the moveable traces (progress, highlights, drafts,
+  // conversations, attachments) of related books; identity, pinned pinyin and
+  // bookmarks stay in each book's own folder.
+  async listReadingProjects() {
+    if (this.settings.storageLayout !== "books") return [];
+    try { return await this._readingStore().listProjects(); }
+    catch (error) {
+      console.error("UV Reader: could not read the reading projects", error);
+      return [];
+    }
+  }
+  async createReadingProject(name) {
+    if (this.settings.storageLayout !== "books") return "";
+    return this._readingStore().createProject(name);
+  }
+  async moveBookToReadingProject(bookPath, project) {
+    if (this.settings.storageLayout !== "books" || !bookPath) return false;
+    return this._readingStore().moveBook(bookPath, project);
+  }
+  async removeBookFromReadingProject(bookPath) {
+    return this.moveBookToReadingProject(bookPath, "");
+  }
+  async deleteReadingProject(name) {
+    if (this.settings.storageLayout !== "books") return { moved: [], failed: [] };
+    return this._readingStore().deleteProject(name, { moveBooks: true });
+  }
+  async readingProjectOf(bookPath) {
+    if (this.settings.storageLayout !== "books" || !bookPath) return "";
+    try {
+      const index = await this._readingStore().readIndex();
+      return String(index.books[bookPath]?.project || "");
+    } catch {
+      return "";
+    }
   }
   // Called by the conversation panel after it updates the in-memory history.
   async saveAiChatRecord(chat) {

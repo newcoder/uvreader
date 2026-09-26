@@ -84,6 +84,7 @@ import { createBuildCustomFontInput } from "./custom-font-input.js";
 import { createWhatsNew } from "./whats-new.js";
 import { createTranslateModal } from "./translate-modal.js";
 import { createAiChatHistoryModal } from "./ai-chat-history-modal.js";
+import { createReadingProjectsModal } from "./reading-projects-modal.js";
 import { createSettingsGroupModal } from "./settings-group-modal.js";
 import { createHighlightExportModal } from "./highlight-export-modal.js";
 import { createBookSetupModal } from "./book-setup-modal.js";
@@ -2828,6 +2829,13 @@ const AiChatHistoryModal = createAiChatHistoryModal({
   qiaomuReaderLocale,
   qiaomuReaderTranslate,
 });
+const ReadingProjectsModal = createReadingProjectsModal({
+  Modal,
+  Notice,
+  ConfirmModal,
+  ReaderNameModal,
+  qiaomuReaderTranslate,
+});
 const GoToPageModal = createGoToPageModal({
   Modal,
   qiaomuReaderTranslate,
@@ -3433,5 +3441,11 @@ const QiaomuBookReader = createPlugin({
   writeBookProperty,
   writeWhatsNewNote,
 });
+
+// The library cards and the home page open the project manager through the
+// plugin instance.
+QiaomuBookReader.prototype.openReadingProjects = function openReadingProjects(options = {}) {
+  new ReadingProjectsModal(this.app, this, options).open();
+};
 
 export default QiaomuBookReader;

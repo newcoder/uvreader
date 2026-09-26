@@ -53,7 +53,8 @@ export function createHomeView(leaf, options) {
     signature() {
       const progress = Object.keys(plugin.progress || {}).length;
       const books = app.vault.getFiles().filter((file) => BOOK_EXTENSIONS.includes(file.extension)).length;
-      return `${progress}:${books}`;
+      const projects = this._projectCount || 0;
+      return `${progress}:${books}:${projects}`;
     }
 
     async onClose() {
@@ -72,6 +73,8 @@ export function createHomeView(leaf, options) {
       open.addEventListener("click", () => void onOpenFileDialog());
       const library = actions.createEl("button", { text: "书库" });
       library.addEventListener("click", () => void onOpenLibrary());
+      const projects = actions.createEl("button", { text: "阅读项目" });
+      projects.addEventListener("click", () => plugin.openReadingProjects?.({ mode: "manage" }));
 
       const recent = Object.entries(plugin.progress || {})
         .filter(([, entry]) => entry && (entry.lastRead || entry.percent))
@@ -121,6 +124,26 @@ export function createHomeView(leaf, options) {
         card.createDiv({ cls: "qbr-home-card-title", text: file.basename });
         card.createDiv({ cls: "qbr-home-card-meta", text: percentOf(plugin, file.path) ? `${percentOf(plugin, file.path)}%` : "未开始" });
         card.addEventListener("click", () => void onOpenBook(file.path));
+      }
+
+      const projectGrid = section("阅读项目", "把相关图书的进度、划线和会话归到一处，可整组迁移。");
+      void this.renderProjects(projectGrid);
+    }
+
+    async renderProjects(grid) {
+      const projects = await plugin.listReadingProjects?.() || [];
+      this._projectCount = projects.length;
+      if (!grid.isConnected) return;
+      if (!projects.length) {
+        grid.createDiv({ cls: "qbr-home-section-note", text: "还没有阅读项目。打开“书库”，在书的菜单里选择“加入阅读项目…”。" });
+        return;
+      }
+      for (const project of projects) {
+        const card = grid.createDiv("qbr-home-card");
+        card.createDiv({ cls: "qbr-home-card-format", text: "项目" });
+        card.createDiv({ cls: "qbr-home-card-title", text: project.name });
+        card.createDiv({ cls: "qbr-home-card-meta", text: `${project.books.length} 本` });
+        card.addEventListener("click", () => plugin.openReadingProjects?.({ mode: "manage", project: project.name }));
       }
     }
   }

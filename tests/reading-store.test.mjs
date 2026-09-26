@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   createReadingStore,
   readingBookPaths,
+  readingProjectPath,
   sanitizeReadingFileName,
   sanitizeReadingFolder,
 } from "../packages/reader/src/reading-store.js";
@@ -22,7 +23,12 @@ export function memoryAdapter(initial = {}) {
   return {
     files,
     dirs,
-    async exists(path) { return files.has(path) || dirs.has(path); },
+    async exists(path) {
+      if (files.has(path) || dirs.has(path)) return true;
+      const prefix = `${path}/`;
+      for (const key of files.keys()) if (key.startsWith(prefix)) return true;
+      return false;
+    },
     async read(path) {
       if (!files.has(path)) throw new Error(`ENOENT: ${path}`);
       return files.get(path);
@@ -39,7 +45,11 @@ export function memoryAdapter(initial = {}) {
       }
       return [...names];
     },
-    async remove(path) { files.delete(path); },
+    async remove(path) {
+      const prefix = `${path}/`;
+      for (const key of [...files.keys()]) if (key === path || key.startsWith(prefix)) files.delete(key);
+      for (const dir of [...dirs]) if (dir === path || dir.startsWith(prefix)) dirs.delete(dir);
+    },
     async process(path, fn, options = {}) {
       const current = files.get(path) ?? options.initial ?? "";
       const next = await fn(current);
@@ -48,9 +58,24 @@ export function memoryAdapter(initial = {}) {
       return next;
     },
     async rename(from, to) {
-      if (!files.has(from)) throw new Error(`ENOENT: ${from}`);
-      files.set(to, files.get(from));
-      files.delete(from);
+      if (files.has(from)) {
+        files.set(to, files.get(from));
+        files.delete(from);
+        return;
+      }
+      const prefix = `${from}/`;
+      const children = [...files.keys()].filter((key) => key.startsWith(prefix));
+      const folderKeys = [...dirs].filter((dir) => dir === from || dir.startsWith(prefix));
+      if (!children.length && !folderKeys.length) throw new Error(`ENOENT: ${from}`);
+      for (const key of children) {
+        files.set(`${to}${key.slice(from.length)}`, files.get(key));
+        files.delete(key);
+      }
+      for (const dir of folderKeys) {
+        dirs.delete(dir);
+        dirs.add(`${to}${dir.slice(from.length)}`);
+      }
+      dirs.add(to);
     },
   };
 }
@@ -266,4 +291,86 @@ test("a damaged chat file is reported without losing the others", async () => {
   const loaded = await store.loadBook("Books/a.pdf");
   assert.deepEqual(loaded.chats.map((chat) => chat.id), ["c2"]);
   assert.deepEqual(loaded.blocked, [`${paths.chats}/c1.json`]);
+});
+
+test("moving a book into a project takes its traces but keeps its identity", async () => {
+  const adapter = memoryAdapter();
+  const store = createReadingStore({ adapter, root: "reading" });
+  await store.saveBook("Books/a.pdf", "progress", { pct: 0.4, lastRead: 8 }, { title: "一本书" });
+  await store.saveBook("Books/a.pdf", "highlights", [{ id: "h1" }]);
+  await store.saveBook("Books/a.pdf", "drafts", { text: "半句", updatedAt: 1 });
+  await store.saveBook("Books/a.pdf", "pins", [{ id: "p1" }]);
+  await store.saveBook("Books/a.pdf", "marks", [{ id: "m1" }]);
+  await store.saveChat("Books/a.pdf", { id: "c1", bookPath: "Books/a.pdf", updatedAt: 2 });
+  const paths = readingBookPaths("reading", "一本书");
+  adapter.files.set(`${paths.attachments}/a.png`, "bytes");
+
+  const project = await store.createProject("冬季阅读");
+  assert.equal(project, "冬季阅读");
+  const report = await store.moveBook("Books/a.pdf", project);
+  assert.equal(report.moved, 5, "progress, highlights, drafts, chats and attachments move");
+
+  assert.equal(adapter.files.has(paths.meta), true, "book.json stays with the book");
+  assert.equal(adapter.files.has(paths.pins), true, "pinned pinyin stays with the book");
+  assert.equal(adapter.files.has(paths.marks), true, "bookmarks stay with the book");
+  const projectPaths = readingBookPaths("reading", "一本书", project);
+  assert.equal(projectPaths.tracesDir, "reading/_projects/冬季阅读/一本书");
+  assert.equal(adapter.files.has(projectPaths.progress), true);
+  assert.equal(adapter.files.has(projectPaths.highlights), true);
+  assert.equal(adapter.files.has(projectPaths.drafts), true);
+  assert.equal(adapter.files.has(`${projectPaths.chats}/c1.json`), true);
+  assert.equal(adapter.files.has(`${projectPaths.attachments}/a.png`), true);
+  assert.equal(adapter.files.has(paths.progress), false, "the old copies are gone");
+
+  const loaded = await store.loadBook("Books/a.pdf");
+  assert.equal(loaded.progress.pct, 0.4);
+  assert.equal(loaded.highlights.length, 1);
+  assert.equal(loaded.drafts.text, "半句");
+  assert.equal(loaded.pins.length, 1);
+  assert.equal(loaded.marks.length, 1);
+  assert.equal(loaded.chats.length, 1);
+  assert.equal((await store.readIndex()).books["Books/a.pdf"].project, "冬季阅读");
+  assert.equal(JSON.parse(adapter.files.get(paths.meta)).project, "冬季阅读");
+  const projects = await store.listProjects();
+  assert.equal(projects.length, 1);
+  assert.equal(projects[0].books[0].path, "Books/a.pdf");
+
+  await store.moveBook("Books/a.pdf", "");
+  assert.equal(adapter.files.has(paths.progress), true);
+  assert.equal(adapter.files.has(projectPaths.progress), false);
+  assert.equal((await store.listProjects())[0].books.length, 0);
+  assert.equal(JSON.parse(adapter.files.get(paths.meta)).project, null);
+});
+
+test("a failed move rolls the already-moved files back", async () => {
+  const adapter = memoryAdapter();
+  const store = createReadingStore({ adapter, root: "reading" });
+  await store.saveBook("Books/a.pdf", "progress", { pct: 0.3, lastRead: 1 }, { title: "一本书" });
+  await store.saveBook("Books/a.pdf", "highlights", [{ id: "h1" }]);
+  await store.saveBook("Books/a.pdf", "drafts", { text: "x", updatedAt: 1 });
+  const project = await store.createProject("项目");
+  const projectPaths = readingBookPaths("reading", "一本书", project);
+  adapter.files.set(projectPaths.drafts, "{\"schemaVersion\":1,\"data\":{\"text\":\"旧\"}}");
+
+  await assert.rejects(() => store.moveBook("Books/a.pdf", project), /同名内容/);
+  const paths = readingBookPaths("reading", "一本书");
+  assert.equal(adapter.files.has(paths.progress), true, "progress moved back");
+  assert.equal(adapter.files.has(paths.highlights), true, "highlights moved back");
+  assert.equal(adapter.files.has(projectPaths.progress), false);
+  assert.equal((await store.readIndex()).books["Books/a.pdf"].project || "", "");
+  assert.equal((await store.listProjects())[0].books.length, 0);
+});
+
+test("deleting a project moves its books back before removing the folder", async () => {
+  const adapter = memoryAdapter();
+  const store = createReadingStore({ adapter, root: "reading" });
+  await store.saveBook("Books/a.pdf", "highlights", [{ id: "h1" }], { title: "一本书" });
+  const project = await store.createProject("项目");
+  await store.moveBook("Books/a.pdf", project);
+
+  const result = await store.deleteProject(project);
+  assert.deepEqual(result.failed, []);
+  assert.equal(adapter.files.has(readingBookPaths("reading", "一本书").highlights), true);
+  assert.equal(adapter.files.has(`${readingProjectPath("reading", project)}/project.json`), false);
+  assert.deepEqual(await store.listProjects(), []);
 });
