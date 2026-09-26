@@ -441,6 +441,10 @@ const DEFAULT_SHELF = {
   // meeting or project note just because the reader used that template elsewhere.
   bookNoteTemplate: "", autoBookNote: true, quotesToBookNote: true,
   dataFolder: "", bookTemplates: {}, exportColors: true,
+  // Reading traces live in per-book folders under readingRoot (empty means
+  // <dataFolder>/reading). storageLayout flips to "books" after the one-time
+  // migration from the three legacy single-file stores.
+  readingRoot: "", storageLayout: "legacy", storageMigratedAt: 0, storageMigrationError: "",
 };
 const DEFAULT_APPEARANCE = {
   theme: "auto", libTheme: "auto", fontSize: 18, fontFamily: "zhuque",

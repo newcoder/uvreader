@@ -932,10 +932,36 @@ export function createSettingsTab({
       placeholder: tx("next-to-the-books"),
       commit: (v) => persistViaDisk("dataFolder", v),
     });
+    addFolderPathControl(new Setting(c)
+      .setName(tx("reading-traces-root"))
+      .setDesc(tx("reading-traces-root-desc")), this.app, {
+      value: settings.readingRoot,
+      label: tx("reading-traces-root"),
+      placeholder: `${settings.dataFolder || "plugin"}/reading`,
+      commit: (v) => persistViaDisk("readingRoot", v),
+    });
+    const layoutRow = new Setting(c).setName(tx("per-book-folders")).setDesc(
+      settings.storageLayout === "books"
+        ? tx("reading-traces-layout-books")
+        : settings.storageMigrationError
+          ? tx("reading-traces-migration-failed-0", settings.storageMigrationError)
+          : tx("reading-traces-layout-legacy"),
+    );
+    layoutRow.addButton((button) => button.setButtonText(tx("migrate-reading-traces")).onClick(async () => {
+      button.setDisabled(true);
+      try {
+        await this.plugin._migrateToBooksLayout();
+      } finally {
+        button.setDisabled(false);
+        this._redraw();
+      }
+    }));
 
     c.createEl("h3", { text: tx("syncing-across-devices") });
     const syncInfo = c.createEl("div", { cls: "qiaomu-reader-set-note" });
-    const storePaths = [this.plugin._progressFilePath(), this.plugin._highlightsFilePath()];
+    const storePaths = settings.storageLayout === "books"
+      ? [`${this.plugin._readingRoot()}/<书名>/`]
+      : [this.plugin._progressFilePath(), this.plugin._highlightsFilePath()];
     const addLine = (parts) => {
       const row = syncInfo.createDiv();
       for (const item of parts) {

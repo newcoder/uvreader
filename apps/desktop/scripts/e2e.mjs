@@ -258,7 +258,31 @@ function readerReady(page) {
   });
 }
 
-async function highlightFromPopup(page, highlightsPath, bookKey, expected) {
+// Highlights now live in per-book folders (with the legacy global file as the
+// archived fallback), so read whichever layout is authoritative.
+function readStoredHighlights(userData, bookKey) {
+  const pluginDir = path.join(userData, "library", "plugin");
+  try {
+    const index = JSON.parse(fs.readFileSync(path.join(pluginDir, "reading", "index.json"), "utf8"));
+    const folder = index?.books?.[bookKey]?.folder;
+    if (folder) {
+      const file = path.join(pluginDir, "reading", folder, "highlights.json");
+      if (fs.existsSync(file)) {
+        const payload = JSON.parse(fs.readFileSync(file, "utf8"));
+        if (Array.isArray(payload?.data)) return payload.data;
+      }
+    }
+  } catch { /* fall through to the legacy files */ }
+  for (const name of ["reading-highlights.json", "reading-highlights.legacy.json"]) {
+    try {
+      const data = JSON.parse(fs.readFileSync(path.join(pluginDir, name), "utf8"));
+      if (Array.isArray(data?.[bookKey])) return data[bookKey];
+    } catch { /* try the next file */ }
+  }
+  return null;
+}
+
+async function highlightFromPopup(page, userData, bookKey, expected) {
   await waitFor("highlight popup", () => page.evaluate(() => {
     const view = window.__qbrApp?.workspace?.getLeavesOfType("qiaomu-reader")[0]?.view;
     return view?.hlPopup?.classList.contains("qiaomu-reader-hl-popup-on") ? "on" : "";
@@ -266,10 +290,9 @@ async function highlightFromPopup(page, highlightsPath, bookKey, expected) {
   // One click highlights with the current colour; the palette is the held /
   // ArrowDown path and is exercised by its own step.
   await page.click(".qiaomu-reader-hl-highlight");
-  const stored = await waitFor("reading-highlights.json", () => {
-    if (!fs.existsSync(highlightsPath)) return "";
-    const data = JSON.parse(fs.readFileSync(highlightsPath, "utf8"));
-    return data[bookKey]?.length ? data[bookKey] : "";
+  const stored = await waitFor("stored highlight", () => {
+    const list = readStoredHighlights(userData, bookKey);
+    return list?.length ? list : "";
   });
   if (expected.cfi !== undefined) {
     if (expected.cfi) {
@@ -525,8 +548,7 @@ async function runEbookScenario() {
     await waitFor("color dropdown closed", () => page.evaluate(() => !document.querySelector(".qiaomu-reader-color-dropdown")), 5_000);
     console.log("epub: highlight swatch palette ready", colorOptions.length, "swatches");
 
-    const highlightsPath = path.join(userData, "library", "plugin", "reading-highlights.json");
-    const stored = await highlightFromPopup(page, highlightsPath, bookKey, { cfi: true });
+    const stored = await highlightFromPopup(page, userData, bookKey, { cfi: true });
     console.log("epub: highlight stored", stored.id, stored.color);
 
     // The undo toast must follow the passage, not sit at the page bottom.
@@ -757,8 +779,7 @@ async function runPdfScenario() {
     }, 20_000);
     console.log("pdf: selected", selected.slice(0, 40));
 
-    const highlightsPath = path.join(userData, "library", "plugin", "reading-highlights.json");
-    const stored = await highlightFromPopup(page, highlightsPath, bookKey, { cfi: false });
+    const stored = await highlightFromPopup(page, userData, bookKey, { cfi: false });
     console.log("pdf: highlight stored", stored.id, stored.color);
 
     // The fit toggle fills the reading slot (the zoom menu's old separate fit

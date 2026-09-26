@@ -7,6 +7,7 @@ import { addMissingQuoteLinks, highlightBacklink, jumpToEngineHighlight } from "
 import { sortHighlightsByPosition } from "./highlight-order.js";
 import { aiProviderFor, normalizeAiBase } from "./ai-providers.js";
 import { normalizeAiCapabilities } from "./ai-capability.js";
+import { createReadingStore } from "./reading-store.js";
 import { cloneJson, createSerialTaskQueue, isPlainRecord, mergeReadingProgress, readJsonRecordStore, writeVerifiedJsonRecord } from "./storage.js";
 import { createStarterLibraryInstaller } from "./starter-library.js";
 import { disposeReaderFonts } from "./reader-fonts.js";
@@ -28,6 +29,7 @@ export function createPlugin({
     this.thumbCache = {};
     this.highlights = {};
     this.pins = {};
+    this._readingStoreCache = null;
     this.progressBackups = {};
     this._progressQueue = createSerialTaskQueue();
     this._localDataQueue = createSerialTaskQueue();
@@ -437,6 +439,34 @@ export function createPlugin({
     if (dedicated) return dedicated;
     return qiaomuReaderPath(this.settings.booksFolder);
   }
+  // Reading traces live in per-book folders under this root. The default keeps
+  // everything inside the plugin data folder so the vault (and its backups)
+  // still carry the whole reading history.
+  _readingRoot() {
+    const custom = qiaomuReaderPath(this.settings.readingRoot);
+    if (custom) return custom;
+    const data = this._dataFolder();
+    return data ? `${data}/reading` : "reading";
+  }
+  _readingStore() {
+    const root = this._readingRoot();
+    if (!this._readingStoreCache || this._readingStoreCache.root !== root) {
+      this._readingStoreCache = createReadingStore({ adapter: this.app.vault.adapter, root });
+    }
+    return this._readingStoreCache;
+  }
+  // Identity of a book for the per-book folder: vault files know their title
+  // and stats, files opened by path fall back to the file name.
+  _bookMeta(bookPath) {
+    const file = this.app.vault.getAbstractFileByPath(bookPath);
+    return {
+      title: file?.basename || String(bookPath).split("/").pop() || "",
+      format: file?.extension || "",
+      sourcePath: bookPath,
+      size: file?.stat?.size || 0,
+      mtime: file?.stat?.mtime || 0,
+    };
+  }
   _progressFilePath() {
     const folder = this._dataFolder();
     return qiaomuReaderPath(folder ? `${folder}/reading-progress.json` : "reading-progress.json");
@@ -584,9 +614,95 @@ export function createPlugin({
     this.progressBackups = saved?.progressBackups ?? {};
     this.highlightsBackups = saved?.highlightsBackups ?? {};
     this._lastBookPath = saved?.lastBookPath || "";
+    if (this.settings.storageLayout === "books") {
+      await this._loadBooksLayout();
+      return;
+    }
     this.progress = (await this._loadProgressFromVault()) || {};
     this.highlights = (await this._loadHighlightsFromVault()) || {};
     this.pins = (await this._loadPinsFromVault()) || {};
+    await this._migrateToBooksLayout();
+  }
+  // Per-book layout: every book's traces load from its own folder. The index
+  // is the authority for which books exist; a missing file simply means the
+  // book has no data of that kind yet.
+  async _loadBooksLayout() {
+    const store = this._readingStore();
+    let index = await store.readIndex();
+    if (!Object.keys(index.books).length) {
+      // The index is a cache; if it is gone the book.json files rebuild it.
+      index = await store.rebuildIndex(this.app.vault.getFiles().map((file) => ({
+        bookPath: file.path,
+        title: file.basename,
+        format: file.extension,
+      })));
+    }
+    const progress = {}, highlights = {}, pins = {};
+    await Promise.all(Object.keys(index.books).map(async (bookPath) => {
+      const values = await store.loadBook(bookPath);
+      if (values.progress && Object.keys(values.progress).length) progress[bookPath] = values.progress;
+      if (values.highlights?.length) highlights[bookPath] = values.highlights;
+      if (values.pins?.length) pins[bookPath] = values.pins;
+    }));
+    this.progress = progress;
+    this.highlights = highlights;
+    this.pins = pins;
+  }
+  // One-time move from the three global files into per-book folders. Verified
+  // writes run book by book; the layout flag flips only on full success, so a
+  // failure (or a downgrade) keeps the legacy files authoritative.
+  async _migrateToBooksLayout() {
+    const store = this._readingStore();
+    const bookPaths = new Set([
+      ...Object.keys(this.progress || {}),
+      ...Object.keys(this.highlights || {}),
+      ...Object.keys(this.pins || {}),
+    ]);
+    const finish = async (payload = {}) => {
+      Object.assign(this.settings, {
+        storageLayout: "books",
+        storageMigratedAt: Date.now(),
+        storageMigrationError: "",
+      }, payload);
+      await this._archiveLegacyStores();
+      await this._saveLocalData();
+    };
+    if (!bookPaths.size) {
+      await finish();
+      return { books: 0, files: 0 };
+    }
+    const titles = {};
+    for (const bookPath of bookPaths) titles[bookPath] = this._bookMeta(bookPath);
+    try {
+      const report = await store.migrate({
+        progress: this.progress,
+        highlights: this.highlights,
+        pins: this.pins,
+        notes: this.settings.bookNoteLinks || {},
+        titles,
+      });
+      if (report.errors.length) throw new Error(report.errors[0].message);
+      await finish();
+      console.info(`UV Reader: reading data moved to per-book folders (${report.books} books, ${report.files} files)`);
+      return report;
+    } catch (error) {
+      this.settings.storageMigrationError = String(error?.message || error).slice(0, 300);
+      await this._saveLocalData().catch(() => {});
+      console.error("UV Reader: reading data migration failed; keeping the legacy files", error);
+      return { books: 0, files: 0, errors: [String(error?.message || error)] };
+    }
+  }
+  // Keep the old global files as read-only backups once the per-book layout is
+  // authoritative, so a downgrade or a manual recovery still has the originals.
+  async _archiveLegacyStores() {
+    const adapter = this.app.vault.adapter;
+    for (const path of [this._progressFilePath(), this._highlightsFilePath(), this._pinsFilePath()]) {
+      try {
+        if (!await adapter.exists(path)) continue;
+        const target = path.replace(/\.json$/, ".legacy.json");
+        if (!await adapter.exists(target)) await adapter.rename(path, target);
+      } catch { /* the legacy file stays where it is */ }
+    }
   }
   async _repairBookNoteState() {
     const { promptedRepaired } = this.settings;
@@ -665,6 +781,12 @@ export function createPlugin({
   }
   async saveAll() {
     await this._saveLocalData();
+    if (this.settings.storageLayout === "books") {
+      const store = this._readingStore();
+      await Promise.all(Object.keys(this.progress || {}).map((bookPath) =>
+        store.saveBook(bookPath, "progress", this.progress[bookPath] || {}, this._bookMeta(bookPath))));
+      return;
+    }
     await this._saveProgressToVault();
   }
   _saveLocalData() {
@@ -1007,8 +1129,13 @@ export function createPlugin({
     this._syncProgressFrontmatter(bookPath);
     return persisted;
   }
-  _commitProgressStore() {
-    return Promise.all([this._saveProgressToVault(), this._saveLocalData()]).then((stores) => {
+  _commitProgressStore(bookPath = this._lastBookPath) {
+    // Per-book layout: only this book's file is rewritten, so a write touches
+    // one folder instead of the whole library.
+    const save = this.settings.storageLayout === "books" && bookPath
+      ? this._readingStore().saveBook(bookPath, "progress", this.progress[bookPath] || {}, this._bookMeta(bookPath)).then(() => true)
+      : this._saveProgressToVault();
+    return Promise.all([save, this._saveLocalData()]).then((stores) => {
       if (stores.some((store) => store === false)) throw new Error("reading progress store is locked");
       return true;
     }).catch((error) => {
@@ -1161,6 +1288,18 @@ export function createPlugin({
     });
   }
   async _writeHighlightStore(bookPath, applyFn) {
+    if (this.settings.storageLayout === "books") {
+      const disk = { [bookPath]: (Array.isArray(this.highlights[bookPath]) ? this.highlights[bookPath] : []).map((item) => ({ ...item })) };
+      applyFn(disk);
+      this.highlights[bookPath] = disk[bookPath];
+      this._backupHighlights(bookPath, disk[bookPath] || []);
+      await this._readingStore().saveBook(bookPath, "highlights", disk[bookPath] || [], this._bookMeta(bookPath));
+      await this._saveLocalData();
+      if (this.settings.quotesToBookNote === true) {
+        await syncHighlightsToReadingNote(this.app, this, bookPath, disk[bookPath] || []);
+      }
+      return true;
+    }
     const disk = await this._readHighlightStore(this._highlightsFilePath());
     applyFn(disk); this._mergeLocalHighlights(bookPath, disk);
     this.highlights = disk; this._backupHighlights(bookPath, disk[bookPath] || []);
@@ -1230,6 +1369,13 @@ export function createPlugin({
     });
   }
   async _writePinStore(bookPath, applyFn) {
+    if (this.settings.storageLayout === "books") {
+      const disk = { [bookPath]: (Array.isArray(this.pins[bookPath]) ? this.pins[bookPath] : []).map((pin) => ({ ...pin })) };
+      applyFn(disk);
+      this.pins[bookPath] = disk[bookPath];
+      await this._readingStore().saveBook(bookPath, "pins", disk[bookPath] || [], this._bookMeta(bookPath));
+      return true;
+    }
     const file = this._pinsFilePath();
     if (this._blockedStores.has(file)) throw new Error("pin store is locked after a read failure");
     const disk = (await this.app.vault.adapter.exists(file))
