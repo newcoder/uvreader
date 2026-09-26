@@ -2530,7 +2530,10 @@ async function drawFigure(img, lazy, current = () => true) {
     if (!current()) return;
     img.src = rendered.src;
     const oldLayer = surface?.querySelector(".qiaomu-reader-pdf-text-layer");
-    if (oldLayer && rendered.textLayer) oldLayer.replaceWith(rendered.textLayer);
+    if (rendered.textLayer) {
+      if (oldLayer) oldLayer.replaceWith(rendered.textLayer);
+      else surface?.appendChild(rendered.textLayer);
+    }
     if (typeof img.decode === "function") await img.decode().catch(() => {});
     img.setAttribute(FIGURE_LOADED_ATTR, "1");
   } catch (e) {
@@ -2567,6 +2570,35 @@ async function sweepReaderFigures(reader, lazy) {
       img.setAttribute(FIGURE_LOADED_ATTR, "0");
     }
   }
+}
+
+// A page's text layer can arrive after the first paint (OCR on a scanned
+// page). Clearing the loaded mark makes the sweep repaint that page so the new
+// text is selectable immediately instead of on the next scroll.
+function refreshReaderPdfTextLayer(reader, pageNumber) {
+  const flow = reader?.pager?.flow;
+  if (!flow) return false;
+  const text = String(reader?._pdfLazy?.textFor?.(pageNumber) || "").trim();
+  let touched = false;
+  for (const img of flow.querySelectorAll(FIGURE_LAZY_SELECTOR)) {
+    if (figurePageNumber(img) !== pageNumber) continue;
+    const surface = img.closest(FIGURE_SURFACE_SELECTOR);
+    // Scanned pages ship without a text layer element at all, so it is created
+    // here; the repaint below replaces it with the positioned pdf.js layer when
+    // that one renders.
+    let layer = surface?.querySelector(".qiaomu-reader-pdf-text-layer");
+    if (surface && text && !layer) {
+      layer = surface.createDiv("qiaomu-reader-pdf-text-layer");
+    }
+    if (layer && text && !String(layer.textContent || "").trim()) {
+      layer.textContent = text;
+      layer.className = "qiaomu-reader-pdf-text-layer";
+      layer.setAttribute("data-pdf-selectable", "true");
+    }
+    img.setAttribute(FIGURE_LOADED_ATTR, "0");
+    touched = true;
+  }
+  return touched;
 }
 
 async function renderVisibleFigures(reader) {
@@ -3063,6 +3095,7 @@ const ReaderView = createReaderView({
   rememberReaderJump,
   renderHighlightPanel,
   renderReaderLoadError,
+  refreshReaderPdfTextLayer,
   renderVisibleFigures,
   resolveHighlightAnchor,
   restoreAiSource,
@@ -3240,6 +3273,7 @@ const ReaderModal = createReaderModal({
   rememberReaderJump,
   renderHighlightPanel,
   renderReaderLoadError,
+  refreshReaderPdfTextLayer,
   renderVisibleFigures,
   resolveHighlightAnchor,
   restoreAiSource,

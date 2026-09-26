@@ -73,6 +73,10 @@ async function launch(target, options = {}) {
     env: { ...process.env, QBR_USER_DATA: userData },
   });
   const page = await app.firstWindow();
+  page.on("console", (message) => {
+    const text = message.text();
+    if (/UV Reader:/.test(text)) console.log("[console]", text.slice(0, 180));
+  });
   return { app, page, userData };
 }
 
@@ -1021,6 +1025,16 @@ async function runOcrScenario() {
     }), 180_000);
     console.log("ocr:", firstPageText, "— reader usable, first page text visible");
     if (!(await readerReady(page))) throw new Error("the reader stopped working during OCR");
+
+    // The page on screen must carry the generated text layer (this is what
+    // selection and highlights use); a cached, already-painted page has to be
+    // repainted when its text arrives.
+    const painted = await waitFor("visible page text layer", () => page.evaluate(() => {
+      const layers = [...document.querySelectorAll(".qiaomu-reader-pdf-text-layer")];
+      const filled = layers.find((layer) => (layer.textContent || "").trim().length > 4);
+      return filled ? filled.textContent.trim().slice(0, 16) : "";
+    }), 180_000);
+    console.log("ocr: visible page text layer:", painted);
 
     await waitFor("text layer ready", () => page.evaluate(() => (
       document.querySelector(".qiaomu-reader-ocr-bar")?.dataset.kind === "ready" ? "ready" : ""
