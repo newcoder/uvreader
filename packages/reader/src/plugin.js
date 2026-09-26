@@ -7,6 +7,7 @@ import { addMissingQuoteLinks, highlightBacklink, jumpToEngineHighlight } from "
 import { collectMissingHighlights } from "./highlight-recovery.js";
 import { sortHighlightsByPosition } from "./highlight-order.js";
 import { aiProviderFor, normalizeAiBase } from "./ai-providers.js";
+import { aiAttachmentFileName } from "./ai-attachments.js";
 import { normalizeAiCapabilities } from "./ai-capability.js";
 import { createReadingStore } from "./reading-store.js";
 import { cloneJson, createSerialTaskQueue, isPlainRecord, mergeReadingProgress, readJsonRecordStore, writeVerifiedJsonRecord } from "./storage.js";
@@ -467,6 +468,18 @@ export function createPlugin({
       console.error("UV Reader: could not create the reading folder", error);
     }
   }
+  // Where an attachment's bytes go: into the book's folder when the per-book
+  // layout is active, next to the plugin data otherwise.
+  async resolveAttachmentPath(bookPath, attachment) {
+    if (this.settings.storageLayout !== "books" || !bookPath) return "";
+    try {
+      const { folder } = await this._readingStore().ensureBook(bookPath, this._bookMeta(bookPath));
+      return `${this._readingRoot()}/${folder}/attachments/${aiAttachmentFileName(attachment)}`;
+    } catch (error) {
+      console.error("UV Reader: could not resolve the attachment folder", error);
+      return "";
+    }
+  }
   // Identity of a book for the per-book folder: vault files know their title
   // and stats, files opened by path fall back to the file name.
   _bookMeta(bookPath) {
@@ -681,6 +694,7 @@ export function createPlugin({
     this.pins = {};
     for (const kind of ["progress", "highlights", "pins"]) this._adoptBooksLayout(result, kind);
     await this._restoreAiChats(result);
+    await this._migrateAiAttachments();
   }
   // Conversations follow their book's folder. The in-memory history is the
   // working copy: the store's copies come first, conversations that only exist
@@ -708,6 +722,47 @@ export function createPlugin({
     // is safely in its book folder.
     this._aiChatsAdopted = written.every(Boolean);
     if (!this._aiChatsAdopted) console.error("UV Reader: some conversations could not be adopted; the host history stays authoritative");
+  }
+  // Moves attachment bytes that older conversations still reference from the
+  // global ai-files folder into the book's own attachments folder and rewrites
+  // the stored path. Runs once per startup and is a no-op afterwards.
+  async _migrateAiAttachments() {
+    if (this.settings.storageLayout !== "books") return 0;
+    const adapter = this.app.vault.adapter;
+    const legacyPrefix = `${String(this.settings.dataFolder || "plugin").replace(/[\\/]+$/, "")}/ai-files/`;
+    let moved = 0;
+    for (const chat of this.settings.aiChatHistory || []) {
+      const bookPath = chat?.bookPath || "";
+      if (!bookPath || !Array.isArray(chat.turns)) continue;
+      let dirty = false;
+      for (const turn of chat.turns) {
+        for (const attachment of turn?.attachments || []) {
+          const file = attachment?.file || "";
+          if (!file.startsWith(legacyPrefix)) continue;
+          const name = file.slice(legacyPrefix.length);
+          if (!name) continue;
+          try {
+            const target = await this.resolveAttachmentPath(bookPath, attachment);
+            if (!target) continue;
+            if (await adapter.exists(target)) { attachment.file = target; dirty = true; continue; }
+            if (!await adapter.exists(file)) continue;
+            const dir = target.substring(0, target.lastIndexOf("/"));
+            if (dir && !this.app.vault.getAbstractFileByPath(dir)) {
+              await this.app.vault.createFolder(dir).catch(() => {});
+            }
+            await adapter.rename(file, target);
+            attachment.file = target;
+            moved += 1;
+            dirty = true;
+          } catch (error) {
+            console.error("UV Reader: could not move an attachment into the book folder", error);
+          }
+        }
+      }
+      if (dirty) await this.saveAiChatRecord(chat);
+    }
+    if (moved) console.info(`UV Reader: moved ${moved} attachment(s) into their book folders`);
+    return moved;
   }
   // Called by the conversation panel after it updates the in-memory history.
   async saveAiChatRecord(chat) {

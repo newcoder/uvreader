@@ -1441,23 +1441,19 @@ const { aiExplainStream, aiExplain, aiExplainStep, aiTranslate, aiProbe } = crea
 // Images and small text files for the next turn. Only metadata and a
 // thumbnail are persisted with the conversation; the bytes live in the data
 // folder and are re-read when a saved chat is sent again.
-function aiAttachmentFolder(settings) {
-  const folder = String(settings?.dataFolder || "plugin").replace(/[\\/]+$/, "");
-  return `${folder}/ai-files`;
-}
-
-async function ensureAiAttachmentFolder(plugin) {
-  const folder = aiAttachmentFolder(plugin.settings);
-  if (plugin.app.vault.getAbstractFileByPath(folder)) return folder;
-  try { await plugin.app.vault.createFolder(folder); } catch { /* already there */ }
-  return folder;
-}
-
-async function saveAiAttachment(plugin, attachment) {
+// The bytes go into the book's folder when the per-book layout is active so a
+// book carries its own attachments; otherwise they live in the global folder.
+async function saveAiAttachment(plugin, attachment, bookPath = "") {
   if (!attachment?.data || attachment.file) return attachment;
-  const path = aiAttachmentPath(plugin.settings.dataFolder, attachment);
+  const inBook = bookPath && typeof plugin.resolveAttachmentPath === "function"
+    ? await plugin.resolveAttachmentPath(bookPath, attachment).catch(() => "")
+    : "";
+  const path = inBook || aiAttachmentPath(plugin.settings.dataFolder, attachment);
   try {
-    await ensureAiAttachmentFolder(plugin);
+    const folder = path.substring(0, path.lastIndexOf("/"));
+    if (folder && !plugin.app.vault.getAbstractFileByPath(folder)) {
+      await plugin.app.vault.createFolder(folder).catch(() => {});
+    }
     await plugin.app.vault.createBinary(path, bytesFromBase64(attachment.data).buffer);
     return { ...attachment, file: path };
   } catch {
@@ -1690,7 +1686,8 @@ async function attachAiFiles(chat, files, source = "pick") {
   const result = await intakeAiFiles(list.slice(0, room), { win: window, source });
   aiAttachmentNotice(result.errors);
   const saved = [];
-  for (const attachment of result.attachments) saved.push(await saveAiAttachment(chat.plugin, attachment));
+  const bookPath = chat.bookFile?.path || "";
+  for (const attachment of result.attachments) saved.push(await saveAiAttachment(chat.plugin, attachment, bookPath));
   chat.attachments = normalizeAiAttachments([...(chat.attachments || []), ...saved]);
   chat._renderAttachments?.();
 }

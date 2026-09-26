@@ -1379,6 +1379,9 @@ async function runCapabilityScenario() {
     }
     const savedFile = path.join(userData, "library", storedTurn.attachments[0].file);
     if (!fs.existsSync(savedFile)) throw new Error(`the attachment file is missing: ${savedFile}`);
+    if (!/^plugin\/reading\/.+\/attachments\//.test(storedTurn.attachments[0].file.replace(/\\/g, "/"))) {
+      throw new Error(`the attachment did not land in the book folder: ${storedTurn.attachments[0].file}`);
+    }
     console.log("attachment:", chip, "sent with the image part and stored at", storedTurn.attachments[0].file, "->", answer, cleared);
 
     // Screenshot: drag a box over the reading area. Esc cancels first, then a
