@@ -460,6 +460,7 @@ export default {
   "scanned-pdf-auto": "Generar automáticamente al abrir un PDF escaneado",
   "ocr-generated-hint": "La copia se guarda en la carpeta derived/ del libro y se usa automáticamente al volver a abrirlo.",
   "ocr-sidecar-status": "Componente OCR",
+  "ocr-sidecar-not-configured-hint": "Configura primero el componente OCR: Ajustes → Almacenamiento y sincronización → Capa de texto para PDF escaneados (elige la carpeta pdf_tool o un programa empaquetado) y vuelve a abrir el libro.",
   "ocr-sidecar-status-unknown": "Aún sin comprobar: pulsa Comprobar para validar Python y pdf_tool.",
   "ocr-sidecar-ready-0": "Listo: {0}",
   "ocr-sidecar-missing-0": "No listo: {0}",

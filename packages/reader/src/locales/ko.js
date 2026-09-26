@@ -460,6 +460,7 @@ export default {
   "scanned-pdf-auto": "스캔 PDF를 열 때 자동으로 만들기",
   "ocr-generated-hint": "사본은 이 책의 derived/ 폴더에 저장되고 다음부터 자동으로 사용됩니다.",
   "ocr-sidecar-status": "OCR 구성 요소",
+  "ocr-sidecar-not-configured-hint": "먼저 OCR 구성 요소를 설정하세요: 설정 → 저장 및 동기화 → 스캔 PDF 텍스트 레이어(pdf_tool 폴더 또는 패키징된 프로그램 선택) 후 이 책을 다시 여세요.",
   "ocr-sidecar-status-unknown": "아직 확인하지 않았습니다. 확인을 눌러 Python과 pdf_tool을 검사하세요.",
   "ocr-sidecar-ready-0": "준비됨: {0}",
   "ocr-sidecar-missing-0": "준비 안 됨: {0}",

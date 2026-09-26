@@ -521,6 +521,24 @@ export function createPlugin({
   ocrEnabled() {
     return this.settings.ocrScannedPdf !== false && Boolean(this.ocrBridge());
   }
+  // The sidecar needs a configured source: a packaged exe or the pdf_tool
+  // folder (run through Python). Without it a scan opens as before and the
+  // reader only points at the settings instead of failing a job.
+  ocrConfigured() {
+    return Boolean(String(this.settings.ocrSidecarExe || "").trim() || String(this.settings.ocrSidecarDir || "").trim());
+  }
+  // One gentle hint per session when a scan needs OCR but nothing is set up.
+  ocrNotConfiguredHint() {
+    if (this._ocrHintShown) return false;
+    this._ocrHintShown = true;
+    return true;
+  }
+  // Raw IPC rejections are noise in the UI; keep the sidecar's own message.
+  ocrErrorText(error) {
+    return String(error?.message || error || "")
+      .replace(/^Error invoking remote method '[^']+':\s*(Error:\s*)?/, "")
+      .trim();
+  }
   ocrSidecarSettings() {
     return {
       ocrSidecarDir: this.settings.ocrSidecarDir || "",

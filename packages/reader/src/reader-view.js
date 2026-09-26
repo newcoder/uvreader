@@ -266,6 +266,12 @@ export function createReaderView({
   async _maybeGenerateTextLayer(result, file) {
     if (!result?.scan?.scanned || !file || file.extension !== "pdf") return;
     if (!this.plugin.ocrEnabled?.()) return;
+    if (!this.plugin.ocrConfigured?.()) {
+      if (this.plugin.ocrNotConfiguredHint?.()) {
+        new Notice(qiaomuReaderTranslate("ocr-sidecar-not-configured-hint"), 12000);
+      }
+      return;
+    }
     await this._startTextLayerQueue(file, result.scan.total);
   }
   _textLayerPageOrder(total) {
@@ -304,7 +310,7 @@ export function createReaderView({
       }
       if (this._ocrJob === token && !token.cancelled) this._showOcrBar({ kind: "ready", file });
     } catch (error) {
-      if (this._ocrJob === token) this._showOcrBar({ kind: "error", message: String(error?.message || error) });
+      if (this._ocrJob === token) this._showOcrBar({ kind: "error", message: this.plugin.ocrErrorText?.(error) || "OCR" });
     } finally {
       this.plugin.closeOcrSession?.(token.sessionId);
       if (this._ocrJob === token) this._ocrJob = null;
@@ -368,6 +374,10 @@ export function createReaderView({
     if (!file || this._ocrJob) return;
     if (!this.plugin.ocrEnabled?.()) {
       new Notice(qiaomuReaderTranslate("ocr-needs-desktop"), 8000);
+      return;
+    }
+    if (!this.plugin.ocrConfigured?.()) {
+      new Notice(qiaomuReaderTranslate("ocr-sidecar-not-configured-hint"), 12000);
       return;
     }
     const total = this.pager?.total || this._pdfLazy?._pageText?.length || 0;

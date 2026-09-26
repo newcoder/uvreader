@@ -460,6 +460,7 @@ export default {
   "scanned-pdf-auto": "Beim Öffnen eines gescannten PDFs automatisch erzeugen",
   "ocr-generated-hint": "Die Kopie liegt im derived/-Ordner des Buchs und wird beim nächsten Öffnen automatisch verwendet.",
   "ocr-sidecar-status": "OCR-Komponente",
+  "ocr-sidecar-not-configured-hint": "Richte zuerst die OCR-Komponente ein: Einstellungen → Speicher & Sync → Textebene für gescannte PDFs (pdf_tool-Ordner oder gepacktes Programm wählen), dann das Buch neu öffnen.",
   "ocr-sidecar-status-unknown": "Noch nicht geprüft – mit „Prüfen“ Python und pdf_tool verifizieren.",
   "ocr-sidecar-ready-0": "Bereit: {0}",
   "ocr-sidecar-missing-0": "Nicht bereit: {0}",

@@ -540,6 +540,7 @@ export const QIAOMU_READER_ZH_CN = {
   "scanned-pdf-auto": "打开扫描版 PDF 时自动生成",
   "ocr-generated-hint": "新文档保存在这本书的留痕目录 derived/ 下，下次打开自动使用。",
   "ocr-sidecar-status": "OCR 组件",
+  "ocr-sidecar-not-configured-hint": "请先在「设置 → 存储与同步 → 扫描版 PDF 文字层」里配置 OCR 组件（选择 pdf_tool 目录或打包程序），然后重新打开这本书。",
   "ocr-sidecar-status-unknown": "尚未检测；点击「检测」验证 Python 与 pdf_tool 配置。",
   "ocr-sidecar-ready-0": "已就绪：{0}",
   "ocr-sidecar-missing-0": "未就绪：{0}",

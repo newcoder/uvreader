@@ -460,6 +460,7 @@ export default {
   "scanned-pdf-auto": "スキャン PDF を開いたときに自動生成",
   "ocr-generated-hint": "コピーはこの本の derived/ フォルダーに保存され、次回から自動で使われます。",
   "ocr-sidecar-status": "OCR コンポーネント",
+  "ocr-sidecar-not-configured-hint": "先に OCR コンポーネントを設定してください：設定 → ストレージと同期 → スキャン PDF の文字層（pdf_tool フォルダーまたはパッケージ済みプログラムを選択）→ 本書を開き直します。",
   "ocr-sidecar-status-unknown": "未確認です。「確認」で Python と pdf_tool を検証してください。",
   "ocr-sidecar-ready-0": "準備完了：{0}",
   "ocr-sidecar-missing-0": "未準備：{0}",

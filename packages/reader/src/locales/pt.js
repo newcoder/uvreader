@@ -460,6 +460,7 @@ export default {
   "scanned-pdf-auto": "Gerar automaticamente ao abrir um PDF digitalizado",
   "ocr-generated-hint": "A cópia fica na pasta derived/ do livro e é usada automaticamente na próxima abertura.",
   "ocr-sidecar-status": "Componente de OCR",
+  "ocr-sidecar-not-configured-hint": "Configure primeiro o componente de OCR: Configurações → Armazenamento e sincronização → Camada de texto de PDFs digitalizados (escolha a pasta pdf_tool ou um programa empacotado) e reabra o livro.",
   "ocr-sidecar-status-unknown": "Ainda não verificado — use Verificar para validar Python e pdf_tool.",
   "ocr-sidecar-ready-0": "Pronto: {0}",
   "ocr-sidecar-missing-0": "Não pronto: {0}",
