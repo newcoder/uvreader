@@ -64,7 +64,7 @@ function writeMinimalPdf(file) {
 }
 
 async function launch(target, options = {}) {
-  const userData = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-e2e-"));
+  const userData = options.userData || fs.mkdtempSync(path.join(os.tmpdir(), "qbr-e2e-"));
   options.seed?.(userData);
   const app = await electron.launch({
     executablePath: require("electron"),
@@ -304,6 +304,47 @@ async function highlightFromPopup(page, userData, bookKey, expected) {
   return stored[0];
 }
 
+// Selects a visible passage inside the book iframe and waits for the highlight
+// popup, returning the selected text.
+async function selectPassage(page) {
+  return waitFor("highlightable selection", async () => {
+    for (const frame of page.frames()) {
+      if (frame === page.mainFrame()) continue;
+      try {
+        const text = await frame.evaluate(() => {
+          const frameRect = document.defaultView?.frameElement?.getBoundingClientRect();
+          if (!frameRect || frameRect.width < 50 || frameRect.height < 50) return "";
+          const nodes = [...document.querySelectorAll("p, h1, h2, h3, blockquote, li")].filter((el) => {
+            const length = el.textContent.trim().length;
+            if (length <= 30 || length >= 400) return false;
+            const rect = el.getBoundingClientRect();
+            const inViewport = rect.bottom > 0 && rect.top < innerHeight && rect.right > 0 && rect.left < innerWidth;
+            return rect.width > 0 && rect.height > 0 && inViewport;
+          });
+          const el = nodes[0];
+          if (!el) return "";
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          const selection = document.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+          document.dispatchEvent(new Event("selectionchange", { bubbles: true }));
+          el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true }));
+          return selection.toString().replace(/\s+/g, " ").trim();
+        });
+        if (!text) continue;
+        await sleep(300);
+        const popupOn = await page.evaluate(() => {
+          const view = window.__qbrApp?.workspace?.getLeavesOfType("qiaomu-reader")[0]?.view;
+          return view?.hlPopup?.classList.contains("qiaomu-reader-hl-popup-on");
+        });
+        if (popupOn) return text;
+      } catch {}
+    }
+    return "";
+  }, 25_000);
+}
+
 function clickTopButton(page, label) {
   return page.evaluate((text) => {
     const buttons = [...document.querySelectorAll(".qiaomu-reader-top .qiaomu-reader-ibtn")];
@@ -492,42 +533,7 @@ async function runEbookScenario() {
     });
     await waitFor("note panel closed", () => page.evaluate(() => !window.__qbrApp.workspace.getLeavesOfType("qbr-note").length), 8_000);
 
-    const selected = await waitFor("highlightable selection", async () => {
-      for (const frame of page.frames()) {
-        if (frame === page.mainFrame()) continue;
-        try {
-          const text = await frame.evaluate(() => {
-            const frameRect = document.defaultView?.frameElement?.getBoundingClientRect();
-            if (!frameRect || frameRect.width < 50 || frameRect.height < 50) return "";
-            const nodes = [...document.querySelectorAll("p, h1, h2, h3, blockquote, li")].filter((el) => {
-              const length = el.textContent.trim().length;
-              if (length <= 30 || length >= 400) return false;
-              const rect = el.getBoundingClientRect();
-              const inViewport = rect.bottom > 0 && rect.top < innerHeight && rect.right > 0 && rect.left < innerWidth;
-              return rect.width > 0 && rect.height > 0 && inViewport;
-            });
-            const el = nodes[0];
-            if (!el) return "";
-            const range = document.createRange();
-            range.selectNodeContents(el);
-            const selection = document.getSelection();
-            selection.removeAllRanges();
-            selection.addRange(range);
-            document.dispatchEvent(new Event("selectionchange", { bubbles: true }));
-            el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true }));
-            return selection.toString().replace(/\s+/g, " ").trim();
-          });
-          if (!text) continue;
-          await sleep(300);
-          const popupOn = await page.evaluate(() => {
-            const view = window.__qbrApp?.workspace?.getLeavesOfType("qiaomu-reader")[0]?.view;
-            return view?.hlPopup?.classList.contains("qiaomu-reader-hl-popup-on");
-          });
-          if (popupOn) return text;
-        } catch {}
-      }
-      return "";
-    }, 25_000);
+    const selected = await selectPassage(page);
     console.log("epub: selected", selected.slice(0, 40));
 
     // The palette opens from the highlight button (ArrowDown or a held press);
@@ -739,6 +745,85 @@ async function runEbookScenario() {
     console.log("epub: window title follows the book:", windowTitle);
   } finally {
     await app.close().catch(() => {});
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+}
+
+// Close the app after a highlight and reopen it: the traces folder must have
+// been created on open, and the highlight plus the reading position must come
+// back from the per-book files (regression for the refresh that used to wipe
+// the in-memory maps on every book open).
+async function runRestartScenario() {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-e2e-restart-"));
+  const bookKey = book.replace(/\\/g, "/");
+  const readingRoot = path.join(userData, "library", "plugin", "reading");
+  try {
+    const { app, page } = await launch(book, { userData });
+    try {
+      await page.waitForSelector(".qiaomu-reader-view", { timeout: 30_000 });
+      await waitFor("reader ready", () => readerReady(page), 30_000);
+      const folder = await waitFor("reading folder created on open", () => {
+        const indexFile = path.join(readingRoot, "index.json");
+        if (!fs.existsSync(indexFile)) return "";
+        const index = JSON.parse(fs.readFileSync(indexFile, "utf8"));
+        const name = index?.books?.[bookKey]?.folder;
+        if (!name || !fs.existsSync(path.join(readingRoot, name, "book.json"))) return "";
+        return name;
+      }, 20_000);
+      console.log("restart: reading folder created on open:", folder);
+
+      const locationOf = () => page.evaluate(() => JSON.stringify(
+        window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view.engine.currentLocation(),
+      ));
+      const beforeTurn = await locationOf();
+      await page.click(".qiaomu-reader-area", { position: { x: 24, y: 24 } });
+      await waitFor("page turn", async () => {
+        await page.evaluate(() => document.activeElement?.blur?.());
+        await page.keyboard.press("ArrowRight");
+        await sleep(500);
+        return (await locationOf()) !== beforeTurn ? "turned" : "";
+      }, 15_000);
+
+      const selected = await selectPassage(page);
+      if (!selected) throw new Error("restart: no highlightable passage");
+      const stored = await highlightFromPopup(page, userData, bookKey, { cfi: true });
+      console.log("restart: highlight stored", stored.id);
+      await sleep(500);
+    } finally {
+      await app.close().catch(() => {});
+    }
+
+    const onDisk = readStoredHighlights(userData, bookKey) || [];
+    if (onDisk.length !== 1) throw new Error(`restart: expected 1 highlight on disk, saw ${onDisk.length}`);
+    const cfi = onDisk[0].cfi;
+
+    const { app: app2, page: page2 } = await launch(book, { userData });
+    try {
+      await page2.waitForSelector(".qiaomu-reader-view", { timeout: 30_000 });
+      await waitFor("reader ready", () => readerReady(page2), 30_000);
+      // Let the open pipeline (refresh + render) settle before asserting, so a
+      // refresh that wipes the in-memory maps cannot slip past the check.
+      await sleep(1500);
+      const restored = await waitFor("highlight restored after restart", () => page2.evaluate((key) => {
+        const list = window.__qbrPlugin.getHighlights(key);
+        return list.length ? { count: list.length, id: list[0]?.id || "" } : null;
+      }, bookKey), 20_000);
+      if (restored.count !== 1 || restored.id !== onDisk[0].id) {
+        throw new Error(`restart: highlight lost after restart: ${JSON.stringify(restored)}`);
+      }
+      const painted = await waitFor("highlight applied to the book", () => page2.evaluate((range) => {
+        const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view;
+        return view?.engine?.highlightAt?.(range)?.id || "";
+      }, cfi), 20_000);
+      const progress = await page2.evaluate((key) => window.__qbrPlugin.getProgress(key), bookKey);
+      if (!progress || !(Number(progress.pct) > 0)) {
+        throw new Error(`restart: reading position not restored: ${JSON.stringify(progress)}`);
+      }
+      console.log("restart: restored", restored.id, "painted", painted, "progress", Math.round(progress.pct * 100) + "%");
+    } finally {
+      await app2.close().catch(() => {});
+    }
+  } finally {
     fs.rmSync(userData, { recursive: true, force: true });
   }
 }
@@ -1800,17 +1885,26 @@ async function runPinyinScenario() {
   }
 }
 
+const scenarios = [
+  ["home", runHomeScenario],
+  ["ebook", runEbookScenario],
+  ["restart", runRestartScenario],
+  ["pdf", runPdfScenario],
+  ["cjk-pin", runCjkPdfPinScenario],
+  ["pinyin", runPinyinScenario],
+  ["ai", runAiScenario],
+  ["api-key", runApiKeyScenario],
+  ["capability", runCapabilityScenario],
+  ["scroll", runScrollScenario],
+];
+const only = (process.env.QBR_E2E_ONLY || "").split(",").map((name) => name.trim()).filter(Boolean);
+
 let failed = false;
 try {
-  await runHomeScenario();
-  await runEbookScenario();
-  await runPdfScenario();
-  await runCjkPdfPinScenario();
-  await runPinyinScenario();
-  await runAiScenario();
-  await runApiKeyScenario();
-  await runCapabilityScenario();
-  await runScrollScenario();
+  for (const [name, run] of scenarios) {
+    if (only.length && !only.includes(name)) continue;
+    await run();
+  }
   console.log("E2E OK");
 } catch (error) {
   failed = true;

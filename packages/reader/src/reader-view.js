@@ -219,14 +219,15 @@ export function createReaderView({
       this.pdfDocumentContext = null;
       this._pdfLazy = null;
       this._pdfOutline = null;
-      await this.plugin.refreshProgress();
+      await this.plugin.ensureReadingFolder(file.path);
+      await this.plugin.refreshProgress(file.path);
       if (!this._loadCoordinator.isCurrent(loadToken)) return;
       const savedEngine = this.plugin.getProgress(file.path);
       await this._mountEngine(result, file, savedEngine, loadToken);
       if (!this._loadCoordinator.isCurrent(loadToken)) return;
       this.tocItems = this._engineTocItems();
       this.buildTocPanel();
-      await this.plugin.refreshHighlights();
+      await this.plugin.refreshHighlights(file.path);
       if (!this._loadCoordinator.isCurrent(loadToken)) return;
       this._renderEngineHighlights();
       this._renderEnginePins();
@@ -234,8 +235,9 @@ export function createReaderView({
       this._adoptPdfResult(result);
       const outline = this._pdfOutline;
       this.tocItems = buildTocItems(this.bookHtml, outline); this.buildTocPanel();
-      await this.plugin.refreshProgress(); if (!this._loadCoordinator.isCurrent(loadToken)) return;
-      await this.plugin.refreshHighlights(); if (!this._loadCoordinator.isCurrent(loadToken)) return;
+      await this.plugin.ensureReadingFolder(file.path);
+      await this.plugin.refreshProgress(file.path); if (!this._loadCoordinator.isCurrent(loadToken)) return;
+      await this.plugin.refreshHighlights(file.path); if (!this._loadCoordinator.isCurrent(loadToken)) return;
       const savedPosition = this.plugin.getProgress(file.path);
       const startPct = savedPosition && savedPosition.pct != null ? savedPosition.pct : 0;
       await this.paginate(startPct, savedPosition?.block, loadToken);
@@ -937,7 +939,7 @@ export function createReaderView({
     this.plugin.saveProgress(this.file.path, cur, tot, this.pager.currentBlockIndex());
     this._hideHlPopup();
     this.closePanel();
-    await this.plugin.refreshHighlights();
+    await this.plugin.refreshHighlights(this.file.path);
     this._lastWidth = this.areaEl.clientWidth;
     await this.repaginate();
     new Notice(qiaomuReaderTranslate("refreshed"));

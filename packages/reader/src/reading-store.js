@@ -103,12 +103,31 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
     return folder;
   }
 
+  // Creates a folder and any missing parents. Obsidian's data adapter does not
+  // create parents on write, so the reading root and every book folder are made
+  // explicitly (opening a book is enough; no save is required first).
+  async function ensureFolderUnlocked(dir) {
+    const segments = String(dir || "").split("/").filter(Boolean);
+    if (!segments.length) return;
+    if (await adapter.exists(dir)) return;
+    let current = "";
+    for (const segment of segments) {
+      current = current ? `${current}/${segment}` : segment;
+      try {
+        if (!await adapter.exists(current)) await adapter.mkdir(current);
+      } catch {
+        // A failed mkdir surfaces right after as a failed file write.
+      }
+    }
+  }
+
   // Identity of one book. The folder is assigned once and never renamed; the
   // note always points at the book's own folder, and the source records where
   // the anchors (block indices, CFI) were taken from.
   async function ensureBookUnlocked(bookPath, meta = {}) {
     const index = await readIndex();
     let entry = index.books[bookPath];
+    let dirty = false;
     if (!entry) {
       entry = {
         folder: uniqueFolder(index, bookPath, sanitizeReadingFolder(meta.title || String(bookPath).split("/").pop() || "")),
@@ -122,29 +141,29 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
         pins: 0,
       };
       index.books[bookPath] = entry;
+      dirty = true;
     }
-    const changed = Object.assign(entry, {
-      title: entry.title || String(meta.title || ""),
-      author: entry.author || String(meta.author || ""),
-      format: entry.format || String(meta.format || ""),
-    });
+    for (const key of ["title", "author", "format"]) {
+      const value = String(meta[key] || "");
+      if (!entry[key] && value) { entry[key] = value; dirty = true; }
+    }
     const paths = readingBookPaths(base, entry.folder);
-    const exists = await adapter.exists(paths.meta);
-    if (!exists) {
+    if (!await adapter.exists(paths.meta)) {
+      await ensureFolderUnlocked(paths.dir);
       await writeVerifiedJsonRecord(adapter, paths.meta, {
         schemaVersion: READING_STORE_SCHEMA,
-        title: changed.title,
-        author: changed.author,
-        format: changed.format,
+        title: entry.title,
+        author: entry.author,
+        format: entry.format,
         source: { path: String(meta.sourcePath || bookPath), size: Number(meta.size) || 0, mtime: Number(meta.mtime) || 0 },
         note: String(meta.note || ""),
         project: entry.project || null,
         anchorSource: { kind: "source" },
         preferred: {},
-        addedAt: changed.addedAt,
+        addedAt: entry.addedAt,
       }, { validateExisting: false });
     }
-    await writeIndexUnlocked(index);
+    if (dirty) await writeIndexUnlocked(index);
     return { folder: entry.folder, entry };
   }
 
@@ -219,6 +238,7 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
     }
     if (!entry?.folder) throw new Error("book has no reading folder");
     const paths = readingBookPaths(base, entry.folder);
+    await ensureFolderUnlocked(paths.dir);
     await writeVerifiedJsonRecord(adapter, paths[kind], { schemaVersion: READING_STORE_SCHEMA, data: value }, { validateExisting: false });
     const values = {};
     values[kind] = value;
@@ -284,5 +304,8 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
     rebuildIndex,
     saveBook,
     migrate,
+    // Resolves when every queued write has settled, so a read right after a
+    // save sees the file it just wrote.
+    drain: () => queue.drain(),
   };
 }

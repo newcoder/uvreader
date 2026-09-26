@@ -8,16 +8,26 @@ import {
 } from "../packages/reader/src/reading-store.js";
 
 // Minimal in-memory stand-in for the vault adapter the reader writes through.
+// Directories are tracked like the Obsidian adapter: a file write implies its
+// parents exist, and mkdir records them.
 export function memoryAdapter(initial = {}) {
   const files = new Map(Object.entries(initial));
+  const dirs = new Set();
+  const parentsOf = (path) => {
+    const parts = String(path).split("/");
+    return parts.slice(1, -1).map((_, index) => parts.slice(0, index + 1).join("/"));
+  };
+  const addParents = (path) => { for (const dir of parentsOf(path)) dirs.add(dir); };
   return {
     files,
-    async exists(path) { return files.has(path); },
+    dirs,
+    async exists(path) { return files.has(path) || dirs.has(path); },
     async read(path) {
       if (!files.has(path)) throw new Error(`ENOENT: ${path}`);
       return files.get(path);
     },
-    async write(path, data) { files.set(path, String(data)); },
+    async mkdir(dir) { dirs.add(String(dir)); addParents(dir); },
+    async write(path, data) { addParents(path); files.set(path, String(data)); },
     async process(path, fn, options = {}) {
       const current = files.get(path) ?? options.initial ?? "";
       const next = await fn(current);
@@ -59,6 +69,22 @@ test("ensureBook assigns one stable folder per book and writes book.json", async
   const index = await store.readIndex();
   assert.equal(index.books["Books/a.pdf"].folder, "同一个名字");
   assert.equal(index.books["Books/b.epub"].folder, "同一个名字 (2)");
+});
+
+test("opening a book creates the reading root and its folder without saving", async () => {
+  const adapter = memoryAdapter();
+  const store = createReadingStore({ adapter, root: "plugin/reading" });
+  await store.ensureBook("Books/a.pdf", { title: "一本书" });
+  assert.equal(adapter.dirs.has("plugin"), true);
+  assert.equal(adapter.dirs.has("plugin/reading"), true);
+  assert.equal(adapter.dirs.has("plugin/reading/一本书"), true, "the book folder exists before any save");
+
+  // Reopening is a no-op: no index rewrite, no extra mkdir.
+  const indexBefore = adapter.files.get("plugin/reading/index.json");
+  const dirsBefore = new Set(adapter.dirs);
+  await store.ensureBook("Books/a.pdf", { title: "一本书" });
+  assert.equal(adapter.files.get("plugin/reading/index.json"), indexBefore);
+  assert.deepEqual([...adapter.dirs].sort(), [...dirsBefore].sort());
 });
 
 test("per-book saves round-trip and keep the index summary current", async () => {

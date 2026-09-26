@@ -455,6 +455,16 @@ export function createPlugin({
     }
     return this._readingStoreCache;
   }
+  // Opening a book also creates its reading folder, so the traces directory is
+  // there from the first page on instead of waiting for the first save.
+  async ensureReadingFolder(bookPath) {
+    if (this.settings.storageLayout !== "books" || !bookPath) return;
+    try {
+      await this._readingStore().ensureBook(bookPath, this._bookMeta(bookPath));
+    } catch (error) {
+      console.error("UV Reader: could not create the reading folder", error);
+    }
+  }
   // Identity of a book for the per-book folder: vault files know their title
   // and stats, files opened by path fall back to the file name.
   _bookMeta(bookPath) {
@@ -625,9 +635,15 @@ export function createPlugin({
   }
   // Per-book layout: every book's traces load from its own folder. The index
   // is the authority for which books exist; a missing file simply means the
-  // book has no data of that kind yet.
-  async _loadBooksLayout() {
+  // book has no data of that kind yet. Pending writes drain first so a refresh
+  // right after a save never reads a stale file.
+  async _readBooksLayout(bookPath) {
     const store = this._readingStore();
+    await store.drain();
+    if (bookPath && (await store.readIndex()).books[bookPath]) {
+      const values = await store.loadBook(bookPath);
+      return { bookPaths: [bookPath], values: { [bookPath]: values } };
+    }
     let index = await store.readIndex();
     if (!Object.keys(index.books).length) {
       // The index is a cache; if it is gone the book.json files rebuild it.
@@ -637,16 +653,28 @@ export function createPlugin({
         format: file.extension,
       })));
     }
-    const progress = {}, highlights = {}, pins = {};
-    await Promise.all(Object.keys(index.books).map(async (bookPath) => {
-      const values = await store.loadBook(bookPath);
-      if (values.progress && Object.keys(values.progress).length) progress[bookPath] = values.progress;
-      if (values.highlights?.length) highlights[bookPath] = values.highlights;
-      if (values.pins?.length) pins[bookPath] = values.pins;
-    }));
-    this.progress = progress;
-    this.highlights = highlights;
-    this.pins = pins;
+    const bookPaths = Object.keys(index.books);
+    const values = {};
+    await Promise.all(bookPaths.map(async (path) => { values[path] = await store.loadBook(path); }));
+    return { bookPaths, values };
+  }
+  // Replaces one kind of one book in memory from disk; a file that lost all of
+  // its content clears the entry instead of keeping a phantom.
+  _adoptBooksLayout(result, kind) {
+    if (!result) return;
+    for (const bookPath of result.bookPaths) {
+      const value = result.values[bookPath]?.[kind];
+      const map = kind === "progress" ? this.progress : kind === "highlights" ? this.highlights : this.pins;
+      if (kind === "progress" ? value && Object.keys(value).length : value?.length) map[bookPath] = value;
+      else delete map[bookPath];
+    }
+  }
+  async _loadBooksLayout() {
+    const result = await this._readBooksLayout();
+    this.progress = {};
+    this.highlights = {};
+    this.pins = {};
+    for (const kind of ["progress", "highlights", "pins"]) this._adoptBooksLayout(result, kind);
   }
   // One-time move from the three global files into per-book folders. Verified
   // writes run book by book; the layout flag flips only on full success, so a
@@ -1194,7 +1222,11 @@ export function createPlugin({
     }
     return typeof prog.spread === "number" ? prog.spread : 0;
   }
-  async refreshProgress() {
+  async refreshProgress(bookPath) {
+    if (this.settings.storageLayout === "books") {
+      this._adoptBooksLayout(await this._readBooksLayout(bookPath), "progress");
+      return;
+    }
     const fresh = await this._loadProgressFromVault();
     if (fresh) this.progress = fresh;
   }
@@ -1217,7 +1249,11 @@ export function createPlugin({
     await this._writeRescue(true);
     return true;
   }
-  async refreshHighlights() {
+  async refreshHighlights(bookPath) {
+    if (this.settings.storageLayout === "books") {
+      this._adoptBooksLayout(await this._readBooksLayout(bookPath), "highlights");
+      return;
+    }
     const fresh = await this._loadHighlightsFromVault();
     if (fresh) this.highlights = fresh;
   }
