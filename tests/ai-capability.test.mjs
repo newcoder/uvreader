@@ -62,12 +62,12 @@ test("the image probe only counts a correct digit as support", () => {
   assert.equal(interpretImageProbe({ ok: true, answer: "" }, "7"), "unknown");
 });
 
-test("the tools probe needs the requested call and its argument", () => {
-  assert.equal(interpretToolsProbe({ ok: false, reason: "notools" }, "7"), "no");
-  assert.equal(interpretToolsProbe({ ok: true, answer: "7", toolCalled: false }, "7"), "unknown");
-  assert.equal(interpretToolsProbe({ ok: true, toolCalled: true, toolArguments: { n: 7 } }, "7"), "yes");
-  assert.equal(interpretToolsProbe({ ok: true, toolCalled: true, toolArguments: { n: 3 } }, "7"), "unknown");
-  assert.equal(interpretToolsProbe({ ok: true, toolCalled: true, toolArguments: null }, "7"), "unknown");
+test("the tools probe needs an actual call, never a text answer", () => {
+  assert.equal(interpretToolsProbe({ ok: false, reason: "notools" }), "no");
+  assert.equal(interpretToolsProbe({ ok: false, reason: "auth" }), "unknown");
+  assert.equal(interpretToolsProbe({ ok: true, answer: "7", toolCalled: false }), "unknown", "answering from memory is not tool support");
+  assert.equal(interpretToolsProbe({ ok: true, toolCalled: true, toolArguments: { n: 7 } }), "yes");
+  assert.equal(interpretToolsProbe({ ok: true, toolCalled: true, toolArguments: null }), "yes", "the call itself is the proof");
 });
 
 test("the probe image is a random digit drawn to PNG data", () => {

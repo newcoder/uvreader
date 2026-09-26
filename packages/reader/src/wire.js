@@ -1895,7 +1895,7 @@ async function detectAiCapability(plugin, kind) {
   if (kind === "image" && !probeImage) throw new Error("the probe image could not be created");
   const expected = kind === "image" ? probeImage.digits : "7";
   const result = await aiProbe(kind, plugin, { image: probeImage?.image || null, expected });
-  const state = kind === "image" ? interpretImageProbe(result, expected) : interpretToolsProbe(result, expected);
+  const state = kind === "image" ? interpretImageProbe(result, expected) : interpretToolsProbe(result);
   rememberCapability(plugin.settings, target, kind, state);
   await plugin.saveAll();
   return { state, result };

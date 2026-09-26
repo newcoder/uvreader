@@ -161,18 +161,40 @@ test("the image probe keeps provider rejections as a reason", async () => {
   assert.equal(result.reason, "novision");
 });
 
-test("the tools probe passes a tool and reports the returned call", async () => {
+test("the tools probe forces a call, passes a tool and reports it", async () => {
   const { faux, runtime } = fauxRuntime();
   let toolNames = [];
-  faux.setResponses([(context) => {
+  const choices = [];
+  faux.setResponses([(context, options) => {
     toolNames = (context.tools || []).map((tool) => tool.name);
+    choices.push(options?.toolChoice);
     return fauxAssistantMessage([fauxToolCall("probe_number", { n: 7 })], { stopReason: "toolUse" });
   }]);
   const result = await runtime.probe({ config: CONFIG, kind: "tools", expected: "7" });
   assert.deepEqual(toolNames, ["probe_number"]);
+  assert.deepEqual(choices, ["required"], "the first attempt forces the call");
   assert.equal(result.ok, true);
   assert.equal(result.toolCalled, true);
   assert.equal(result.toolArguments.n, 7);
+});
+
+test("an endpoint that rejects the forced choice gets one plain retry", async () => {
+  const { faux, runtime } = fauxRuntime();
+  const choices = [];
+  faux.setResponses([
+    (_context, options) => {
+      choices.push(options?.toolChoice);
+      return fauxAssistantMessage([], { stopReason: "error", errorMessage: "tool_choice is not supported" });
+    },
+    (_context, options) => {
+      choices.push(options?.toolChoice);
+      return fauxAssistantMessage([fauxToolCall("probe_number", { n: 7 })], { stopReason: "toolUse" });
+    },
+  ]);
+  const result = await runtime.probe({ config: CONFIG, kind: "tools", expected: "7" });
+  assert.deepEqual(choices, ["required", undefined], "the retry drops the forced choice");
+  assert.equal(result.ok, true);
+  assert.equal(result.toolCalled, true);
 });
 
 test("probes pass their image-input requirement to the model builder", async () => {

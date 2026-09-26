@@ -73,16 +73,12 @@ export function interpretImageProbe(result, expected) {
   return digitsOnly(result.answer).includes(want) ? "yes" : "unknown";
 }
 
-// The tools probe asks for a tool call with a specific number; only a call
-// carrying that number counts, a plain text answer stays "unknown".
-export function interpretToolsProbe(result, expected) {
+// Only an actual tool call proves the endpoint can call one: a text answer
+// under "auto" means the model chose to answer, not that tools are broken, so
+// that stays "unknown" rather than a false "no".
+export function interpretToolsProbe(result) {
   if (!result?.ok) return result?.reason === "notools" ? "no" : "unknown";
-  if (!result.toolCalled) return "unknown";
-  const want = digitsOnly(expected);
-  if (!want) return "yes";
-  const args = result.toolArguments && typeof result.toolArguments === "object" ? result.toolArguments : {};
-  const values = [args.n, args.number, ...Object.values(args)];
-  return values.some((value) => digitsOnly(value) === want) ? "yes" : "unknown";
+  return result.toolCalled ? "yes" : "unknown";
 }
 
 // A tiny canvas-drawn digit: nothing here proves "vision" by itself, but the

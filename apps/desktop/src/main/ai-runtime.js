@@ -11,6 +11,7 @@ const PI_API = "openai-completions";
 const DEFAULT_MAX_TOKENS = 2400;
 const CONNECTION_TEST_MAX_TOKENS = 16;
 const PROBE_MAX_TOKENS = 16;
+const PROBE_TOOL_MAX_TOKENS = 64;
 const PROBE_TIMEOUT_MS = 20_000;
 const DEFAULT_TIMEOUT_MS = 45_000;
 // pi requires a non-empty client key; keyless local servers ignore the header.
@@ -307,44 +308,57 @@ export function createAiRuntime({ modelsFor } = {}) {
     const options = {
       apiKey: String(config.key || "") || undefined,
       temperature: 0,
-      maxTokens: PROBE_MAX_TOKENS,
+      // A tool call plus its JSON arguments needs a little more room than a
+      // digited answer; a truncated call would look like "no tool support".
+      maxTokens: kind === "tools" ? PROBE_TOOL_MAX_TOKENS : PROBE_MAX_TOKENS,
       reasoning: "off",
       timeoutMs: PROBE_TIMEOUT_MS,
     };
-    try {
-      const userContent = kind === "image"
-        ? [
-          { type: "text", text: prompt || "只回答图中的数字，不要解释。" },
-          { type: "image", data: String(image.data), mimeType: String(image.mimeType) },
-        ]
-        : prompt || `必须调用 probe_number 工具，参数 n 填 ${expected || "7"}。`;
-      const context = {
-        messages: [{ role: "user", content: userContent, timestamp: Date.now() }],
-        ...(kind === "tools" ? { tools: [PROBE_TOOL] } : {}),
-      };
-      const message = await models.completeSimple(model, context, options);
-      if (message?.stopReason === "error" || message?.stopReason === "aborted") {
-        return {
-          ok: false,
-          kind,
-          reason: classifyCapabilityFailure(kind, { errorMessage: message.errorMessage }),
-          message: message.errorMessage || "",
+    const attempt = async (toolChoice) => {
+      try {
+        const userContent = kind === "image"
+          ? [
+            { type: "text", text: prompt || "只回答图中的数字，不要解释。" },
+            { type: "image", data: String(image.data), mimeType: String(image.mimeType) },
+          ]
+          : prompt || `必须调用 probe_number 工具，参数 n 填 ${expected || "7"}，不要直接回答。`;
+        const context = {
+          messages: [{ role: "user", content: userContent, timestamp: Date.now() }],
+          ...(kind === "tools" ? { tools: [PROBE_TOOL] } : {}),
         };
+        const message = await models.completeSimple(model, context, toolChoice ? { ...options, toolChoice } : options);
+        if (message?.stopReason === "error" || message?.stopReason === "aborted") {
+          return {
+            ok: false,
+            kind,
+            reason: classifyCapabilityFailure(kind, { errorMessage: message.errorMessage }),
+            message: message.errorMessage || "",
+          };
+        }
+        const call = (Array.isArray(message?.content) ? message.content : [])
+          .find((block) => block?.type === "toolCall" && String(block.name || ""));
+        return {
+          ok: true,
+          kind,
+          answer: contentText(message?.content || []).trim(),
+          toolCalled: Boolean(call),
+          toolName: call?.name || "",
+          toolArguments: call?.arguments ?? null,
+          latency: Date.now() - started,
+        };
+      } catch (error) {
+        return { ok: false, kind, reason: classifyCapabilityFailure(kind, error), message: String(error?.message || error) };
       }
-      const call = (Array.isArray(message?.content) ? message.content : [])
-        .find((block) => block?.type === "toolCall" && String(block.name || ""));
-      return {
-        ok: true,
-        kind,
-        answer: contentText(message?.content || []).trim(),
-        toolCalled: Boolean(call),
-        toolName: call?.name || "",
-        toolArguments: call?.arguments ?? null,
-        latency: Date.now() - started,
-      };
-    } catch (error) {
-      return { ok: false, kind, reason: classifyCapabilityFailure(kind, error), message: String(error?.message || error) };
-    }
+    };
+    if (kind !== "tools") return attempt(undefined);
+    // Under "auto" a model may answer from memory instead of calling the tool,
+    // which would look like "unknown". Force the call first; an endpoint that
+    // rejects the forced choice gets one plain retry so the verdict stays fair.
+    const forced = await attempt("required");
+    // "tool_choice is not supported" is about the forced choice, not about
+    // tools, so it must not end as a false "not supported" verdict.
+    if (forced.ok || (forced.reason === "notools" && !/tool_choice/i.test(forced.message || ""))) return forced;
+    return attempt(undefined);
   }
 
   return { stream, abort, test, probe };
