@@ -85,6 +85,7 @@ export function createAiChatHistoryModal({
           const previous = { title: record.title, titleEdited: record.titleEdited };
           record.title = title; record.titleEdited = true;
           try {
+            await this.chat.plugin.saveAiChatRecord?.(record);
             await this.chat.plugin.saveAll();
             if (this.chat.chatRecordId === item.id) this.chat.sessionTitle = title;
             this.onOpen();

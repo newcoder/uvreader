@@ -42,7 +42,17 @@ export function readingBookPaths(root, folder) {
     progress: `${base}/progress.json`,
     highlights: `${base}/highlights.json`,
     pins: `${base}/pins.json`,
+    chats: `${base}/chats`,
+    attachments: `${base}/attachments`,
+    drafts: `${base}/drafts.json`,
   };
+}
+
+// Chat ids come from generators, but imported records may carry anything; the
+// file name has to stay inside the chats folder and be stable.
+export function sanitizeReadingFileName(id, fallback = "chat") {
+  const value = String(id || "").replace(/[^\w.-]+/g, "-").replace(/^[.-]+|[.-]+$/g, "");
+  return value.slice(0, 120) || fallback;
 }
 
 function emptyIndex() {
@@ -70,7 +80,12 @@ function summarize(entry, values) {
   }
   if (Array.isArray(values.highlights)) next.highlights = values.highlights.length;
   if (Array.isArray(values.pins)) next.pins = values.pins.length;
+  if (Array.isArray(values.chats)) next.chats = values.chats.length;
   return next;
+}
+
+function sortChats(chats) {
+  return chats.slice().sort((a, b) => (Number(b?.updatedAt) || 0) - (Number(a?.updatedAt) || 0));
 }
 
 export function createReadingStore({ adapter, root, now = Date.now }) {
@@ -171,7 +186,7 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
   // an unreadable one is reported so the caller can keep it blocked.
   async function loadBookFrom(folder) {
     const paths = readingBookPaths(base, folder);
-    const values = { progress: null, highlights: null, pins: null, blocked: [] };
+    const values = { progress: null, highlights: null, pins: null, chats: [], blocked: [] };
     for (const kind of READING_STORE_FILES) {
       const result = await readJsonRecordStore(adapter, paths[kind], kind);
       if (result.status === "unreadable") { values.blocked.push(paths[kind]); continue; }
@@ -179,13 +194,30 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
       // Files carry a schema envelope; the raw value is unwrapped here.
       values[kind] = "data" in result.value ? result.value.data : result.value;
     }
+    // Conversations live one file per chat under chats/ so a lost write can
+    // only damage that one conversation.
+    try {
+      if (await adapter.exists(paths.chats)) {
+        const names = await adapter.list(paths.chats);
+        for (const name of Array.isArray(names) ? names : []) {
+          if (!String(name).endsWith(".json")) continue;
+          const file = `${paths.chats}/${name}`;
+          const result = await readJsonRecordStore(adapter, file, "chat");
+          if (result.status === "unreadable") { values.blocked.push(file); continue; }
+          if (result.status !== "ok") continue;
+          const chat = "data" in result.value ? result.value.data : result.value;
+          if (chat && typeof chat === "object" && chat.id) values.chats.push(chat);
+        }
+      }
+    } catch { /* no chats folder yet */ }
+    values.chats = sortChats(values.chats);
     return values;
   }
 
   async function loadBook(bookPath) {
     const index = await readIndex();
     const entry = index.books[bookPath];
-    if (!entry?.folder) return { progress: null, highlights: null, pins: null, blocked: [] };
+    if (!entry?.folder) return { progress: null, highlights: null, pins: null, chats: [], blocked: [] };
     return loadBookFrom(entry.folder);
   }
 
@@ -247,6 +279,47 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
     return true;
   }
 
+  // Conversations are stored one file per chat. The in-memory history stays the
+  // working copy; these two calls are how it reaches the book folder.
+  async function updateChatCountUnlocked(bookPath, paths) {
+    let count = 0;
+    try {
+      if (await adapter.exists(paths.chats)) {
+        const names = await adapter.list(paths.chats);
+        count = (Array.isArray(names) ? names : []).filter((name) => String(name).endsWith(".json")).length;
+      }
+    } catch { count = 0; }
+    const index = await readIndex();
+    const entry = index.books[bookPath];
+    if (!entry || entry.chats === count) return;
+    index.books[bookPath] = { ...entry, chats: count, updatedAt: now() };
+    await writeIndexUnlocked(index);
+  }
+
+  async function saveChatUnlocked(bookPath, chat, meta = {}) {
+    if (!chat?.id) throw new Error("chat has no id");
+    const { folder } = await ensureBookUnlocked(bookPath, meta);
+    const paths = readingBookPaths(base, folder);
+    await ensureFolderUnlocked(paths.chats);
+    await writeVerifiedJsonRecord(adapter, `${paths.chats}/${sanitizeReadingFileName(chat.id)}.json`, {
+      schemaVersion: READING_STORE_SCHEMA,
+      data: chat,
+    }, { validateExisting: false });
+    await updateChatCountUnlocked(bookPath, paths);
+    return true;
+  }
+
+  async function deleteChatUnlocked(bookPath, chatId) {
+    const index = await readIndex();
+    const entry = index.books[bookPath];
+    if (!entry?.folder) return false;
+    const paths = readingBookPaths(base, entry.folder);
+    try { await adapter.remove(`${paths.chats}/${sanitizeReadingFileName(chatId)}.json`); }
+    catch { /* the file is already gone */ }
+    await updateChatCountUnlocked(bookPath, paths);
+    return true;
+  }
+
   // Splits the legacy global files into per-book folders. Files are written and
   // verified one book at a time; the caller flips the layout flag only after
   // this resolves, so a failure leaves the legacy files authoritative.
@@ -292,6 +365,11 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
   const writeIndex = (index) => queue.run(() => writeIndexUnlocked(index));
   const rebuildIndex = (books = []) => queue.run(() => rebuildIndexUnlocked(books));
   const migrate = (data = {}) => queue.run(() => migrateUnlocked(data));
+  const saveChat = (bookPath, chat, meta = {}) => {
+    const snapshot = cloneJson(chat);
+    return queue.run(() => saveChatUnlocked(bookPath, snapshot, meta));
+  };
+  const deleteChat = (bookPath, chatId) => queue.run(() => deleteChatUnlocked(bookPath, chatId));
 
   return {
     root: base,
@@ -304,6 +382,8 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
     rebuildIndex,
     saveBook,
     migrate,
+    saveChat,
+    deleteChat,
     // Resolves when every queued write has settled, so a read right after a
     // save sees the file it just wrote.
     drain: () => queue.drain(),

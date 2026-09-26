@@ -76,39 +76,56 @@ async function launch(target, options = {}) {
   return { app, page, userData };
 }
 
-function safeChatId(id) {
-  return String(id || "chat").replace(/[^a-z0-9._-]+/gi, "-").slice(0, 120);
+// Conversations live one file per chat under the book's folder; the host's
+// legacy data/chat directory still holds conversations without a book.
+function allStoredChats(userData) {
+  const chats = [];
+  const readingRoot = path.join(userData, "library", "plugin", "reading");
+  try {
+    const index = JSON.parse(fs.readFileSync(path.join(readingRoot, "index.json"), "utf8"));
+    for (const entry of Object.values(index?.books || {})) {
+      const dir = path.join(readingRoot, entry.folder, "chats");
+      if (!fs.existsSync(dir)) continue;
+      for (const name of fs.readdirSync(dir)) {
+        if (!name.endsWith(".json")) continue;
+        try {
+          const payload = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));
+          if (payload?.data?.id) chats.push(payload.data);
+        } catch { /* skip a damaged chat file */ }
+      }
+    }
+  } catch { /* no per-book index yet */ }
+  const legacyDir = path.join(userData, "data", "chat");
+  if (fs.existsSync(legacyDir)) {
+    for (const name of fs.readdirSync(legacyDir)) {
+      if (!name.endsWith(".json") || name === "index.json") continue;
+      try {
+        const chat = JSON.parse(fs.readFileSync(path.join(legacyDir, name), "utf8"));
+        if (chat?.id) chats.push(chat);
+      } catch { /* skip unreadable chat files */ }
+    }
+  }
+  return chats;
 }
 
-// The desktop shell stores conversations under data/chat/<id>.json (the
-// settings file keeps only an index); find the user turn that carried an
-// attachment.
+function readStoredChats(userData, bookKey) {
+  const legacy = allStoredChats(userData).filter((chat) => (chat.bookPath || "") === bookKey);
+  if (legacy.length) return legacy;
+  return allStoredChats(userData).filter((chat) => !chat.bookPath);
+}
+
+// Find the user turn that carried an attachment.
 function chatTurnWithAttachment(userData) {
-  const dir = path.join(userData, "data", "chat");
-  if (!fs.existsSync(dir)) return null;
-  for (const entry of fs.readdirSync(dir)) {
-    if (!entry.endsWith(".json") || entry === "index.json") continue;
-    let chat = null;
-    try { chat = JSON.parse(fs.readFileSync(path.join(dir, entry), "utf8")); } catch { continue; }
-    const turn = (chat?.turns || []).find((item) => item.role === "user" && Array.isArray(item.attachments) && item.attachments.length);
+  for (const chat of allStoredChats(userData)) {
+    const turn = (chat.turns || []).find((item) => item.role === "user" && Array.isArray(item.attachments) && item.attachments.length);
     if (turn) return turn;
   }
   return null;
 }
 
-// Every stored turn across the desktop chat files, newest file first.
+// Every stored turn across all chat files.
 function storedChatTurns(userData) {
-  const dir = path.join(userData, "data", "chat");
-  if (!fs.existsSync(dir)) return [];
-  const turns = [];
-  for (const entry of fs.readdirSync(dir)) {
-    if (!entry.endsWith(".json") || entry === "index.json") continue;
-    try {
-      const chat = JSON.parse(fs.readFileSync(path.join(dir, entry), "utf8"));
-      turns.push(...(chat?.turns || []));
-    } catch { /* skip unreadable chat files */ }
-  }
-  return turns;
+  return allStoredChats(userData).flatMap((chat) => chat.turns || []);
 }
 
 function startMockAi(options = {}) {
@@ -1049,6 +1066,7 @@ async function runCjkPdfPinScenario() {
 async function runAiScenario() {
   const mock = await startMockAi();
   const base = `http://127.0.0.1:${mock.port}/v1`;
+  const bookKey = book.replace(/\\/g, "/");
   const { app, page, userData } = await launch(book, {
     seed: (dir) => {
       fs.mkdirSync(path.join(dir, "data"), { recursive: true });
@@ -1114,16 +1132,11 @@ async function runAiScenario() {
     }
     console.log("ai: latex formula rendered", mathInfo.tex.slice(0, 30));
 
-    const chatIndex = path.join(userData, "data", "chat", "index.json");
-    const record = await waitFor("chat history file", () => {
-      if (!fs.existsSync(chatIndex)) return "";
-      const index = JSON.parse(fs.readFileSync(chatIndex, "utf8"));
-      if (!index.length) return "";
-      const file = path.join(userData, "data", "chat", `${safeChatId(index[0].id)}.json`);
-      if (!fs.existsSync(file)) return "";
-      const chat = JSON.parse(fs.readFileSync(file, "utf8"));
-      return chat.turns?.some((turn) => String(turn.content).includes("MOCK STREAM ANSWER")) ? chat : "";
-    }, 20_000);
+    const record = await waitFor("chat stored in the book folder", () => (
+      readStoredChats(userData, bookKey).find((chat) => (
+        chat.turns?.some((turn) => String(turn.content).includes("MOCK STREAM ANSWER"))
+      )) || ""
+    ), 20_000);
     if (mock.state.requests < 2) throw new Error(`expected a connection test and a chat request, saw ${mock.state.requests}`);
     console.log("ai: chat persisted", record.id, `(${mock.state.requests} requests)`);
 
@@ -1178,9 +1191,24 @@ async function runAiScenario() {
       return leaves.length === 0 && window.__qbrPlugin.settings.aiCompanionVisible !== false ? "closed" : "";
     }), 10_000);
     console.log("ai: companion closed on leaving the reader, preference kept");
+
+    // Conversations belong to the book: after a restart the panel lists the
+    // stored copy even though the host history file no longer holds it.
+    await app.close().catch(() => {});
+    const second = await launch(book, { userData });
+    try {
+      await second.page.waitForSelector(".qiaomu-reader-view", { timeout: 30_000 });
+      await waitFor("reader ready", () => readerReady(second.page), 30_000);
+      const restored = await waitFor("chat restored after restart", () => second.page.evaluate((id) => {
+        const chat = (window.__qbrPlugin.settings.aiChatHistory || []).find((item) => item.id === id);
+        return chat && JSON.stringify(chat.turns || []).includes("MOCK STREAM ANSWER") ? chat.id : "";
+      }, record.id), 20_000);
+      console.log("ai: chat restored after restart", restored);
+    } finally {
+      await second.app.close().catch(() => {});
+    }
   } finally {
     await app.close().catch(() => {});
-    fs.rmSync(userData, { recursive: true, force: true });
     mock.server.close();
   }
 }

@@ -285,6 +285,7 @@ export function createAiChatView({
     this.chatRecordId = record.id;
     const old = normalizeAiChatHistory(this.plugin.settings.aiChatHistory).filter((item) => item.id !== record.id);
     this.plugin.settings.aiChatHistory = [record, ...old].slice(0, 30);
+    await this.plugin.saveAiChatRecord?.(record);
     try {
       await this.plugin.saveAll();
       this._historySaveFailed = false;
@@ -298,8 +299,10 @@ export function createAiChatView({
     this._historySaving = true;
     const old = normalizeAiChatHistory(this.plugin.settings.aiChatHistory);
     const removeCurrent = old.some((item) => item.id === this.chatRecordId && matches(item));
+    const removed = old.filter((item) => matches(item));
     this.plugin.settings.aiChatHistory = old.filter((item) => !matches(item));
     try {
+      await this.plugin.removeAiChatRecords?.(removed);
       await this.plugin.saveAll();
       if (removeCurrent) this._newChat({ persist: false });
     } catch {

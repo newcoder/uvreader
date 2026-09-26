@@ -31,6 +31,7 @@ export function createPlugin({
     this.highlights = {};
     this.pins = {};
     this._readingStoreCache = null;
+    this._aiChatsAdopted = false;
     this.progressBackups = {};
     this._progressQueue = createSerialTaskQueue();
     this._localDataQueue = createSerialTaskQueue();
@@ -633,6 +634,9 @@ export function createPlugin({
     this.highlights = (await this._loadHighlightsFromVault()) || {};
     this.pins = (await this._loadPinsFromVault()) || {};
     await this._migrateToBooksLayout();
+    // A fresh migration also adopts the conversations right away; the legacy
+    // history file stays a mirror until every write landed.
+    if (this.settings.storageLayout === "books") await this._loadBooksLayout();
   }
   // Per-book layout: every book's traces load from its own folder. The index
   // is the authority for which books exist; a missing file simply means the
@@ -676,6 +680,53 @@ export function createPlugin({
     this.highlights = {};
     this.pins = {};
     for (const kind of ["progress", "highlights", "pins"]) this._adoptBooksLayout(result, kind);
+    await this._restoreAiChats(result);
+  }
+  // Conversations follow their book's folder. The in-memory history is the
+  // working copy: the store's copies come first, conversations that only exist
+  // in the legacy history are adopted once, and chats without a book stay in
+  // the host's history file.
+  async _restoreAiChats(result) {
+    const stored = [];
+    for (const [bookPath, values] of Object.entries(result?.values || {})) {
+      for (const chat of values.chats || []) {
+        const [normalized] = normalizeAiChatHistory([{ ...chat, bookPath: chat.bookPath || bookPath }]);
+        if (normalized) stored.push(normalized);
+      }
+    }
+    const legacy = Array.isArray(this.settings.aiChatHistory) ? this.settings.aiChatHistory : [];
+    const known = new Set(stored.map((chat) => chat?.id).filter(Boolean));
+    const adopt = legacy.filter((chat) => chat?.id && chat.bookPath && !known.has(chat.id));
+    const bookless = legacy.filter((chat) => chat?.id && !chat.bookPath);
+    this.settings.aiChatHistory = [...stored, ...adopt, ...bookless]
+      .sort((a, b) => (Number(b?.updatedAt) || 0) - (Number(a?.updatedAt) || 0));
+    if (!adopt.length) { this._aiChatsAdopted = true; return; }
+    const store = this._readingStore();
+    const written = await Promise.all(adopt.map((chat) =>
+      store.saveChat(chat.bookPath, chat, this._bookMeta(chat.bookPath)).then(() => true).catch(() => false)));
+    // Only drop the legacy history from the host file once every conversation
+    // is safely in its book folder.
+    this._aiChatsAdopted = written.every(Boolean);
+    if (!this._aiChatsAdopted) console.error("UV Reader: some conversations could not be adopted; the host history stays authoritative");
+  }
+  // Called by the conversation panel after it updates the in-memory history.
+  async saveAiChatRecord(chat) {
+    const bookPath = chat?.bookPath || "";
+    if (this.settings.storageLayout !== "books" || !bookPath || !chat?.id) return false;
+    try {
+      await this._readingStore().saveChat(bookPath, chat, this._bookMeta(bookPath));
+      return true;
+    } catch (error) {
+      console.error("UV Reader: could not save the conversation into the book folder", error);
+      return false;
+    }
+  }
+  async removeAiChatRecords(records) {
+    if (this.settings.storageLayout !== "books") return false;
+    const store = this._readingStore();
+    await Promise.all((records || []).map((chat) =>
+      chat?.id && chat.bookPath ? store.deleteChat(chat.bookPath, chat.id).catch(() => false) : false));
+    return true;
   }
   // One-time move from the three global files into per-book folders. Verified
   // writes run book by book; the layout flag flips only on full success, so a
@@ -820,8 +871,14 @@ export function createPlugin({
   }
   _saveLocalData() {
     captureDeviceProfile(this.settings);
+    // In the per-book layout conversations live in their book's folder; only
+    // chat without a book still belongs to the host's history file. Until every
+    // adoption write landed the host file keeps the full history as a mirror.
+    const settings = this.settings.storageLayout === "books" && this._aiChatsAdopted
+      ? { ...this.settings, aiChatHistory: (this.settings.aiChatHistory || []).filter((chat) => !chat?.bookPath) }
+      : this.settings;
     const snapshot = cloneJson({
-      settings: this.settings,
+      settings,
       progressBackups: this.progressBackups,
       highlightsBackups: this.highlightsBackups,
       lastBookPath: this._lastBookPath || "",

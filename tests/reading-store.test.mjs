@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   createReadingStore,
   readingBookPaths,
+  sanitizeReadingFileName,
   sanitizeReadingFolder,
 } from "../packages/reader/src/reading-store.js";
 
@@ -28,6 +29,17 @@ export function memoryAdapter(initial = {}) {
     },
     async mkdir(dir) { dirs.add(String(dir)); addParents(dir); },
     async write(path, data) { addParents(path); files.set(path, String(data)); },
+    async list(dir) {
+      const prefix = `${dir}/`;
+      const names = new Set();
+      for (const path of [...files.keys(), ...dirs]) {
+        if (!path.startsWith(prefix)) continue;
+        const rest = path.slice(prefix.length).split("/")[0];
+        if (rest) names.add(rest);
+      }
+      return [...names];
+    },
+    async remove(path) { files.delete(path); },
     async process(path, fn, options = {}) {
       const current = files.get(path) ?? options.initial ?? "";
       const next = await fn(current);
@@ -188,4 +200,42 @@ test("a lost index rebuilds from the per-book book.json files", async () => {
   assert.equal(index.books["Books/b.pdf"].folder, "一本书 (2)");
   const loaded = await store.loadBook("Books/a.pdf");
   assert.equal(loaded.highlights.length, 1);
+});
+
+test("chat file names stay safe and bounded", () => {
+  assert.equal(sanitizeReadingFileName("chat-1"), "chat-1");
+  assert.equal(sanitizeReadingFileName("../坏/名字"), "chat");
+  assert.equal(sanitizeReadingFileName(""), "chat");
+  assert.equal(sanitizeReadingFileName("a".repeat(300)).length, 120);
+});
+
+test("conversations live one file per book and follow deletions", async () => {
+  const adapter = memoryAdapter();
+  const store = createReadingStore({ adapter, root: "reading" });
+  await store.saveChat("Books/a.pdf", { id: "c1", title: "一问", bookPath: "Books/a.pdf", updatedAt: 10 }, { title: "一本书" });
+  await store.saveChat("Books/a.pdf", { id: "c2", title: "二问", bookPath: "Books/a.pdf", updatedAt: 20 });
+  await store.saveChat("Books/b.pdf", { id: "c3", title: "别的书", bookPath: "Books/b.pdf", updatedAt: 5 }, { title: "另一本" });
+
+  const a = await store.loadBook("Books/a.pdf");
+  assert.deepEqual(a.chats.map((chat) => chat.id), ["c2", "c1"], "newest first");
+  assert.equal((await store.readIndex()).books["Books/a.pdf"].chats, 2);
+
+  await store.deleteChat("Books/a.pdf", "c1");
+  const after = await store.loadBook("Books/a.pdf");
+  assert.deepEqual(after.chats.map((chat) => chat.id), ["c2"]);
+  assert.equal((await store.readIndex()).books["Books/a.pdf"].chats, 1);
+  assert.equal((await store.loadBook("Books/b.pdf")).chats.length, 1, "the other book keeps its own");
+});
+
+test("a damaged chat file is reported without losing the others", async () => {
+  const adapter = memoryAdapter();
+  const store = createReadingStore({ adapter, root: "reading" });
+  await store.saveChat("Books/a.pdf", { id: "c1", bookPath: "Books/a.pdf", updatedAt: 1 }, { title: "一本书" });
+  await store.saveChat("Books/a.pdf", { id: "c2", bookPath: "Books/a.pdf", updatedAt: 2 });
+  const paths = readingBookPaths("reading", "一本书");
+  adapter.files.set(`${paths.chats}/c1.json`, "{ broken");
+
+  const loaded = await store.loadBook("Books/a.pdf");
+  assert.deepEqual(loaded.chats.map((chat) => chat.id), ["c2"]);
+  assert.deepEqual(loaded.blocked, [`${paths.chats}/c1.json`]);
 });
