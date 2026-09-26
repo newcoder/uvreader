@@ -679,7 +679,7 @@ export function createSettingsTab({
       });
   }
   _tabNotes(c) {
-    const tx = (s) => qiaomuReaderTranslate(s);
+    const tx = (s, ...args) => qiaomuReaderTranslate(s, ...args);
     const settings = this.plugin.settings;
     const persist = async (key, v, after) => {
       this.plugin.settings[key] = v; await this.plugin.saveAll();
@@ -838,7 +838,7 @@ export function createSettingsTab({
       });
   }
   _unreadableStoreCard(c, detail) {
-    const tx = (s) => qiaomuReaderTranslate(s);
+    const tx = (s, ...args) => qiaomuReaderTranslate(s, ...args);
     const card = c.createDiv({ cls: "qiaomu-reader-store-recovery" });
     const title = card.createDiv({ cls: "qiaomu-reader-store-recovery-title" });
     const mark = title.createSpan({ cls: "qiaomu-reader-store-recovery-icon" });
@@ -885,7 +885,7 @@ export function createSettingsTab({
     });
   }
   _tabData(c) {
-    const tx = (s) => qiaomuReaderTranslate(s);
+    const tx = (s, ...args) => qiaomuReaderTranslate(s, ...args);
     const settings = this.plugin.settings;
     const persist = async (key, v, after) => {
       this.plugin.settings[key] = v; await this.plugin.saveAll();
@@ -956,6 +956,22 @@ export function createSettingsTab({
         this._redraw();
       }
     }));
+    const recovery = this.plugin.collectHighlightRecovery();
+    if (recovery.total) {
+      const recoveryRow = new Setting(c)
+        .setName(tx("recover-highlights-from-backups"))
+        .setDesc(tx("highlights-missing-from-the-book-folders-exist-in-the-plugi-0", recovery.books.length));
+      recoveryRow.addButton((button) => button.setButtonText(tx("recover-highlights")).onClick(async () => {
+        button.setDisabled(true);
+        try {
+          const report = await this.plugin.recoverHighlightsFromBackups();
+          new Notice(qiaomuReaderTranslate("recovered-0-highlights-from-backups", report.restored), 6000);
+        } finally {
+          button.setDisabled(false);
+          this._redraw();
+        }
+      }));
+    }
 
     c.createEl("h3", { text: tx("syncing-across-devices") });
     const syncInfo = c.createEl("div", { cls: "qiaomu-reader-set-note" });

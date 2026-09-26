@@ -4,6 +4,7 @@
 import { ENGINE_EXTENSIONS } from "./reader-engine.js";
 import { STARTER_BOOKS } from "./starter-book-data.js";
 import { addMissingQuoteLinks, highlightBacklink, jumpToEngineHighlight } from "./highlight-navigation.js";
+import { collectMissingHighlights } from "./highlight-recovery.js";
 import { sortHighlightsByPosition } from "./highlight-order.js";
 import { aiProviderFor, normalizeAiBase } from "./ai-providers.js";
 import { normalizeAiCapabilities } from "./ai-capability.js";
@@ -1366,6 +1367,42 @@ export function createPlugin({
     if (last && last.sig === sig) { last.ts = now; return; }
     arr.push({ ts: now, count: list.length, sig, items: JSON.parse(JSON.stringify(list)) });
     while (arr.length > 12) arr.shift();
+  }
+  // Highlights that exist only in the save-point backups (the settings data
+  // section offers to merge them back after a bad write).
+  collectHighlightRecovery() {
+    return collectMissingHighlights(this.highlightsBackups || {}, this.highlights || {});
+  }
+  async recoverHighlightsFromBackups() {
+    const report = this.collectHighlightRecovery();
+    if (!report.total) return { books: 0, restored: 0, failed: 0 };
+    let restored = 0;
+    let failed = 0;
+    for (const { bookPath, items } of report.books) {
+      const merged = sortHighlightsByPosition([...(this.highlights[bookPath] || []), ...items]);
+      try {
+        if (this.settings.storageLayout === "books") {
+          this.highlights[bookPath] = merged;
+          this._backupHighlights(bookPath, merged);
+          await this._readingStore().saveBook(bookPath, "highlights", merged, this._bookMeta(bookPath));
+        } else {
+          const disk = await this._readHighlightStore(this._highlightsFilePath());
+          disk[bookPath] = merged;
+          this.highlights = disk;
+          this._backupHighlights(bookPath, merged);
+          await this._saveHighlightsToVault();
+        }
+        if (this.settings.quotesToBookNote === true) {
+          await syncHighlightsToReadingNote(this.app, this, bookPath, merged).catch(() => {});
+        }
+        restored += items.length;
+      } catch (error) {
+        failed += items.length;
+        console.error("UV Reader: could not restore highlights from backups", bookPath, error);
+      }
+    }
+    await this._saveLocalData();
+    return { books: report.books.length, restored, failed };
   }
   // Pinyin annotations pinned to a book, keyed by the same book paths as the
   // highlights. Small records ({id, cfi, text, pinyin, gloss}) in their own
