@@ -976,7 +976,8 @@ async function runOcrScenario() {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-e2e-ocr-"));
   const booksDir = path.join(userData, "library", "Books");
   fs.mkdirSync(booksDir, { recursive: true });
-  const scanPath = path.join(booksDir, "small_ocr.pdf");
+  // A non-ASCII name on purpose: the sidecar's stdio must stay UTF-8 end to end.
+  const scanPath = path.join(booksDir, "扫描件测试.pdf");
   fs.copyFileSync(scanSource, scanPath);
   const cacheDir = path.join(userData, "ocr-cache");
   const { app, page } = await launch(scanPath, {

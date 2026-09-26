@@ -69,7 +69,13 @@ function childErrorMessage(error, fallback = "OCR 进程启动失败") {
 function spawnSession({ command, args, cwd, spawnImpl, onNotification, onExit }) {
   let child;
   try {
-    child = spawnImpl(command, args, { cwd, stdio: ["pipe", "pipe", "pipe"] });
+    // The sidecar's stdio must be UTF-8: book paths are full of non-ASCII
+    // characters and Windows would otherwise decode the JSON lines as ANSI.
+    child = spawnImpl(command, args, {
+      cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" },
+    });
   } catch (error) {
     throw new Error(childErrorMessage(error));
   }

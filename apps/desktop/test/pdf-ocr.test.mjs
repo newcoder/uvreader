@@ -9,8 +9,12 @@ import { createPdfOcr, ocrCommand, resolveOcrOutput } from "../src/main/pdf-ocr.
 
 // A fake sidecar process: the test reroutes the configured command to Node so
 // the real line protocol is exercised without Python.
+let lastSpawnOptions = null;
 function fakeSpawn(script) {
-  return (_command, _args, options) => spawn(process.execPath, [script], options);
+  return (_command, _args, options) => {
+    lastSpawnOptions = options;
+    return spawn(process.execPath, [script], options);
+  };
 }
 
 function writeSidecar(name, body) {
@@ -168,6 +172,15 @@ test("a sidecar error and a crash both surface as a failed job", async () => {
     if (name === "fail") assert.match(done.error, /boom/);
     else assert.match(done.error, /退出（代码 3/);
   }
+});
+
+test("the sidecar always runs with UTF-8 stdio", async () => {
+  const script = writeSidecar("ok", OK_SIDECAR);
+  const ocr = createPdfOcr({ spawnImpl: fakeSpawn(script) });
+  lastSpawnOptions = null;
+  await ocr.probe(settingsFor(), 3000);
+  assert.equal(lastSpawnOptions.env.PYTHONUTF8, "1");
+  assert.equal(lastSpawnOptions.env.PYTHONIOENCODING, "utf-8");
 });
 
 test("a reading session fetches pages lazily and closes cleanly", async () => {
