@@ -4,8 +4,10 @@ import path from "node:path";
 
 import { BOOK_EXTENSIONS, isBookFile } from "../shared/books.js";
 import { createAiRuntime } from "./ai-runtime.js";
+import { createPdfOcr, resolveOcrOutput } from "./pdf-ocr.js";
 
 const aiRuntime = createAiRuntime();
+const pdfOcr = createPdfOcr();
 
 if (process.env.QBR_USER_DATA) app.setPath("userData", process.env.QBR_USER_DATA);
 const userData = app.getPath("userData");
@@ -300,6 +302,39 @@ ipcMain.handle("qbr:secret", (_event, action, id, value) => {
   return null;
 });
 
+// Scanned-PDF text layer: the renderer sends the sidecar settings with every
+// call; output files must stay inside the vault, sources may be absolute files
+// opened from outside it.
+ipcMain.handle("qbr:ocr:probe", (_event, settings) => pdfOcr.probe(settings || {}));
+ipcMain.handle("qbr:ocr:start", (event, payload = {}) => {
+  const sender = event.sender;
+  const request = payload.request || {};
+  const jobId = String(request.jobId || "");
+  return pdfOcr.start(payload.settings || {}, {
+    jobId,
+    source: String(request.source || ""),
+    out: resolveOcrOutput(vaultRoot, request.out),
+    timeout: request.timeout,
+  }, {
+    onProgress: (progress) => {
+      if (!sender.isDestroyed()) sender.send("qbr:ocr:event", { kind: "progress", ...progress });
+    },
+    onDone: (result) => {
+      if (!sender.isDestroyed()) sender.send("qbr:ocr:event", { kind: "done", ...result });
+    },
+  });
+});
+ipcMain.handle("qbr:ocr:cancel", (_event, jobId) => pdfOcr.cancel(String(jobId || "")));
+// Reading sessions: lazy single-page text layers for a scanned PDF that is
+// already open (one warm sidecar process per book).
+ipcMain.handle("qbr:ocr:session", (_event, payload = {}) => {
+  const action = String(payload.action || "");
+  if (action === "open") return pdfOcr.openSession(payload.settings || {}, String(payload.source || ""));
+  if (action === "page") return pdfOcr.page(payload.sessionId, payload.page, payload.options || {});
+  if (action === "close") return pdfOcr.closeSession(payload.sessionId);
+  throw new Error(`未知的 OCR 会话操作：${action}`);
+});
+
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
@@ -330,6 +365,7 @@ if (!gotLock) {
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();
   });
+  app.on("before-quit", () => pdfOcr.cancelAll());
   app.on("activate", () => {
     if (!BrowserWindow.getAllWindows().length) createWindow();
   });

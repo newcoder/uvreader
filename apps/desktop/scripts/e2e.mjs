@@ -963,6 +963,75 @@ async function runProjectsScenario() {
   }
 }
 
+// Scanned PDF → a generated searchable copy: the reader reports progress,
+// records the copy in book.json and reads from it on the next open. Uses the
+// real pdf_tool sidecar; skipped when it is not installed.
+async function runOcrScenario() {
+  const sidecarDir = process.env.QBR_OCR_SIDECAR || "D:\\projects\\auto_chat";
+  const scanSource = path.join(sidecarDir, "pdf_tool", "pdfs", "small_ocr.pdf");
+  if (!fs.existsSync(path.join(sidecarDir, "pdf_tool", "reader", "server.py")) || !fs.existsSync(scanSource)) {
+    console.log("ocr: skipped — no pdf_tool sidecar at", sidecarDir);
+    return;
+  }
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-e2e-ocr-"));
+  const booksDir = path.join(userData, "library", "Books");
+  fs.mkdirSync(booksDir, { recursive: true });
+  const scanPath = path.join(booksDir, "small_ocr.pdf");
+  fs.copyFileSync(scanSource, scanPath);
+  const cacheDir = path.join(userData, "ocr-cache");
+  const { app, page } = await launch(scanPath, {
+    userData,
+    seed: (dir) => {
+      process.env.PDF_TOOL_OCR_CACHE = cacheDir;
+      fs.mkdirSync(path.join(dir, "data"), { recursive: true });
+      fs.writeFileSync(path.join(dir, "data", "data.json"), JSON.stringify({
+        settings: {
+          onboarded: true,
+          language: "zh",
+          bookNotesFolder: "notes",
+          dataFolder: "plugin",
+          lastSeenVersion: appPackage.version,
+          ocrScannedPdf: true,
+          ocrSidecarDir: sidecarDir,
+          ocrPython: process.env.QBR_OCR_PYTHON || "python",
+        },
+      }, null, 2));
+    },
+  });
+  try {
+    await page.waitForSelector(".qiaomu-reader-view", { timeout: 30_000 });
+    await waitFor("reader ready", () => readerReady(page), 30_000);
+    const shown = await waitFor("ocr progress bar", () => page.evaluate(() => {
+      const el = document.querySelector(".qiaomu-reader-ocr-bar");
+      return el ? (el.querySelector(".qiaomu-reader-ocr-text")?.textContent || "bar") : "";
+    }), 40_000);
+    console.log("ocr: progress bar shown:", shown.slice(0, 30));
+    const progress = await waitFor("ocr progress", () => page.evaluate(() => {
+      const text = document.querySelector(".qiaomu-reader-ocr-bar .qiaomu-reader-ocr-text")?.textContent || "";
+      return /\d+\s*\/\s*\d+/.test(text) ? text : "";
+    }), 120_000);
+    console.log("ocr: progress", progress);
+    // The first generated page lands in the loaded document's text (search /
+    // selection) while the reader stays usable; no reopen or file switch.
+    const firstPageText = await waitFor("first generated page text", () => page.evaluate(() => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view;
+      const pages = view?._pdfLazy?._pageText || [];
+      return pages.some((text) => String(text).trim().length > 4) ? "ready" : "";
+    }), 180_000);
+    console.log("ocr:", firstPageText, "— reader usable, first page text visible");
+    if (!(await readerReady(page))) throw new Error("the reader stopped working during OCR");
+
+    await waitFor("text layer ready", () => page.evaluate(() => (
+      document.querySelector(".qiaomu-reader-ocr-bar")?.dataset.kind === "ready" ? "ready" : ""
+    )), 900_000);
+    const done = await page.evaluate(() => document.querySelector(".qiaomu-reader-ocr-bar .qiaomu-reader-ocr-text")?.textContent || "");
+    console.log("ocr: all pages done —", done.slice(0, 30));
+  } finally {
+    await app.close().catch(() => {});
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+}
+
 async function runPdfScenario() {
   const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-pdf-"));
   const fixture = path.join(fixtureDir, "sample.pdf");
@@ -2059,6 +2128,7 @@ const scenarios = [
   ["ebook", runEbookScenario],
   ["restart", runRestartScenario],
   ["projects", runProjectsScenario],
+  ["ocr", runOcrScenario],
   ["pdf", runPdfScenario],
   ["cjk-pin", runCjkPdfPinScenario],
   ["pinyin", runPinyinScenario],

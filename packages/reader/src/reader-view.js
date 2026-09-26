@@ -206,11 +206,17 @@ export function createReaderView({
   }
   async _loadBookIntoView(file, loadToken, statusLabel) {
     let result = null;
+    this._cancelTextLayerJob();
+    this._hideOcrBar();
     const reportProgress = (done, total) => {
       if (this._loadCoordinator.isCurrent(loadToken))
         statusLabel.setText(qiaomuReaderTranslate("preparing-the-book-0", Math.round(done / total * 100)));
     };
-    result = await loadReaderDocument(file, this.app, this.plugin.settings, reportProgress, { signal: loadToken.signal });
+    // PDFs read from the generated searchable copy when one is recorded, while
+    // the book identity stays on the original file.
+    const sourceFile = file.extension === "pdf" ? await this.plugin.pdfSourceFile?.(file.path).catch(() => null) : null;
+    if (!this._loadCoordinator.isCurrent(loadToken)) return;
+    result = await loadReaderDocument(file, this.app, this.plugin.settings, reportProgress, { signal: loadToken.signal, sourceFile });
     if (!this._loadCoordinator.isCurrent(loadToken)) { result.lazy?.destroy?.(); return; }
     if (result.engine) {
       // Engine formats render through foliate-js; the custom pagination
@@ -242,6 +248,7 @@ export function createReaderView({
       const startPct = savedPosition && savedPosition.pct != null ? savedPosition.pct : 0;
       await this.paginate(startPct, savedPosition?.block, loadToken);
       if (!this._loadCoordinator.isCurrent(loadToken)) return;
+      void this._maybeGenerateTextLayer(result, file);
     }
     this._finishBookOpen(file);
   }
@@ -250,6 +257,122 @@ export function createReaderView({
     this.pdfDocumentContext = result.pdfDocumentContext || null;
     this._pdfLazy = result.lazy;
     this._pdfOutline = result.outline;
+  }
+  // ── scanned-PDF text layer ────────────────────────────────────────────────
+  // The scan opens for reading immediately; its text layer is generated page by
+  // page in the background (current page first, then its neighbours, then the
+  // rest) and becomes searchable/selectable as each page arrives. Nothing has
+  // to be reopened and the original file stays the reading source.
+  async _maybeGenerateTextLayer(result, file) {
+    if (!result?.scan?.scanned || !file || file.extension !== "pdf") return;
+    if (!this.plugin.ocrEnabled?.()) return;
+    await this._startTextLayerQueue(file, result.scan.total);
+  }
+  _textLayerPageOrder(total) {
+    const current = Math.max(1, Math.min(total, (this.pager?.spread || 0) + 1));
+    const order = [current];
+    for (let step = 1; step < total; step += 1) {
+      if (current + step <= total) order.push(current + step);
+      if (current - step >= 1) order.push(current - step);
+    }
+    return order;
+  }
+  async _startTextLayerQueue(file, total) {
+    if (this._ocrJob || !file) return;
+    const token = { jobId: `ocr-${Date.now().toString(36)}`, sessionId: "", done: 0, total, cancelled: false };
+    this._ocrJob = token;
+    this._showOcrBar({ kind: "working", done: 0, total });
+    try {
+      const opened = await this.plugin.openOcrSession(file.path);
+      if (this._ocrJob !== token) return;
+      token.sessionId = String(opened?.sessionId || "");
+      for (const pageNumber of this._textLayerPageOrder(total)) {
+        if (token.cancelled || this._ocrJob !== token || this._closed) break;
+        const fetched = await this.plugin.fetchOcrPage(token.sessionId, pageNumber);
+        if (token.cancelled || this._ocrJob !== token) break;
+        if (fetched?.content) {
+          const text = (fetched.content.items || [])
+            .map((item) => String(item.str || "")).join(" ").replace(/\s+/g, " ").trim();
+          if (this._pdfLazy?.applyOcr?.(pageNumber, fetched.content, text)) {
+            this._ocrPages = (this._ocrPages || new Set()).add(pageNumber);
+          }
+        }
+        token.done += 1;
+        this._showOcrBar({ kind: "working", done: token.done, total });
+        renderVisibleFigures(this);
+        if (this._foundQuery) markFoundIn(this, this._foundQuery);
+      }
+      if (this._ocrJob === token && !token.cancelled) this._showOcrBar({ kind: "ready", file });
+    } catch (error) {
+      if (this._ocrJob === token) this._showOcrBar({ kind: "error", message: String(error?.message || error) });
+    } finally {
+      this.plugin.closeOcrSession?.(token.sessionId);
+      if (this._ocrJob === token) this._ocrJob = null;
+    }
+  }
+  _cancelTextLayerJob() {
+    const token = this._ocrJob;
+    if (!token) return;
+    token.cancelled = true;
+    this._ocrJob = null;
+    this.plugin.closeOcrSession?.(token.sessionId);
+    this._hideOcrBar();
+  }
+  _ocrBar() {
+    if (this._ocrBarEl?.isConnected) return this._ocrBarEl;
+    this._ocrBarEl = this.contentEl.createDiv("qiaomu-reader-ocr-bar");
+    return this._ocrBarEl;
+  }
+  _hideOcrBar() {
+    this._ocrBarEl?.remove?.();
+    this._ocrBarEl = null;
+  }
+  _showOcrBar({ kind, done = 0, total = 0, message = "", file = null }) {
+    const bar = this._ocrBar();
+    bar.empty();
+    bar.dataset.kind = kind;
+    const text = bar.createDiv("qiaomu-reader-ocr-text");
+    const fill = bar.createDiv("qiaomu-reader-ocr-track").createDiv("qiaomu-reader-ocr-fill");
+    const actions = bar.createDiv("qiaomu-reader-ocr-actions");
+    const button = (label, onClick) => {
+      const el = actions.createEl("button", { text: label, attr: { type: "button" } });
+      el.addEventListener("click", onClick);
+      return el;
+    };
+    if (kind === "working") {
+      text.setText(total
+        ? qiaomuReaderTranslate("ocr-generating-0-1", done, total)
+        : qiaomuReaderTranslate("ocr-preparing"));
+      fill.style.width = total ? `${Math.round((done / total) * 100)}%` : "4%";
+      button(qiaomuReaderTranslate("cancel"), () => this._cancelTextLayerJob());
+      return;
+    }
+    bar.addClass("qiaomu-reader-ocr-bar-done");
+    if (kind === "ready") {
+      fill.style.width = "100%";
+      text.setText(qiaomuReaderTranslate("ocr-ready"));
+    } else {
+      fill.style.width = "0%";
+      text.setText(`${qiaomuReaderTranslate("ocr-failed")}${message ? ` · ${message}` : ""}`);
+      button(qiaomuReaderTranslate("ocr-retry"), () => {
+        this._hideOcrBar();
+        void this.generateTextLayerNow();
+      });
+    }
+    button(qiaomuReaderTranslate("close"), () => this._hideOcrBar());
+  }
+  // Called from the book menu: build the text layer on demand (also the retry
+  // path for a scan whose automatic attempt failed).
+  async generateTextLayerNow() {
+    const file = this.file;
+    if (!file || this._ocrJob) return;
+    if (!this.plugin.ocrEnabled?.()) {
+      new Notice(qiaomuReaderTranslate("ocr-needs-desktop"), 8000);
+      return;
+    }
+    const total = this.pager?.total || this._pdfLazy?._pageText?.length || 0;
+    if (!total) return;
+    await this._startTextLayerQueue(file, total);
   }
   _finishBookOpen(file) {
     // Inflate the word glossary while the reader settles so the first
@@ -1161,6 +1284,8 @@ export function createReaderView({
   }
   async onClose() {
     this._loadCoordinator.cancel();
+    this._cancelTextLayerJob();
+    this._hideOcrBar();
     this._closed = true;
     this._resizeObs?.disconnect();
     this._columnDragWatchOff?.();

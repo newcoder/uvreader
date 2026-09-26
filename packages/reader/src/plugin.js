@@ -6,6 +6,7 @@ import { STARTER_BOOKS } from "./starter-book-data.js";
 import { addMissingQuoteLinks, highlightBacklink, jumpToEngineHighlight } from "./highlight-navigation.js";
 import { collectMissingHighlights } from "./highlight-recovery.js";
 import { sortHighlightsByPosition } from "./highlight-order.js";
+import { searchablePdfName } from "./pdf-scan.js";
 import { aiProviderFor, normalizeAiBase } from "./ai-providers.js";
 import { aiAttachmentFileName } from "./ai-attachments.js";
 import { normalizeAiCapabilities } from "./ai-capability.js";
@@ -509,6 +510,99 @@ export function createPlugin({
       console.error("UV Reader: could not resolve the attachment folder", error);
       return "";
     }
+  }
+  // ── scanned-PDF text layer (local OCR sidecar) ────────────────────────────
+  // Generate a searchable copy of a scanned PDF through the desktop OCR bridge.
+  // The copy lives in the book's own folder and is recorded in book.json so the
+  // next open uses it while highlights stay keyed to the original file.
+  ocrBridge() {
+    return typeof window !== "undefined" ? window.qbrDesktop?.ocr || null : null;
+  }
+  ocrEnabled() {
+    return this.settings.ocrScannedPdf !== false && Boolean(this.ocrBridge());
+  }
+  ocrSidecarSettings() {
+    return {
+      ocrSidecarDir: this.settings.ocrSidecarDir || "",
+      ocrSidecarExe: this.settings.ocrSidecarExe || "",
+      ocrPython: this.settings.ocrPython || "python",
+    };
+  }
+  ocrProbe() {
+    const bridge = this.ocrBridge();
+    if (!bridge) return Promise.resolve({ ok: false, detail: qiaomuReaderTranslate("ocr-needs-desktop") });
+    return bridge.probe(this.ocrSidecarSettings());
+  }
+  _vaultAbsolute(rel) {
+    const root = String(globalThis.window?.qbrDesktop?.paths?.vaultRoot || "").replace(/[\\/]+$/, "");
+    const clean = String(rel || "").replace(/\\/g, "/").replace(/^\/+/, "");
+    return root ? `${root}/${clean}` : clean;
+  }
+  _bookAbsolute(bookPath) {
+    const raw = String(bookPath || "");
+    if (/^[a-zA-Z]:[\\/]/.test(raw) || raw.startsWith("/") || raw.startsWith("\\\\")) return raw;
+    return this._vaultAbsolute(raw);
+  }
+  async searchableCopyPath(bookPath) {
+    if (this.settings.storageLayout !== "books" || !bookPath) return "";
+    try {
+      const meta = await this._readingStore().readBookMeta(bookPath);
+      return String(meta?.derived?.searchable || "");
+    } catch {
+      return "";
+    }
+  }
+  // The vault file the reader should read pages from: the generated searchable
+  // copy when book.json records one, otherwise the original.
+  async pdfSourceFile(bookPath) {
+    const rel = await this.searchableCopyPath(bookPath);
+    if (!rel) return null;
+    try { return this.app.vault.getAbstractFileByPath(rel) || null; }
+    catch { return null; }
+  }
+  async buildSearchableCopy(bookPath, { jobId, onProgress } = {}) {
+    const bridge = this.ocrBridge();
+    if (!bridge) throw new Error(qiaomuReaderTranslate("ocr-needs-desktop"));
+    const { folder } = await this._readingStore().ensureBook(bookPath, this._bookMeta(bookPath));
+    const rel = `${this._readingRoot()}/${folder}/derived/${searchablePdfName(bookPath)}`;
+    let settle = () => {};
+    const finished = new Promise((resolve) => { settle = resolve; });
+    await bridge.start({
+      settings: this.ocrSidecarSettings(),
+      request: { jobId, source: this._bookAbsolute(bookPath), out: this._vaultAbsolute(rel) },
+    }, (event) => {
+      if (event?.kind === "progress") onProgress?.(event);
+      else if (event?.kind === "done") settle(event);
+    });
+    const result = await finished;
+    if (result?.ok) {
+      await this._readingStore().updateBookMeta(bookPath, {
+        derived: { searchable: rel, at: Date.now(), pages: Number(result.stats?.pages) || 0 },
+        preferred: { pdf: rel },
+      });
+    }
+    return { ...result, rel };
+  }
+  cancelOcrJob(jobId) {
+    try { return Boolean(this.ocrBridge()?.cancel?.(jobId)); }
+    catch { return false; }
+  }
+  // Per-page text layers while a scan is open: one warm sidecar process, pages
+  // fetched in the order the reader prefers (current page first).
+  async openOcrSession(bookPath) {
+    const bridge = this.ocrBridge();
+    if (!bridge?.session) throw new Error(qiaomuReaderTranslate("ocr-needs-desktop"));
+    return bridge.session({ action: "open", settings: this.ocrSidecarSettings(), source: this._bookAbsolute(bookPath) });
+  }
+  fetchOcrPage(sessionId, pageNumber) {
+    const bridge = this.ocrBridge();
+    if (!bridge?.session) return Promise.reject(new Error(qiaomuReaderTranslate("ocr-needs-desktop")));
+    return bridge.session({ action: "page", sessionId, page: pageNumber });
+  }
+  closeOcrSession(sessionId) {
+    if (!sessionId) return false;
+    try { return Boolean(this.ocrBridge()?.session?.({ action: "close", sessionId })); }
+    catch { return false; }
   }
   // Identity of a book for the per-book folder: vault files know their title
   // and stats, files opened by path fall back to the file name.

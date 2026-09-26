@@ -517,6 +517,10 @@ const DEFAULT_AI = {
   // Local, bounded chat snapshots for the right sidebar. They never leave the
   // vault except when the reader explicitly sends a turn to the chosen model.
   aiChatHistory: [],
+  ocrScannedPdf: true,
+  ocrSidecarDir: "",
+  ocrSidecarExe: "",
+  ocrPython: "python",
 };
 const DEFAULT_READING_FLOW = {
   // The first manual append explains where the excerpt went and offers to open
@@ -1176,6 +1180,10 @@ function addLocationMark(view) {
 function addReadingMenuActions(menu, view) {
   menu.addItem((it) => it.setTitle(qiaomuReaderTranslate("bookmark-this-location")).setIcon("bookmark-plus").onClick(() => addLocationMark(view)));
   menu.addItem((it) => it.setTitle(qiaomuReaderTranslate("location-bookmarks")).setIcon("bookmark").onClick(() => showLocationMarks(view)));
+  if ((view.file?.extension || "") === "pdf") {
+    menu.addItem((it) => it.setTitle(qiaomuReaderTranslate("generate-text-layer")).setIcon("scan-text")
+      .onClick(() => void view.generateTextLayerNow?.()));
+  }
   if (view.plugin.settings.timerEnabled) menu.addItem((it) => it.setTitle(qiaomuReaderTranslate(view._running ? "pause-timer" : "start-timer")).setIcon(view._running ? "pause" : "play").onClick(() => readerTimer.toggle(view)));
 }
 function setReadingFocus(view, enabled) {

@@ -245,11 +245,15 @@ export function createReaderModal({
     let result = null;
     try {
       this._releasePdfLazy();
+      const sourceFile = this.file.extension === "pdf"
+        ? await this.plugin.pdfSourceFile?.(this.file.path).catch(() => null)
+        : null;
+      if (!this._loadCoordinator.isCurrent(loadToken)) return;
       result = await loadReaderDocument(this.file, this.app, this.plugin.settings, (i, n) => {
         if (this._loadCoordinator.isCurrent(loadToken)) {
           loadText.setText(qiaomuReaderTranslate("preparing-the-book-0", Math.round(i / n * 100)));
         }
-      }, { signal: loadToken.signal });
+      }, { signal: loadToken.signal, sourceFile });
       if (!this._loadCoordinator.isCurrent(loadToken)) {
         result.lazy?.destroy?.();
         return;

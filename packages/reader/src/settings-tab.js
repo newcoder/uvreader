@@ -1056,6 +1056,59 @@ export function createSettingsTab({
       new Notice(tx("done-the-reader-will-ask-about-a-note-again-when-you-open-a-book"));
       memorySet.setDesc(memoryDesc(0));
     }));
+
+    this._ocrSettings(this._settingsDisclosure(c, "scanned-pdf-text-layer"));
+  }
+  // Scanned PDFs: a local OCR sidecar writes a searchable copy into the book's
+  // folder; the original file is never touched.
+  _ocrSettings(host) {
+    const tx = (s, ...args) => qiaomuReaderTranslate(s, ...args);
+    const persist = async (key, value) => {
+      this.plugin.settings[key] = value;
+      await this.plugin.saveAll();
+    };
+    host.createEl("p", { cls: "qiaomu-reader-set-note", text: tx("scanned-pdf-text-layer-desc") });
+    new Setting(host)
+      .setName(tx("scanned-pdf-auto"))
+      .setDesc(tx("ocr-generated-hint"))
+      .addToggle((toggle) => toggle
+        .setValue(this.plugin.settings.ocrScannedPdf !== false)
+        .onChange((value) => persist("ocrScannedPdf", value)));
+    const status = new Setting(host)
+      .setName(tx("ocr-sidecar-status"))
+      .setDesc(tx("ocr-sidecar-status-unknown"));
+    status.addButton((button) => button.setButtonText(tx("ocr-check")).onClick(async () => {
+      button.setDisabled(true);
+      try {
+        const result = await this.plugin.ocrProbe();
+        status.setDesc(result.ok ? tx("ocr-sidecar-ready-0", result.detail) : tx("ocr-sidecar-missing-0", result.detail));
+      } catch (error) {
+        status.setDesc(tx("ocr-sidecar-missing-0", String(error?.message || error)));
+      } finally {
+        button.setDisabled(false);
+      }
+    }));
+    new Setting(host)
+      .setName(tx("ocr-python"))
+      .setDesc(tx("ocr-python-desc"))
+      .addText((text) => text
+        .setPlaceholder("python")
+        .setValue(this.plugin.settings.ocrPython || "")
+        .onChange((value) => persist("ocrPython", value.trim())));
+    new Setting(host)
+      .setName(tx("ocr-sidecar-dir"))
+      .setDesc(tx("ocr-sidecar-dir-desc"))
+      .addText((text) => text
+        .setPlaceholder("D:\\projects\\auto_chat")
+        .setValue(this.plugin.settings.ocrSidecarDir || "")
+        .onChange((value) => persist("ocrSidecarDir", value.trim())));
+    new Setting(host)
+      .setName(tx("ocr-sidecar-exe"))
+      .setDesc(tx("ocr-sidecar-exe-desc"))
+      .addText((text) => text
+        .setPlaceholder("pdf_tool_reader.exe")
+        .setValue(this.plugin.settings.ocrSidecarExe || "")
+        .onChange((value) => persist("ocrSidecarExe", value.trim())));
   }
   _tabAbout(c) {
     this._sectionIntro(c, qiaomuReaderTranslate("about"), qiaomuReaderTranslate("help-updates-and-contact-information"));

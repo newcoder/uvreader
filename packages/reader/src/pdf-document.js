@@ -6,6 +6,7 @@ import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import { PDF_CMAP_OPTIONS } from "./pdf-cmaps.js";
 import { getPdfTextContent } from "./pdf-text-content.js";
 import { PDF_AI_CONTEXT_MAX_CHARS, packPdfDocumentContext, pdfPageKind, pdfPageShell, pdfPageTextFallback, pdfPageTextForAi } from "./pdf-page-mode.js";
+import { pdfScanVerdict } from "./pdf-scan.js";
 import { throwIfReaderLoadAborted } from "./reader-load.js";
 import { pdfTextLooksUnreadable } from "./toc-build.js";
 
@@ -119,6 +120,17 @@ export function createPdfDocument({ setupWorker, win = globalThis }) {
       _loadingTask: loadingTask,
       _destroyed: false,
       _pageText: pageText,
+      // Text layers generated later (OCR for scanned pages) land here first so
+      // the page renders from them instead of the empty PDF text content.
+      _ocrContents: new Map(),
+      // Stores a generated page text layer and makes it visible on the next
+      // repaint of that page.
+      applyOcr(pageNumber, content, text) {
+        if (!content?.items?.length) return false;
+        this._ocrContents.set(pageNumber, content);
+        this._pageText[pageNumber - 1] = String(text || "");
+        return true;
+      },
       async _paint(task, budgetMs) {
         void task.promise.catch(() => {});
         const deadline = startRenderBudget(task, budgetMs);
@@ -136,7 +148,9 @@ export function createPdfDocument({ setupWorker, win = globalThis }) {
           if (this._destroyed) throw Object.assign(new Error("Reader closed"), { name: "AbortError" });
           const unit = page.getViewport({ scale: 1 });
           const fit = Math.max(1, Math.min(2, 1600 / Math.max(unit.width, unit.height, 1)));
-          const textContent = this._pageText[pageNumber - 1] ? await getPdfTextContent(page) : null;
+          const generated = this._ocrContents.get(pageNumber) || null;
+          const textContent = generated
+            || (this._pageText[pageNumber - 1] ? await getPdfTextContent(page) : null);
           const textLayer = textContent ? await pdfTextLayerElement(page, textContent, ownerDocument) : null;
           for (const [scale, budget] of [[fit, 15000], [fit / 2, 8000]]) {
             const viewport = page.getViewport({ scale });
@@ -175,19 +189,21 @@ export function createPdfDocument({ setupWorker, win = globalThis }) {
   }
 
   // Prepares the worker, reads the book file and hands back a cancellable
-  // pdf.js loading task. Every await is bracketed by an abort check.
-  async function openPdfLoadingTask(app, file, signal) {
+  // pdf.js loading task. Every await is bracketed by an abort check. A source
+  // override lets the book identity (and its highlights) stay on the original
+  // file while the pages come from the generated searchable copy.
+  async function openPdfLoadingTask(app, file, signal, sourceFile = null) {
     throwIfReaderLoadAborted(signal);
     await setupWorker(app);
     throwIfReaderLoadAborted(signal);
-    const bytes = await app.vault.readBinary(file);
+    const bytes = await app.vault.readBinary(sourceFile || file);
     throwIfReaderLoadAborted(signal);
     return pdfjsLib.getDocument({ data: bytes, ...PDF_CMAP_OPTIONS, isEvalSupported: false });
   }
 
   async function extractPdf(file, app, _settings = {}, onProgress, options = {}) {
     const signal = options.signal;
-    const loadingTask = await openPdfLoadingTask(app, file, signal);
+    const loadingTask = await openPdfLoadingTask(app, file, signal, options.sourceFile || null);
     const abortLoading = () => {
       try { void loadingTask.destroy(); } catch { /* already stopped */ }
     };
@@ -196,9 +212,10 @@ export function createPdfDocument({ setupWorker, win = globalThis }) {
       const doc = await loadingTask.promise;
       throwIfReaderLoadAborted(signal);
       const pageCount = doc.numPages;
-      const parts = [], textPages = [], pageText = [], outline = [];
+      const parts = [], textPages = [], pageText = [], pageKinds = [], outline = [];
       for (let i = 1; i <= pageCount; i++) {
         const part = await readPdfPage(doc, i, signal, onProgress, pageCount);
+        pageKinds.push(part.kind);
         if (part.kind === "text" && part.aiText) textPages.push({ page: i, text: part.aiText });
         pageText.push(part.kind === "text" ? part.textFallback : "");
         parts.push(pdfPageShell({
@@ -219,6 +236,7 @@ export function createPdfDocument({ setupWorker, win = globalThis }) {
         html: parts.join("\n"),
         lazy: createPdfLazyView(doc, loadingTask, pageText),
         outline,
+        scan: pdfScanVerdict(pageKinds, { total: pageCount }),
         pdfDocumentContext: packPdfDocumentContext(textPages, PDF_AI_CONTEXT_MAX_CHARS),
       };
     } catch (error) {

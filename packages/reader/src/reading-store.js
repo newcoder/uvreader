@@ -298,6 +298,27 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
     return true;
   }
 
+  // The book's identity file: source, note link, project, anchor source and the
+  // derived copies (searchable PDF, covers) recorded next to the original.
+  async function readBookMetaUnlocked(bookPath) {
+    const index = await readIndex();
+    const entry = index.books[bookPath];
+    if (!entry?.folder) return null;
+    const result = await readJsonRecordStore(adapter, readingBookPaths(base, entry.folder).meta, "book");
+    return result.status === "ok" ? result.value : null;
+  }
+
+  async function updateBookMetaUnlocked(bookPath, patch = {}) {
+    const index = await readIndex();
+    const entry = index.books[bookPath];
+    if (!entry?.folder) return null;
+    const file = readingBookPaths(base, entry.folder).meta;
+    const current = await readJsonRecordStore(adapter, file, "book");
+    const next = { ...(current.status === "ok" ? current.value : {}), ...patch };
+    await writeVerifiedJsonRecord(adapter, file, next, { validateExisting: false });
+    return next;
+  }
+
   // Drops one kind's file for a book (a cleared draft is no file instead of an
   // empty record) and refreshes the summary flag.
   async function clearBookUnlocked(bookPath, kind) {
@@ -553,6 +574,11 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
   const rebuildIndex = (books = []) => queue.run(() => rebuildIndexUnlocked(books));
   const migrate = (data = {}) => queue.run(() => migrateUnlocked(data));
   const clearBook = (bookPath, kind) => queue.run(() => clearBookUnlocked(bookPath, kind));
+  const readBookMeta = (bookPath) => queue.run(() => readBookMetaUnlocked(bookPath));
+  const updateBookMeta = (bookPath, patch = {}) => {
+    const snapshot = cloneJson(patch);
+    return queue.run(() => updateBookMetaUnlocked(bookPath, snapshot));
+  };
   const saveChat = (bookPath, chat, meta = {}) => {
     const snapshot = cloneJson(chat);
     return queue.run(() => saveChatUnlocked(bookPath, snapshot, meta));
@@ -575,6 +601,8 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
     rebuildIndex,
     saveBook,
     clearBook,
+    readBookMeta,
+    updateBookMeta,
     migrate,
     saveChat,
     deleteChat,
