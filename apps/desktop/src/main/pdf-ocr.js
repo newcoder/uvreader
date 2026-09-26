@@ -26,13 +26,25 @@ export function ocrCommand(settings = {}) {
     if (!fs.existsSync(exe)) return { error: `找不到 OCR 程序：${exe}` };
     return { command: exe, args: [], cwd: path.dirname(exe) };
   }
-  const dir = String(settings.ocrSidecarDir || "").trim();
-  if (!dir) return { error: "还没有配置 pdf_tool 目录" };
-  if (!fs.existsSync(path.join(dir, "pdf_tool", "reader", "server.py"))) {
-    return { error: `这个目录里没有 pdf_tool：${dir}` };
-  }
   const python = String(settings.ocrPython || "").trim() || "python";
-  return { command: python, args: ["-m", "pdf_tool.reader"], cwd: dir };
+  const dir = String(settings.ocrSidecarDir || "").trim();
+  if (dir) {
+    if (!fs.existsSync(path.join(dir, "pdf_tool", "reader", "server.py"))) {
+      return { error: `这个目录里没有 pdf_tool：${dir}` };
+    }
+    return { command: python, args: ["-m", "pdf_tool.reader"], cwd: dir };
+  }
+  // A development checkout can point at the sidecar without touching settings.
+  const fromEnv = String(process.env.QBR_OCR_SIDECAR || "").trim();
+  if (fromEnv) {
+    if (fs.existsSync(fromEnv) && fromEnv.toLowerCase().endsWith(".exe")) {
+      return { command: fromEnv, args: [], cwd: path.dirname(fromEnv) };
+    }
+    if (fs.existsSync(path.join(fromEnv, "pdf_tool", "reader", "server.py"))) {
+      return { command: python, args: ["-m", "pdf_tool.reader"], cwd: fromEnv };
+    }
+  }
+  return { error: "还没有配置 pdf_tool 目录" };
 }
 
 // The generated copy must stay inside the vault so it syncs and can be opened

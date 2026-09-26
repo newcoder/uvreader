@@ -1014,6 +1014,9 @@ export function createSettingsTab({
       c.createEl("div", { cls: "qiaomu-reader-set-note", text: tx("cloud-folders-icloud-drive-update-with-a-delay-if-you-only-read") });
     }
 
+    // Scanned PDFs sit with the storage settings, not inside the cleanup rows.
+    this._ocrSettings(this._settingsDisclosure(dataRoot, "scanned-pdf-text-layer"));
+
     c = this._settingsDisclosure(dataRoot, "cleanup");
     const thumbSet = new Setting(c).setName(tx("cover-cache")).setDesc(tx("saved-0-2", Object.keys(this.plugin.thumbCache).length)).addButton((b) => b.setButtonText(tx("clear")).onClick(async () => {
       this.plugin.thumbCache = {}; await this.plugin._saveThumbCache();
@@ -1057,10 +1060,9 @@ export function createSettingsTab({
       memorySet.setDesc(memoryDesc(0));
     }));
 
-    this._ocrSettings(this._settingsDisclosure(c, "scanned-pdf-text-layer"));
   }
-  // Scanned PDFs: a local OCR sidecar writes a searchable copy into the book's
-  // folder; the original file is never touched.
+  // Scanned PDFs: a local OCR sidecar adds a text layer to the open book page
+  // by page; the original file is never touched.
   _ocrSettings(host) {
     const tx = (s, ...args) => qiaomuReaderTranslate(s, ...args);
     const persist = async (key, value) => {
