@@ -649,15 +649,20 @@ export function createPlugin({
       const { folder } = await this._readingStore().ensureBook(bookPath, this._bookMeta(bookPath));
       const base = `${this._readingRoot()}/${folder}/derived/mineru`;
       const adapter = this.app.vault.adapter;
+      // A directory is kept when it (or a descendant) holds the layout JSON;
+      // everything else goes. The uploaded copy and figure crops are not read.
       const walk = async (dir) => {
         const names = await adapter.list(dir).catch(() => []);
+        let kept = 0;
         for (const name of Array.isArray(names) ? names : []) {
           const full = `${dir}/${name}`;
-          if (/layout\.json$/i.test(name)) continue;
           const stat = await adapter.stat(full).catch(() => null);
-          if (stat?.type === "folder") { await walk(full); await adapter.remove(full).catch(() => {}); continue; }
+          if (stat?.type === "folder") { kept += await walk(full); continue; }
+          if (/layout\.json$/i.test(name)) { kept += 1; continue; }
           await adapter.remove(full).catch(() => {});
         }
+        if (!kept) await adapter.remove(dir).catch(() => {});
+        return kept;
       };
       await walk(base);
     } catch (error) {

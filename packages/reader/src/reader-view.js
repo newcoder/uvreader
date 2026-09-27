@@ -264,7 +264,12 @@ export function createReaderView({
   // rest) and becomes searchable/selectable as each page arrives. Nothing has
   // to be reopened and the original file stays the reading source.
   async _maybeGenerateTextLayer(result, file) {
-    if (!result?.scan?.scanned || !file || file.extension !== "pdf") return;
+    // Any page without a text layer is worth generating (a scanned book, or the
+    // scanned few pages of an otherwise digital one); fully digital files skip
+    // the pass entirely.
+    const scan = result?.scan;
+    if (!scan || !(scan.total > 0) || scan.textPages >= scan.total) return;
+    if (!file || file.extension !== "pdf") return;
     if (!this.plugin.ocrEnabled?.()) return;
     if (!this.plugin.ocrConfigured?.()) {
       if (this.plugin.ocrNotConfiguredHint?.()) {
@@ -348,6 +353,13 @@ export function createReaderView({
     if (!token.sessionId) throw new Error(qiaomuReaderTranslate("ocr-needs-desktop"));
     for (const pageNumber of this._textLayerPageOrder(total)) {
       if (token.cancelled || this._ocrJob !== token || this._closed) break;
+      // Pages that already carry a text layer are left alone, so a mostly
+      // digital book only pays for the few scanned pages in it.
+      if (String(this._pdfLazy?._pageText?.[pageNumber - 1] || "").trim()) {
+        token.done += 1;
+        this._showOcrBar({ kind: "working", done: token.done, total });
+        continue;
+      }
       const fetched = await this.plugin.fetchOcrPage(token.sessionId, pageNumber);
       if (token.cancelled || this._ocrJob !== token) break;
       if (fetched?.content) {
