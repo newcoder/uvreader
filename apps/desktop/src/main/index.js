@@ -5,6 +5,7 @@ import path from "node:path";
 import { BOOK_EXTENSIONS, isBookFile } from "../shared/books.js";
 import { createAiRuntime } from "./ai-runtime.js";
 import { createPdfOcr, resolveOcrOutput } from "./pdf-ocr.js";
+import { createBookDownloads } from "./book-downloads.js";
 
 const aiRuntime = createAiRuntime();
 
@@ -16,6 +17,8 @@ const secretsPath = path.join(userData, "secrets.json");
 // The sidecar's page cache lives with the app profile: the second open of a
 // book is a cache hit instead of a re-OCR.
 const pdfOcr = createPdfOcr({ cacheRoot: path.join(userData, "ocr-cache") });
+// Online book downloads land in the library so they appear as regular books.
+const bookDownloads = createBookDownloads({ downloadRoot: path.join(vaultRoot, "Books", "下载") });
 const smoke = process.argv.includes("--qbr-smoke");
 if (!app.isPackaged) process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "true";
 
@@ -304,6 +307,24 @@ ipcMain.handle("qbr:secret", (_event, action, id, value) => {
   return null;
 });
 
+// Online book search and downloads: the renderer sends the configured sources,
+// the main process reaches the network and writes files into the library.
+ipcMain.handle("qbr:books:search", (_event, payload = {}) =>
+  bookDownloads.search({ sources: payload.sources || [], query: payload.query || "" }));
+ipcMain.handle("qbr:books:download", (event, payload = {}) => {
+  const sender = event.sender;
+  const jobId = String(payload.jobId || "");
+  return bookDownloads.download(jobId, payload.result || {}, {
+    onProgress: (progress) => {
+      if (!sender.isDestroyed()) sender.send("qbr:books:event", { kind: "progress", ...progress });
+    },
+    onDone: (result) => {
+      if (!sender.isDestroyed()) sender.send("qbr:books:event", { kind: "done", ...result });
+    },
+  });
+});
+ipcMain.handle("qbr:books:cancel", (_event, jobId) => bookDownloads.cancel(String(jobId || "")));
+
 // Scanned-PDF text layer: the renderer sends the sidecar settings with every
 // call; output files must stay inside the vault, sources may be absolute files
 // opened from outside it.
@@ -388,7 +409,7 @@ if (!gotLock) {
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();
   });
-  app.on("before-quit", () => pdfOcr.cancelAll());
+  app.on("before-quit", () => { pdfOcr.cancelAll(); bookDownloads.cancelAll(); });
   app.on("activate", () => {
     if (!BrowserWindow.getAllWindows().length) createWindow();
   });

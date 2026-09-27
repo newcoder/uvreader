@@ -220,7 +220,44 @@ export function resultsFromOpenLibrary(json, source) {
   });
 }
 
+// Z-Library serves a search page, not JSON: read the result rows best-effort.
+// The main process falls back to the app's hidden browser session when this
+// finds nothing.
+export function resultsFromZlibHtml(html, source) {
+  const text = String(html || "");
+  const out = [];
+  for (const match of text.matchAll(/<h3[^>]*itemprop="name"[^>]*>[\s\S]*?<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<\/h3>/gi)) {
+    const href = absolute(match[1], source.url);
+    const title = stripTags(match[2]);
+    if (!href || !title) continue;
+    const around = text.slice(match.index, match.index + 1200);
+    const authorBlock = around.match(/class="[^"]*authors[^"]*"[^>]*>([\s\S]*?)<\/(?:div|span)>/i)?.[1] || "";
+    const author = [...authorBlock.matchAll(/>([^<>]{2,80})</g)].map((part) => clean(part[1], 80)).filter(Boolean).join(", ");
+    const fileBlock = around.match(/class="[^"]*property__file[^"]*"[^>]*>([\s\S]*?)<\/(?:div|span)>/i)?.[1] || "";
+    const format = clean(stripTags(fileBlock).match(/\b(EPUB|PDF|MOBI|AZW3?|FB2|DJVU|TXT)\b/i)?.[1], 12).toLowerCase();
+    const size = clean(stripTags(fileBlock).match(/[\d.]+\s*(?:MB|KB|GB)/i)?.[0], 16).toUpperCase();
+    out.push({
+      source: source.id,
+      sourceName: source.name,
+      title,
+      author,
+      language: "",
+      year: "",
+      format,
+      url: "",
+      info: href,
+      license: "unknown",
+      // The download needs the logged-in session; the caller resolves the file.
+      downloadable: true,
+      needsSession: true,
+      size,
+    });
+  }
+  return out;
+}
+
 export function resultsFromSource(source, payload) {
+  if (source?.kind === "zlib") return resultsFromZlibHtml(payload, source);
   if (!source || !payload) return [];
   if (source.kind === "gutenberg") return resultsFromGutendex(payload, source);
   if (source.kind === "standard-ebooks") return resultsFromOpds(payload, source);
@@ -242,6 +279,8 @@ export function normalizeBookResult(item) {
     info: clean(item?.info, 800),
     license: clean(item?.license, 20) || "unknown",
     downloadable: item?.downloadable === true && Boolean(clean(item?.url, 800) || clean(item?.info, 800)),
+    ...(item?.needsSession ? { needsSession: true } : {}),
+    ...(clean(item?.size, 16) ? { size: clean(item?.size, 16) } : {}),
   };
 }
 
