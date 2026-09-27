@@ -631,7 +631,7 @@ export function createPlugin({
   // Phase 1 of hybrid mode: MinerU layout analysis (token from MINERU_API_KEY
   // in the desktop environment). The result is recorded in book.json so later
   // opens skip this step.
-  async buildOcrTextSource(bookPath, { jobId, onProgress } = {}) {
+  async buildOcrTextSource(bookPath, { jobId, onProgress, timeout } = {}) {
     const bridge = this.ocrBridge();
     if (!bridge?.textSource) throw new Error(qiaomuReaderTranslate("ocr-needs-desktop"));
     const { folder } = await this._readingStore().ensureBook(bookPath, this._bookMeta(bookPath));
@@ -640,7 +640,7 @@ export function createPlugin({
     const finished = new Promise((resolve) => { settle = resolve; });
     await bridge.textSource({
       settings: this.ocrSidecarSettings(),
-      request: { jobId, source: this._bookAbsolute(bookPath), out: this._vaultAbsolute(outRel) },
+      request: { jobId, source: this._bookAbsolute(bookPath), out: this._vaultAbsolute(outRel), timeout },
     }, (event) => {
       if (event?.kind === "progress") onProgress?.(event);
       else if (event?.kind === "done") settle(event);

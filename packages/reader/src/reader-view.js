@@ -295,19 +295,31 @@ export function createReaderView({
         try {
           const existing = await this.plugin.ocrTextSourceFor(file.path);
           if (!existing) {
+            token.layoutJobId = `${token.jobId}-layout`;
+            this._showOcrBar({ kind: "working", done: 0, total, phase: "layout" });
             const built = await this.plugin.buildOcrTextSource(file.path, {
-              jobId: `${token.jobId}-layout`,
+              jobId: token.layoutJobId,
+              // MinerU reports one progress event at the end; size the no-progress
+              // watchdog for the whole book instead of the sidecar's default.
+              timeout: Math.max(600, Math.round(total * 15)),
               onProgress: (progress) => {
                 if (this._ocrJob === token) {
-                  this._showOcrBar({ kind: "working", done: progress.done, total: progress.total, phase: "layout" });
+                  this._showOcrBar({
+                    kind: "working",
+                    done: progress.done || 0,
+                    total: progress.total || total,
+                    phase: "layout",
+                  });
                 }
               },
             });
+            token.layoutJobId = "";
             if (!built?.ok) {
               new Notice(`${qiaomuReaderTranslate("ocr-text-source-failed")}：${this.plugin.ocrErrorText?.(built?.error) || built?.error || ""}`, 12000);
             }
           }
         } catch (error) {
+          token.layoutJobId = "";
           new Notice(`${qiaomuReaderTranslate("ocr-text-source-failed")}：${this.plugin.ocrErrorText?.(error) || ""}`, 12000);
         }
         if (this._ocrJob !== token || token.cancelled) return;
@@ -355,6 +367,8 @@ export function createReaderView({
     if (!token) return;
     token.cancelled = true;
     this._ocrJob = null;
+    // Stop whichever phase is running: the MinerU layout job or the page pass.
+    if (token.layoutJobId) this.plugin.cancelOcrJob?.(token.layoutJobId);
     this.plugin.closeOcrSession?.(token.sessionId);
     this._hideOcrBar();
   }

@@ -386,7 +386,7 @@ export function createPdfOcr({ spawnImpl = spawn, cacheRoot = "" } = {}) {
       throw error;
     }
     job.session = session;
-    session.request("doc.convert", {
+    const payload = {
       path: source,
       mode: "mineru",
       mineru_token: token,
@@ -394,7 +394,14 @@ export function createPdfOcr({ spawnImpl = spawn, cacheRoot = "" } = {}) {
       out_dir: out,
       formats: ["json"],
       force: Boolean(request.force),
-    }).then((result) => { job.sidecarJob = String(result?.job || ""); })
+    };
+    // MinerU reports one progress event at the end, so the caller sizes the
+    // no-progress watchdog for the whole book.
+    if (Number.isFinite(Number(request.timeout)) && Number(request.timeout) > 0) {
+      payload.timeout = Number(request.timeout);
+    }
+    session.request("doc.convert", payload)
+      .then((result) => { job.sidecarJob = String(result?.job || ""); })
       .catch((error) => fail(error));
     return { jobId };
   }

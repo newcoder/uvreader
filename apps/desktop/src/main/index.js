@@ -338,6 +338,7 @@ ipcMain.handle("qbr:ocr:text-source", (event, payload = {}) => {
     out: resolveOcrOutput(vaultRoot, request.out),
     token: String(request.token || ""),
     force: Boolean(request.force),
+    timeout: Number(request.timeout) || 0,
   }, {
     onProgress: (progress) => {
       if (!sender.isDestroyed()) sender.send("qbr:ocr:event", { kind: "progress", ...progress });
