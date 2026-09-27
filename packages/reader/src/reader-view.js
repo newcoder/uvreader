@@ -304,6 +304,13 @@ export function createReaderView({
             // Repaint that page so its new text layer is selectable now, not on
             // the next scroll.
             refreshReaderPdfTextLayer(this, pageNumber);
+            // A search started before this page had text holds a stale corpus;
+            // drop it and let the open find panel rebuild its match list so
+            // "next" can reach the new hits.
+            this._findCorpus = null;
+            if (this._foundQuery && this._findInput?.value) {
+              this._findInput.dispatchEvent(new Event("input", { bubbles: true }));
+            }
           }
         }
         token.done += 1;

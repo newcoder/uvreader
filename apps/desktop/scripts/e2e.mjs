@@ -1036,6 +1036,30 @@ async function runOcrScenario() {
     }), 180_000);
     console.log("ocr: visible page text layer:", painted);
 
+    // The find panel must reach the generated text too (this is how the user
+    // confirms search and the next-match jump on a scanned book).
+    const fingerprint = fs.readdirSync(cacheDir).find((name) => name.startsWith("sha1-"));
+    const params = fingerprint ? fs.readdirSync(path.join(cacheDir, fingerprint)).find((name) => name.startsWith("rapid_")) : "";
+    let word = "";
+    if (fingerprint && params) {
+      const cached = JSON.parse(fs.readFileSync(path.join(cacheDir, fingerprint, params, "page_0001.json"), "utf8"));
+      word = String(cached.lines?.[0]?.[0] || "").trim().slice(0, 4);
+    }
+    if (word) {
+      await page.evaluate(() => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view.findBtn?.click());
+      await page.waitForSelector(".qiaomu-reader-toc-find-input", { timeout: 10_000 });
+      await page.fill(".qiaomu-reader-toc-find-input", word);
+      const found = await waitFor("find panel hit on generated text", () => page.evaluate(() => {
+        const rows = document.querySelectorAll(".qiaomu-reader-find-item").length;
+        const info = document.querySelector(".qiaomu-reader-find-info")?.textContent || "";
+        return rows ? `${rows} hits · ${info}` : "";
+      }), 30_000);
+      console.log("ocr: find panel", found.slice(0, 40), "for", word);
+      await page.evaluate(() => document.querySelector(".qiaomu-reader-find-controls button:nth-child(2)")?.click());
+      const stepped = await page.evaluate(() => document.querySelector(".qiaomu-reader-find-info")?.textContent || "");
+      console.log("ocr: after next —", stepped.slice(0, 24));
+    }
+
     await waitFor("text layer ready", () => page.evaluate(() => (
       document.querySelector(".qiaomu-reader-ocr-bar")?.dataset.kind === "ready" ? "ready" : ""
     )), 900_000);
