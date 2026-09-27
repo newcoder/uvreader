@@ -32,22 +32,30 @@ window.qbrDesktop = {
     probe: (settings) => ipcRenderer.invoke("qbr:ocr:probe", settings),
     start: (payload, onEvent) => {
       const listener = (_event, message) => {
-        if (message?.jobId === payload?.request?.jobId && typeof onEvent === "function") onEvent(message);
+        if (message?.jobId !== payload?.request?.jobId) return;
+        if (typeof onEvent === "function") onEvent(message);
+        if (message.kind === "done") ipcRenderer.removeListener("qbr:ocr:event", listener);
       };
       ipcRenderer.on("qbr:ocr:event", listener);
-      return ipcRenderer.invoke("qbr:ocr:start", payload).finally(() => {
+      return ipcRenderer.invoke("qbr:ocr:start", payload).catch((error) => {
         ipcRenderer.removeListener("qbr:ocr:event", listener);
+        throw error;
       });
     },
     cancel: (jobId) => ipcRenderer.invoke("qbr:ocr:cancel", jobId),
     session: (payload) => ipcRenderer.invoke("qbr:ocr:session", payload),
+    // The invoke resolves as soon as the job starts, so the listener must stay
+    // until the terminal "done" event (or a rejected start).
     textSource: (payload, onEvent) => {
       const listener = (_event, message) => {
-        if (message?.jobId === payload?.request?.jobId && typeof onEvent === "function") onEvent(message);
+        if (message?.jobId !== payload?.request?.jobId) return;
+        if (typeof onEvent === "function") onEvent(message);
+        if (message.kind === "done") ipcRenderer.removeListener("qbr:ocr:event", listener);
       };
       ipcRenderer.on("qbr:ocr:event", listener);
-      return ipcRenderer.invoke("qbr:ocr:text-source", payload).finally(() => {
+      return ipcRenderer.invoke("qbr:ocr:text-source", payload).catch((error) => {
         ipcRenderer.removeListener("qbr:ocr:event", listener);
+        throw error;
       });
     },
   },
