@@ -25,10 +25,10 @@ export function pdfScanVerdict(pageKinds, { total } = {}) {
   return { scanned, total: pageCount, textPages };
 }
 
-// "book.pdf" → "book.searchable.pdf"; the copy lives next to its source name so
-// it stays recognisable in the file list.
+// "book.pdf" → "book_text.pdf": the original name stays untouched and a
+// converted copy is recognisable next to it.
 export function searchablePdfName(name = "") {
   const base = String(name).trim().replace(/[\\/]+/g, "/").split("/").pop() || "";
   const stem = base.replace(/\.pdf$/i, "").trim() || "book";
-  return `${stem}.searchable.pdf`;
+  return `${stem}_text.pdf`;
 }

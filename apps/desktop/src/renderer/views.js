@@ -52,7 +52,8 @@ export function createHomeView(leaf, options) {
 
     signature() {
       const progress = Object.keys(plugin.progress || {}).length;
-      const books = app.vault.getFiles().filter((file) => BOOK_EXTENSIONS.includes(file.extension)).length;
+      const books = app.vault.getFiles().filter((file) => BOOK_EXTENSIONS.includes(file.extension)
+        && plugin.isLibraryBook?.(file) !== false).length;
       const projects = this._projectCount || 0;
       return `${progress}:${books}:${projects}`;
     }
@@ -111,7 +112,7 @@ export function createHomeView(leaf, options) {
 
       const vaultBooks = app.vault
         .getFiles()
-        .filter((file) => BOOK_EXTENSIONS.includes(file.extension))
+        .filter((file) => BOOK_EXTENSIONS.includes(file.extension) && plugin.isLibraryBook?.(file) !== false)
         .sort((a, b) => (b.stat?.mtime || 0) - (a.stat?.mtime || 0))
         .slice(0, 8);
       const added = section("书库新书");

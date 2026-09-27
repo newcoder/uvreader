@@ -156,7 +156,9 @@ export function createLibraryModal({
   }
   _libVaultBooks(folder) {
     const prefix = folder ? `${folder}/` : "";
-    return this.app.vault.getFiles().filter((f) => BOOK_EXTENSIONS.has(f.extension) && (prefix === "" || f.path.startsWith(prefix)));
+    return this.app.vault.getFiles().filter((f) => BOOK_EXTENSIONS.has(f.extension)
+      && (prefix === "" || f.path.startsWith(prefix))
+      && this.plugin.isLibraryBook?.(f) !== false);
   }
   _sortLibBooks(bookFiles) {
     const lastRead = (p) => this.plugin.getProgress(p)?.lastRead ?? 0;

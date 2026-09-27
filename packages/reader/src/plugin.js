@@ -631,6 +631,39 @@ export function createPlugin({
     }
     return "";
   }
+  // Reading traces (and MinerU's raw output) live inside the vault so they sync,
+  // but they are not library books; every book listing filters them out.
+  isLibraryBook(file) {
+    const path = String(file?.path || "");
+    if (!path) return false;
+    const hidden = [this._readingRoot(), this._dataFolder?.(), this.manifest?.dir]
+      .filter(Boolean)
+      .map((root) => String(root).replace(/\\/g, "/").replace(/\/+$/, ""));
+    const normalized = path.replace(/\\/g, "/");
+    return !hidden.some((root) => normalized === root || normalized.startsWith(`${root}/`));
+  }
+  // After a successful MinerU run only the layout JSON is kept; the uploaded
+  // copy, equations and figure crops are byproducts nobody reads.
+  async pruneOcrDerived(bookPath) {
+    try {
+      const { folder } = await this._readingStore().ensureBook(bookPath, this._bookMeta(bookPath));
+      const base = `${this._readingRoot()}/${folder}/derived/mineru`;
+      const adapter = this.app.vault.adapter;
+      const walk = async (dir) => {
+        const names = await adapter.list(dir).catch(() => []);
+        for (const name of Array.isArray(names) ? names : []) {
+          const full = `${dir}/${name}`;
+          if (/layout\.json$/i.test(name)) continue;
+          const stat = await adapter.stat(full).catch(() => null);
+          if (stat?.type === "folder") { await walk(full); await adapter.remove(full).catch(() => {}); continue; }
+          await adapter.remove(full).catch(() => {});
+        }
+      };
+      await walk(base);
+    } catch (error) {
+      console.warn("UV Reader: could not prune the MinerU output", error);
+    }
+  }
   // Phase 1 of hybrid mode: MinerU layout analysis (token from MINERU_API_KEY
   // in the desktop environment). The result is recorded in book.json so later
   // opens skip this step.
@@ -658,6 +691,7 @@ export function createPlugin({
       await this._readingStore().updateBookMeta(bookPath, {
         derived: { textSource: rel, textSourceAt: Date.now() },
       });
+      void this.pruneOcrDerived(bookPath);
     }
     return result;
   }

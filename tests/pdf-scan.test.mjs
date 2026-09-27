@@ -39,9 +39,9 @@ test("a watermark does not make a scanned page digital", () => {
   assert.equal(pdfScanVerdict(watermarked, { total: 9 }).scanned, true);
 });
 
-test("the generated copy keeps the source stem", () => {
-  assert.equal(searchablePdfName("book.pdf"), "book.searchable.pdf");
-  assert.equal(searchablePdfName("Books/扫描件.PDF"), "扫描件.searchable.pdf");
-  assert.equal(searchablePdfName(""), "book.searchable.pdf");
-  assert.equal(searchablePdfName("no-extension"), "no-extension.searchable.pdf");
+test("the generated copy keeps the source stem and adds _text", () => {
+  assert.equal(searchablePdfName("book.pdf"), "book_text.pdf");
+  assert.equal(searchablePdfName("Books/扫描件.PDF"), "扫描件_text.pdf");
+  assert.equal(searchablePdfName(""), "book_text.pdf");
+  assert.equal(searchablePdfName("no-extension"), "no-extension_text.pdf");
 });
