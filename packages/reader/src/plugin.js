@@ -619,8 +619,11 @@ export function createPlugin({
         if (file) return this._vaultAbsolute(recorded);
       }
       const { folder } = await this._readingStore().ensureBook(bookPath, this._bookMeta(bookPath));
-      for (const name of ["text-source.json", "layout.json"]) {
-        const rel = `${this._readingRoot()}/${folder}/derived/${name}`;
+      // Manual drop-ins first, then whatever a previous MinerU run produced
+      // (the sidecar writes <out>/mineru/layout.json under derived/mineru/).
+      const dir = `${this._readingRoot()}/${folder}/derived`;
+      for (const name of ["text-source.json", "layout.json", "mineru/layout.json", "mineru/mineru/layout.json"]) {
+        const rel = `${dir}/${name}`;
         if (this.app.vault.getAbstractFileByPath(rel)) return this._vaultAbsolute(rel);
       }
     } catch (error) {

@@ -462,6 +462,7 @@ export default {
   "ocr-sidecar-status": "Composant OCR",
   "ocr-hybrid": "Couche de texte haute qualité (hybrid)",
   "ocr-hybrid-mineru": "Avec MINERU_API_KEY défini, la source de texte manquante est générée automatiquement par MinerU (le PDF est envoyé ; la barre affiche « analyse de la mise en page »).",
+  "ocr-analyzing": "Analyse de la mise en page…",
   "ocr-analyzing-0-1": "Analyse de la mise en page {0}/{1} pages",
   "ocr-text-source-failed": "Échec de l'analyse de la mise en page ; poursuite en reconnaissance locale",
   "ocr-hybrid-desc": "Remplace le texte reconnu localement par une source de texte de mise en page tout en gardant les positions de l'OCR local (formules, tableaux et ordre de lecture plus précis). Placez le layout.json de MinerU ou un résultat d'extraction dans le dossier derived/ du livre (text-source.json ou layout.json) ; sans source, tout reste local.",

@@ -462,6 +462,7 @@ export default {
   "ocr-sidecar-status": "OCR 구성 요소",
   "ocr-hybrid": "고품질 텍스트 레이어(hybrid)",
   "ocr-hybrid-mineru": "MINERU_API_KEY를 설정하면 없는 텍스트 소스를 MinerU가 자동으로 만듭니다(PDF 업로드; 진행 표시줄은 \"레이아웃 분석 중\").",
+  "ocr-analyzing": "레이아웃 분석 중…",
   "ocr-analyzing-0-1": "레이아웃 분석 중 {0}/{1}쪽",
   "ocr-text-source-failed": "레이아웃 분석에 실패해 로컬 인식으로 계속합니다",
   "ocr-hybrid-desc": "로컬 OCR 위치는 그대로 두고 레이아웃 텍스트 소스로 인식된 텍스트를 바꿉니다(수식, 표, 읽기 순서가 더 정확). MinerU의 layout.json 또는 추출 결과를 책의 derived/ 폴더에 두세요(text-source.json 또는 layout.json). 없으면 로컬 인식으로 동작합니다.",

@@ -462,6 +462,7 @@ export default {
   "ocr-sidecar-status": "Componente OCR",
   "ocr-hybrid": "Capa de texto de alta calidad (hybrid)",
   "ocr-hybrid-mineru": "Con MINERU_API_KEY definida, MinerU genera automáticamente la fuente de texto que falte (se sube el PDF; la barra muestra «analizando diseño»).",
+  "ocr-analyzing": "Analizando diseño…",
   "ocr-analyzing-0-1": "Analizando diseño {0}/{1} páginas",
   "ocr-text-source-failed": "El análisis del diseño falló; se continúa con el reconocimiento local",
   "ocr-hybrid-desc": "Sustituye el texto reconocido localmente por una fuente de texto con diseño, manteniendo las posiciones del OCR local: fórmulas, tablas y orden de lectura más precisos. Coloca el layout.json de MinerU o un resultado de extracción en la carpeta derived/ del libro (text-source.json o layout.json); sin fuente, todo se queda en local.",

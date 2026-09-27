@@ -394,10 +394,17 @@ export function createReaderView({
       return el;
     };
     if (kind === "working") {
-      text.setText(total
-        ? qiaomuReaderTranslate(phase === "layout" ? "ocr-analyzing-0-1" : "ocr-generating-0-1", done, total)
-        : qiaomuReaderTranslate("ocr-preparing"));
-      fill.style.width = total ? `${Math.round((done / total) * 100)}%` : "4%";
+      if (phase === "layout" && !done) {
+        // MinerU reports a single progress event at the end; a percentage here
+        // would sit at 0% for minutes, so show an indeterminate bar instead.
+        text.setText(qiaomuReaderTranslate("ocr-analyzing"));
+        fill.addClass("qiaomu-reader-ocr-fill-waiting");
+      } else {
+        text.setText(total
+          ? qiaomuReaderTranslate(phase === "layout" ? "ocr-analyzing-0-1" : "ocr-generating-0-1", done, total)
+          : qiaomuReaderTranslate("ocr-preparing"));
+        fill.style.width = total ? `${Math.round((done / total) * 100)}%` : "4%";
+      }
       button(qiaomuReaderTranslate("cancel"), () => this._cancelTextLayerJob());
       return;
     }
