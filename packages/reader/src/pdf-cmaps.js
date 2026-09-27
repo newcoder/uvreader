@@ -1,4 +1,5 @@
 import { EMBEDDED_PDF_CMAPS } from "./pdf-cmaps-data.js";
+import { EMBEDDED_PDF_WASM } from "./pdf-wasm-data.js";
 
 function decodeBase64(value) {
   const binary = atob(value);
@@ -9,11 +10,13 @@ function decodeBase64(value) {
 
 export class EmbeddedPdfBinaryDataFactory {
   async fetch({ kind, filename }) {
-    if (kind !== "cMapUrl") {
-      throw new Error(`Unsupported embedded PDF resource kind: ${kind}`);
-    }
-    const encoded = EMBEDDED_PDF_CMAPS[filename];
-    if (!encoded) throw new Error(`Embedded PDF CMap is unavailable: ${filename}`);
+    // pdf.js asks for CMaps and, since v6, for the wasm decoders (jbig2,
+    // openjpeg, qcms, quickjs) through the same channel; both are embedded so
+    // scanned pages keep rendering offline.
+    const source = kind === "cMapUrl" ? EMBEDDED_PDF_CMAPS : kind === "wasmUrl" ? EMBEDDED_PDF_WASM : null;
+    if (!source) throw new Error(`Unsupported embedded PDF resource kind: ${kind}`);
+    const encoded = source[filename];
+    if (!encoded) throw new Error(`Embedded PDF resource is unavailable: ${filename}`);
     return decodeBase64(encoded);
   }
 }

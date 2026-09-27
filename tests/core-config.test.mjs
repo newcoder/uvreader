@@ -33,6 +33,7 @@ const confirmSource = fs.readFileSync(new URL("../packages/reader/src/confirm-mo
 const paginatorSource = fs.readFileSync(new URL("../packages/reader/src/pdf-paginator.js", import.meta.url), "utf8");
 const readerSources = mainSource + viewSource + modalSource + librarySource;
 import { EMBEDDED_PDF_CMAPS } from "../packages/reader/src/pdf-cmaps-data.js";
+import { EMBEDDED_PDF_WASM } from "../packages/reader/src/pdf-wasm-data.js";
 import { PDF_AI_CONTEXT_MAX_CHARS, READER_BLOCK_SELECTOR, packPdfDocumentContext, pdfPageKind, pdfPageShell, pdfPageTextFallback, pdfPageTextForAi } from "../packages/reader/src/pdf-page-mode.js";
 import { PDF_ZOOM_MAX, PDF_ZOOM_MIN, clampPdfZoom, pdfZoomFromWheel, pdfZoomPercent, pdfZoomShortcut, stepPdfZoom } from "../packages/reader/src/pdf-zoom.js";
 import { appendReadingNoteExcerpts, migrateAndReplaceReadingHighlights, replaceManagedReadingHighlights } from "../packages/reader/src/reading-note.js";
@@ -71,6 +72,18 @@ test("Traditional Chinese PDF CMaps are embedded for offline extraction", async 
   });
   assert.ok(bytes instanceof Uint8Array);
   assert.ok(bytes.byteLength > 40_000);
+});
+
+test("the pdf.js wasm decoders are embedded so scanned pages render offline", async () => {
+  assert.ok(Object.keys(EMBEDDED_PDF_WASM).length >= 4);
+  const factory = new EmbeddedPdfBinaryDataFactory();
+  for (const filename of ["jbig2.wasm", "openjpeg.wasm", "qcms_bg.wasm"]) {
+    const bytes = await factory.fetch({ kind: "wasmUrl", filename });
+    assert.ok(bytes instanceof Uint8Array);
+    assert.ok(bytes.byteLength > 10_000);
+    await WebAssembly.compile(bytes);
+  }
+  await assert.rejects(factory.fetch({ kind: "standardFontDataUrl", filename: "FoxitSans.pfb" }), /Unsupported/);
 });
 
 test("PDF pages keep their fixed layout and expose text capabilities per page", () => {
