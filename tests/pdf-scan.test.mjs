@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { pdfScanVerdict, searchablePdfName } from "../packages/reader/src/pdf-scan.js";
+import { PDF_SCAN_MIN_TEXT_CHARS, pdfScanPageKind, pdfScanVerdict, searchablePdfName } from "../packages/reader/src/pdf-scan.js";
 
 test("a PDF without a text layer counts as scanned", () => {
   const full = pdfScanVerdict(["scan", "scan", "scan", "scan"], { total: 4 });
@@ -25,6 +25,18 @@ test("a mostly scanned book is treated as scanned", () => {
 test("an empty or unreadable document is never scanned", () => {
   assert.equal(pdfScanVerdict([], { total: 0 }).scanned, false);
   assert.equal(pdfScanVerdict(null).scanned, false);
+});
+
+test("a watermark does not make a scanned page digital", () => {
+  assert.equal(pdfScanPageKind(""), "scan");
+  assert.equal(pdfScanPageKind("4"), "scan");
+  assert.equal(pdfScanPageKind("www.example.com/1"), "scan", "watermarks stay scans");
+  assert.equal(pdfScanPageKind("x".repeat(PDF_SCAN_MIN_TEXT_CHARS)), "text");
+  assert.equal(pdfScanPageKind("这是一段真正的正文文字，足够长，可以当作数字排版层的证据。".repeat(2)), "text");
+  // The two books the OCR pass skipped: every page carries four watermark
+  // characters, so the whole document counts as scanned.
+  const watermarked = Array.from({ length: 9 }, () => pdfScanPageKind("4"));
+  assert.equal(pdfScanVerdict(watermarked, { total: 9 }).scanned, true);
 });
 
 test("the generated copy keeps the source stem", () => {

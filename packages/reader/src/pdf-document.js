@@ -6,7 +6,7 @@ import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import { PDF_CMAP_OPTIONS } from "./pdf-cmaps.js";
 import { getPdfTextContent } from "./pdf-text-content.js";
 import { PDF_AI_CONTEXT_MAX_CHARS, packPdfDocumentContext, pdfPageKind, pdfPageShell, pdfPageTextFallback, pdfPageTextForAi } from "./pdf-page-mode.js";
-import { pdfScanVerdict } from "./pdf-scan.js";
+import { pdfScanPageKind, pdfScanVerdict } from "./pdf-scan.js";
 import { throwIfReaderLoadAborted } from "./reader-load.js";
 import { pdfTextLooksUnreadable } from "./toc-build.js";
 
@@ -215,7 +215,9 @@ export function createPdfDocument({ setupWorker, win = globalThis }) {
       const parts = [], textPages = [], pageText = [], pageKinds = [], outline = [];
       for (let i = 1; i <= pageCount; i++) {
         const part = await readPdfPage(doc, i, signal, onProgress, pageCount);
-        pageKinds.push(part.kind);
+        // The verdict looks for a real text layer: a few watermark characters
+        // do not make a scanned page digital.
+        pageKinds.push(pdfScanPageKind(part.textFallback));
         if (part.kind === "text" && part.aiText) textPages.push({ page: i, text: part.aiText });
         pageText.push(part.kind === "text" ? part.textFallback : "");
         parts.push(pdfPageShell({

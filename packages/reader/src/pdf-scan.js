@@ -8,6 +8,15 @@
 // below.
 export const PDF_SCAN_TEXT_RATIO = 0.25;
 
+// A page only counts as carrying a text layer when it has this much text. Scans
+// often ship a tiny watermark (a URL or page number, a few characters), which
+// would otherwise make every page look digital and skip the OCR pass.
+export const PDF_SCAN_MIN_TEXT_CHARS = 40;
+
+export function pdfScanPageKind(text) {
+  return String(text || "").length >= PDF_SCAN_MIN_TEXT_CHARS ? "text" : "scan";
+}
+
 export function pdfScanVerdict(pageKinds, { total } = {}) {
   const kinds = Array.isArray(pageKinds) ? pageKinds : [];
   const pageCount = Number.isFinite(total) ? Number(total) : kinds.length;
