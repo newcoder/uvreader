@@ -327,6 +327,26 @@ ipcMain.handle("qbr:ocr:start", (event, payload = {}) => {
   });
 });
 ipcMain.handle("qbr:ocr:cancel", (_event, jobId) => pdfOcr.cancel(String(jobId || "")));
+// Hybrid phase 1: MinerU layout analysis, output kept inside the vault.
+ipcMain.handle("qbr:ocr:text-source", (event, payload = {}) => {
+  const sender = event.sender;
+  const request = payload.request || {};
+  const jobId = String(request.jobId || "");
+  return pdfOcr.startTextSource(payload.settings || {}, {
+    jobId,
+    source: String(request.source || ""),
+    out: resolveOcrOutput(vaultRoot, request.out),
+    token: String(request.token || ""),
+    force: Boolean(request.force),
+  }, {
+    onProgress: (progress) => {
+      if (!sender.isDestroyed()) sender.send("qbr:ocr:event", { kind: "progress", ...progress });
+    },
+    onDone: (result) => {
+      if (!sender.isDestroyed()) sender.send("qbr:ocr:event", { kind: "done", ...result });
+    },
+  });
+});
 // Reading sessions: lazy single-page text layers for a scanned PDF that is
 // already open (one warm sidecar process per book).
 ipcMain.handle("qbr:ocr:session", (_event, payload = {}) => {

@@ -41,6 +41,15 @@ window.qbrDesktop = {
     },
     cancel: (jobId) => ipcRenderer.invoke("qbr:ocr:cancel", jobId),
     session: (payload) => ipcRenderer.invoke("qbr:ocr:session", payload),
+    textSource: (payload, onEvent) => {
+      const listener = (_event, message) => {
+        if (message?.jobId === payload?.request?.jobId && typeof onEvent === "function") onEvent(message);
+      };
+      ipcRenderer.on("qbr:ocr:event", listener);
+      return ipcRenderer.invoke("qbr:ocr:text-source", payload).finally(() => {
+        ipcRenderer.removeListener("qbr:ocr:event", listener);
+      });
+    },
   },
   ai: {
     stream: (payload, onEvent) => {

@@ -54,6 +54,14 @@ process.stdin.on("data", (chunk) => {
                   content } }) + "\\n");
       continue;
     }
+    if (req.method === "doc.convert") {
+      process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { job: "d1" } }) + "\\n");
+      process.stdout.write(JSON.stringify({ jsonrpc: "2.0", method: "convert.progress", params: { job: "d1", done: 1, total: 2, page: 1 } }) + "\\n");
+      fs.mkdirSync(req.params.out_dir, { recursive: true });
+      fs.writeFileSync(req.params.out_dir + "/layout.json", JSON.stringify({ pdf_info: [], token: req.params.mineru_token }));
+      process.stdout.write(JSON.stringify({ jsonrpc: "2.0", method: "convert.done", params: { job: "d1", cancelled: false, error: null, stats: { mode: "mineru", pages: 2 }, files: { json: req.params.out_dir + "/doc.json" } } }) + "\\n");
+      continue;
+    }
     if (req.method === "convert.start") {
       process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { job: "j1" } }) + "\\n");
       SIDECAR_BEHAVIOUR
@@ -221,6 +229,45 @@ test("a text source turns the session into hybrid mode", async () => {
   assert.equal(missing.hybrid, false);
   assert.equal((await ocr.page(missing.sessionId, 1)).source, "ocr");
   ocr.closeSession(missing.sessionId);
+});
+
+test("the MinerU text source is generated with the environment token", async () => {
+  const previous = process.env.MINERU_API_KEY;
+  process.env.MINERU_API_KEY = "test-token";
+  try {
+    const script = writeSidecar("ok", OK_SIDECAR);
+    const ocr = createPdfOcr({ spawnImpl: fakeSpawn(script) });
+    const source = fakeSource();
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-ocr-mineru-"));
+    const progress = [];
+    const done = await new Promise((resolve) => {
+      ocr.startTextSource(settingsFor(), { jobId: "mineru-1", source, out }, {
+        onProgress: (value) => progress.push(value),
+        onDone: resolve,
+      });
+    });
+    assert.equal(done.ok, true);
+    assert.equal(done.layout, path.join(out, "layout.json"));
+    assert.equal(fs.existsSync(done.layout), true);
+    assert.deepEqual(progress.map((p) => [p.done, p.total]), [[1, 2]]);
+    assert.equal(JSON.parse(fs.readFileSync(done.layout, "utf8")).token, "test-token");
+  } finally {
+    if (previous === undefined) delete process.env.MINERU_API_KEY;
+    else process.env.MINERU_API_KEY = previous;
+  }
+
+  // Without a token (and nothing in the environment) the job refuses early.
+  const had = process.env.MINERU_API_KEY;
+  delete process.env.MINERU_API_KEY;
+  try {
+    const script = writeSidecar("ok", OK_SIDECAR);
+    const ocr = createPdfOcr({ spawnImpl: fakeSpawn(script) });
+    assert.throws(() => ocr.startTextSource(settingsFor(), {
+      jobId: "mineru-2", source: fakeSource(), out: fs.mkdtempSync(path.join(os.tmpdir(), "qbr-ocr-mineru-")),
+    }), /MINERU_API_KEY/);
+  } finally {
+    if (had !== undefined) process.env.MINERU_API_KEY = had;
+  }
 });
 
 test("cancel kills a hanging job without reporting done", async () => {

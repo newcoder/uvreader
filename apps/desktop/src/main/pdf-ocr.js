@@ -47,6 +47,29 @@ export function ocrCommand(settings = {}) {
   return { error: "还没有配置 pdf_tool 目录" };
 }
 
+// MinerU writes a layout JSON somewhere under the output folder; that file is
+// what hybrid mode consumes as its text source.
+function findLayoutSource(dir) {
+  const direct = path.join(dir, "layout.json");
+  if (fs.existsSync(direct)) return direct;
+  let entries = [];
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return ""; }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const candidate = path.join(dir, entry.name, "layout.json");
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  for (const entry of entries) {
+    if (!entry.isFile() || !/_model\.json$/i.test(entry.name)) continue;
+    const candidate = path.join(dir, entry.name);
+    try {
+      const raw = fs.readFileSync(candidate, "utf8");
+      if (raw.includes("\"pdf_info\"")) return candidate;
+    } catch { /* unreadable model file */ }
+  }
+  return "";
+}
+
 // The generated copy must stay inside the vault so it syncs and can be opened
 // through the vault like any other file.
 export function resolveOcrOutput(vaultRoot, target) {
@@ -306,6 +329,76 @@ export function createPdfOcr({ spawnImpl = spawn, cacheRoot = "" } = {}) {
     return { jobId };
   }
 
+  // Phase 1 of hybrid mode: MinerU turns the scan into a layout text source
+  // (derived/mineru/layout.json) with page-level progress. The token comes from
+  // the request or MINERU_API_KEY in the environment.
+  function startTextSource(settings = {}, request = {}, handlers = {}) {
+    const target = ocrCommand(settings);
+    if (target.error) throw new Error(target.error);
+    const source = path.resolve(String(request.source || ""));
+    const out = path.resolve(String(request.out || ""));
+    if (!source || !fs.existsSync(source)) throw new Error(`源文件不存在：${source || "(空)"}`);
+    if (!out) throw new Error("缺少输出目录");
+    const token = String(request.token || process.env.MINERU_API_KEY || "").trim();
+    if (!token) throw new Error("未配置 MinerU：请设置环境变量 MINERU_API_KEY");
+    fs.mkdirSync(out, { recursive: true });
+
+    const jobId = String(request.jobId || "");
+    if (!jobId) throw new Error("缺少任务 id");
+    if (jobs.has(jobId)) throw new Error(`任务已存在：${jobId}`);
+    const job = { jobId, finished: false, sidecarJob: "" };
+    jobs.set(jobId, job);
+    log("text-source job start", jobId, source, "→", out);
+
+    const finish = (result) => {
+      if (job.finished) return;
+      job.finished = true;
+      jobs.delete(jobId);
+      job.session?.kill();
+      handlers.onDone?.(result);
+    };
+    const fail = (detail) => finish({ ok: false, jobId, error: String(detail || "版式分析失败").slice(0, 300) });
+
+    let session;
+    try {
+      session = spawnSession({
+        ...target,
+        spawnImpl,
+        cacheRoot: cacheDir,
+        onNotification: (message) => {
+          if (job.finished) return;
+          const params = message.params || {};
+          if (message.method === "convert.progress" && params.job === job.sidecarJob) {
+            handlers.onProgress?.({ jobId, done: Number(params.done) || 0, total: Number(params.total) || 0, page: Number(params.page) || 0 });
+          } else if (message.method === "convert.done" && params.job === job.sidecarJob) {
+            if (params.error) { fail(params.error); return; }
+            const layout = findLayoutSource(out);
+            if (!layout) { fail("MinerU 完成但没有找到版式文件"); return; }
+            finish({ ok: true, jobId, layout, stats: params.stats || null });
+          }
+        },
+        onExit: ({ error }) => {
+          if (!job.finished) fail(error || "OCR 进程退出");
+        },
+      });
+    } catch (error) {
+      jobs.delete(jobId);
+      throw error;
+    }
+    job.session = session;
+    session.request("doc.convert", {
+      path: source,
+      mode: "mineru",
+      mineru_token: token,
+      mineru_model: String(request.model || "vlm"),
+      out_dir: out,
+      formats: ["json"],
+      force: Boolean(request.force),
+    }).then((result) => { job.sidecarJob = String(result?.job || ""); })
+      .catch((error) => fail(error));
+    return { jobId };
+  }
+
   function cancel(jobId) {
     const job = jobs.get(String(jobId || ""));
     if (!job) return false;
@@ -327,5 +420,5 @@ export function createPdfOcr({ spawnImpl = spawn, cacheRoot = "" } = {}) {
     closeAll();
   }
 
-  return { probe, start, cancel, cancelAll, openSession, page, closeSession, closeAll, jobs, sessions };
+  return { probe, start, startTextSource, cancel, cancelAll, openSession, page, closeSession, closeAll, jobs, sessions };
 }

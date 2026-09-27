@@ -289,6 +289,30 @@ export function createReaderView({
     this._ocrJob = token;
     this._showOcrBar({ kind: "working", done: 0, total });
     try {
+      // Hybrid: build the MinerU layout source first when it is missing. A
+      // failure (no token, network) only notifies and falls back to plain OCR.
+      if (this.plugin.settings.ocrHybrid === true) {
+        try {
+          const existing = await this.plugin.ocrTextSourceFor(file.path);
+          if (!existing) {
+            const built = await this.plugin.buildOcrTextSource(file.path, {
+              jobId: `${token.jobId}-layout`,
+              onProgress: (progress) => {
+                if (this._ocrJob === token) {
+                  this._showOcrBar({ kind: "working", done: progress.done, total: progress.total, phase: "layout" });
+                }
+              },
+            });
+            if (!built?.ok) {
+              new Notice(`${qiaomuReaderTranslate("ocr-text-source-failed")}：${this.plugin.ocrErrorText?.(built?.error) || built?.error || ""}`, 12000);
+            }
+          }
+        } catch (error) {
+          new Notice(`${qiaomuReaderTranslate("ocr-text-source-failed")}：${this.plugin.ocrErrorText?.(error) || ""}`, 12000);
+        }
+        if (this._ocrJob !== token || token.cancelled) return;
+        this._showOcrBar({ kind: "working", done: 0, total });
+      }
       const opened = await this.plugin.openOcrSession(file.path);
       if (this._ocrJob !== token) return;
       token.sessionId = String(opened?.sessionId || "");
@@ -343,7 +367,7 @@ export function createReaderView({
     this._ocrBarEl?.remove?.();
     this._ocrBarEl = null;
   }
-  _showOcrBar({ kind, done = 0, total = 0, message = "", file = null }) {
+  _showOcrBar({ kind, done = 0, total = 0, message = "", file = null, phase = "" }) {
     const bar = this._ocrBar();
     bar.empty();
     bar.dataset.kind = kind;
@@ -357,7 +381,7 @@ export function createReaderView({
     };
     if (kind === "working") {
       text.setText(total
-        ? qiaomuReaderTranslate("ocr-generating-0-1", done, total)
+        ? qiaomuReaderTranslate(phase === "layout" ? "ocr-analyzing-0-1" : "ocr-generating-0-1", done, total)
         : qiaomuReaderTranslate("ocr-preparing"));
       fill.style.width = total ? `${Math.round((done / total) * 100)}%` : "4%";
       button(qiaomuReaderTranslate("cancel"), () => this._cancelTextLayerJob());

@@ -1078,7 +1078,7 @@ export function createSettingsTab({
         .onChange((value) => persist("ocrScannedPdf", value)));
     new Setting(host)
       .setName(tx("ocr-hybrid"))
-      .setDesc(tx("ocr-hybrid-desc"))
+      .setDesc(`${tx("ocr-hybrid-desc")} ${tx("ocr-hybrid-mineru")}`)
       .addToggle((toggle) => toggle
         .setValue(this.plugin.settings.ocrHybrid === true)
         .onChange((value) => persist("ocrHybrid", value)));

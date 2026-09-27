@@ -628,6 +628,36 @@ export function createPlugin({
     }
     return "";
   }
+  // Phase 1 of hybrid mode: MinerU layout analysis (token from MINERU_API_KEY
+  // in the desktop environment). The result is recorded in book.json so later
+  // opens skip this step.
+  async buildOcrTextSource(bookPath, { jobId, onProgress } = {}) {
+    const bridge = this.ocrBridge();
+    if (!bridge?.textSource) throw new Error(qiaomuReaderTranslate("ocr-needs-desktop"));
+    const { folder } = await this._readingStore().ensureBook(bookPath, this._bookMeta(bookPath));
+    const outRel = `${this._readingRoot()}/${folder}/derived/mineru`;
+    let settle = () => {};
+    const finished = new Promise((resolve) => { settle = resolve; });
+    await bridge.textSource({
+      settings: this.ocrSidecarSettings(),
+      request: { jobId, source: this._bookAbsolute(bookPath), out: this._vaultAbsolute(outRel) },
+    }, (event) => {
+      if (event?.kind === "progress") onProgress?.(event);
+      else if (event?.kind === "done") settle(event);
+    });
+    const result = await finished;
+    if (result?.ok && result.layout) {
+      const root = String(globalThis.window?.qbrDesktop?.paths?.vaultRoot || "").replace(/\\/g, "/").replace(/\/+$/, "");
+      const normalized = String(result.layout).replace(/\\/g, "/");
+      const rel = root && normalized.toLowerCase().startsWith(`${root.toLowerCase()}/`)
+        ? normalized.slice(root.length + 1)
+        : normalized;
+      await this._readingStore().updateBookMeta(bookPath, {
+        derived: { textSource: rel, textSourceAt: Date.now() },
+      });
+    }
+    return result;
+  }
   // Per-page text layers while a scan is open: one warm sidecar process, pages
   // fetched in the order the reader prefers (current page first).
   async openOcrSession(bookPath) {
