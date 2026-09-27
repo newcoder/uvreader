@@ -632,6 +632,31 @@ export function createPlugin({
     }
     return "";
   }
+  // ── online book search and downloads ──────────────────────────────────────
+  booksBridge() {
+    return typeof window !== "undefined" ? window.qbrDesktop?.books || null : null;
+  }
+  async searchOnlineBooks(query) {
+    const bridge = this.booksBridge();
+    if (!bridge?.search) throw new Error(qiaomuReaderTranslate("search-online-needs-desktop"));
+    return bridge.search({ sources: this.settings.downloadSources || [], query });
+  }
+  async downloadBook(jobId, result, handlers = {}) {
+    const bridge = this.booksBridge();
+    if (!bridge?.download) throw new Error(qiaomuReaderTranslate("search-online-needs-desktop"));
+    let settle = () => {};
+    const finished = new Promise((resolve) => { settle = resolve; });
+    await bridge.download({ jobId, result }, (event) => {
+      if (event?.kind === "progress") handlers.onProgress?.(event);
+      else if (event?.kind === "done") settle(event);
+    });
+    const outcome = await finished;
+    return outcome;
+  }
+  cancelBookDownload(jobId) {
+    try { return Boolean(this.booksBridge()?.cancel?.(jobId)); }
+    catch { return false; }
+  }
   // Reading traces (and MinerU's raw output) live inside the vault so they sync,
   // but they are not library books; every book listing filters them out.
   isLibraryBook(file) {

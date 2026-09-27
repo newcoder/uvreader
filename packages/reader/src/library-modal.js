@@ -27,7 +27,7 @@ export function createLibraryModal({
     contentEl.addClass("qiaomu-reader-lib");
     this._applyLibTheme(modalEl);
     const hdr = this._buildLibBrand(contentEl); this._setupDropZone();
-    const { input } = this._buildLibTools(hdr);
+    const { input, vaultBtn, onlineBtn } = this._buildLibTools(hdr);
     try { await this.plugin.ensureStarterBooks(); }
     catch (error) {
       console.warn("UV Reader: starter books could not be installed", error);
@@ -98,10 +98,152 @@ export function createLibraryModal({
       await this.plugin._saveLocalData(); drawChipRow(); redraw(input.value);
     };
     drawChipRow();
-    input.addEventListener("input", () => redraw(input.value));
+    // Two modes share the search box: the vault (books already here) and the
+    // online sources (search → pick → background download → join the library).
+    const setMode = (mode) => {
+      this._libMode = mode;
+      const online = mode === "online";
+      vaultBtn.toggleClass("qiaomu-reader-lib-mode-on", !online);
+      onlineBtn.toggleClass("qiaomu-reader-lib-mode-on", online);
+      vaultBtn.setAttribute("aria-pressed", String(!online));
+      onlineBtn.setAttribute("aria-pressed", String(online));
+      input.placeholder = qiaomuReaderTranslate(online ? "search-online-placeholder" : "search-a-book");
+      chipRow.hidden = online;
+      input.value = "";
+      if (online) this._renderOnline(grid, "");
+      else redraw("");
+      input.focus();
+    };
+    vaultBtn.addEventListener("click", () => setMode("vault"));
+    onlineBtn.addEventListener("click", () => setMode("online"));
+    input.addEventListener("input", () => {
+      if (this._libMode === "online") this._renderOnline(grid, input.value);
+      else redraw(input.value);
+    });
     redraw("");
     readerHud.autoFocus(input, 60);
     readerHud.blurOnTapOutside(this.contentEl, input);
+  }
+  // ── online search results and the download queue ──────────────────────────
+  _renderOnline(grid, query) {
+    this._grid = grid;
+    clearTimeout(this._onlineTimer);
+    const q = String(query || "");
+    this._onlineQuery = q;
+    grid.empty();
+    if (!q.trim()) {
+      grid.createDiv("qiaomu-reader-lib-noresult").setText(qiaomuReaderTranslate("search-online-hint"));
+      return;
+    }
+    grid.createDiv("qiaomu-reader-lib-noresult").setText(qiaomuReaderTranslate("searching"));
+    this._onlineTimer = setTimeout(() => { void this._runOnlineSearch(grid, q); }, 450);
+  }
+  async _runOnlineSearch(grid, query) {
+    let report = null;
+    try {
+      report = await this.plugin.searchOnlineBooks(query);
+    } catch (error) {
+      if (this._libMode !== "online" || !grid.isConnected) return;
+      grid.empty();
+      grid.createDiv("qiaomu-reader-lib-noresult").setText(
+        `${qiaomuReaderTranslate("search-online-failed")}：${this.plugin.ocrErrorText?.(error) || ""}`.slice(0, 160));
+      return;
+    }
+    if (this._libMode !== "online" || this._onlineQuery.trim() !== query.trim() || !grid.isConnected) return;
+    grid.empty();
+    const results = report?.results || [];
+    const errors = report?.errors || [];
+    if (!results.length) grid.createDiv("qiaomu-reader-lib-noresult").setText(qiaomuReaderTranslate("nothing-found"));
+    const selected = new Set();
+    const rows = [];
+    for (const result of results) {
+      const row = grid.createDiv("qiaomu-reader-lib-result");
+      const box = row.createEl("input", { type: "checkbox" });
+      box.addClass("qiaomu-reader-lib-result-box");
+      box.disabled = !result.downloadable;
+      const body = row.createDiv("qiaomu-reader-lib-result-body");
+      body.createDiv({ cls: "qiaomu-reader-lib-result-title", text: result.title });
+      const meta = [result.author, result.sourceName, result.format.toUpperCase(), result.size, result.year, result.language]
+        .filter(Boolean).join(" · ");
+      body.createDiv({ cls: "qiaomu-reader-lib-result-meta", text: meta });
+      const status = row.createDiv("qiaomu-reader-lib-result-status");
+      if (!result.downloadable) {
+        status.setText(result.license === "borrow" ? qiaomuReaderTranslate("search-online-borrow-only") : qiaomuReaderTranslate("search-online-no-file"));
+      } else if (result.needsSession) {
+        status.setText(qiaomuReaderTranslate("search-online-needs-login"));
+        box.disabled = true;
+      } else {
+        status.setText(qiaomuReaderTranslate("search-online-ready"));
+      }
+      box.addEventListener("change", () => {
+        if (box.checked) selected.add(result); else selected.delete(result);
+        syncBar();
+      });
+      row.addEventListener("click", (event) => {
+        if (event.target === box || box.disabled) return;
+        box.checked = !box.checked;
+        box.dispatchEvent(new Event("change"));
+      });
+      rows.push({ result, row, box, status });
+    }
+    if (errors.length) {
+      grid.createDiv({ cls: "qiaomu-reader-lib-result-errors", text: `${qiaomuReaderTranslate("search-online-sources-failed")}：${errors.map((e) => e.name || e.source).join(", ")}` });
+    }
+    const bar = grid.createDiv("qiaomu-reader-lib-download-bar");
+    const selectAll = bar.createEl("button", { text: qiaomuReaderTranslate("select-all") });
+    const start = bar.createEl("button", { cls: "mod-cta", text: qiaomuReaderTranslate("search-online-download-selected") });
+    const syncBar = () => { start.setText(`${qiaomuReaderTranslate("search-online-download-selected")}${selected.size ? ` (${selected.size})` : ""}`); start.disabled = !selected.size; };
+    selectAll.addEventListener("click", () => {
+      const downloadable = rows.filter((entry) => entry.result.downloadable && !entry.result.needsSession);
+      const turnOn = downloadable.some((entry) => !entry.box.checked);
+      for (const entry of downloadable) { entry.box.checked = turnOn; if (turnOn) selected.add(entry.result); else selected.delete(entry.result); }
+      syncBar();
+    });
+    start.addEventListener("click", () => {
+      const picked = [...selected];
+      selected.clear();
+      syncBar();
+      for (const result of picked) void this._startOnlineDownload(result, rows.find((entry) => entry.result === result));
+    });
+    syncBar();
+  }
+  async _startOnlineDownload(result, rowEntry) {
+    const status = rowEntry?.status;
+    const jobId = `dl-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e4).toString(36)}`;
+    this._onlineDownloads ||= new Map();
+    this._onlineDownloads.set(jobId, result);
+    if (status) status.setText(qiaomuReaderTranslate("search-online-downloading"));
+    try {
+      const outcome = await this.plugin.downloadBook(jobId, result, {
+        onProgress: (progress) => {
+          if (!status) return;
+          const percent = progress.total ? Math.round((progress.received / progress.total) * 100) : 0;
+          status.setText(`${qiaomuReaderTranslate("search-online-downloading")}${progress.total ? ` ${percent}%` : ""}`);
+        },
+      });
+      if (outcome?.ok) {
+        new Notice(qiaomuReaderTranslate("search-online-downloaded-0", outcome.name || result.title), 8000);
+        if (status && status.isConnected) {
+          status.empty();
+          const open = status.createEl("button", { cls: "qiaomu-reader-lib-result-open", text: qiaomuReaderTranslate("open") });
+          open.addEventListener("click", async (event) => {
+            event.stopPropagation();
+            const root = String(window.qbrDesktop?.paths?.vaultRoot || "").replace(/\\/g, "/").replace(/\/+$/, "");
+            const normalized = String(outcome.path || "").replace(/\\/g, "/");
+            const rel = root && normalized.startsWith(`${root}/`) ? normalized.slice(root.length + 1) : normalized;
+            const file = this.app.vault.getAbstractFileByPath(rel);
+            if (file) { this.close(); await this.plugin.openFile(file); }
+            else new Notice(qiaomuReaderTranslate("could-not-open-the-book"), 8000);
+          });
+        }
+        this._refresh();
+      } else {
+        if (status) status.setText(`${qiaomuReaderTranslate("search-online-failed")}：${String(outcome?.error || "").slice(0, 60)}`);
+        if (!outcome?.cancelled) new Notice(`${qiaomuReaderTranslate("search-online-failed")}：${String(outcome?.error || "").slice(0, 120)}`, 10000);
+      }
+    } finally {
+      this._onlineDownloads.delete(jobId);
+    }
   }
   _applyLibTheme(modalEl) {
     const theme = qiaomuReaderLibTheme(this.plugin.settings);
@@ -146,13 +288,25 @@ export function createLibraryModal({
   }
   _buildLibTools(hdr) {
     const tools = hdr.createDiv("qiaomu-reader-lib-tools");
+    const modes = tools.createDiv("qiaomu-reader-lib-modes");
+    modes.setAttribute("role", "tablist");
+    const modeButton = (label) => {
+      const el = modes.createEl("button", { cls: "qiaomu-reader-lib-mode", attr: { type: "button", role: "tab" } });
+      el.setText(label);
+      return el;
+    };
+    const vaultBtn = modeButton(qiaomuReaderTranslate("search-in-library"));
+    const onlineBtn = modeButton(qiaomuReaderTranslate("search-online"));
+    vaultBtn.addClass("qiaomu-reader-lib-mode-on");
+    vaultBtn.setAttribute("aria-pressed", "true");
+    onlineBtn.setAttribute("aria-pressed", "false");
     const projects = tools.createEl("button", { cls: "qiaomu-reader-lib-projects", text: qiaomuReaderTranslate("reading-projects") });
     projects.addEventListener("click", () => this.plugin.openReadingProjects?.({ mode: "manage" }));
     const search = tools.createDiv("qiaomu-reader-lib-search");
     const searchIcon = search.createDiv("qiaomu-reader-lib-search-ic");
     svgIcon(searchIcon, "search");
     const input = search.createEl("input", { cls: "qiaomu-reader-lib-search-input", attr: { type: "text", placeholder: qiaomuReaderTranslate("search-a-book"), spellcheck: "false" } });
-    return { input };
+    return { input, vaultBtn, onlineBtn };
   }
   _libVaultBooks(folder) {
     const prefix = folder ? `${folder}/` : "";
