@@ -294,6 +294,15 @@ export function createBookNotes({
       }));
     }
     menu.addItem((it) => it.setTitle(translate("reveal-in-file-explorer")).setIcon("folder-open").onClick(() => {
+      // Desktop has no file-explorer view to reveal: hand the absolute path to
+      // the OS file manager instead, and keep the Obsidian behaviour elsewhere.
+      const bridge = typeof window !== "undefined" ? window.qbrDesktop : null;
+      if (bridge?.showItemInFolder) {
+        const root = String(bridge.paths?.vaultRoot || "").replace(/[\\/]+$/, "");
+        const relative = String(file.path || "").replace(/\//g, "\\");
+        bridge.showItemInFolder(root ? `${root}\\${relative}` : relative);
+        return;
+      }
       const explorer = app.workspace.getLeavesOfType("file-explorer")[0];
       if (!explorer) return;
       app.workspace.revealLeaf(explorer);
