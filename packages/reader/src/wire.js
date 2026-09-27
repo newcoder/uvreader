@@ -50,6 +50,7 @@ import { bindAiComposer } from "./ai-composer.js";
 import { DRAFT_LIMIT, loadAiDrafts } from "./ai-drafts.js";
 import { aiAnswerMarker, appendAiAnswer, verifiedQuotes, normalizeLocationMarks } from "./reading-workflow.js";
 import { searchableQuery, searchBookBlocks, nextSearchIndex } from "./reader-search.js";
+import { DEFAULT_BOOK_SOURCES } from "./book-sources.js";
 import { captureReadingAnchor, restoreReadingAnchor, queueReadingLayout, shouldFollowContext, comfortableLineWidth, zoomAnchorOffset, textPoint } from "./reader-experience.js";
 import { PDF_AI_CONTEXT_MAX_CHARS, READER_BLOCK_SELECTOR } from "./pdf-page-mode.js";
 import { PDF_ZOOM_DEFAULT, PDF_ZOOM_MAX, PDF_ZOOM_MIN, clampPdfZoom, pdfZoomFromWheel, pdfZoomPercent, pdfZoomShortcut, stepPdfZoom } from "./pdf-zoom.js";
@@ -517,6 +518,7 @@ const DEFAULT_AI = {
   // Local, bounded chat snapshots for the right sidebar. They never leave the
   // vault except when the reader explicitly sends a turn to the chosen model.
   aiChatHistory: [],
+  downloadSources: DEFAULT_BOOK_SOURCES,
   ocrScannedPdf: true,
   ocrHybrid: false,
   ocrSidecarDir: "",

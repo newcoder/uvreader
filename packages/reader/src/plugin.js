@@ -4,6 +4,7 @@
 import { ENGINE_EXTENSIONS } from "./reader-engine.js";
 import { STARTER_BOOKS } from "./starter-book-data.js";
 import { addMissingQuoteLinks, highlightBacklink, jumpToEngineHighlight } from "./highlight-navigation.js";
+import { normalizeBookSources } from "./book-sources.js";
 import { collectMissingHighlights } from "./highlight-recovery.js";
 import { sortHighlightsByPosition } from "./highlight-order.js";
 import { searchablePdfName } from "./pdf-scan.js";
@@ -771,6 +772,7 @@ export function createPlugin({
     this.settings.aiThinking = { ...(this.settings.aiThinking || {}) };
     this.settings.aiCapabilities = normalizeAiCapabilities(this.settings.aiCapabilities);
     this.settings.aiChatHistory = normalizeAiChatHistory(this.settings.aiChatHistory);
+    this.settings.downloadSources = normalizeBookSources(this.settings.downloadSources);
     this.settings.locationMarks = normalizeLocationMarks(this.settings.locationMarks);
     if (this.settings.aiProvider && this.settings.aiModel && !this.settings.aiModels[this.settings.aiProvider]) {
       this.settings.aiModels[this.settings.aiProvider] = this.settings.aiModel;
