@@ -432,6 +432,8 @@ export default {
   "search-online-sources-failed": "Estas fuentes no respondieron",
   "search-online-borrow-only": "Solo préstamo",
   "search-online-no-file": "Sin archivo descargable",
+  "search-online-thinking": "Preparando la lista de libros…",
+  "search-online-no-version": "No se encontró una versión descargable",
   "search-online-needs-login": "Requiere sesión iniciada",
   "search-online-sign-in": "Inicia sesión para descargar",
   "search-online-signing-in": "Esperando el inicio de sesión…",

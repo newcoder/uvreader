@@ -434,6 +434,8 @@ export default {
   "search-online-sources-failed": "Эти источники не ответили",
   "search-online-borrow-only": "Только выдача",
   "search-online-no-file": "Нет файла для скачивания",
+  "search-online-thinking": "Составляю список книг…",
+  "search-online-no-version": "Скачиваемая версия не найдена",
   "search-online-needs-login": "Нужен вход в аккаунт",
   "search-online-sign-in": "Войти и скачать",
   "search-online-signing-in": "Ожидание входа…",

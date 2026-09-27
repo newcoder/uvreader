@@ -5,8 +5,21 @@ import {
   BOOK_FINDER_MAX,
   BOOK_FINDER_SYSTEM_PROMPT,
   buildBookFinderMessages,
+  isBookFinderRequest,
   parseBookFinderReply,
 } from "../packages/reader/src/book-finder.js";
+
+test("fuzzy requests take the finder, concrete titles stay direct", () => {
+  assert.equal(isBookFinderRequest("推荐几本讲宋代市民生活的书"), true);
+  assert.equal(isBookFinderRequest("我想读《活着》，有什么版本推荐"), true);
+  assert.equal(isBookFinderRequest("帮我找科幻入门"), true);
+  assert.equal(isBookFinderRequest("整理成书籍列表：时间管理"), true);
+  assert.equal(isBookFinderRequest("this is a longer request that should go through the finder"), true);
+  assert.equal(isBookFinderRequest("活着"), false);
+  assert.equal(isBookFinderRequest("余华 活着"), false);
+  assert.equal(isBookFinderRequest(""), false);
+  assert.equal(isBookFinderRequest("a"), false);
+});
 
 test("the finder prompt keeps the skill shape and asks for strict JSON", () => {
   assert.match(BOOK_FINDER_SYSTEM_PROMPT, /搜书助手（Book Finder）/);

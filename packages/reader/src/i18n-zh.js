@@ -512,6 +512,8 @@ export const QIAOMU_READER_ZH_CN = {
   "search-online-sources-failed": "这些来源没有响应",
   "search-online-borrow-only": "仅可借阅",
   "search-online-no-file": "没有可下载文件",
+  "search-online-thinking": "正在整理书单…",
+  "search-online-no-version": "没有找到可下载的版本",
   "search-online-needs-login": "需要登录后下载",
   "search-online-sign-in": "登录后下载",
   "search-online-signing-in": "等待登录…",

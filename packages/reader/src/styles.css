@@ -192,6 +192,12 @@ img.qiaomu-reader-pdf-lazy:not([data-loaded="1"]) { background:color-mix(in srgb
 .qiaomu-reader-lib-online .qiaomu-reader-lib-add,
 .qiaomu-reader-lib-online .qiaomu-reader-lib-chips,
 .qiaomu-reader-lib-online .qiaomu-reader-lib-empty { display:none; }
+.qiaomu-reader-lib-bookgroup { grid-column:1/-1; border:1px solid var(--qiaomu-reader-lib-border,#ddd9ce); border-radius:12px; padding:12px 14px 8px; background:color-mix(in srgb,var(--qiaomu-reader-lib-text) 2%,transparent); }
+.qiaomu-reader-lib-bookgroup-title { font-size:14px; font-weight:700; color:var(--qiaomu-reader-lib-text,#1a1a2e); }
+.qiaomu-reader-lib-bookgroup-meta { font-size:12px; color:var(--qiaomu-reader-lib-muted,#8a8678); margin-top:2px; }
+.qiaomu-reader-lib-bookgroup-reason { font-size:12.5px; color:var(--qiaomu-reader-lib-muted,#8a8678); margin:6px 0 2px; }
+.qiaomu-reader-lib-bookgroup-empty { font-size:12px; color:var(--qiaomu-reader-lib-muted,#8a8678); padding:4px 0 6px; }
+.qiaomu-reader-lib-bookgroup .qiaomu-reader-lib-result { margin-top:8px; }
 .qiaomu-reader-lib-result { grid-column:1/-1; display:flex; align-items:center; gap:12px; padding:10px 12px; border:1px solid var(--qiaomu-reader-lib-border,#ddd9ce); border-radius:10px; background:color-mix(in srgb,var(--qiaomu-reader-lib-text) 3%,transparent); }
 .qiaomu-reader-lib-result-body { min-width:0; flex:1 1 auto; }
 .qiaomu-reader-lib-result-title { font-size:13.5px; font-weight:650; color:var(--qiaomu-reader-lib-text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

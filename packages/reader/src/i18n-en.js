@@ -432,6 +432,8 @@ export const QIAOMU_READER_EN = {
   "search-online-sources-failed": "These sources did not respond",
   "search-online-borrow-only": "Borrow only",
   "search-online-no-file": "No downloadable file",
+  "search-online-thinking": "Building a book list…",
+  "search-online-no-version": "No downloadable version found",
   "search-online-needs-login": "Needs a signed-in session",
   "search-online-sign-in": "Sign in to download",
   "search-online-signing-in": "Waiting for sign-in…",

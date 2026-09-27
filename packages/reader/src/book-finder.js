@@ -32,6 +32,17 @@ export const BOOK_FINDER_SYSTEM_PROMPT = `# 搜书助手（Book Finder）
 - 读者用中文提问就用中文，用英文提问就用英文；
 - 需求无法理解、给不出书单时输出 {"books":[]}。`;
 
+// Fuzzy reading needs ("推荐几本…", "有什么版本", a long sentence) go through
+// the finder; short, concrete queries go straight to the sources as before.
+const FINDER_HINTS = /推荐|书单|有什么|有哪些|帮我找|找几本|找一本|主题|入门|类似|整理|拆解|想看|想读|值得读|版本|译本|recommend|books? (about|on|like)|list of|similar to/i;
+
+export function isBookFinderRequest(query) {
+  const text = String(query || "").trim();
+  if (text.length < 2) return false;
+  if (text.length > 24) return true;
+  return FINDER_HINTS.test(text);
+}
+
 function cleanField(value, maxLength) {
   return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, maxLength);
 }

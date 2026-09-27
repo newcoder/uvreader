@@ -432,6 +432,8 @@ export default {
   "search-online-sources-failed": "응답하지 않은 소스",
   "search-online-borrow-only": "대출 전용",
   "search-online-no-file": "내려받을 파일 없음",
+  "search-online-thinking": "책 목록을 만드는 중…",
+  "search-online-no-version": "내려받을 수 있는 판본이 없습니다",
   "search-online-needs-login": "로그인이 필요합니다",
   "search-online-sign-in": "로그인 후 내려받기",
   "search-online-signing-in": "로그인을 기다리는 중…",

@@ -2,6 +2,7 @@
 // reader helpers, so the module runs outside Obsidian; pure helpers are
 // imported directly.
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
+import { isBookFinderRequest } from "./book-finder.js";
 import { STARTER_BOOKS } from "./starter-book-data.js";
 import { coverFromBytes } from "./reader-engine.js";
 import { coverPalette } from "./book-cover.js";
@@ -149,6 +150,10 @@ export function createLibraryModal({
     this._onlineTimer = setTimeout(() => { void this._runOnlineSearch(grid, q); }, 450);
   }
   async _runOnlineSearch(grid, query) {
+    if (isBookFinderRequest(query) && typeof this.plugin.findBooksOnline === "function") {
+      const handled = await this._runBookFinder(grid, query);
+      if (handled) return;
+    }
     let report = null;
     try {
       report = await this.plugin.searchOnlineBooks(query);
@@ -166,53 +171,94 @@ export function createLibraryModal({
     if (!results.length) grid.createDiv("qiaomu-reader-lib-noresult").setText(qiaomuReaderTranslate("nothing-found"));
     const selected = new Set();
     const rows = [];
-    for (const result of results) {
-      const row = grid.createDiv("qiaomu-reader-lib-result");
-      const box = row.createEl("input", { type: "checkbox" });
-      box.addClass("qiaomu-reader-lib-result-box");
-      box.disabled = !result.downloadable;
-      const body = row.createDiv("qiaomu-reader-lib-result-body");
-      body.createDiv({ cls: "qiaomu-reader-lib-result-title", text: result.title });
-      const meta = [result.author, result.sourceName, result.format.toUpperCase(), result.size, result.year, result.language]
-        .filter(Boolean).join(" · ");
-      body.createDiv({ cls: "qiaomu-reader-lib-result-meta", text: meta });
-      const status = row.createDiv("qiaomu-reader-lib-result-status");
-      if (!result.downloadable) {
-        status.setText(result.license === "borrow" ? qiaomuReaderTranslate("search-online-borrow-only") : qiaomuReaderTranslate("search-online-no-file"));
-      } else if (result.needsSession) {
-        const url = this._loginUrlFor(result);
-        const signIn = status.createEl("button", { cls: "qiaomu-reader-lib-result-open", text: qiaomuReaderTranslate("search-online-sign-in") });
-        box.disabled = true;
-        signIn.addEventListener("click", async (event) => {
-          event.stopPropagation();
-          signIn.disabled = true;
-          signIn.setText(qiaomuReaderTranslate("search-online-signing-in"));
-          await this.plugin.openBookLogin(url);
-          if (this._libMode === "online" && grid.isConnected) this._renderOnline(grid, this._onlineQuery);
-        });
-        void this.plugin.bookSessionReady(url).then((ready) => {
-          if (!ready || !row.isConnected || !signIn.isConnected) return;
-          box.disabled = false;
-          status.setText(qiaomuReaderTranslate("search-online-ready"));
-          signIn.remove();
-        });
-      } else {
-        status.setText(qiaomuReaderTranslate("search-online-ready"));
-      }
-      box.addEventListener("change", () => {
-        if (box.checked) selected.add(result); else selected.delete(result);
-        syncBar();
-      });
-      row.addEventListener("click", (event) => {
-        if (event.target === box || box.disabled) return;
-        box.checked = !box.checked;
-        box.dispatchEvent(new Event("change"));
-      });
-      rows.push({ result, row, box, status });
-    }
+    let syncBar = () => {};
+    const context = { selected, rows, grid, onToggle: () => syncBar() };
+    for (const result of results) this._buildOnlineRow(grid, result, context);
     if (errors.length) {
       grid.createDiv({ cls: "qiaomu-reader-lib-result-errors", text: `${qiaomuReaderTranslate("search-online-sources-failed")}：${errors.map((e) => e.name || e.source).join(", ")}` });
     }
+    syncBar = this._buildOnlineActions(grid, selected, rows);
+  }
+  // The AI path: fuzzy request → book list → each book looked up in the
+  // sources. Returns false (and lets the plain search run) when the AI is
+  // unavailable or gave nothing to search for.
+  async _runBookFinder(grid, query) {
+    grid.empty();
+    grid.createDiv("qiaomu-reader-lib-noresult").setText(qiaomuReaderTranslate("search-online-thinking"));
+    let report = null;
+    try { report = await this.plugin.findBooksOnline(query); } catch { report = null; }
+    if (this._libMode !== "online" || this._onlineQuery.trim() !== query.trim() || !grid.isConnected) return true;
+    if (!report?.ai || !Array.isArray(report.groups) || !report.groups.length) return false;
+    grid.empty();
+    const selected = new Set();
+    const rows = [];
+    let syncBar = () => {};
+    const context = { selected, rows, grid, onToggle: () => syncBar() };
+    for (const group of report.groups) this._renderBookGroup(grid, group, context);
+    syncBar = this._buildOnlineActions(grid, selected, rows);
+    return true;
+  }
+  _renderBookGroup(grid, group, context) {
+    const card = grid.createDiv("qiaomu-reader-lib-bookgroup");
+    const head = card.createDiv("qiaomu-reader-lib-bookgroup-head");
+    head.createDiv({ cls: "qiaomu-reader-lib-bookgroup-title", text: String(group.book?.title || "") });
+    const meta = [group.book?.author, group.book?.publisher].filter(Boolean).join(" · ");
+    if (meta) head.createDiv({ cls: "qiaomu-reader-lib-bookgroup-meta", text: meta });
+    if (group.book?.reason) card.createDiv("qiaomu-reader-lib-bookgroup-reason").setText(String(group.book.reason));
+    const versions = Array.isArray(group.results) ? group.results.slice(0, 6) : [];
+    if (!versions.length) {
+      card.createDiv("qiaomu-reader-lib-bookgroup-empty").setText(qiaomuReaderTranslate("search-online-no-version"));
+      return;
+    }
+    for (const result of versions) this._buildOnlineRow(card, result, context);
+  }
+  _buildOnlineRow(container, result, context) {
+    const { selected, rows, grid, onToggle } = context;
+    const row = container.createDiv("qiaomu-reader-lib-result");
+    const box = row.createEl("input", { type: "checkbox" });
+    box.addClass("qiaomu-reader-lib-result-box");
+    box.disabled = !result.downloadable;
+    const body = row.createDiv("qiaomu-reader-lib-result-body");
+    body.createDiv({ cls: "qiaomu-reader-lib-result-title", text: result.title });
+    const meta = [result.author, result.sourceName, String(result.format || "").toUpperCase(), result.size, result.year, result.language]
+      .filter(Boolean).join(" · ");
+    body.createDiv({ cls: "qiaomu-reader-lib-result-meta", text: meta });
+    const status = row.createDiv("qiaomu-reader-lib-result-status");
+    if (!result.downloadable) {
+      status.setText(result.license === "borrow" ? qiaomuReaderTranslate("search-online-borrow-only") : qiaomuReaderTranslate("search-online-no-file"));
+    } else if (result.needsSession) {
+      const url = this._loginUrlFor(result);
+      const signIn = status.createEl("button", { cls: "qiaomu-reader-lib-result-open", text: qiaomuReaderTranslate("search-online-sign-in") });
+      box.disabled = true;
+      signIn.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        signIn.disabled = true;
+        signIn.setText(qiaomuReaderTranslate("search-online-signing-in"));
+        await this.plugin.openBookLogin(url);
+        if (this._libMode === "online" && grid.isConnected) this._renderOnline(grid, this._onlineQuery);
+      });
+      void this.plugin.bookSessionReady(url).then((ready) => {
+        if (!ready || !row.isConnected || !signIn.isConnected) return;
+        box.disabled = false;
+        status.setText(qiaomuReaderTranslate("search-online-ready"));
+        signIn.remove();
+      });
+    } else {
+      status.setText(qiaomuReaderTranslate("search-online-ready"));
+    }
+    box.addEventListener("change", () => {
+      if (box.checked) selected.add(result); else selected.delete(result);
+      onToggle();
+    });
+    row.addEventListener("click", (event) => {
+      if (event.target === box || box.disabled) return;
+      box.checked = !box.checked;
+      box.dispatchEvent(new Event("change"));
+    });
+    rows.push({ result, row, box, status });
+    return row;
+  }
+  _buildOnlineActions(grid, selected, rows) {
     const bar = grid.createDiv("qiaomu-reader-lib-download-bar");
     const selectAll = bar.createEl("button", { text: qiaomuReaderTranslate("select-all") });
     const start = bar.createEl("button", { cls: "mod-cta", text: qiaomuReaderTranslate("search-online-download-selected") });
@@ -230,6 +276,7 @@ export function createLibraryModal({
       for (const result of picked) void this._startOnlineDownload(result, rows.find((entry) => entry.result === result));
     });
     syncBar();
+    return syncBar;
   }
   _loginUrlFor(result) {
     const sources = this.plugin.settings?.downloadSources || [];

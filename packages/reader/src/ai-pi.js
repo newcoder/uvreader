@@ -15,7 +15,7 @@ export function createPiTransport({ bridge, aiConfig, aiMessages }) {
     const unavailable = async () => {
       throw reasonError("desktop", "The desktop AI runtime is unavailable");
     };
-    return { aiExplain: unavailable, aiExplainStream: unavailable, aiExplainStep: unavailable, aiProbe: unavailable };
+    return { aiExplain: unavailable, aiExplainStream: unavailable, aiExplainStep: unavailable, aiComplete: unavailable, aiProbe: unavailable };
   }
 
   let nextRequest = 1;
@@ -137,6 +137,39 @@ export function createPiTransport({ bridge, aiConfig, aiMessages }) {
     }
   }
 
+  // One-shot completion for structured prompts (Book Finder): the caller
+  // supplies the whole message list; no chat context, no tools, no images.
+  async function aiComplete(messages, plugin, options = {}) {
+    const cfg = aiConfig(plugin);
+    if (!cfg.provider) throw reasonError("notconfigured", "AI is not configured");
+    if (cfg.needsKey && !cfg.key) throw reasonError("nokey", "no api key");
+    if (!cfg.base || !cfg.model) throw reasonError("notconfigured", "AI is not configured");
+    const list = Array.isArray(messages) ? messages.filter((message) => message?.content) : [];
+    if (!list.length) throw reasonError("badrequest", "no messages");
+    const requestId = `ai-complete-${Date.now()}-${nextRequest++}`;
+    const onAbort = () => { void bridge.abort(requestId); };
+    options.signal?.addEventListener("abort", onAbort, { once: true });
+    try {
+      const result = await bridge.stream({
+        requestId,
+        config: runtimeConfig(cfg, { thinking: false }),
+        messages: list,
+        options: { sessionKey: "", connectionTest: false },
+      }, (delta) => {
+        if (typeof options.onDelta === "function") options.onDelta(delta.answer || delta.content || "");
+      });
+      if (result?.ok) return String(result.answer || "");
+      throw reasonError(result?.reason || "http", result?.message || "AI request failed", {
+        qiaomuReaderReceived: result?.received === true,
+      });
+    } catch (error) {
+      if (options.signal?.aborted) throw reasonError("cancelled", "AI request cancelled");
+      throw error;
+    } finally {
+      options.signal?.removeEventListener("abort", onAbort);
+    }
+  }
+
   // Capability probe: one minimal request that exercises the feature. The
   // caller interprets the answer; this never guesses on its own.
   async function aiProbe(kind, plugin, options = {}) {
@@ -153,5 +186,5 @@ export function createPiTransport({ bridge, aiConfig, aiMessages }) {
     });
   }
 
-  return { aiExplain, aiExplainStream: aiExplain, aiExplainStep, aiTranslate, aiProbe };
+  return { aiExplain, aiExplainStream: aiExplain, aiExplainStep, aiComplete, aiTranslate, aiProbe };
 }

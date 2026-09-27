@@ -109,6 +109,7 @@ import { createAiContext } from "./ai-context.js";
 import { createReaderChrome } from "./reader-chrome.js";
 import { createAiRender } from "./ai-render.js";
 import { createPiTransport } from "./ai-pi.js";
+import { buildBookFinderMessages, parseBookFinderReply } from "./book-finder.js";
 import { createNotePaths } from "./note-paths.js";
 import { createBookNotes } from "./book-notes.js";
 
@@ -1446,7 +1447,7 @@ function setupPdfZoomInteractions(view) {
 // The desktop shell exposes its pi-ai runtime through the preload bridge; the
 // reader only sees the stable aiExplain contract.
 const aiRuntimeBridge = typeof window !== "undefined" && window.qbrDesktop ? window.qbrDesktop.ai || null : null;
-const { aiExplainStream, aiExplain, aiExplainStep, aiTranslate, aiProbe } = createPiTransport({
+const { aiExplainStream, aiExplain, aiExplainStep, aiComplete, aiTranslate, aiProbe } = createPiTransport({
   bridge: aiRuntimeBridge,
   aiConfig,
   aiMessages,
@@ -3511,6 +3512,40 @@ const QiaomuBookReader = createPlugin({
 // plugin instance.
 QiaomuBookReader.prototype.openReadingProjects = function openReadingProjects(options = {}) {
   new ReadingProjectsModal(this.app, this, options).open();
+};
+
+// The library's online tab turns a fuzzy request into a book list through the
+// AI runtime, then looks each book up in the enabled sources (two at a time).
+QiaomuBookReader.prototype.findBooksOnline = async function findBooksOnline(input) {
+  const query = String(input || "").trim();
+  const empty = { query, books: [], groups: [], ai: false };
+  if (!query) return empty;
+  let reply = "";
+  try {
+    reply = await aiComplete(buildBookFinderMessages(query), this);
+  } catch {
+    return empty;
+  }
+  const books = parseBookFinderReply(reply);
+  if (!books.length) return empty;
+  const groups = [];
+  const queue = books.slice();
+  const toQuery = (book) => [book.title, book.author].filter(Boolean).join(" ");
+  const worker = async () => {
+    for (;;) {
+      const book = queue.shift();
+      if (!book) return;
+      try {
+        const report = await this.searchOnlineBooks(toQuery(book));
+        groups.push({ book, results: report?.results || [], errors: report?.errors || [] });
+      } catch (error) {
+        groups.push({ book, results: [], errors: [{ source: "search", name: "", message: String(error?.message || error).slice(0, 160) }] });
+      }
+    }
+  };
+  await Promise.all([worker(), worker()]);
+  groups.sort((a, b) => books.indexOf(a.book) - books.indexOf(b.book));
+  return { query, books, groups, ai: true };
 };
 
 export default QiaomuBookReader;

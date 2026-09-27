@@ -432,6 +432,8 @@ export default {
   "search-online-sources-failed": "応答しなかったソース",
   "search-online-borrow-only": "貸出のみ",
   "search-online-no-file": "ダウンロードできるファイルがありません",
+  "search-online-thinking": "書単を準備しています…",
+  "search-online-no-version": "ダウンロードできる版が見つかりません",
   "search-online-needs-login": "ログインが必要です",
   "search-online-sign-in": "ログインしてダウンロード",
   "search-online-signing-in": "ログインを待っています…",
