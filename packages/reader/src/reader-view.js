@@ -287,7 +287,7 @@ export function createReaderView({
       }
       return;
     }
-    await this._startTextLayerQueue(file, result.scan.total);
+    await this._startTextLayerQueue(file, scan.total);
   }
   _textLayerPageOrder(total) {
     const current = Math.max(1, Math.min(total, (this.pager?.spread || 0) + 1));
