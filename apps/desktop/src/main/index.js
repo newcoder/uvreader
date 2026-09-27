@@ -331,7 +331,7 @@ ipcMain.handle("qbr:ocr:cancel", (_event, jobId) => pdfOcr.cancel(String(jobId |
 // already open (one warm sidecar process per book).
 ipcMain.handle("qbr:ocr:session", (_event, payload = {}) => {
   const action = String(payload.action || "");
-  if (action === "open") return pdfOcr.openSession(payload.settings || {}, String(payload.source || ""));
+  if (action === "open") return pdfOcr.openSession(payload.settings || {}, String(payload.source || ""), String(payload.textSource || ""));
   if (action === "page") return pdfOcr.page(payload.sessionId, payload.page, payload.options || {});
   if (action === "close") return pdfOcr.closeSession(payload.sessionId);
   throw new Error(`未知的 OCR 会话操作：${action}`);

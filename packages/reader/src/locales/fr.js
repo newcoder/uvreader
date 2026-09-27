@@ -460,6 +460,8 @@ export default {
   "scanned-pdf-auto": "Créer automatiquement à l'ouverture d'un PDF scanné",
   "ocr-generated-hint": "La copie est stockée dans le dossier derived/ du livre et utilisée automatiquement à la prochaine ouverture.",
   "ocr-sidecar-status": "Composant OCR",
+  "ocr-hybrid": "Couche de texte haute qualité (hybrid)",
+  "ocr-hybrid-desc": "Remplace le texte reconnu localement par une source de texte de mise en page tout en gardant les positions de l'OCR local (formules, tableaux et ordre de lecture plus précis). Placez le layout.json de MinerU ou un résultat d'extraction dans le dossier derived/ du livre (text-source.json ou layout.json) ; sans source, tout reste local.",
   "ocr-sidecar-not-configured-hint": "Configurez d'abord le composant OCR : Paramètres → Stockage et synchronisation → Couche de texte des PDF scannés (dossier pdf_tool ou programme empaqueté), puis rouvrez le livre.",
   "ocr-sidecar-status-unknown": "Pas encore vérifié — lancez Vérifier pour valider Python et pdf_tool.",
   "ocr-sidecar-ready-0": "Prêt : {0}",

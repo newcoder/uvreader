@@ -48,7 +48,8 @@ process.stdin.on("data", (chunk) => {
         lang: null,
       };
       process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: req.id,
-        result: { page: req.params.page, dpi: 200, source: "ocr", has_text: true,
+        result: { page: req.params.page, dpi: 200,
+                  source: req.params.text_source ? "hybrid" : "ocr", has_text: true,
                   lines: [["OCR-" + req.params.page, [[5, 5], [15, 5], [15, 15], [5, 15]], 0.9]],
                   content } }) + "\\n");
       continue;
@@ -196,6 +197,30 @@ test("a reading session fetches pages lazily and closes cleanly", async () => {
   assert.equal(ocr.closeSession(sessionId), true);
   assert.equal(ocr.sessions.size, 0);
   await assert.rejects(() => ocr.page(sessionId, 1), /会话不存在/);
+});
+
+test("a text source turns the session into hybrid mode", async () => {
+  const script = writeSidecar("ok", OK_SIDECAR);
+  const ocr = createPdfOcr({ spawnImpl: fakeSpawn(script) });
+  const source = fakeSource();
+  const layout = path.join(path.dirname(source), "layout.json");
+  fs.writeFileSync(layout, JSON.stringify({ pdf_info: [] }));
+
+  const plain = ocr.openSession(settingsFor(), source);
+  assert.equal(plain.hybrid, false);
+  assert.equal((await ocr.page(plain.sessionId, 1)).source, "ocr");
+  assert.equal(ocr.closeSession(plain.sessionId), true);
+
+  const hybrid = ocr.openSession(settingsFor(), source, layout);
+  assert.equal(hybrid.hybrid, true);
+  assert.equal((await ocr.page(hybrid.sessionId, 1)).source, "hybrid");
+  assert.equal(ocr.closeSession(hybrid.sessionId), true);
+
+  // A missing text source falls back to plain OCR instead of failing.
+  const missing = ocr.openSession(settingsFor(), source, layout.replace("layout", "nope"));
+  assert.equal(missing.hybrid, false);
+  assert.equal((await ocr.page(missing.sessionId, 1)).source, "ocr");
+  ocr.closeSession(missing.sessionId);
 });
 
 test("cancel kills a hanging job without reporting done", async () => {

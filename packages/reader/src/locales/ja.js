@@ -460,6 +460,8 @@ export default {
   "scanned-pdf-auto": "スキャン PDF を開いたときに自動生成",
   "ocr-generated-hint": "コピーはこの本の derived/ フォルダーに保存され、次回から自動で使われます。",
   "ocr-sidecar-status": "OCR コンポーネント",
+  "ocr-hybrid": "高品質な文字層（hybrid）",
+  "ocr-hybrid-desc": "ローカル OCR の位置はそのままに、レイアウト由来のテキスト源で認識文字を置き換えます（数式・表・読み順がより正確）。MinerU の layout.json か抽出結果を、書籍の derived/ フォルダーに置いてください（text-source.json または layout.json）。無い場合はローカル認識のまま動きます。",
   "ocr-sidecar-not-configured-hint": "先に OCR コンポーネントを設定してください：設定 → ストレージと同期 → スキャン PDF の文字層（pdf_tool フォルダーまたはパッケージ済みプログラムを選択）→ 本書を開き直します。",
   "ocr-sidecar-status-unknown": "未確認です。「確認」で Python と pdf_tool を検証してください。",
   "ocr-sidecar-ready-0": "準備完了：{0}",

@@ -518,6 +518,7 @@ const DEFAULT_AI = {
   // vault except when the reader explicitly sends a turn to the chosen model.
   aiChatHistory: [],
   ocrScannedPdf: true,
+  ocrHybrid: false,
   ocrSidecarDir: "",
   ocrSidecarExe: "",
   ocrPython: "python",

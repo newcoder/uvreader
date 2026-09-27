@@ -1076,6 +1076,12 @@ export function createSettingsTab({
       .addToggle((toggle) => toggle
         .setValue(this.plugin.settings.ocrScannedPdf !== false)
         .onChange((value) => persist("ocrScannedPdf", value)));
+    new Setting(host)
+      .setName(tx("ocr-hybrid"))
+      .setDesc(tx("ocr-hybrid-desc"))
+      .addToggle((toggle) => toggle
+        .setValue(this.plugin.settings.ocrHybrid === true)
+        .onChange((value) => persist("ocrHybrid", value)));
     const status = new Setting(host)
       .setName(tx("ocr-sidecar-status"))
       .setDesc(tx("ocr-sidecar-status-unknown"));

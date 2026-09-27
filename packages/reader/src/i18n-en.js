@@ -460,6 +460,8 @@ export const QIAOMU_READER_EN = {
   "scanned-pdf-auto": "Build automatically when a scanned PDF opens",
   "ocr-generated-hint": "The copy is stored in the book's derived/ folder and used automatically on the next open.",
   "ocr-sidecar-status": "OCR component",
+  "ocr-hybrid": "High-quality text layer (hybrid)",
+  "ocr-hybrid-desc": "Replaces the locally recognised text with a layout text source while keeping local OCR positions, so formulas, tables and reading order are more accurate. Put MinerU's layout.json or an extraction result into the book's derived/ folder (text-source.json or layout.json); without one the pass stays local.",
   "ocr-sidecar-not-configured-hint": "Set up the OCR component first: Settings → Storage & sync → Scanned PDF text layer (pick the pdf_tool folder or a packaged program), then reopen this book.",
   "ocr-sidecar-status-unknown": "Not checked yet — run Check to verify the Python and pdf_tool setup.",
   "ocr-sidecar-ready-0": "Ready: {0}",

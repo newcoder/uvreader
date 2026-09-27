@@ -460,6 +460,8 @@ export default {
   "scanned-pdf-auto": "스캔 PDF를 열 때 자동으로 만들기",
   "ocr-generated-hint": "사본은 이 책의 derived/ 폴더에 저장되고 다음부터 자동으로 사용됩니다.",
   "ocr-sidecar-status": "OCR 구성 요소",
+  "ocr-hybrid": "고품질 텍스트 레이어(hybrid)",
+  "ocr-hybrid-desc": "로컬 OCR 위치는 그대로 두고 레이아웃 텍스트 소스로 인식된 텍스트를 바꿉니다(수식, 표, 읽기 순서가 더 정확). MinerU의 layout.json 또는 추출 결과를 책의 derived/ 폴더에 두세요(text-source.json 또는 layout.json). 없으면 로컬 인식으로 동작합니다.",
   "ocr-sidecar-not-configured-hint": "먼저 OCR 구성 요소를 설정하세요: 설정 → 저장 및 동기화 → 스캔 PDF 텍스트 레이어(pdf_tool 폴더 또는 패키징된 프로그램 선택) 후 이 책을 다시 여세요.",
   "ocr-sidecar-status-unknown": "아직 확인하지 않았습니다. 확인을 눌러 Python과 pdf_tool을 검사하세요.",
   "ocr-sidecar-ready-0": "준비됨: {0}",

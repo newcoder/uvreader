@@ -194,22 +194,33 @@ export function createPdfOcr({ spawnImpl = spawn, cacheRoot = "" } = {}) {
 
   // A reading session: one sidecar process that stays warm while a scan is
   // open. `page` fetches (or computes and caches) one page's text layer.
-  function openSession(settings = {}, sourcePath = "") {
+  function openSession(settings = {}, sourcePath = "", textSourcePath = "") {
     const target = ocrCommand(settings);
     if (target.error) throw new Error(target.error);
     const source = path.resolve(String(sourcePath || ""));
     if (!fs.existsSync(source)) throw new Error(`源文件不存在：${source || "(空)"}`);
-    log("session open", target.command, target.args.join(" "), "cwd", target.cwd);
+    // Hybrid mode needs a text source (MinerU layout.json / vision results /
+    // blocks JSON); without one the session runs plain OCR.
+    let textSource = "";
+    const wanted = String(textSourcePath || "").trim();
+    if (wanted) {
+      const resolved = path.resolve(wanted);
+      if (fs.existsSync(resolved)) textSource = resolved;
+      else log("text source missing, falling back to plain OCR:", resolved);
+    }
+    log("session open", target.command, target.args.join(" "), "cwd", target.cwd,
+        textSource ? `(hybrid: ${path.basename(textSource)})` : "");
     const session = spawnSession({ ...target, spawnImpl, cacheRoot: cacheDir });
     const sessionId = `s${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
-    sessions.set(sessionId, { session, source });
-    return { sessionId };
+    sessions.set(sessionId, { session, source, textSource });
+    return { sessionId, hybrid: Boolean(textSource) };
   }
 
   function page(sessionId, pageNo, options = {}) {
     const entry = sessions.get(String(sessionId || ""));
     if (!entry) return Promise.reject(new Error("OCR 会话不存在或已关闭"));
     const params = { path: entry.source, page: Number(pageNo) || 0 };
+    if (entry.textSource) params.text_source = entry.textSource;
     if (options.force) params.force = true;
     if (Number.isFinite(Number(options.dpi)) && Number(options.dpi) > 0) params.dpi = Number(options.dpi);
     return entry.session.request("ocr.page", params).then((result) => ({

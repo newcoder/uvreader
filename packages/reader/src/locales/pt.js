@@ -460,6 +460,8 @@ export default {
   "scanned-pdf-auto": "Gerar automaticamente ao abrir um PDF digitalizado",
   "ocr-generated-hint": "A cópia fica na pasta derived/ do livro e é usada automaticamente na próxima abertura.",
   "ocr-sidecar-status": "Componente de OCR",
+  "ocr-hybrid": "Camada de texto de alta qualidade (hybrid)",
+  "ocr-hybrid-desc": "Substitui o texto reconhecido localmente por uma fonte de texto de layout, mantendo as posições do OCR local (fórmulas, tabelas e ordem de leitura mais precisas). Coloque o layout.json do MinerU ou um resultado de extração na pasta derived/ do livro (text-source.json ou layout.json); sem fonte, tudo fica local.",
   "ocr-sidecar-not-configured-hint": "Configure primeiro o componente de OCR: Configurações → Armazenamento e sincronização → Camada de texto de PDFs digitalizados (escolha a pasta pdf_tool ou um programa empacotado) e reabra o livro.",
   "ocr-sidecar-status-unknown": "Ainda não verificado — use Verificar para validar Python e pdf_tool.",
   "ocr-sidecar-ready-0": "Pronto: {0}",

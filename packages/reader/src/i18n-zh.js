@@ -540,6 +540,8 @@ export const QIAOMU_READER_ZH_CN = {
   "scanned-pdf-auto": "打开扫描版 PDF 时自动生成",
   "ocr-generated-hint": "新文档保存在这本书的留痕目录 derived/ 下，下次打开自动使用。",
   "ocr-sidecar-status": "OCR 组件",
+  "ocr-hybrid": "高质量文字层（hybrid）",
+  "ocr-hybrid-desc": "用版式文本源替换本地识别出的文字（位置仍来自本地 OCR，公式、表格和阅读顺序更准）。把 MinerU layout.json 或识别结果放到这本书留痕目录的 derived/ 下（text-source.json 或 layout.json）；没有文本源时自动按本地识别运行。",
   "ocr-sidecar-not-configured-hint": "请先在「设置 → 存储与同步 → 扫描版 PDF 文字层」里配置 OCR 组件（选择 pdf_tool 目录或打包程序），然后重新打开这本书。",
   "ocr-sidecar-status-unknown": "尚未检测；点击「检测」验证 Python 与 pdf_tool 配置。",
   "ocr-sidecar-ready-0": "已就绪：{0}",

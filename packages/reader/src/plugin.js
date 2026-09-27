@@ -605,12 +605,43 @@ export function createPlugin({
     try { return Boolean(this.ocrBridge()?.cancel?.(jobId)); }
     catch { return false; }
   }
+  // Hybrid mode: a layout/text source (MinerU layout.json, vision results or a
+  // blocks JSON) replaces the recognised text while positions stay local. The
+  // file lives in the book's derived folder (text-source.json / layout.json) or
+  // wherever book.json records one; without it the session stays plain OCR.
+  async ocrTextSourceFor(bookPath) {
+    if (this.settings.ocrHybrid !== true || !bookPath) return "";
+    try {
+      const meta = await this._readingStore().readBookMeta(bookPath);
+      const recorded = String(meta?.derived?.textSource || "");
+      if (recorded) {
+        const file = this.app.vault.getAbstractFileByPath(recorded);
+        if (file) return this._vaultAbsolute(recorded);
+      }
+      const { folder } = await this._readingStore().ensureBook(bookPath, this._bookMeta(bookPath));
+      for (const name of ["text-source.json", "layout.json"]) {
+        const rel = `${this._readingRoot()}/${folder}/derived/${name}`;
+        if (this.app.vault.getAbstractFileByPath(rel)) return this._vaultAbsolute(rel);
+      }
+    } catch (error) {
+      console.warn("UV Reader: could not resolve the OCR text source", error);
+    }
+    return "";
+  }
   // Per-page text layers while a scan is open: one warm sidecar process, pages
   // fetched in the order the reader prefers (current page first).
   async openOcrSession(bookPath) {
     const bridge = this.ocrBridge();
     if (!bridge?.session) throw new Error(qiaomuReaderTranslate("ocr-needs-desktop"));
-    return bridge.session({ action: "open", settings: this.ocrSidecarSettings(), source: this._bookAbsolute(bookPath) });
+    let textSource = "";
+    try { textSource = await this.ocrTextSourceFor(bookPath); }
+    catch { textSource = ""; }
+    return bridge.session({
+      action: "open",
+      settings: this.ocrSidecarSettings(),
+      source: this._bookAbsolute(bookPath),
+      textSource,
+    });
   }
   fetchOcrPage(sessionId, pageNumber) {
     const bridge = this.ocrBridge();
