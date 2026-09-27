@@ -220,40 +220,42 @@ export function resultsFromOpenLibrary(json, source) {
   });
 }
 
-// Z-Library serves a search page, not JSON: read the result rows best-effort.
-// The main process falls back to the app's hidden browser session when this
-// finds nothing.
+// Z-Library serves a search page, not JSON: each hit is a <z-bookcard> whose
+// attributes already carry the book page, the direct download path, format,
+// size and metadata. The page only loads after the anti-bot challenge, so the
+// caller fetches it through the app's hidden browser session.
 export function resultsFromZlibHtml(html, source) {
   const text = String(html || "");
   const out = [];
-  for (const match of text.matchAll(/<h3[^>]*itemprop="name"[^>]*>[\s\S]*?<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<\/h3>/gi)) {
-    const href = absolute(match[1], source.url);
-    const title = stripTags(match[2]);
+  for (const match of text.matchAll(/<z-bookcard\b([^>]*)>([\s\S]*?)<\/z-bookcard>/gi)) {
+    const attrs = {};
+    for (const attr of match[1].matchAll(/([a-zA-Z-]+)\s*=\s*"([^"]*)"/g)) attrs[attr[1].toLowerCase()] = attr[2];
+    const href = absolute(attrs.href, source.url);
+    const title = zlibSlotText(match[2], "title");
     if (!href || !title) continue;
-    const around = text.slice(match.index, match.index + 1200);
-    const authorBlock = around.match(/class="[^"]*authors[^"]*"[^>]*>([\s\S]*?)<\/(?:div|span)>/i)?.[1] || "";
-    const author = [...authorBlock.matchAll(/>([^<>]{2,80})</g)].map((part) => clean(part[1], 80)).filter(Boolean).join(", ");
-    const fileBlock = around.match(/class="[^"]*property__file[^"]*"[^>]*>([\s\S]*?)<\/(?:div|span)>/i)?.[1] || "";
-    const format = clean(stripTags(fileBlock).match(/\b(EPUB|PDF|MOBI|AZW3?|FB2|DJVU|TXT)\b/i)?.[1], 12).toLowerCase();
-    const size = clean(stripTags(fileBlock).match(/[\d.]+\s*(?:MB|KB|GB)/i)?.[0], 16).toUpperCase();
     out.push({
       source: source.id,
       sourceName: source.name,
       title,
-      author,
-      language: "",
-      year: "",
-      format,
-      url: "",
+      author: zlibSlotText(match[2], "author"),
+      language: clean(attrs.language, 12),
+      year: clean(attrs.year, 8),
+      format: clean(attrs.extension, 12).toLowerCase(),
+      // The direct file path; needs the challenge-cleared session cookies.
+      url: absolute(attrs.download, source.url),
       info: href,
       license: "unknown",
-      // The download needs the logged-in session; the caller resolves the file.
       downloadable: true,
       needsSession: true,
-      size,
+      size: clean(attrs.filesize, 16).toUpperCase(),
     });
   }
   return out;
+}
+
+function zlibSlotText(inner, slot) {
+  const match = String(inner || "").match(new RegExp(`<div[^>]*slot="${slot}"[^>]*>([\\s\\S]*?)<\\/div>`, "i"));
+  return match ? stripTags(match[1]) : "";
 }
 
 // The Z-Library book page hides the file behind a /dl/ link; pick the best

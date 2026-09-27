@@ -23,6 +23,13 @@ function log(...args) {
 
 export function bookFileLooksValid(buffer, name = "") {
   if (!buffer || buffer.length < MIN_BOOK_BYTES) return false;
+  return bookHeadLooksValid(buffer, name);
+}
+
+// Header/magic checks only; the caller owns the size rule (browser downloads
+// are validated from their first bytes plus the file size on disk).
+export function bookHeadLooksValid(buffer, name = "") {
+  if (!buffer || !buffer.length) return false;
   const head = Buffer.from(buffer.buffer || buffer, buffer.byteOffset || 0, Math.min(512, buffer.length)).toString("latin1");
   if (/^\s*<(!doctype|html)/i.test(head)) return false;
   const ext = String(name).split(".").pop()?.toLowerCase() || "";
@@ -30,6 +37,21 @@ export function bookFileLooksValid(buffer, name = "") {
   const magic = MAGIC.find((entry) => entry.ext === ext);
   if (!magic) return true;
   return magic.bytes.every((byte, index) => (buffer[index] ?? -1) === byte);
+}
+
+function readFileHead(file) {
+  try {
+    const fd = fs.openSync(file, "r");
+    try {
+      const buffer = Buffer.alloc(512);
+      const read = fs.readSync(fd, buffer, 0, 512, 0);
+      return buffer.subarray(0, read);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return Buffer.alloc(0);
+  }
 }
 
 export function uniqueBookName(dir, name) {
@@ -61,7 +83,7 @@ export function pickArchiveFile(metadata, identifier) {
   return null;
 }
 
-export function createBookDownloads({ fetchImpl = fetch, downloadRoot = "" } = {}) {
+export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileDownload = null, downloadRoot = "" } = {}) {
   const root = String(downloadRoot || "");
   const jobs = new Map();
   const waiting = [];
@@ -76,6 +98,11 @@ export function createBookDownloads({ fetchImpl = fetch, downloadRoot = "" } = {
   async function fetchSource(source, query, signal) {
     const request = bookSearchRequest(source, query);
     if (!request) return [];
+    // Z-Library's anti-bot page only clears in a real renderer.
+    if (source.kind === "zlib" && typeof pageFetch === "function") {
+      const html = await pageFetch(request.url);
+      return resultsFromSource(source, html);
+    }
     const response = await fetchImpl(request.url, { signal, redirect: "follow" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const payload = request.kind === "json" ? await response.json() : await response.text();
@@ -110,8 +137,14 @@ export function createBookDownloads({ fetchImpl = fetch, downloadRoot = "" } = {
   // a session-gated book page whose /dl/ link needs the login cookies.
   async function resolveDownload(result) {
     const url = String(result?.url || "");
-    if (url) return { url, format: String(result?.format || "") };
+    if (url) return { url, format: String(result?.format || ""), session: result?.needsSession === true };
     if (result?.needsSession && result?.info) {
+      if (typeof pageFetch === "function") {
+        const html = await pageFetch(String(result.info));
+        const picked = downloadLinkFromZlibPage(String(html || ""), String(result.info), [String(result?.format || "epub").toLowerCase(), "epub", "pdf"]);
+        if (!picked?.url) throw new Error("没有找到下载链接；请先在上方登录来源，登录后再试");
+        return { ...picked, session: true };
+      }
       const page = await fetchImpl(String(result.info), { redirect: "follow" });
       if (!page.ok) throw new Error(`HTTP ${page.status}`);
       const picked = downloadLinkFromZlibPage(await page.text(), String(result.info), [String(result?.format || "epub").toLowerCase(), "epub", "pdf"]);
@@ -147,6 +180,9 @@ export function createBookDownloads({ fetchImpl = fetch, downloadRoot = "" } = {
     const format = picked.format || String(result?.format || "").toLowerCase() || "epub";
     const title = String(result?.title || "book").replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "book";
     const dir = ensureRoot();
+    if (picked.session && typeof fileDownload === "function") {
+      return downloadViaBrowser(jobId, result, picked, { format, title, dir, handlers });
+    }
     const response = await fetchImpl(picked.url, { redirect: "follow" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const total = Number(response.headers?.get?.("content-length")) || 0;
@@ -172,6 +208,30 @@ export function createBookDownloads({ fetchImpl = fetch, downloadRoot = "" } = {
     const target = path.join(dir, name);
     fs.writeFileSync(target, buffer);
     return { ok: true, jobId, path: target, name, bytes: buffer.length, source: result?.source || "", format };
+  }
+
+  // Session-gated files come through the hidden renderer, where the source's
+  // challenge clearance applies; the file is validated from disk afterwards.
+  async function downloadViaBrowser(jobId, result, picked, { format, title, dir, handlers }) {
+    const job = jobs.get(jobId);
+    const name = uniqueBookName(dir, `${title}.${format}`);
+    const target = path.join(dir, name);
+    await fileDownload(picked.url, target, {
+      onProgress: (progress) => {
+        if (job?.cancelled) return;
+        handlers?.onProgress?.({ jobId, received: progress?.received || 0, total: progress?.total || 0 });
+      },
+    });
+    if (job?.cancelled) {
+      try { fs.unlinkSync(target); } catch { /* gone */ }
+      throw new Error("已取消");
+    }
+    const size = fs.statSync(target).size;
+    if (size < MIN_BOOK_BYTES || !bookHeadLooksValid(readFileHead(target), name)) {
+      try { fs.unlinkSync(target); } catch { /* gone */ }
+      throw new Error("下载到的不是有效书籍文件");
+    }
+    return { ok: true, jobId, path: target, name, bytes: size, source: result?.source || "", format };
   }
 
   // Queues a download; handlers see progress and the final result.

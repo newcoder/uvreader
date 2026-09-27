@@ -11,7 +11,37 @@ import {
   pickDownloadFormat,
   resultsFromOpds,
   resultsFromSource,
+  resultsFromZlibHtml,
 } from "../packages/reader/src/book-sources.js";
+
+test("z-library z-bookcard hits map into the common shape with the direct file link", () => {
+  const html = [
+    '<div class="book-item resItemBoxBooks">',
+    '<z-bookcard id="3999605" isbn="9780425266793" href="/book/8vlayEXDOe/alice.html" download="/dl/owRk7areZl" language="English" year="2015" extension="epub" filesize="305 KB" publisher="Ace">',
+    '<img data-src="https://example.invalid/cover.jpg">',
+    '<div slot="title">Alice</div>',
+    '<div slot="author">Henry Christina</div>',
+    '<div slot="extend"></div>',
+    "</z-bookcard></div>",
+  ].join("");
+  const out = resultsFromZlibHtml(html, { id: "zlib", name: "Z-Library", url: "https://z-library.sk" });
+  assert.equal(out.length, 1);
+  assert.deepEqual(out[0], {
+    source: "zlib",
+    sourceName: "Z-Library",
+    title: "Alice",
+    author: "Henry Christina",
+    language: "English",
+    year: "2015",
+    format: "epub",
+    url: "https://z-library.sk/dl/owRk7areZl",
+    info: "https://z-library.sk/book/8vlayEXDOe/alice.html",
+    license: "unknown",
+    downloadable: true,
+    needsSession: true,
+    size: "305 KB",
+  });
+});
 
 test("the z-library book page yields the best download link", () => {
   const html = [

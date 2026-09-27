@@ -6,7 +6,7 @@ import { BOOK_EXTENSIONS, isBookFile } from "../shared/books.js";
 import { createAiRuntime } from "./ai-runtime.js";
 import { createPdfOcr, resolveOcrOutput } from "./pdf-ocr.js";
 import { createBookDownloads } from "./book-downloads.js";
-import { bookSessionReady, closeBookSession, openBookLogin, sessionFetch } from "./book-session.js";
+import { bookSessionReady, closeBookSession, downloadBookFile, fetchBookPage, openBookLogin, sessionFetch } from "./book-session.js";
 
 const aiRuntime = createAiRuntime();
 
@@ -19,7 +19,12 @@ const secretsPath = path.join(userData, "secrets.json");
 // book is a cache hit instead of a re-OCR.
 const pdfOcr = createPdfOcr({ cacheRoot: path.join(userData, "ocr-cache") });
 // Online book downloads land in the library so they appear as regular books.
-const bookDownloads = createBookDownloads({ downloadRoot: path.join(vaultRoot, "Books", "下载"), fetchImpl: sessionFetch });
+const bookDownloads = createBookDownloads({
+  downloadRoot: path.join(vaultRoot, "Books", "下载"),
+  fetchImpl: sessionFetch,
+  pageFetch: fetchBookPage,
+  fileDownload: downloadBookFile,
+});
 const smoke = process.argv.includes("--qbr-smoke");
 if (!app.isPackaged) process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "true";
 
