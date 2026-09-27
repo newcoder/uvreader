@@ -257,6 +257,9 @@ export function createReaderView({
     this.pdfDocumentContext = result.pdfDocumentContext || null;
     this._pdfLazy = result.lazy;
     this._pdfOutline = result.outline;
+    // Text, scan verdict and the AI context keep filling in after the first
+    // frame; `_maybeGenerateTextLayer` waits for this before starting OCR.
+    this._pdfTextReady = result.whenTextReady || null;
   }
   // ── scanned-PDF text layer ────────────────────────────────────────────────
   // The scan opens for reading immediately; its text layer is generated page by
@@ -264,10 +267,17 @@ export function createReaderView({
   // rest) and becomes searchable/selectable as each page arrives. Nothing has
   // to be reopened and the original file stays the reading source.
   async _maybeGenerateTextLayer(result, file) {
+    // The page pass runs in the background, so the verdict only exists once it
+    // finishes; waiting here keeps OCR from racing the first paint.
+    const ready = await (this._pdfTextReady || result?.whenTextReady || Promise.resolve(null)).catch(() => null);
+    if (ready) {
+      this._pdfTextReady = null;
+      if (!this.pdfDocumentContext) this.pdfDocumentContext = ready.pdfDocumentContext || null;
+    }
     // Any page without a text layer is worth generating (a scanned book, or the
     // scanned few pages of an otherwise digital one); fully digital files skip
     // the pass entirely.
-    const scan = result?.scan;
+    const scan = ready?.scan || result?.scan;
     if (!scan || !(scan.total > 0) || scan.textPages >= scan.total) return;
     if (!file || file.extension !== "pdf") return;
     if (!this.plugin.ocrEnabled?.()) return;

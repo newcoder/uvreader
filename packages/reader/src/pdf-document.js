@@ -201,6 +201,28 @@ export function createPdfDocument({ setupWorker, win = globalThis }) {
     return pdfjsLib.getDocument({ data: bytes, ...PDF_CMAP_OPTIONS, isEvalSupported: false });
   }
 
+  // Runs `worker(pageNumber)` for every page inside a small concurrency window
+  // so the cheap per-page metadata pass stays fast on long documents.
+  async function mapPdfPages(total, limit, worker) {
+    const results = new Array(total);
+    let next = 1;
+    const run = async () => {
+      for (;;) {
+        const pageNumber = next++;
+        if (pageNumber > total) return;
+        results[pageNumber - 1] = await worker(pageNumber);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, total)) }, run));
+    return results;
+  }
+
+  // Opening a PDF happens in two phases. Sizes and page shells come first so
+  // the view can paint immediately; text layers, the scan verdict and the AI
+  // context follow in the background (`whenTextReady`, with the lazy view
+  // handing out text as it arrives). Reading every page's text upfront used to
+  // hold the first frame hostage, which made large PDFs open as a white screen
+  // for seconds.
   async function extractPdf(file, app, _settings = {}, onProgress, options = {}) {
     const signal = options.signal;
     const loadingTask = await openPdfLoadingTask(app, file, signal, options.sourceFile || null);
@@ -212,23 +234,43 @@ export function createPdfDocument({ setupWorker, win = globalThis }) {
       const doc = await loadingTask.promise;
       throwIfReaderLoadAborted(signal);
       const pageCount = doc.numPages;
-      const parts = [], textPages = [], pageText = [], pageKinds = [], outline = [];
+      const pageText = new Array(pageCount).fill("");
+      const sizes = await mapPdfPages(pageCount, 12, async (pageNumber) => {
+        throwIfReaderLoadAborted(signal);
+        const page = await doc.getPage(pageNumber);
+        try { return pdfPageSize(page); } finally { page.cleanup?.(); }
+      });
+      const parts = [];
       for (let i = 1; i <= pageCount; i++) {
-        const part = await readPdfPage(doc, i, signal, onProgress, pageCount);
-        // The verdict looks for a real text layer: a few watermark characters
-        // do not make a scanned page digital.
-        pageKinds.push(pdfScanPageKind(part.textFallback));
-        if (part.kind === "text" && part.aiText) textPages.push({ page: i, text: part.aiText });
-        pageText.push(part.kind === "text" ? part.textFallback : "");
+        const size = sizes[i - 1] || { width: 612, height: 792 };
         parts.push(pdfPageShell({
           pageNumber: i,
-          width: part.width,
-          height: part.height,
-          kind: part.kind,
+          width: size.width,
+          height: size.height,
+          kind: "text",
           isLast: i === pageCount,
-          textFallback: part.textFallback,
+          textFallback: "",
         }));
       }
+      const lazy = createPdfLazyView(doc, loadingTask, pageText);
+      const whenTextReady = (async () => {
+        const pageKinds = [], textPages = [];
+        for (let i = 1; i <= pageCount; i++) {
+          if (signal?.aborted) break;
+          const part = await readPdfPage(doc, i, signal, onProgress, pageCount);
+          // The verdict looks for a real text layer: a few watermark characters
+          // do not make a scanned page digital.
+          pageKinds.push(pdfScanPageKind(part.textFallback));
+          if (part.kind === "text" && part.aiText) textPages.push({ page: i, text: part.aiText });
+          pageText[i - 1] = part.kind === "text" ? part.textFallback : "";
+        }
+        return {
+          scan: pdfScanVerdict(pageKinds, { total: pageCount }),
+          pdfDocumentContext: packPdfDocumentContext(textPages, PDF_AI_CONTEXT_MAX_CHARS),
+        };
+      })();
+      whenTextReady.catch(() => { /* aborted or closed; the verdict is simply late */ });
+      const outline = [];
       try {
         await collectPdfOutlineInto(doc, outline);
       } catch (e) {
@@ -236,10 +278,10 @@ export function createPdfDocument({ setupWorker, win = globalThis }) {
       }
       return {
         html: parts.join("\n"),
-        lazy: createPdfLazyView(doc, loadingTask, pageText),
+        lazy,
         outline,
-        scan: pdfScanVerdict(pageKinds, { total: pageCount }),
-        pdfDocumentContext: packPdfDocumentContext(textPages, PDF_AI_CONTEXT_MAX_CHARS),
+        pdfDocumentContext: null,
+        whenTextReady,
       };
     } catch (error) {
       try { await loadingTask.destroy(); } catch { /* best-effort cleanup */ }
