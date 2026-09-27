@@ -1421,6 +1421,8 @@ export default {
   "tool-read-page-image": "페이지 이미지 읽기",
   "tool-read-pages": "페이지 읽기",
   "tool-search-book": "책 검색",
+  "tool-search-books-online": "온라인 책 검색",
+  "tool-download-book": "책 내려받기",
   "tool-list-highlights": "저장한 하이라이트",
   "attach-current-page-image": "현재 페이지",
   "screenshot": "스크린샷",

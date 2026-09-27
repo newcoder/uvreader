@@ -18,6 +18,7 @@ function setup(state = {}) {
 test("the schemas stay minimal and are advertised as-is", () => {
   assert.deepEqual(AI_TOOL_DEFINITIONS.map((tool) => tool.name), [
     "get_reading_position", "get_book_outline", "read_page_image", "read_pages", "search_book", "list_highlights",
+    "search_books_online", "download_book",
   ]);
   const { definitions } = setup();
   assert.deepEqual(definitions, AI_TOOL_DEFINITIONS
@@ -169,6 +170,39 @@ test("list_highlights renders the page, text and comment", async () => {
   assert.match(result.text, /1\. \[第 12 页\] 重要的句子（批注：记住这里）/);
   const none = await createAiTools({ state: { highlights: () => [] } }).run("list_highlights", {});
   assert.match(none.text, /还没有保存划线/);
+});
+
+test("online search lists downloadable editions and download_book picks the best match", async () => {
+  const report = {
+    results: [
+      { title: "流浪地球", author: "刘慈欣", sourceName: "Z-Library", format: "epub", size: "2.1 MB", downloadable: true },
+      { title: "流浪地球：短篇集", author: "刘慈欣", sourceName: "Gutenberg", format: "epub", size: "", downloadable: true },
+      { title: "流浪地球", author: "刘慈欣", sourceName: "Archive", format: "pdf", downloadable: false, license: "borrow" },
+    ],
+    errors: [{ name: "Open Library" }],
+  };
+  const downloads = [];
+  const tools = createAiTools({
+    state: {
+      searchBooks: async (query) => (String(query).includes("不存在") ? { results: [] } : report),
+      downloadBook: async (result) => { downloads.push(result); return { ok: true, name: "流浪地球 - 刘慈欣.epub" }; },
+    },
+  });
+  const search = await tools.run("search_books_online", { query: "流浪地球" });
+  assert.ok(search.text.indexOf("1. 流浪地球 — 刘慈欣｜Z-Library｜EPUB｜2.1 MB") >= 0);
+  assert.match(search.text, /（这些来源失败：Open Library）/);
+  assert.equal(/仅可借阅|borrow/.test(search.text), false, "borrow-only entries are filtered out");
+
+  const download = await tools.run("download_book", { title: "流浪地球", author: "刘慈欣" });
+  assert.equal(download.isError, false);
+  assert.match(download.text, /已下载并加入书库：流浪地球 - 刘慈欣\.epub（来源：Z-Library）/);
+  assert.equal(downloads.length, 1);
+  assert.equal(downloads[0].sourceName, "Z-Library");
+
+  const fail = await tools.run("download_book", { title: "不存在的书" });
+  assert.match(fail.text, /没有找到可下载的「不存在的书」/);
+  const noBridge = await createAiTools({ state: {} }).run("search_books_online", { query: "书" });
+  assert.match(noBridge.text, /不支持网络搜书/);
 });
 
 test("results are truncated, unknown tools and failures are errors", async () => {

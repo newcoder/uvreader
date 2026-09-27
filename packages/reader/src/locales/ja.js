@@ -1421,6 +1421,8 @@ export default {
   "tool-read-page-image": "ページ画像を読む",
   "tool-read-pages": "ページを読む",
   "tool-search-book": "書籍内を検索",
+  "tool-search-books-online": "ネットで書籍を検索",
+  "tool-download-book": "書籍をダウンロード",
   "tool-list-highlights": "ハイライトを確認",
   "attach-current-page-image": "現在のページ",
   "screenshot": "スクリーンショット",

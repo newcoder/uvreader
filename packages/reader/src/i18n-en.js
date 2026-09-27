@@ -1421,6 +1421,8 @@ export const QIAOMU_READER_EN = {
   "tool-read-page-image": "Read page image",
   "tool-read-pages": "Read page",
   "tool-search-book": "Search the book",
+  "tool-search-books-online": "Search books online",
+  "tool-download-book": "Download book",
   "tool-list-highlights": "Saved highlights",
   "attach-current-page-image": "Current page",
   "screenshot": "Screenshot",

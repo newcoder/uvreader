@@ -1586,6 +1586,26 @@ function aiToolState(view, plugin, options = {}) {
       text: String(hl.text || "").slice(0, 200),
       comment: String(hl.comment || "").slice(0, 200),
     })),
+    // Online book search/download run in the main process; both stay null
+    // without the desktop bridge so the tools stay hidden/refusing cleanly.
+    searchBooks: plugin && typeof plugin.searchOnlineBooks === "function"
+      ? (query) => plugin.searchOnlineBooks(query)
+      : null,
+    downloadBook: plugin && typeof plugin.downloadBook === "function"
+      ? async (result) => {
+        const jobId = `ai-${Date.now().toString(36)}`;
+        let timer = null;
+        const timeout = new Promise((resolve) => {
+          timer = setTimeout(() => resolve({ ok: false, error: "下载仍在后台进行，完成后会出现在书库。" }), 180_000);
+        });
+        const outcome = await Promise.race([plugin.downloadBook(jobId, result, {}), timeout]);
+        clearTimeout(timer);
+        if (outcome?.ok && outcome.name) {
+          try { new Notice(qiaomuReaderTranslate("search-online-downloaded-0", outcome.name), 8000); } catch { /* headless */ }
+        }
+        return outcome;
+      }
+      : null,
   };
 }
 

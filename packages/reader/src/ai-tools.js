@@ -66,6 +66,32 @@ export const AI_TOOL_DEFINITIONS = Object.freeze([
       additionalProperties: false,
     },
   },
+  {
+    name: "search_books_online",
+    description: "在已启用的书籍来源（Project Gutenberg、Standard Ebooks、Internet Archive、Open Library、Z-Library 等）中搜索可下载的书。返回标题、作者、来源、格式和大小；要下载时把结果里的完整标题交给 download_book。",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "书名或作者。" },
+        limit: { type: "number", description: "最多返回条数，默认 8，最多 12。" },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "download_book",
+    description: "把一本书下载到本地书库并在完成后通知读者。用 search_books_online 给出的完整标题（可加作者）最稳妥；下载在后台进行，成功后书会出现在书库页。只有读者明确想下载时才调用。",
+    parameters: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "要下载的书名，最好来自 search_books_online 的结果。" },
+        author: { type: "string", description: "可选，作者，用于在有多个同名版本时挑选。" },
+      },
+      required: ["title"],
+      additionalProperties: false,
+    },
+  },
 ]);
 
 // Text layers can be formula soup or half-broken scans. Handing that to the
@@ -169,6 +195,41 @@ export function createAiTools({ state = {}, maxChars = AI_TOOL_LIMITS.resultChar
         const comment = item.comment ? `（批注：${item.comment}）` : "";
         return `${index + 1}. ${where}${item.text}${comment}`;
       }).join("\n");
+    },
+    async search_books_online(args = {}) {
+      const query = String(args.query ?? "").trim();
+      if (!query) return "请提供书名或作者。";
+      if (typeof state.searchBooks !== "function") return "当前环境不支持网络搜书（需要桌面版并启用书籍来源）。";
+      const limit = boundedNumber(args.limit, 8, 1, 12);
+      const report = await state.searchBooks(query);
+      const results = (report?.results || []).filter((item) => item.downloadable && !item.needsSession).slice(0, limit);
+      const errors = (report?.errors || []).map((item) => item.name || item.source).filter(Boolean);
+      if (!results.length) {
+        const suffix = errors.length ? `（这些来源失败：${errors.join("、")}）` : "";
+        return `没有找到可下载的「${query}」${suffix}。`;
+      }
+      const rows = results.map((item, index) => {
+        const bits = [item.author, item.sourceName, item.format ? String(item.format).toUpperCase() : "", item.size, item.year].filter(Boolean);
+        return `${index + 1}. ${item.title}${bits.length ? ` — ${bits.join("｜")}` : ""}`;
+      });
+      if (errors.length) rows.push(`（这些来源失败：${errors.join("、")}）`);
+      return rows.join("\n");
+    },
+    async download_book(args = {}) {
+      const title = String(args.title ?? "").trim();
+      if (!title) return "请提供书名。";
+      if (typeof state.downloadBook !== "function") return "当前环境不支持下载（需要桌面版并启用书籍来源）。";
+      const author = String(args.author ?? "").trim();
+      const wanted = (value) => String(value || "").toLowerCase();
+      const report = await state.searchBooks(title);
+      const candidates = (report?.results || []).filter((item) => item.downloadable && !item.needsSession);
+      const result = candidates.find((item) => wanted(item.title) === wanted(title) && (!author || wanted(item.author).includes(wanted(author))))
+        || candidates.find((item) => wanted(item.title).includes(wanted(title)))
+        || candidates[0];
+      if (!result) return `没有找到可下载的「${title}」；可以先用 search_books_online 看看有哪些版本。`;
+      const outcome = await state.downloadBook(result);
+      if (outcome?.ok) return `已下载并加入书库：${outcome.name || result.title}（来源：${result.sourceName || result.source}）。可以告诉读者在书库页打开。`;
+      return `下载「${title}」失败：${outcome?.error || "未知原因"}。`;
     },
   };
 

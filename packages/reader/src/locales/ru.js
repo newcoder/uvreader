@@ -1423,6 +1423,8 @@ export default {
   "tool-read-page-image": "Просмотр изображения страницы",
   "tool-read-pages": "Прочитать страницу",
   "tool-search-book": "Поиск по книге",
+  "tool-search-books-online": "Поиск книг в сети",
+  "tool-download-book": "Скачать книгу",
   "tool-list-highlights": "Сохранённые выделения",
   "attach-current-page-image": "Текущая страница",
   "screenshot": "Снимок области",

@@ -555,6 +555,8 @@ export function createAiRender({
     if (name === "get_book_outline") return "list";
     if (name === "list_highlights") return "highlighter";
     if (name === "get_reading_position") return "bookmark";
+    if (name === "search_books_online") return "globe";
+    if (name === "download_book") return "download";
     return "search";
   }
 
@@ -611,6 +613,8 @@ export function createAiRender({
       return `${translateFn(key)}${count > 1 ? ` ${start}–${start + count - 1}` : ` ${start}`}`;
     }
     if (name === "search_book" && args.query) return `${translateFn(key)}：${String(args.query).slice(0, 20)}`;
+    if (name === "search_books_online" && args.query) return `${translateFn(key)}：${String(args.query).slice(0, 20)}`;
+    if (name === "download_book" && args.title) return `${translateFn(key)}：${String(args.title).slice(0, 20)}`;
     return translateFn(key);
   }
 

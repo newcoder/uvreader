@@ -1867,6 +1867,8 @@ Object.assign(QIAOMU_READER_ZH_CN, {
   "tool-read-page-image": "查看页面图片",
   "tool-read-pages": "阅读页面",
   "tool-search-book": "检索全书",
+  "tool-search-books-online": "网络找书",
+  "tool-download-book": "下载书籍",
   "tool-list-highlights": "查看划线",
   "attach-current-page-image": "当前页图片",
   "screenshot": "截图",

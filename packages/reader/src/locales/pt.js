@@ -1421,6 +1421,8 @@ export default {
   "tool-read-page-image": "Ler imagem da página",
   "tool-read-pages": "Ler página",
   "tool-search-book": "Pesquisar no livro",
+  "tool-search-books-online": "Buscar livros online",
+  "tool-download-book": "Baixar livro",
   "tool-list-highlights": "Destaques salvos",
   "attach-current-page-image": "Página atual",
   "screenshot": "Captura de tela",
