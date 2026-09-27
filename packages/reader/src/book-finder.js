@@ -43,6 +43,24 @@ export function isBookFinderRequest(query) {
   return FINDER_HINTS.test(text);
 }
 
+// Source search is fuzzy by nature (Internet Archive matches full text), so a
+// version only counts when its title or author actually matches the book the
+// AI asked for. Keys drop case, whitespace and punctuation for comparison.
+function bookKey(value) {
+  return String(value || "").toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
+}
+
+export function bookResultRelevant(book, result) {
+  const title = bookKey(book?.title);
+  const author = bookKey(book?.author);
+  const hitTitle = bookKey(result?.title);
+  const hitAuthor = bookKey(result?.author);
+  if (!title) return true;
+  if (hitTitle && (hitTitle.includes(title) || (hitTitle.length >= 2 && title.includes(hitTitle)))) return true;
+  if (author && hitAuthor && (hitAuthor.includes(author) || author.includes(hitAuthor))) return true;
+  return false;
+}
+
 function cleanField(value, maxLength) {
   return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, maxLength);
 }

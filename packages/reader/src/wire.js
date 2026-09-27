@@ -109,7 +109,7 @@ import { createAiContext } from "./ai-context.js";
 import { createReaderChrome } from "./reader-chrome.js";
 import { createAiRender } from "./ai-render.js";
 import { createPiTransport } from "./ai-pi.js";
-import { buildBookFinderMessages, parseBookFinderReply } from "./book-finder.js";
+import { bookResultRelevant, buildBookFinderMessages, parseBookFinderReply } from "./book-finder.js";
 import { createNotePaths } from "./note-paths.js";
 import { createBookNotes } from "./book-notes.js";
 
@@ -3537,7 +3537,10 @@ QiaomuBookReader.prototype.findBooksOnline = async function findBooksOnline(inpu
       if (!book) return;
       try {
         const report = await this.searchOnlineBooks(toQuery(book));
-        groups.push({ book, results: report?.results || [], errors: report?.errors || [] });
+        // Archive-style full-text hits are not versions of the book; keep only
+        // results whose title or author really match the found title.
+        const results = (report?.results || []).filter((item) => bookResultRelevant(book, item));
+        groups.push({ book, results, errors: report?.errors || [] });
       } catch (error) {
         groups.push({ book, results: [], errors: [{ source: "search", name: "", message: String(error?.message || error).slice(0, 160) }] });
       }

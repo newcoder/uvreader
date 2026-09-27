@@ -4,10 +4,22 @@ import test from "node:test";
 import {
   BOOK_FINDER_MAX,
   BOOK_FINDER_SYSTEM_PROMPT,
+  bookResultRelevant,
   buildBookFinderMessages,
   isBookFinderRequest,
   parseBookFinderReply,
 } from "../packages/reader/src/book-finder.js";
+
+test("versions must actually match the found book", () => {
+  const book = { title: "等待", author: "哈金" };
+  assert.equal(bookResultRelevant(book, { title: "等待", author: "哈金" }), true);
+  assert.equal(bookResultRelevant(book, { title: "等待（精装版）", author: "" }), true);
+  assert.equal(bookResultRelevant(book, { title: "哈金作品集", author: "哈金" }), true);
+  assert.equal(bookResultRelevant(book, { title: "華僑日報 1956-03-20", author: "" }), false);
+  assert.equal(bookResultRelevant(book, { title: "兽世绝美孕雌，兽夫们让一让", author: "心起涟漪" }), false);
+  assert.equal(bookResultRelevant({ title: "Waiting", author: "Ha Jin" }, { title: "Waiting", author: "Ha Jin" }), true);
+  assert.equal(bookResultRelevant({ title: "", author: "" }, { title: "任何" }), true);
+});
 
 test("fuzzy requests take the finder, concrete titles stay direct", () => {
   assert.equal(isBookFinderRequest("推荐几本讲宋代市民生活的书"), true);
