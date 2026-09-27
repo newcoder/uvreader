@@ -66,15 +66,19 @@ function childErrorMessage(error, fallback = "OCR 进程启动失败") {
 }
 
 // One spawned sidecar process: line protocol, pending requests, one exit hook.
-function spawnSession({ command, args, cwd, spawnImpl, onNotification, onExit }) {
+function spawnSession({ command, args, cwd, spawnImpl, onNotification, onExit, cacheRoot }) {
   let child;
   try {
     // The sidecar's stdio must be UTF-8: book paths are full of non-ASCII
-    // characters and Windows would otherwise decode the JSON lines as ANSI.
+    // characters and Windows would otherwise decode the JSON lines as ANSI. The
+    // page cache lives with the app profile so it survives repo moves and
+    // makes the second open a cache hit instead of a re-OCR.
+    const env = { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" };
+    if (cacheRoot && !process.env.PDF_TOOL_OCR_CACHE) env.PDF_TOOL_OCR_CACHE = cacheRoot;
     child = spawnImpl(command, args, {
       cwd,
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" },
+      env,
     });
   } catch (error) {
     throw new Error(childErrorMessage(error));
@@ -164,7 +168,11 @@ function spawnSession({ command, args, cwd, spawnImpl, onNotification, onExit })
   };
 }
 
-export function createPdfOcr({ spawnImpl = spawn } = {}) {
+export function createPdfOcr({ spawnImpl = spawn, cacheRoot = "" } = {}) {
+  const cacheDir = String(cacheRoot || "").trim();
+  if (cacheDir) {
+    try { fs.mkdirSync(cacheDir, { recursive: true }); } catch { /* created lazily by the sidecar */ }
+  }
   const jobs = new Map();
   const sessions = new Map();
 
@@ -174,7 +182,7 @@ export function createPdfOcr({ spawnImpl = spawn } = {}) {
     if (target.error) return Promise.resolve({ ok: false, detail: target.error });
     let session;
     try {
-      session = spawnSession({ ...target, spawnImpl });
+      session = spawnSession({ ...target, spawnImpl, cacheRoot: cacheDir });
     } catch (error) {
       return Promise.resolve({ ok: false, detail: String(error?.message || error) });
     }
@@ -192,7 +200,7 @@ export function createPdfOcr({ spawnImpl = spawn } = {}) {
     const source = path.resolve(String(sourcePath || ""));
     if (!fs.existsSync(source)) throw new Error(`源文件不存在：${source || "(空)"}`);
     log("session open", target.command, target.args.join(" "), "cwd", target.cwd);
-    const session = spawnSession({ ...target, spawnImpl });
+    const session = spawnSession({ ...target, spawnImpl, cacheRoot: cacheDir });
     const sessionId = `s${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
     sessions.set(sessionId, { session, source });
     return { sessionId };
@@ -258,6 +266,7 @@ export function createPdfOcr({ spawnImpl = spawn } = {}) {
       session = spawnSession({
         ...target,
         spawnImpl,
+        cacheRoot: cacheDir,
         onNotification: (message) => {
           if (job.finished) return;
           const params = message.params || {};
