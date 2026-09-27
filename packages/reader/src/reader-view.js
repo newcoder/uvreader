@@ -289,70 +289,27 @@ export function createReaderView({
     this._ocrJob = token;
     this._showOcrBar({ kind: "working", done: 0, total });
     try {
-      // Hybrid: build the MinerU layout source first when it is missing. A
-      // failure (no token, network) only notifies and falls back to plain OCR.
-      if (this.plugin.settings.ocrHybrid === true) {
-        try {
-          const existing = await this.plugin.ocrTextSourceFor(file.path);
-          if (!existing) {
-            token.layoutJobId = `${token.jobId}-layout`;
-            this._showOcrBar({ kind: "working", done: 0, total, phase: "layout" });
-            const built = await this.plugin.buildOcrTextSource(file.path, {
-              jobId: token.layoutJobId,
-              // MinerU reports one progress event at the end; size the no-progress
-              // watchdog for the whole book instead of the sidecar's default.
-              timeout: Math.max(600, Math.round(total * 15)),
-              onProgress: (progress) => {
-                if (this._ocrJob === token) {
-                  this._showOcrBar({
-                    kind: "working",
-                    done: progress.done || 0,
-                    total: progress.total || total,
-                    phase: "layout",
-                  });
-                }
-              },
-            });
-            token.layoutJobId = "";
-            if (!built?.ok) {
-              new Notice(`${qiaomuReaderTranslate("ocr-text-source-failed")}：${this.plugin.ocrErrorText?.(built?.error) || built?.error || ""}`, 12000);
-            }
-          }
-        } catch (error) {
-          token.layoutJobId = "";
-          new Notice(`${qiaomuReaderTranslate("ocr-text-source-failed")}：${this.plugin.ocrErrorText?.(error) || ""}`, 12000);
-        }
-        if (this._ocrJob !== token || token.cancelled) return;
-        this._showOcrBar({ kind: "working", done: 0, total });
+      // Hybrid: a missing layout runs in the background while the plain pass
+      // already hands the reader its text; when it lands the pages are fetched
+      // again (cache-hot) and upgraded in place. An existing source skips the
+      // plain round entirely.
+      const hybridWanted = this.plugin.settings.ocrHybrid === true;
+      let existing = "";
+      if (hybridWanted) {
+        try { existing = await this.plugin.ocrTextSourceFor(file.path); }
+        catch { existing = ""; }
       }
-      const opened = await this.plugin.openOcrSession(file.path);
-      if (this._ocrJob !== token) return;
-      token.sessionId = String(opened?.sessionId || "");
-      for (const pageNumber of this._textLayerPageOrder(total)) {
-        if (token.cancelled || this._ocrJob !== token || this._closed) break;
-        const fetched = await this.plugin.fetchOcrPage(token.sessionId, pageNumber);
-        if (token.cancelled || this._ocrJob !== token) break;
-        if (fetched?.content) {
-          const text = (fetched.content.items || [])
-            .map((item) => String(item.str || "")).join(" ").replace(/\s+/g, " ").trim();
-          if (this._pdfLazy?.applyOcr?.(pageNumber, fetched.content, text)) {
-            this._ocrPages = (this._ocrPages || new Set()).add(pageNumber);
-            // Repaint that page so its new text layer is selectable now, not on
-            // the next scroll.
-            refreshReaderPdfTextLayer(this, pageNumber);
-            // A search started before this page had text holds a stale corpus;
-            // drop it and let the open find panel rebuild its match list so
-            // "next" can reach the new hits.
-            this._findCorpus = null;
-            if (this._foundQuery && this._findInput?.value) {
-              this._findInput.dispatchEvent(new Event("input", { bubbles: true }));
-            }
-          }
-        }
-        token.done += 1;
-        this._showOcrBar({ kind: "working", done: token.done, total });
-        renderVisibleFigures(this);
-        if (this._foundQuery) markFoundIn(this, this._foundQuery);
+      const layoutJob = hybridWanted && !existing
+        ? this._prepareLayoutSource(file, total, token)
+        : Promise.resolve(existing ? "ready" : "");
+      await this._runTextLayerPass(file, total, token);
+      if (token.cancelled || this._ocrJob !== token) return;
+      const layoutReady = await layoutJob;
+      if (token.cancelled || this._ocrJob !== token) return;
+      if (!existing && layoutReady === "ready") {
+        new Notice(qiaomuReaderTranslate("ocr-hybrid-upgraded"), 6000);
+        token.done = 0;
+        await this._runTextLayerPass(file, total, token);
       }
       if (this._ocrJob === token && !token.cancelled) this._showOcrBar({ kind: "ready", file });
     } catch (error) {
@@ -361,6 +318,62 @@ export function createReaderView({
       this.plugin.closeOcrSession?.(token.sessionId);
       if (this._ocrJob === token) this._ocrJob = null;
     }
+  }
+  // MinerU runs beside the plain pass; resolves "ready" once a text source
+  // exists for the upgrade, "" when it failed (a notice explains why).
+  async _prepareLayoutSource(file, total, token) {
+    try {
+      token.layoutJobId = `${token.jobId}-layout`;
+      const built = await this.plugin.buildOcrTextSource(file.path, {
+        jobId: token.layoutJobId,
+        // MinerU reports one progress event at the end; size the no-progress
+        // watchdog for the whole book instead of the sidecar's default.
+        timeout: Math.max(600, Math.round(total * 15)),
+      });
+      token.layoutJobId = "";
+      if (built?.ok) return "ready";
+      new Notice(`${qiaomuReaderTranslate("ocr-text-source-failed")}：${this.plugin.ocrErrorText?.(built?.error) || built?.error || ""}`, 12000);
+    } catch (error) {
+      token.layoutJobId = "";
+      new Notice(`${qiaomuReaderTranslate("ocr-text-source-failed")}：${this.plugin.ocrErrorText?.(error) || ""}`, 12000);
+    }
+    return "";
+  }
+  // One pass over the pages: a session (hybrid when a source is recorded) and
+  // every page fetched in priority order, applied as it arrives.
+  async _runTextLayerPass(file, total, token) {
+    const opened = await this.plugin.openOcrSession(file.path);
+    if (this._ocrJob !== token) { this.plugin.closeOcrSession?.(opened?.sessionId); return; }
+    token.sessionId = String(opened?.sessionId || "");
+    if (!token.sessionId) throw new Error(qiaomuReaderTranslate("ocr-needs-desktop"));
+    for (const pageNumber of this._textLayerPageOrder(total)) {
+      if (token.cancelled || this._ocrJob !== token || this._closed) break;
+      const fetched = await this.plugin.fetchOcrPage(token.sessionId, pageNumber);
+      if (token.cancelled || this._ocrJob !== token) break;
+      if (fetched?.content) {
+        const text = (fetched.content.items || [])
+          .map((item) => String(item.str || "")).join(" ").replace(/\s+/g, " ").trim();
+        if (this._pdfLazy?.applyOcr?.(pageNumber, fetched.content, text)) {
+          this._ocrPages = (this._ocrPages || new Set()).add(pageNumber);
+          // Repaint that page so its new text layer is selectable now, not on
+          // the next scroll.
+          refreshReaderPdfTextLayer(this, pageNumber);
+          // A search started before this page had text holds a stale corpus;
+          // drop it and let the open find panel rebuild its match list so
+          // "next" can reach the new hits.
+          this._findCorpus = null;
+          if (this._foundQuery && this._findInput?.value) {
+            this._findInput.dispatchEvent(new Event("input", { bubbles: true }));
+          }
+        }
+      }
+      token.done += 1;
+      this._showOcrBar({ kind: "working", done: token.done, total });
+      renderVisibleFigures(this);
+      if (this._foundQuery) markFoundIn(this, this._foundQuery);
+    }
+    this.plugin.closeOcrSession?.(token.sessionId);
+    token.sessionId = "";
   }
   _cancelTextLayerJob() {
     const token = this._ocrJob;

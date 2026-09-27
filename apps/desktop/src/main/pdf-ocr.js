@@ -98,6 +98,14 @@ function spawnSession({ command, args, cwd, spawnImpl, onNotification, onExit, c
     // makes the second open a cache hit instead of a re-OCR.
     const env = { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" };
     if (cacheRoot && !process.env.PDF_TOOL_OCR_CACHE) env.PDF_TOOL_OCR_CACHE = cacheRoot;
+    // MinerU uploads to Aliyun OSS in Shanghai; a machine-wide proxy often
+    // throttles or blocks it, so those hosts go direct while everything else
+    // keeps the configured proxy.
+    const direct = ["*.aliyuncs.com", "*.mineru.net", "mineru.net", "mineru.oss-cn-shanghai.aliyuncs.com"];
+    try {
+      env.NO_PROXY = [env.NO_PROXY, env.no_proxy, ...direct].filter(Boolean).join(",");
+      env.no_proxy = env.NO_PROXY;
+    } catch { /* read-only env in some hosts */ }
     child = spawnImpl(command, args, {
       cwd,
       stdio: ["pipe", "pipe", "pipe"],

@@ -544,6 +544,7 @@ export const QIAOMU_READER_ZH_CN = {
   "ocr-hybrid-mineru": "设置了环境变量 MINERU_API_KEY 后，缺失的文本源会自动用 MinerU 生成（需要上传 PDF；期间进度显示「正在分析版式」）。",
   "ocr-analyzing": "正在分析版式…",
   "ocr-analyzing-0-1": "正在分析版式 {0}/{1} 页",
+  "ocr-hybrid-upgraded": "版式已就绪，正在升级为高质量文字层",
   "ocr-text-source-failed": "版式分析失败，已按本地识别继续",
   "ocr-hybrid-desc": "用版式文本源替换本地识别出的文字（位置仍来自本地 OCR，公式、表格和阅读顺序更准）。把 MinerU layout.json 或识别结果放到这本书留痕目录的 derived/ 下（text-source.json 或 layout.json）；没有文本源时自动按本地识别运行。",
   "ocr-sidecar-not-configured-hint": "请先在「设置 → 存储与同步 → 扫描版 PDF 文字层」里配置 OCR 组件（选择 pdf_tool 目录或打包程序），然后重新打开这本书。",

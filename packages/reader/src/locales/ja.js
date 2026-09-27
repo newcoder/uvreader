@@ -464,6 +464,7 @@ export default {
   "ocr-hybrid-mineru": "MINERU_API_KEY を設定しておくと、無いテキスト源を MinerU が自動生成します（PDF をアップロードします。バーは「レイアウト解析中」）。",
   "ocr-analyzing": "レイアウト解析中…",
   "ocr-analyzing-0-1": "レイアウト解析中 {0}/{1} ページ",
+  "ocr-hybrid-upgraded": "レイアウト準備完了 — 高品質な文字層に更新中",
   "ocr-text-source-failed": "レイアウト解析に失敗したため、ローカル認識で続行します",
   "ocr-hybrid-desc": "ローカル OCR の位置はそのままに、レイアウト由来のテキスト源で認識文字を置き換えます（数式・表・読み順がより正確）。MinerU の layout.json か抽出結果を、書籍の derived/ フォルダーに置いてください（text-source.json または layout.json）。無い場合はローカル認識のまま動きます。",
   "ocr-sidecar-not-configured-hint": "先に OCR コンポーネントを設定してください：設定 → ストレージと同期 → スキャン PDF の文字層（pdf_tool フォルダーまたはパッケージ済みプログラムを選択）→ 本書を開き直します。",
