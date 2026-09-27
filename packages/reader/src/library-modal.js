@@ -3,6 +3,7 @@
 // imported directly.
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import { isBookFinderRequest } from "./book-finder.js";
+import { PDF_CMAP_OPTIONS } from "./pdf-cmaps.js";
 import { STARTER_BOOKS } from "./starter-book-data.js";
 import { coverFromBytes } from "./reader-engine.js";
 import { coverPalette } from "./book-cover.js";
@@ -774,7 +775,7 @@ export function createLibraryModal({
     return this._renderPdfCover(bytes);
   }
   async _renderPdfCover(bytes) {
-    const loadingTask = pdfjsLib.getDocument({ data: bytes, isEvalSupported: false });
+    const loadingTask = pdfjsLib.getDocument({ data: bytes, ...PDF_CMAP_OPTIONS, isEvalSupported: false });
     try {
       const doc = await loadingTask.promise;
       const firstPage = await doc.getPage(1);

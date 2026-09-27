@@ -17,6 +17,7 @@ export class EmbeddedPdfBinaryDataFactory {
     if (!source) throw new Error(`Unsupported embedded PDF resource kind: ${kind}`);
     const encoded = source[filename];
     if (!encoded) throw new Error(`Embedded PDF resource is unavailable: ${filename}`);
+    try { console.log(`[qbr-pdf] embedded ${kind} ${filename} (${encoded.length} b64)`); } catch { /* no console */ }
     return decodeBase64(encoded);
   }
 }
