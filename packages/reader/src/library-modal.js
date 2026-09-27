@@ -170,8 +170,22 @@ export function createLibraryModal({
       if (!result.downloadable) {
         status.setText(result.license === "borrow" ? qiaomuReaderTranslate("search-online-borrow-only") : qiaomuReaderTranslate("search-online-no-file"));
       } else if (result.needsSession) {
-        status.setText(qiaomuReaderTranslate("search-online-needs-login"));
+        const url = this._loginUrlFor(result);
+        const signIn = status.createEl("button", { cls: "qiaomu-reader-lib-result-open", text: qiaomuReaderTranslate("search-online-sign-in") });
         box.disabled = true;
+        signIn.addEventListener("click", async (event) => {
+          event.stopPropagation();
+          signIn.disabled = true;
+          signIn.setText(qiaomuReaderTranslate("search-online-signing-in"));
+          await this.plugin.openBookLogin(url);
+          if (this._libMode === "online" && grid.isConnected) this._renderOnline(grid, this._onlineQuery);
+        });
+        void this.plugin.bookSessionReady(url).then((ready) => {
+          if (!ready || !row.isConnected || !signIn.isConnected) return;
+          box.disabled = false;
+          status.setText(qiaomuReaderTranslate("search-online-ready"));
+          signIn.remove();
+        });
       } else {
         status.setText(qiaomuReaderTranslate("search-online-ready"));
       }
@@ -206,6 +220,11 @@ export function createLibraryModal({
       for (const result of picked) void this._startOnlineDownload(result, rows.find((entry) => entry.result === result));
     });
     syncBar();
+  }
+  _loginUrlFor(result) {
+    const sources = this.plugin.settings?.downloadSources || [];
+    const source = sources.find((item) => item.id === result?.source);
+    return String(source?.url || result?.info || result?.url || "");
   }
   async _startOnlineDownload(result, rowEntry) {
     const status = rowEntry?.status;

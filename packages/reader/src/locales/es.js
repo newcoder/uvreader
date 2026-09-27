@@ -433,6 +433,8 @@ export default {
   "search-online-borrow-only": "Solo préstamo",
   "search-online-no-file": "Sin archivo descargable",
   "search-online-needs-login": "Requiere sesión iniciada",
+  "search-online-sign-in": "Inicia sesión para descargar",
+  "search-online-signing-in": "Esperando el inicio de sesión…",
   "search-online-ready": "Descargable",
   "search-online-downloading": "Descargando…",
   "search-online-download-selected": "Descargar selección",

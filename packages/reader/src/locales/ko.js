@@ -433,6 +433,8 @@ export default {
   "search-online-borrow-only": "대출 전용",
   "search-online-no-file": "내려받을 파일 없음",
   "search-online-needs-login": "로그인이 필요합니다",
+  "search-online-sign-in": "로그인 후 내려받기",
+  "search-online-signing-in": "로그인을 기다리는 중…",
   "search-online-ready": "내려받기 가능",
   "search-online-downloading": "내려받는 중…",
   "search-online-download-selected": "선택 항목 내려받기",

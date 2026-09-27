@@ -43,6 +43,8 @@ window.qbrDesktop = {
       });
     },
     cancel: (jobId) => ipcRenderer.invoke("qbr:books:cancel", jobId),
+    login: (url) => ipcRenderer.invoke("qbr:books:login", { url }),
+    session: (url) => ipcRenderer.invoke("qbr:books:session", url),
   },
   ocr: {
     probe: (settings) => ipcRenderer.invoke("qbr:ocr:probe", settings),

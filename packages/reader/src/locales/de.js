@@ -433,6 +433,8 @@ export default {
   "search-online-borrow-only": "Nur ausleihbar",
   "search-online-no-file": "Keine herunterladbare Datei",
   "search-online-needs-login": "Erfordert eine angemeldete Sitzung",
+  "search-online-sign-in": "Anmelden zum Herunterladen",
+  "search-online-signing-in": "Warte auf Anmeldung…",
   "search-online-ready": "Herunterladbar",
   "search-online-downloading": "Wird heruntergeladen…",
   "search-online-download-selected": "Auswahl herunterladen",

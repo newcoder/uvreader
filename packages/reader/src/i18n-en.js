@@ -433,6 +433,8 @@ export const QIAOMU_READER_EN = {
   "search-online-borrow-only": "Borrow only",
   "search-online-no-file": "No downloadable file",
   "search-online-needs-login": "Needs a signed-in session",
+  "search-online-sign-in": "Sign in to download",
+  "search-online-signing-in": "Waiting for sign-in…",
   "search-online-ready": "Downloadable",
   "search-online-downloading": "Downloading…",
   "search-online-download-selected": "Download selected",

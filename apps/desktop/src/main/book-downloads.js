@@ -2,7 +2,7 @@
 // enabled source and normalizes through the shared pure module; downloads run
 // through a small queue (two at a time), write into the library folder, verify
 // the bytes and are cancellable. Network access is injectable for tests.
-import { bookSearchRequest, dedupeBookResults, resultsFromSource } from "../../../../packages/reader/src/book-sources.js";
+import { bookSearchRequest, dedupeBookResults, downloadLinkFromZlibPage, resultsFromSource } from "../../../../packages/reader/src/book-sources.js";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -106,10 +106,18 @@ export function createBookDownloads({ fetchImpl = fetch, downloadRoot = "" } = {
     return { results, errors };
   }
 
-  // Resolves a result into a concrete file URL (Internet Archive metadata).
+  // Resolves a result into a concrete file URL: Internet Archive metadata, or
+  // a session-gated book page whose /dl/ link needs the login cookies.
   async function resolveDownload(result) {
     const url = String(result?.url || "");
     if (url) return { url, format: String(result?.format || "") };
+    if (result?.needsSession && result?.info) {
+      const page = await fetchImpl(String(result.info), { redirect: "follow" });
+      if (!page.ok) throw new Error(`HTTP ${page.status}`);
+      const picked = downloadLinkFromZlibPage(await page.text(), String(result.info), [String(result?.format || "epub").toLowerCase(), "epub", "pdf"]);
+      if (!picked?.url) throw new Error("没有找到下载链接；请先在上方登录来源，登录后再试");
+      return picked;
+    }
     const info = String(result?.info || "");
     const identifier = info.match(/archive\.org\/details\/([^/?#]+)/)?.[1];
     if (!identifier) return null;

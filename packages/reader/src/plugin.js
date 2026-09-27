@@ -657,6 +657,21 @@ export function createPlugin({
     try { return Boolean(this.booksBridge()?.cancel?.(jobId)); }
     catch { return false; }
   }
+  // Opens the source's page in the shared book session so the reader can sign
+  // in; resolves when that window closes (ok even if the bridge is missing).
+  async openBookLogin(url) {
+    try {
+      const bridge = this.booksBridge();
+      if (!bridge?.login) return { ok: false, error: qiaomuReaderTranslate("search-online-needs-desktop") };
+      return await bridge.login(String(url || ""));
+    } catch (error) {
+      return { ok: false, error: String(error?.message || error) };
+    }
+  }
+  async bookSessionReady(url) {
+    try { return Boolean(await this.booksBridge()?.session?.(String(url || ""))); }
+    catch { return false; }
+  }
   // Reading traces (and MinerU's raw output) live inside the vault so they sync,
   // but they are not library books; every book listing filters them out.
   isLibraryBook(file) {

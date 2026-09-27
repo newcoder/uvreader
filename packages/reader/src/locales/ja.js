@@ -433,6 +433,8 @@ export default {
   "search-online-borrow-only": "貸出のみ",
   "search-online-no-file": "ダウンロードできるファイルがありません",
   "search-online-needs-login": "ログインが必要です",
+  "search-online-sign-in": "ログインしてダウンロード",
+  "search-online-signing-in": "ログインを待っています…",
   "search-online-ready": "ダウンロード可",
   "search-online-downloading": "ダウンロード中…",
   "search-online-download-selected": "選択をダウンロード",

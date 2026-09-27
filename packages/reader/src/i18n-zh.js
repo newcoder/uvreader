@@ -513,6 +513,8 @@ export const QIAOMU_READER_ZH_CN = {
   "search-online-borrow-only": "仅可借阅",
   "search-online-no-file": "没有可下载文件",
   "search-online-needs-login": "需要登录后下载",
+  "search-online-sign-in": "登录后下载",
+  "search-online-signing-in": "等待登录…",
   "search-online-ready": "可下载",
   "search-online-downloading": "下载中…",
   "search-online-download-selected": "下载所选",

@@ -256,6 +256,27 @@ export function resultsFromZlibHtml(html, source) {
   return out;
 }
 
+// The Z-Library book page hides the file behind a /dl/ link; pick the best
+// one for the wanted formats once the session has the page.
+export function downloadLinkFromZlibPage(html, base, formats = ["epub", "pdf", "mobi", "azw3", "fb2", "txt"]) {
+  const text = String(html || "");
+  const wanted = (Array.isArray(formats) ? formats : []).map((item) => String(item || "").toLowerCase());
+  const candidates = [];
+  for (const match of text.matchAll(/href\s*=\s*"([^"]+)"/gi)) {
+    const href = match[1];
+    if (!href || /^(#|javascript:)/i.test(href) || !/(\/dl\/|\/download\/|download)/i.test(href)) continue;
+    const url = absolute(href, base);
+    if (!url) continue;
+    const format = (href.match(/\.(epub|pdf|mobi|azw3?|fb2|txt)(?:$|[?#])/i)?.[1] || "").toLowerCase();
+    const priority = wanted.indexOf(format);
+    candidates.push({ url, format, priority: priority < 0 ? wanted.length : priority });
+  }
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => a.priority - b.priority);
+  const best = candidates[0];
+  return { url: best.url, format: best.format || "" };
+}
+
 export function resultsFromSource(source, payload) {
   if (source?.kind === "zlib") return resultsFromZlibHtml(payload, source);
   if (!source || !payload) return [];

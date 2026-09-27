@@ -5,12 +5,27 @@ import {
   bookSearchRequest,
   dedupeBookResults,
   DEFAULT_BOOK_SOURCES,
+  downloadLinkFromZlibPage,
   enabledBookSources,
   normalizeBookSources,
   pickDownloadFormat,
   resultsFromOpds,
   resultsFromSource,
 } from "../packages/reader/src/book-sources.js";
+
+test("the z-library book page yields the best download link", () => {
+  const html = [
+    '<a href="/book/123/abc">详情</a>',
+    '<a href="/dl/123/abc/file.pdf">PDF</a>',
+    '<a href="/dl/123/abc/file.epub">EPUB</a>',
+    '<a href="javascript:;">下载</a>',
+  ].join("");
+  const picked = downloadLinkFromZlibPage(html, "https://z-library.sk", ["epub", "pdf"]);
+  assert.deepEqual(picked, { url: "https://z-library.sk/dl/123/abc/file.epub", format: "epub" });
+  const pdfOnly = downloadLinkFromZlibPage('<a href="/dl/1/a/file.pdf">PDF</a>', "https://z-library.sk", ["epub"]);
+  assert.equal(pdfOnly.format, "pdf");
+  assert.equal(downloadLinkFromZlibPage("<p>nothing here</p>", "https://z-library.sk"), null);
+});
 
 test("default sources include z-library and the four public catalogues", () => {
   const kinds = DEFAULT_BOOK_SOURCES.map((source) => source.kind);

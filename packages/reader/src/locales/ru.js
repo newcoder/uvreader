@@ -435,6 +435,8 @@ export default {
   "search-online-borrow-only": "Только выдача",
   "search-online-no-file": "Нет файла для скачивания",
   "search-online-needs-login": "Нужен вход в аккаунт",
+  "search-online-sign-in": "Войти и скачать",
+  "search-online-signing-in": "Ожидание входа…",
   "search-online-ready": "Можно скачать",
   "search-online-downloading": "Скачивание…",
   "search-online-download-selected": "Скачать выбранное",
