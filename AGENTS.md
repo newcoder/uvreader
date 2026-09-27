@@ -14,7 +14,7 @@ Standalone desktop reader (Electron) for EPUB/PDF/FB2/MOBI/AZW3/CBZ with highlig
 
 ## Commands
 
-- `npm ci` first; `postinstall` runs `patch-pdfjs.cjs` (idempotent pdf.js sentence-period fix, reverts on every fresh install).
+- `npm ci` first; `postinstall` runs `patch-pdfjs.cjs` (idempotent pdf.js sentence-period fix) and `patch-foliate.cjs` (drops `allow-scripts` from foliate-js' section iframes so the sandbox is not a same-origin no-op); both revert on every fresh install and are re-applied by postinstall.
 - `npm test` — reader-core tests (`node --test tests/*.test.mjs`). One file: `node --test tests/core-config.test.mjs`; one test: add `--test-name-pattern="…"`.
 - `npm run test:shim` / `npm run test:desktop` — compatibility layer / shell tests.
 - `npm run check:i18n` — dictionary, placeholder, HTML and URL parity across 9 languages plus exact-string assertions about the reader modules (`wire.js`, `plugin.js`, `settings-tab.js` and the extracted UI modules).

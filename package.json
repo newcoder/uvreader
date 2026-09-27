@@ -4,7 +4,7 @@
   "description": "中文优先的独立桌面阅读器，支持 EPUB、PDF、FB2、MOBI、AZW3 与 CBZ，含划线、批注、阅读笔记和可选 AI 伴读。",
   "type": "module",
   "scripts": {
-    "postinstall": "node patch-pdfjs.cjs",
+    "postinstall": "node patch-pdfjs.cjs && node patch-foliate.cjs",
     "test": "node --test tests/*.test.mjs",
     "test:shim": "node --test packages/host-shim/test/*.test.mjs",
     "test:desktop": "node --test apps/desktop/test/*.test.mjs",
