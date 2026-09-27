@@ -40,6 +40,9 @@ export function sessionFetch(url, options = {}) {
       options.signal.addEventListener("abort", () => { try { request.abort(); } catch { /* gone */ } }, { once: true });
     }
     request.on("error", (error) => reject(error instanceof Error ? error : new Error(String(error))));
+    // Aborting before the response arrives emits "abort", not "error"; without
+    // this the promise never settles and the search IPC reply is never sent.
+    request.on("abort", () => reject(aborted()));
     request.on("response", (response) => {
       const status = Number(response.statusCode) || 0;
       const queue = [];

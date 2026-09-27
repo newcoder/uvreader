@@ -425,7 +425,7 @@ export default {
   "delete": "Удалить",
   "close": "Закрыть",
   "library": "Библиотека",
-  "search-in-library": "В библиотеке",
+  "search-in-library": "Локальная библиотека",
   "search-online": "Искать в сети",
   "search-online-placeholder": "Поиск книг для скачивания…",
   "search-online-hint": "Введите название или автора, чтобы найти доступные для скачивания издания в включённых источниках.",

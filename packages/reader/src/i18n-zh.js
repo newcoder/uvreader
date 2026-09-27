@@ -503,7 +503,7 @@ export const QIAOMU_READER_ZH_CN = {
   "delete": "删除",
   "close": "关闭",
   "library": "书库",
-  "search-in-library": "本书库",
+  "search-in-library": "本地书库",
   "search-online": "网络搜书",
   "search-online-placeholder": "搜索可下载的书籍…",
   "search-online-hint": "输入书名或作者，从已启用的书籍来源里搜索可下载的版本。",

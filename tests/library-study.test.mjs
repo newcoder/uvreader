@@ -34,9 +34,10 @@ function setup() {
     Modal, Notice, window, qiaomuReaderTranslate, svgIcon, docOf, bookNoteLinkFor,
     resolveBookNote, openOrCreateBookNoteBeside, qiaomuReaderPath, coverPalette,
     coverFromBytes: () => null, STARTER_BOOKS: [], findStarterBook: () => null,
-    pdfjsLib: {}, BOOK_EXTENSIONS: __bookExtensions,
+    pdfjsLib: {}, BOOK_EXTENSIONS: __bookExtensions, readerHud,
   })`, {
     Modal: class { close() {} }, window, Date, console,
+    readerHud: { autoFocus() {}, blurOnTapOutside() {} },
     qiaomuReaderTranslate: (key, n) => n === undefined ? key : `${key}:${n}`,
     svgIcon() {}, docOf: (el) => el.ownerDocument,
     bookNoteLinkFor: () => "linked", resolveBookNote: () => ({}),
@@ -97,7 +98,7 @@ test("overlapping library refreshes render only the newest content", async () =>
   x.host.empty = () => x.host.replaceChildren();
   library._applyLibTheme = library._setupDropZone = () => {};
   library._buildLibBrand = () => x.host.createDiv("header");
-  library._buildLibTools = () => ({});
+  library._buildLibTools = () => ({ input: x.host.createEl("input") });
   library._libVaultBooks = () => [];
   let emptyRenders = 0;
   library._buildLibEmpty = () => { emptyRenders++; };

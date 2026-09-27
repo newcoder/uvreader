@@ -423,7 +423,7 @@ export default {
   "delete": "삭제",
   "close": "닫기",
   "library": "라이브러리",
-  "search-in-library": "서재에서",
+  "search-in-library": "내 책장",
   "search-online": "온라인 검색",
   "search-online-placeholder": "내려받을 책 검색…",
   "search-online-hint": "제목이나 저자를 입력하면 활성화된 책 소스에서 내려받을 수 있는 판본을 찾습니다.",

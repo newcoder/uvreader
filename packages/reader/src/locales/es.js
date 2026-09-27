@@ -423,7 +423,7 @@ export default {
   "delete": "Eliminar",
   "close": "Cerrar",
   "library": "Biblioteca",
-  "search-in-library": "En la biblioteca",
+  "search-in-library": "Biblioteca local",
   "search-online": "Buscar en línea",
   "search-online-placeholder": "Busca libros para descargar…",
   "search-online-hint": "Escribe un título o autor para buscar ediciones descargables en las fuentes activadas.",

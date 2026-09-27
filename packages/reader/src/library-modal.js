@@ -27,7 +27,16 @@ export function createLibraryModal({
     contentEl.addClass("qiaomu-reader-lib");
     this._applyLibTheme(modalEl);
     const hdr = this._buildLibBrand(contentEl); this._setupDropZone();
-    const { input, vaultBtn, onlineBtn } = this._buildLibTools(hdr);
+    const { input } = this._buildLibTools(hdr);
+    const tabs = this._buildLibTabs(contentEl);
+    this._libMode = "vault";
+    this._libDeps = { contentEl, input, tabs, grid: null, redraw: null };
+    tabs.localBtn.addEventListener("click", () => this._setLibMode("vault"));
+    tabs.onlineBtn.addEventListener("click", () => this._setLibMode("online"));
+    input.addEventListener("input", () => {
+      if (this._libMode === "online") this._renderOnline(this._libDeps.grid, input.value);
+      else this._libDeps.redraw?.(input.value);
+    });
     try { await this.plugin.ensureStarterBooks(); }
     catch (error) {
       console.warn("UV Reader: starter books could not be installed", error);
@@ -39,13 +48,17 @@ export function createLibraryModal({
     if (!contentEl.isConnected || this._libraryRender !== render) return;
     const folder = qiaomuReaderPath(this.plugin.settings.booksFolder);
     const files = this._libVaultBooks(folder);
-    if (files.length === 0) {
-      this._buildLibEmpty(contentEl, folder);
-      return;
-    }
     this._sortLibBooks(files);
     const chipRow = contentEl.createDiv("qiaomu-reader-lib-chips"), grid = contentEl.createDiv("qiaomu-reader-lib-grid");
     this._grid = grid;
+    this._libDeps.grid = grid;
+    if (files.length === 0) {
+      chipRow.addClass("qiaomu-reader-hidden");
+      this._buildLibEmpty(contentEl, folder);
+      readerHud.autoFocus(input, 60);
+      readerHud.blurOnTapOutside(this.contentEl, input);
+      return;
+    }
     const progressOf = (p) => this.plugin.getProgress(p);
     const tagsOf = (p) => bookTagsOf(this.plugin.settings, p);
     let selected = this.plugin.settings.libCategory || "all";
@@ -98,31 +111,28 @@ export function createLibraryModal({
       await this.plugin._saveLocalData(); drawChipRow(); redraw(input.value);
     };
     drawChipRow();
-    // Two modes share the search box: the vault (books already here) and the
-    // online sources (search → pick → background download → join the library).
-    const setMode = (mode) => {
-      this._libMode = mode;
-      const online = mode === "online";
-      vaultBtn.toggleClass("qiaomu-reader-lib-mode-on", !online);
-      onlineBtn.toggleClass("qiaomu-reader-lib-mode-on", online);
-      vaultBtn.setAttribute("aria-pressed", String(!online));
-      onlineBtn.setAttribute("aria-pressed", String(online));
-      input.placeholder = qiaomuReaderTranslate(online ? "search-online-placeholder" : "search-a-book");
-      chipRow.hidden = online;
-      input.value = "";
-      if (online) this._renderOnline(grid, "");
-      else redraw("");
-      input.focus();
-    };
-    vaultBtn.addEventListener("click", () => setMode("vault"));
-    onlineBtn.addEventListener("click", () => setMode("online"));
-    input.addEventListener("input", () => {
-      if (this._libMode === "online") this._renderOnline(grid, input.value);
-      else redraw(input.value);
-    });
+    this._libDeps.redraw = redraw;
     redraw("");
     readerHud.autoFocus(input, 60);
     readerHud.blurOnTapOutside(this.contentEl, input);
+  }
+  // Two tabs share the search box: the local library (cards, chips, resume)
+  // and the online sources (search → pick → background download → join).
+  _setLibMode(mode) {
+    const deps = this._libDeps;
+    if (!deps) return;
+    const online = mode === "online";
+    this._libMode = mode;
+    deps.contentEl.toggleClass("qiaomu-reader-lib-online", online);
+    deps.tabs.localBtn.toggleClass("qiaomu-reader-lib-tab-on", !online);
+    deps.tabs.onlineBtn.toggleClass("qiaomu-reader-lib-tab-on", online);
+    deps.tabs.localBtn.setAttribute("aria-selected", String(!online));
+    deps.tabs.onlineBtn.setAttribute("aria-selected", String(online));
+    deps.input.placeholder = qiaomuReaderTranslate(online ? "search-online-placeholder" : "search-a-book");
+    deps.input.value = "";
+    if (online) this._renderOnline(deps.grid, "");
+    else deps.redraw?.("");
+    deps.input.focus();
   }
   // ── online search results and the download queue ──────────────────────────
   _renderOnline(grid, query) {
@@ -307,25 +317,25 @@ export function createLibraryModal({
   }
   _buildLibTools(hdr) {
     const tools = hdr.createDiv("qiaomu-reader-lib-tools");
-    const modes = tools.createDiv("qiaomu-reader-lib-modes");
-    modes.setAttribute("role", "tablist");
-    const modeButton = (label) => {
-      const el = modes.createEl("button", { cls: "qiaomu-reader-lib-mode", attr: { type: "button", role: "tab" } });
-      el.setText(label);
-      return el;
-    };
-    const vaultBtn = modeButton(qiaomuReaderTranslate("search-in-library"));
-    const onlineBtn = modeButton(qiaomuReaderTranslate("search-online"));
-    vaultBtn.addClass("qiaomu-reader-lib-mode-on");
-    vaultBtn.setAttribute("aria-pressed", "true");
-    onlineBtn.setAttribute("aria-pressed", "false");
-    const projects = tools.createEl("button", { cls: "qiaomu-reader-lib-projects", text: qiaomuReaderTranslate("reading-projects") });
-    projects.addEventListener("click", () => this.plugin.openReadingProjects?.({ mode: "manage" }));
     const search = tools.createDiv("qiaomu-reader-lib-search");
     const searchIcon = search.createDiv("qiaomu-reader-lib-search-ic");
     svgIcon(searchIcon, "search");
     const input = search.createEl("input", { cls: "qiaomu-reader-lib-search-input", attr: { type: "text", placeholder: qiaomuReaderTranslate("search-a-book"), spellcheck: "false" } });
-    return { input, vaultBtn, onlineBtn };
+    return { input };
+  }
+  _buildLibTabs(contentEl) {
+    const tabs = contentEl.createDiv("qiaomu-reader-lib-tabs");
+    tabs.setAttribute("role", "tablist");
+    const tab = (label, on) => {
+      const el = tabs.createEl("button", { cls: "qiaomu-reader-lib-tab", attr: { type: "button", role: "tab" } });
+      el.setText(label);
+      el.setAttribute("aria-selected", String(Boolean(on)));
+      if (on) el.addClass("qiaomu-reader-lib-tab-on");
+      return el;
+    };
+    const localBtn = tab(qiaomuReaderTranslate("search-in-library"), true);
+    const onlineBtn = tab(qiaomuReaderTranslate("search-online"), false);
+    return { localBtn, onlineBtn };
   }
   _libVaultBooks(folder) {
     const prefix = folder ? `${folder}/` : "";

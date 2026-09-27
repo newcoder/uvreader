@@ -423,7 +423,7 @@ export const QIAOMU_READER_EN = {
   "delete": "Delete",
   "close": "Close",
   "library": "Library",
-  "search-in-library": "In the library",
+  "search-in-library": "Local library",
   "search-online": "Search online",
   "search-online-placeholder": "Search books to download…",
   "search-online-hint": "Type a title or author to look for downloadable editions in the enabled book sources.",

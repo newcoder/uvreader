@@ -184,10 +184,14 @@ img.qiaomu-reader-pdf-lazy:not([data-loaded="1"]) { background:color-mix(in srgb
 .qiaomu-reader-lib-title { font-size:25px; font-weight:700; letter-spacing:-.035em; color:var(--qiaomu-reader-lib-text,#1a1a2e); line-height:1.08; }
 .qiaomu-reader-lib-sub { font-size:12px; font-weight:450; letter-spacing:.01em; color:var(--qiaomu-reader-lib-muted,#8a8678); margin-top:5px; }
 .qiaomu-reader-lib-tools { display:flex; align-items:center; gap:12px; padding-bottom:18px; border-bottom:1px solid var(--qiaomu-reader-lib-border,#ddd9ce); }
-.qiaomu-reader-lib-projects { display:inline-flex; align-items:center; height:38px; padding:0 14px; border-radius:9px; cursor:pointer; background:transparent; border:1px solid var(--qiaomu-reader-lib-border); color:var(--qiaomu-reader-lib-text); font-size:12.5px; font-weight:600; white-space:nowrap; font-family:inherit; transition:border-color .13s,color .13s; }
-.qiaomu-reader-lib-modes { display:inline-flex; align-items:center; gap:2px; padding:2px; border-radius:9px; background:color-mix(in srgb,var(--qiaomu-reader-lib-text) 6%,transparent); border:1px solid var(--qiaomu-reader-lib-border); flex:0 0 auto; }
-.qiaomu-reader-lib-mode { border:0; background:transparent; color:var(--qiaomu-reader-lib-muted,#8a8678); font:inherit; font-size:12.5px; font-weight:600; padding:6px 12px; border-radius:7px; cursor:pointer; white-space:nowrap; }
-.qiaomu-reader-lib-mode-on { background:var(--qiaomu-reader-lib-bg,#fff); color:var(--qiaomu-reader-lib-text,#1a1a2e); box-shadow:0 1px 3px rgba(0,0,0,.12); }
+.qiaomu-reader-lib-tabs { display:flex; align-items:center; gap:26px; margin:12px 2px 0; border-bottom:1px solid var(--qiaomu-reader-lib-border,#ddd9ce); }
+.qiaomu-reader-lib-tab { position:relative; border:0; background:transparent; color:var(--qiaomu-reader-lib-muted,#8a8678); font:inherit; font-size:13.5px; font-weight:650; padding:7px 1px 11px; cursor:pointer; letter-spacing:.01em; }
+.qiaomu-reader-lib-tab:hover { color:var(--qiaomu-reader-lib-text,#1a1a2e); }
+.qiaomu-reader-lib-tab-on { color:var(--qiaomu-reader-lib-text,#1a1a2e); }
+.qiaomu-reader-lib-tab-on::after { content:""; position:absolute; left:0; right:0; bottom:-1px; height:2px; border-radius:2px 2px 0 0; background:var(--qiaomu-reader-lib-accent,#4f6ef2); }
+.qiaomu-reader-lib-online .qiaomu-reader-lib-add,
+.qiaomu-reader-lib-online .qiaomu-reader-lib-chips,
+.qiaomu-reader-lib-online .qiaomu-reader-lib-empty { display:none; }
 .qiaomu-reader-lib-result { grid-column:1/-1; display:flex; align-items:center; gap:12px; padding:10px 12px; border:1px solid var(--qiaomu-reader-lib-border,#ddd9ce); border-radius:10px; background:color-mix(in srgb,var(--qiaomu-reader-lib-text) 3%,transparent); }
 .qiaomu-reader-lib-result-body { min-width:0; flex:1 1 auto; }
 .qiaomu-reader-lib-result-title { font-size:13.5px; font-weight:650; color:var(--qiaomu-reader-lib-text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -198,7 +202,7 @@ img.qiaomu-reader-pdf-lazy:not([data-loaded="1"]) { background:color-mix(in srgb
 .qiaomu-reader-lib-result-open { border:0; background:transparent; color:var(--qiaomu-reader-link,#4f6ef2); font:inherit; font-size:12px; font-weight:650; padding:2px 4px; border-radius:6px; cursor:pointer; }
 .qiaomu-reader-lib-result-open:hover { text-decoration:underline; }
 .qiaomu-reader-lib-result-open:disabled { color:var(--qiaomu-reader-lib-muted); cursor:default; text-decoration:none; }
-.qiaomu-reader-lib-projects:hover { border-color:var(--qiaomu-reader-lib-accent); color:var(--qiaomu-reader-lib-accent); }
+
 .qiaomu-reader-lib-search { display:flex; align-items:center; gap:9px; padding:0 13px; height:40px; border-radius:9px; background:color-mix(in srgb,var(--qiaomu-reader-lib-text) 3%,transparent); border:1px solid var(--qiaomu-reader-lib-border); flex:1 1 420px; min-width:190px; transition:border-color .15s,background .15s; }
 .qiaomu-reader-lib-search:focus-within { border-color:color-mix(in srgb,var(--qiaomu-reader-lib-accent) 65%,var(--qiaomu-reader-lib-border)); background:transparent; }
 .qiaomu-reader-lib-search-ic { display:flex; color:var(--qiaomu-reader-lib-muted); opacity:.75; }

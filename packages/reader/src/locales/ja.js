@@ -423,7 +423,7 @@ export default {
   "delete": "削除",
   "close": "閉じる",
   "library": "ライブラリ",
-  "search-in-library": "この書庫",
+  "search-in-library": "ローカル書庫",
   "search-online": "ネットで検索",
   "search-online-placeholder": "ダウンロードできる本を検索…",
   "search-online-hint": "タイトルか著者を入力すると、有効な書籍ソースからダウンロード可能な版を探します。",
