@@ -632,6 +632,50 @@ export function createPlugin({
     }
     return "";
   }
+  // ── generated table of contents ───────────────────────────────────────────
+  // Lives beside the other derived data (derived/toc.json) so the original
+  // PDF never changes; the stamp ties it to the file it was built from.
+  async _generatedTocPath(bookPath) {
+    const { folder } = await this._readingStore().ensureBook(bookPath, this._bookMeta(bookPath));
+    return `${this._readingRoot()}/${folder}/derived/toc.json`;
+  }
+  async loadGeneratedToc(bookPath, stamp = "") {
+    try {
+      const rel = await this._generatedTocPath(bookPath);
+      const adapter = this.app.vault.adapter;
+      if (!rel || !adapter?.read || !(await adapter.exists(rel))) return null;
+      const payload = JSON.parse(await adapter.read(rel));
+      const data = payload?.data || payload;
+      const entries = Array.isArray(data?.entries) ? data.entries.filter((item) => item?.title) : [];
+      if (!entries.length) return null;
+      if (stamp && data?.stamp && data.stamp !== stamp) return null;
+      return { stamp: String(data?.stamp || ""), entries };
+    } catch (error) {
+      console.warn("UV Reader: could not read the generated table of contents", error);
+      return null;
+    }
+  }
+  async saveGeneratedToc(bookPath, { stamp = "", entries = [] } = {}) {
+    try {
+      const rel = await this._generatedTocPath(bookPath);
+      const adapter = this.app.vault.adapter;
+      if (!rel || !adapter?.write || !entries.length) return false;
+      const dir = rel.split("/").slice(0, -1).join("/");
+      if (adapter.mkdir && dir && !(await adapter.exists(dir))) await adapter.mkdir(dir).catch(() => {});
+      await adapter.write(rel, JSON.stringify({ schemaVersion: 1, data: { stamp, entries } }, null, 2));
+      return true;
+    } catch (error) {
+      console.warn("UV Reader: could not save the generated table of contents", error);
+      return false;
+    }
+  }
+  async clearGeneratedToc(bookPath) {
+    try {
+      const rel = await this._generatedTocPath(bookPath);
+      const adapter = this.app.vault.adapter;
+      if (rel && adapter?.remove && (await adapter.exists(rel))) await adapter.remove(rel);
+    } catch { /* undo is best-effort */ }
+  }
   // ── online book search and downloads ──────────────────────────────────────
   booksBridge() {
     return typeof window !== "undefined" ? window.qbrDesktop?.books || null : null;

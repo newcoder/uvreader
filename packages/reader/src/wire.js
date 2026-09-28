@@ -1715,11 +1715,14 @@ function aiToolState(view, plugin, options = {}) {
           view.buildTocPanel?.();
           try { syncNavigationPanel(view, "toc"); } catch { /* panel may be closed */ }
         };
+        const stat = view.file?.stat || {};
+        const stamp = Number.isFinite(stat.mtime) || Number.isFinite(stat.size) ? `${stat.mtime || 0}:${stat.size || 0}` : "";
         if (undo) {
           if (!plugin._tocOriginalOutline) return { summary: "没有可撤销的生成目录。" };
           view._pdfOutline = plugin._tocOriginalOutline;
           plugin._tocOriginalOutline = null;
           plugin._tocDraft = null;
+          void plugin.clearGeneratedToc?.(view.file.path);
           refresh();
           return { summary: "已撤销生成的目录，恢复原有大纲。" };
         }
@@ -1728,8 +1731,10 @@ function aiToolState(view, plugin, options = {}) {
         if (!plugin._tocOriginalOutline) plugin._tocOriginalOutline = view._pdfOutline || [];
         view._pdfOutline = draft.merged.map((item) => ({ label: item.title, page: item.page || undefined, level: item.level || 1 }));
         plugin._tocDraft = null;
+        // Persist beside the other derived data (the PDF itself stays untouched).
+        void plugin.saveGeneratedToc?.(view.file.path, { stamp, entries: draft.merged });
         refresh();
-        return { summary: `已应用生成的目录：${view._pdfOutline.length} 条，目录面板已更新（撤销可恢复原大纲）。` };
+        return { summary: `已应用生成的目录：${view._pdfOutline.length} 条，目录面板已更新并保存到书目录（撤销可恢复原大纲）。` };
       }
       : null,
   };

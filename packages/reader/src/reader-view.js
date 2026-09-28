@@ -239,7 +239,15 @@ export function createReaderView({
       this._renderEnginePins();
     } else {
       this._adoptPdfResult(result);
-      const outline = this._pdfOutline;
+      // A generated TOC (from the AI tools) wins over the embedded outline
+      // while its stamp still matches the file it was built from.
+      const stat = file?.stat || {};
+      const stamp = Number.isFinite(stat.mtime) || Number.isFinite(stat.size) ? `${stat.mtime || 0}:${stat.size || 0}` : "";
+      const generated = await this.plugin.loadGeneratedToc?.(file.path, stamp).catch(() => null);
+      if (!this._loadCoordinator.isCurrent(loadToken)) return;
+      const outline = generated?.entries?.length
+        ? generated.entries.map((item) => ({ label: item.title, page: item.page || undefined, level: item.level || 1 }))
+        : this._pdfOutline;
       this.tocItems = buildTocItems(this.bookHtml, outline); this.buildTocPanel();
       await this.plugin.ensureReadingFolder(file.path);
       await this.plugin.refreshProgress(file.path); if (!this._loadCoordinator.isCurrent(loadToken)) return;
