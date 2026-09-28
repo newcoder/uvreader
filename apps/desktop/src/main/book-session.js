@@ -324,8 +324,31 @@ export function searchPdfdrive(query, { timeout = 30000, maxPages = 2 } = {}) {
         await new Promise((resolve) => setTimeout(resolve, 500));
       }
     };
-    const ready = await waitFor(async () => (await scrape()).length > 0, timeout);
-    if (!ready) throw new Error("PDF Drive 没有返回结果（可能需要人机验证）");
+    let ready = await waitFor(async () => (await scrape()).length > 0, timeout);
+    if (!ready) {
+      // Transient SSL or consent hiccups: reload once and retry the query.
+      log("pdfdrive no results, retrying once");
+      await loadBookPage(win, "https://pdfdrive.pw/", 25000);
+      await win.webContents.executeJavaScript(`(() => {
+        const input = document.querySelector(".gsc-input input") || document.querySelector("input.gsc-input");
+        if (!input) return "no-input";
+        input.focus();
+        input.value = ${JSON.stringify(String(query))};
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        const button = document.querySelector(".gsc-search-button input, .gsc-search-button button, button.gsc-search-button");
+        if (button) { button.click(); return "clicked"; }
+        input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, bubbles: true }));
+        return "pressed";
+      })()`, true);
+      ready = await waitFor(async () => (await scrape()).length > 0, timeout);
+    }
+    if (!ready) {
+      const state = await win.webContents.executeJavaScript(
+        "({ href: location.href, title: document.title, results: document.querySelectorAll('.gsc-results .gs-title a').length })",
+        true,
+      ).catch(() => null);
+      throw new Error(`PDF Drive 没有返回结果（可能需要人机验证）${state ? `（${state.title || "无标题"} | 结果 ${state.results}）` : ""}`);
+    }
     const links = [];
     const seen = new Set();
     let page = 1;
