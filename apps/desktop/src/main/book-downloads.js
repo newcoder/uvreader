@@ -263,20 +263,33 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
     const job = jobs.get(jobId);
     const name = uniqueBookName(dir, `${title}.${format}`);
     const target = path.join(dir, name);
-    await run(source, target, {
+    const attempt = () => run(source, target, {
       onProgress: (progress) => {
         if (job?.cancelled) return;
         handlers?.onProgress?.({ jobId, received: progress?.received || 0, total: progress?.total || 0 });
       },
+      format,
     });
+    try {
+      await attempt();
+    } catch (error) {
+      if (job?.cancelled) throw error;
+      // Transient drops (proxy resets, interrupted downloads) get one retry.
+      try { fs.unlinkSync(target); } catch { /* gone */ }
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      await attempt();
+    }
     if (job?.cancelled) {
       try { fs.unlinkSync(target); } catch { /* gone */ }
       throw new Error("已取消");
     }
     const size = fs.statSync(target).size;
     if (size < MIN_BOOK_BYTES || !bookHeadLooksValid(readFileHead(target), name)) {
+      const head = readFileHead(target).toString("utf8").trimStart();
       try { fs.unlinkSync(target); } catch { /* gone */ }
-      throw new Error("下载到的不是有效书籍文件");
+      throw new Error(head.startsWith("<")
+        ? "下载到的是网页而不是文件（可能触发来源限额或需要登录）"
+        : "下载到的不是有效书籍文件");
     }
     return { ok: true, jobId, path: target, name, bytes: size, source: result?.source || "", format };
   }

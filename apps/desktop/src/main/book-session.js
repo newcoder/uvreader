@@ -394,7 +394,7 @@ export function searchPdfdrive(query, { timeout = 30000, maxPages = 2 } = {}) {
 // Session-gated files come from the book page, not the bare /dl/ link: the
 // site only releases the file when its page triggers the download, exactly as
 // the browser does. Load the page, click the download link, catch the file.
-export function downloadBookFileFromPage(pageUrl, target, { onProgress = null, timeout = 240000, clickTimeout = 40000 } = {}) {
+export function downloadBookFileFromPage(pageUrl, target, { onProgress = null, format = "", timeout = 240000, clickTimeout = 40000 } = {}) {
   const run = () => new Promise((resolve, reject) => {
     const win = bookPageWindow();
     let item = null;
@@ -424,8 +424,16 @@ export function downloadBookFileFromPage(pageUrl, target, { onProgress = null, t
     const clicked = new Promise((resolve, reject) => setTimeout(() => reject(new Error("书页没有触发下载")), clickTimeout));
     loadBookPage(win, String(pageUrl), 30000).then(async () => {
       const found = await win.webContents.executeJavaScript(`(() => {
-        const link = document.querySelector('a[href*="/dl/"], a[href*="/download"], a.addDownloadedBook');
-        if (!link) return false;
+        const wanted = ${JSON.stringify(String(format || "").toLowerCase())};
+        const links = Array.from(document.querySelectorAll('a[href*="/dl/"], a[href*="/download"], a.addDownloadedBook'));
+        if (!links.length) return false;
+        // The page lists every format; prefer the row's format, otherwise the
+        // first download link.
+        const link = (wanted && links.find((el) => {
+          const href = String(el.href || "").toLowerCase();
+          const text = String(el.textContent || "").toLowerCase();
+          return href.includes("." + wanted) || text.includes(wanted);
+        })) || links[0];
         link.click();
         return true;
       })()`, true).catch(() => false);
