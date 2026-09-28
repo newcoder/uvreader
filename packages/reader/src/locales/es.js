@@ -1430,6 +1430,8 @@ export default {
   "tool-toc-scan": "Escanear índice",
   "tool-toc-build": "Crear índice",
   "tool-toc-apply": "Aplicar índice",
+  "toc-exercises": "Ejercicios",
+  "toc-answers": "Soluciones",
   "tool-list-highlights": "Resaltados guardados",
   "attach-current-page-image": "Página actual",
   "screenshot": "Captura",

@@ -1430,6 +1430,8 @@ export default {
   "tool-toc-scan": "목차 스캔",
   "tool-toc-build": "목차 생성",
   "tool-toc-apply": "목차 적용",
+  "toc-exercises": "문제편",
+  "toc-answers": "해답편",
   "tool-list-highlights": "저장한 하이라이트",
   "attach-current-page-image": "현재 페이지",
   "screenshot": "스크린샷",

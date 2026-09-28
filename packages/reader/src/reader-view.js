@@ -246,7 +246,16 @@ export function createReaderView({
       const generated = await this.plugin.loadGeneratedToc?.(file.path, stamp).catch(() => null);
       if (!this._loadCoordinator.isCurrent(loadToken)) return;
       const outline = generated?.entries?.length
-        ? generated.entries.map((item) => ({ label: item.title, page: item.page || undefined, level: item.level || 1 }))
+        ? generated.entries.flatMap((item) => {
+          const level = item.level || 1;
+          if (item.page2 && item.page !== item.page2) {
+            return [
+              { label: `${item.title}（${qiaomuReaderTranslate("toc-exercises")}）`, page: item.page || undefined, level },
+              { label: `${item.title}（${qiaomuReaderTranslate("toc-answers")}）`, page: item.page2, level },
+            ];
+          }
+          return [{ label: item.title, page: item.page || undefined, level }];
+        })
         : this._pdfOutline;
       this.tocItems = buildTocItems(this.bookHtml, outline); this.buildTocPanel();
       await this.plugin.ensureReadingFolder(file.path);

@@ -1729,7 +1729,19 @@ function aiToolState(view, plugin, options = {}) {
         const draft = plugin._tocDraft;
         if (!draft?.merged?.length) return { summary: "还没有目录草稿：先生成目录并确认，再应用。" };
         if (!plugin._tocOriginalOutline) plugin._tocOriginalOutline = view._pdfOutline || [];
-        view._pdfOutline = draft.merged.map((item) => ({ label: item.title, page: item.page || undefined, level: item.level || 1 }));
+        // A dual row (试题/解答) becomes two navigation entries so both jump
+        // targets exist; a single row keeps its plain title.
+        const rows = [];
+        for (const item of draft.merged) {
+          const level = item.level || 1;
+          if (item.page2 && item.page !== item.page2) {
+            rows.push({ label: `${item.title}（${qiaomuReaderTranslate("toc-exercises")}）`, page: item.page || undefined, level });
+            rows.push({ label: `${item.title}（${qiaomuReaderTranslate("toc-answers")}）`, page: item.page2, level });
+          } else {
+            rows.push({ label: item.title, page: item.page || undefined, level });
+          }
+        }
+        view._pdfOutline = rows;
         plugin._tocDraft = null;
         // Persist beside the other derived data (the PDF itself stays untouched).
         void plugin.saveGeneratedToc?.(view.file.path, { stamp, entries: draft.merged });

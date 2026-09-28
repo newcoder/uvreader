@@ -1430,6 +1430,8 @@ export const QIAOMU_READER_EN = {
   "tool-toc-scan": "Scan table of contents",
   "tool-toc-build": "Build table of contents",
   "tool-toc-apply": "Apply table of contents",
+  "toc-exercises": "Exercises",
+  "toc-answers": "Answers",
   "tool-list-highlights": "Saved highlights",
   "attach-current-page-image": "Current page",
   "screenshot": "Screenshot",

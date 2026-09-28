@@ -1430,6 +1430,8 @@ export default {
   "tool-toc-scan": "Escanear sumário",
   "tool-toc-build": "Criar sumário",
   "tool-toc-apply": "Aplicar sumário",
+  "toc-exercises": "Exercícios",
+  "toc-answers": "Respostas",
   "tool-list-highlights": "Destaques salvos",
   "attach-current-page-image": "Página atual",
   "screenshot": "Captura de tela",

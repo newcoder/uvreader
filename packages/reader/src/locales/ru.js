@@ -1432,6 +1432,8 @@ export default {
   "tool-toc-scan": "Сканировать оглавление",
   "tool-toc-build": "Создать оглавление",
   "tool-toc-apply": "Применить оглавление",
+  "toc-exercises": "Задания",
+  "toc-answers": "Ответы",
   "tool-list-highlights": "Сохранённые выделения",
   "attach-current-page-image": "Текущая страница",
   "screenshot": "Снимок области",

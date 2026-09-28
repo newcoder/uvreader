@@ -63,6 +63,105 @@ function writeMinimalPdf(file) {
   fs.writeFileSync(file, output, "latin1");
 }
 
+// Three pages with embedded text: a cover, a TOC page carrying an ASCII dual
+// row (exercises/answers) and the body page the exercises live on.
+function writeTocFixturePdf(file) {
+  const stream = (text) => `BT /F1 18 Tf 72 700 Td (${text}) Tj ET`;
+  const objects = [
+    "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+    "2 0 obj\n<< /Type /Pages /Kids [3 0 R 5 0 R 7 0 R] /Count 3 >>\nendobj\n",
+    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 9 0 R >> >> >>\nendobj\n",
+  ];
+  const pushStream = (text) => {
+    const body = stream(text);
+    objects.push(`${objects.length + 1} 0 obj\n<< /Length ${body.length} >>\nstream\n${body}\nendstream\nendobj\n`);
+  };
+  const page = (contents) => objects.push(`${objects.length + 1} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${contents} 0 R /Resources << /Font << /F1 9 0 R >> >> >>\nendobj\n`);
+  pushStream("Cover");
+  page(objects.length + 2);
+  pushStream("Unit One Calculations .... 1/3");
+  page(objects.length + 2);
+  pushStream("Unit One Calculations");
+  objects.push("9 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n");
+  let output = "%PDF-1.4\n";
+  const offsets = [0];
+  for (const object of objects) {
+    offsets.push(output.length);
+    output += object;
+  }
+  const xref = output.length;
+  output += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (let index = 1; index <= objects.length; index += 1) {
+    output += `${String(offsets[index]).padStart(10, "0")} 00000 n \n`;
+  }
+  output += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  fs.writeFileSync(file, output, "latin1");
+}
+
+// Generated TOC persistence: save → reload the app with the same profile → the
+// reader prefers the saved list and expands a dual row into 试题/解答 entries;
+// clearing it removes the file and the navigation falls back to the outline.
+async function runTocScenario() {
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-toc-"));
+  const fixture = path.join(fixtureDir, "toc.pdf");
+  writeTocFixturePdf(fixture);
+  const first = await launch(fixture);
+  let userData = first.userData;
+  try {
+    await first.page.waitForSelector(".qiaomu-reader-view", { timeout: 30_000 });
+    await waitFor("reader ready", () => readerReady(first.page), 30_000);
+    const saved = await first.page.evaluate(async () => {
+      const view = window.__qbrApp?.workspace?.getLeavesOfType("qiaomu-reader")[0]?.view;
+      const file = view?.file;
+      if (!file) return null;
+      const stat = file.stat || {};
+      const stamp = Number.isFinite(stat.mtime) || Number.isFinite(stat.size) ? `${stat.mtime || 0}:${stat.size || 0}` : "";
+      const ok = await window.__qbrPlugin.saveGeneratedToc(file.path, {
+        stamp,
+        entries: [
+          { title: "Unit One Calculations", level: 1, page: 1, page2: 3 },
+          { title: "Preface", level: 1, page: null, page2: null },
+        ],
+      });
+      const loaded = await window.__qbrPlugin.loadGeneratedToc(file.path, stamp);
+      return { ok, stamp, entries: loaded?.entries?.length || 0 };
+    });
+    if (!saved?.ok || saved.entries !== 2) throw new Error(`generated TOC did not persist: ${JSON.stringify(saved)}`);
+    console.log("toc: saved", saved.entries, "entries (stamp", saved.stamp || "none", ")");
+  } finally {
+    await first.app.close().catch(() => {});
+  }
+  const second = await launch(fixture, { userData });
+  try {
+    await second.page.waitForSelector(".qiaomu-reader-view", { timeout: 30_000 });
+    await waitFor("reader ready", () => readerReady(second.page), 30_000);
+    const items = await waitFor("generated TOC applied", () => second.page.evaluate(() => {
+      const view = window.__qbrApp?.workspace?.getLeavesOfType("qiaomu-reader")[0]?.view;
+      const toc = view?.tocItems || [];
+      const exercises = toc.find((item) => (item.label || "").includes("试题"));
+      const answers = toc.find((item) => (item.label || "").includes("解答"));
+      return exercises && answers ? JSON.stringify({ exercises: exercises.page, answers: answers.page, count: toc.length }) : "";
+    }), 20_000);
+    const parsed = JSON.parse(items);
+    if (parsed.exercises !== 1 || parsed.answers !== 3) throw new Error(`unexpected TOC targets: ${items}`);
+    console.log("toc: generated navigation", items);
+    const cleared = await second.page.evaluate(async () => {
+      const view = window.__qbrApp?.workspace?.getLeavesOfType("qiaomu-reader")[0]?.view;
+      const file = view?.file;
+      await window.__qbrPlugin.clearGeneratedToc(file.path);
+      const stat = file.stat || {};
+      const stamp = Number.isFinite(stat.mtime) || Number.isFinite(stat.size) ? `${stat.mtime || 0}:${stat.size || 0}` : "";
+      return window.__qbrPlugin.loadGeneratedToc(file.path, stamp);
+    });
+    if (cleared !== null) throw new Error("clearing the generated TOC did not remove it");
+    console.log("toc: cleared back to the original outline");
+  } finally {
+    await second.app.close().catch(() => {});
+    fs.rmSync(userData, { recursive: true, force: true });
+    fs.rmSync(fixtureDir, { recursive: true, force: true });
+  }
+}
+
 async function launch(target, options = {}) {
   const userData = options.userData || fs.mkdtempSync(path.join(os.tmpdir(), "qbr-e2e-"));
   options.seed?.(userData);
@@ -2232,6 +2331,7 @@ const scenarios = [
   ["capability", runCapabilityScenario],
   ["scroll", runScrollScenario],
   ["nav", runNavScenario],
+  ["toc", runTocScenario],
 ];
 const only = (process.env.QBR_E2E_ONLY || "").split(",").map((name) => name.trim()).filter(Boolean);
 

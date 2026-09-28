@@ -1430,6 +1430,8 @@ export default {
   "tool-toc-scan": "Inhalt scannen",
   "tool-toc-build": "Inhaltsverzeichnis erstellen",
   "tool-toc-apply": "Inhaltsverzeichnis anwenden",
+  "toc-exercises": "Aufgaben",
+  "toc-answers": "Lösungen",
   "tool-list-highlights": "Gespeicherte Markierungen",
   "attach-current-page-image": "Aktuelle Seite",
   "screenshot": "Screenshot",

@@ -1430,6 +1430,8 @@ export default {
   "tool-toc-scan": "Analyser la table des matières",
   "tool-toc-build": "Créer la table des matières",
   "tool-toc-apply": "Appliquer la table des matières",
+  "toc-exercises": "Exercices",
+  "toc-answers": "Corrigés",
   "tool-list-highlights": "Surlignages enregistrés",
   "attach-current-page-image": "Page actuelle",
   "screenshot": "Capture d’écran",

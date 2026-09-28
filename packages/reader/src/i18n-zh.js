@@ -1876,6 +1876,8 @@ Object.assign(QIAOMU_READER_ZH_CN, {
   "tool-toc-scan": "扫描目录",
   "tool-toc-build": "生成目录",
   "tool-toc-apply": "应用目录",
+  "toc-exercises": "试题",
+  "toc-answers": "解答",
   "tool-list-highlights": "查看划线",
   "attach-current-page-image": "当前页图片",
   "screenshot": "截图",

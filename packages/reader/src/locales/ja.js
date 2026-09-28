@@ -1430,6 +1430,8 @@ export default {
   "tool-toc-scan": "目次をスキャン",
   "tool-toc-build": "目次を生成",
   "tool-toc-apply": "目次を適用",
+  "toc-exercises": "問題編",
+  "toc-answers": "解答編",
   "tool-list-highlights": "ハイライトを確認",
   "attach-current-page-image": "現在のページ",
   "screenshot": "スクリーンショット",
