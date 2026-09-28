@@ -90,10 +90,21 @@ export function sessionFetch(url, options = {}) {
 }
 
 // True once the partition holds cookies for the URL (i.e. a login happened).
+// Account cookies count as signed in; the bot-clearance cookie that passing
+// the challenge leaves behind must NOT — z-library answers anonymous /dl/
+// requests with 204 and the row would claim 可下载 while every download dies.
+const ACCOUNT_COOKIES = new Set(["remix_userid", "remix_userkey", "zlib_userid", "zlib_userkey", "site_session"]);
+function isZlibHost(host) {
+  return /(^|\.)(z-library\.|zlibrary|z-lib|1lib\.|booksc\.)/.test(host);
+}
 export async function bookSessionReady(url) {
   try {
     const cookies = await bookSession().cookies.get({ url: String(url) });
-    return Array.isArray(cookies) && cookies.length > 0;
+    if (!Array.isArray(cookies) || !cookies.length) return false;
+    if (cookies.some((cookie) => ACCOUNT_COOKIES.has(String(cookie?.name || "").toLowerCase()))) return true;
+    let host = "";
+    try { host = new URL(String(url)).hostname.toLowerCase(); } catch { /* keep empty */ }
+    return !isZlibHost(host);
   } catch {
     return false;
   }
