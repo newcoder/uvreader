@@ -421,23 +421,27 @@ export function downloadBookFileFromPage(pageUrl, target, { onProgress = null, f
       });
     };
     win.webContents.session.on("will-download", onWillDownload);
-    const clicked = new Promise((resolve, reject) => setTimeout(() => reject(new Error("书页没有触发下载")), clickTimeout));
+    const clicked = new Promise((resolve, reject) => setTimeout(() => reject(new Error("来源没有开始下载（/dl/ 返回 204，通常表示未登录；请先用「登录后下载」登录该来源）")), clickTimeout));
     loadBookPage(win, String(pageUrl), 30000).then(async () => {
-      const found = await win.webContents.executeJavaScript(`(() => {
+      // The download buttons are rendered from <template> blocks (querySelector
+      // never reaches those). Materialise them into the page, then click the
+      // real anchor so the site's own JS builds the download request — handing
+      // the stale href to downloadURL only earns a 204.
+      const clicked = await win.webContents.executeJavaScript(`(() => {
         const wanted = ${JSON.stringify(String(format || "").toLowerCase())};
-        const links = Array.from(document.querySelectorAll('a[href*="/dl/"], a[href*="/download"], a.addDownloadedBook'));
+        for (const tpl of document.querySelectorAll("template")) {
+          if (!String(tpl.innerHTML || "").includes("/dl/")) continue;
+          try { document.body.appendChild(tpl.content.cloneNode(true)); } catch { /* broken template */ }
+        }
+        const links = Array.from(document.querySelectorAll("a"))
+          .filter((a) => String(a.getAttribute("href") || "").includes("/dl/"));
         if (!links.length) return false;
-        // The page lists every format; prefer the row's format, otherwise the
-        // first download link.
-        const link = (wanted && links.find((el) => {
-          const href = String(el.href || "").toLowerCase();
-          const text = String(el.textContent || "").toLowerCase();
-          return href.includes("." + wanted) || text.includes(wanted);
-        })) || links[0];
-        link.click();
+        const best = (wanted && links.find((a) => String(a.textContent || "").toLowerCase().includes(wanted)
+          || String(a.getAttribute("href")).toLowerCase().includes("." + wanted))) || links[0];
+        best.click();
         return true;
       })()`, true).catch(() => false);
-      if (!found) finish(new Error("书页没有找到下载按钮"));
+      if (!clicked) finish(new Error("书页没有找到下载按钮"));
     }).catch((error) => finish(error));
     clicked.catch((error) => finish(error));
   });
