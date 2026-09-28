@@ -2051,6 +2051,40 @@ async function runNavScenario() {
   }
 }
 
+// Tab visibility guard: each library tab owns a grid, and switching must hide
+// the other one (a missing rule once left the local cards under the online
+// results).
+async function runLibraryTabsScenario() {
+  const { app, page, userData } = await launch("");
+  try {
+    await page.waitForSelector(".qbr-home-view", { timeout: 30_000 });
+    await waitFor("home cards", async () => (await page.$$(".qbr-home-card")).length > 0, 20_000);
+    await page.evaluate(() => window.__qbrPlugin.openLibrary());
+    await waitFor("library modal", async () => Boolean(await page.$(".qiaomu-reader-modal-lib")), 15_000);
+    await waitFor("library grids", () => page.evaluate(() => document.querySelectorAll(".qiaomu-reader-lib-grid").length === 2), 30_000);
+    const state = () => page.evaluate(() => {
+      const local = document.querySelector(".qiaomu-reader-lib-grid:not(.qiaomu-reader-lib-online-grid)");
+      const online = document.querySelector(".qiaomu-reader-lib-online-grid");
+      const visible = (el) => Boolean(el && typeof el.checkVisibility === "function" && el.checkVisibility());
+      return { local: visible(local), online: visible(online) };
+    });
+    let seen = await state();
+    if (!seen.local || seen.online) throw new Error(`local tab should show the local grid: ${JSON.stringify(seen)}`);
+    await page.click(".qiaomu-reader-lib-tabs .qiaomu-reader-lib-tab:nth-child(2)");
+    await sleep(400);
+    seen = await state();
+    if (seen.local || !seen.online) throw new Error(`online tab should hide the local grid: ${JSON.stringify(seen)}`);
+    await page.click(".qiaomu-reader-lib-tabs .qiaomu-reader-lib-tab:nth-child(1)");
+    await sleep(400);
+    seen = await state();
+    if (!seen.local || seen.online) throw new Error(`switching back should restore the local grid: ${JSON.stringify(seen)}`);
+    console.log("library tabs: local/online grids swap visibility correctly");
+  } finally {
+    await app.close().catch(() => {});
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+}
+
 async function runHomeScenario() {
   const { app, page, userData } = await launch("");
   try {
@@ -2319,6 +2353,7 @@ async function runPinyinScenario() {
 
 const scenarios = [
   ["home", runHomeScenario],
+  ["library", runLibraryTabsScenario],
   ["ebook", runEbookScenario],
   ["restart", runRestartScenario],
   ["projects", runProjectsScenario],
