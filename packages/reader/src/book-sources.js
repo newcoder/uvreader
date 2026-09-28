@@ -18,7 +18,7 @@ export const BOOK_SOURCE_KINDS = Object.freeze([
 
 export const DEFAULT_BOOK_SOURCES = Object.freeze([
   { id: "gutenberg", name: "Project Gutenberg", url: "https://www.gutenberg.org", kind: "gutenberg", enabled: true },
-  { id: "standard-ebooks", name: "Standard Ebooks", url: "https://standardebooks.org/feeds/opds", kind: "standard-ebooks", enabled: true },
+  { id: "standard-ebooks", name: "Standard Ebooks", url: "https://standardebooks.org", kind: "standard-ebooks", enabled: true },
   { id: "zlib", name: "Z-Library", url: "https://z-library.sk", kind: "zlib", enabled: true },
   { id: "pdfdrive", name: "PDF Drive", url: "https://pdfdrive.pw", kind: "pdfdrive", enabled: true },
 ]);
@@ -89,8 +89,13 @@ export function bookSearchRequest(source, query) {
       return { kind: "json", url: `${base}/books/?search=${encodeURIComponent(q)}`, source };
     case "pdfdrive":
       return null;
-    case "standard-ebooks":
-      return { kind: "opds", url: `${base}/search?query=${encodeURIComponent(q)}`, source };
+    case "standard-ebooks": {
+      // The OPDS feeds became OAuth-gated (401); the website search still
+      // answers plain HTML at /ebooks?query=. Strip an old /feeds/opds base so
+      // saved settings keep working.
+      const root = base.replace(/\/feeds\/opds.*$/, "");
+      return { kind: "html", url: `${root}/ebooks?query=${encodeURIComponent(q)}&per-page=24`, source };
+    }
     case "archive":
       return {
         kind: "json",
@@ -183,6 +188,38 @@ export function resultsFromOpds(xml, source) {
       info: "",
       license: "public-domain",
       downloadable: Boolean(picked?.url),
+    });
+  }
+  return out;
+}
+
+// The Standard Ebooks search results page is an <ol class="ebooks-list"> of
+// schema.org Book items; each links its own /ebooks/<author>/<title> page.
+export function resultsFromStandardEbooksHtml(html, source) {
+  const text = String(html || "");
+  const out = [];
+  for (const match of text.matchAll(/<li[^>]*typeof="schema:Book"[^>]*>([\s\S]*?)<\/li>/gi)) {
+    const block = match[0];
+    const item = match[1];
+    const about = block.match(/about="([^"]+)"/i)?.[1] || item.match(/href="(\/ebooks\/[^"]+)"/i)?.[1] || "";
+    const title = stripTags(item.match(/property="schema:name"[^>]*>([\s\S]*?)<\/span>/i)?.[1]);
+    if (!title || !about) continue;
+    const authorBlock = item.match(/class="author"[^>]*>[\s\S]*?<\/p>/i)?.[0] || "";
+    const author = stripTags(authorBlock.match(/property="schema:name"[^>]*>([\s\S]*?)<\/span>/i)?.[1]);
+    out.push({
+      source: source.id,
+      sourceName: source.name,
+      title,
+      author,
+      language: "en",
+      year: "",
+      format: "epub",
+      url: "",
+      info: absolute(about, source.url),
+      license: "public-domain",
+      downloadable: true,
+      needsSession: false,
+      size: "",
     });
   }
   return out;
@@ -367,6 +404,24 @@ export function downloadLinkFromOpdsPage(xml, base, preferred = ["epub", "pdf"])
   return candidates[0];
 }
 
+// A Standard Ebooks book page links its own files (epub/azw3/kepub): the
+// download URL sits right in the markup, no extra API needed.
+export function downloadLinkFromStandardEbooksPage(html, base, preferred = ["epub", "azw3"]) {
+  const text = String(html || "");
+  const candidates = [];
+  for (const match of text.matchAll(/href="([^"]+\.(?:epub|azw3|pdf))"/gi)) {
+    const raw = match[1];
+    const format = /\.epub$/i.test(raw) ? "epub" : /\.azw3$/i.test(raw) ? "azw3" : "pdf";
+    const url = absolute(raw, base);
+    if (!url) continue;
+    const priority = preferred.indexOf(format);
+    candidates.push({ url, format, priority: priority < 0 ? preferred.length + 1 : priority });
+  }
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => a.priority - b.priority);
+  return candidates[0];
+}
+
 export function resultsFromSource(source, payload) {
   if (source?.kind === "zlib") return resultsFromZlibHtml(payload, source);
   if (source?.kind === "pdfdrive") return resultsFromPdfdriveLinks(payload, source);
@@ -375,7 +430,11 @@ export function resultsFromSource(source, payload) {
   if (source.kind === "gutenberg") {
     return typeof payload === "string" ? resultsFromGutenbergOpds(payload, source) : resultsFromGutendex(payload, source);
   }
-  if (source.kind === "standard-ebooks") return resultsFromOpds(payload, source);
+  if (source.kind === "standard-ebooks") {
+    // OPDS is kept as a fallback for custom/mirror bases; the official site
+    // serves HTML now.
+    return /^\s*(?:<\?xml|<feed)/i.test(String(payload)) ? resultsFromOpds(payload, source) : resultsFromStandardEbooksHtml(payload, source);
+  }
   if (source.kind === "archive") return resultsFromArchive(payload, source);
   if (source.kind === "openlibrary") return resultsFromOpenLibrary(payload, source);
   return [];

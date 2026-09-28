@@ -2,7 +2,7 @@
 // enabled source and normalizes through the shared pure module; downloads run
 // through a small queue (two at a time), write into the library folder, verify
 // the bytes and are cancellable. Network access is injectable for tests.
-import { bookSearchRequest, dedupeBookResults, downloadLinkFromOpdsPage, downloadLinkFromZlibPage, resultsFromSource } from "../../../../packages/reader/src/book-sources.js";
+import { bookSearchRequest, dedupeBookResults, downloadLinkFromOpdsPage, downloadLinkFromStandardEbooksPage, downloadLinkFromZlibPage, resultsFromSource } from "../../../../packages/reader/src/book-sources.js";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -188,12 +188,24 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
       if (!picked?.url) throw new Error("没有找到下载链接；请先在上方登录来源，登录后再试");
       return picked;
     }
+    // Standard Ebooks book pages carry their own .epub/.azw3 links.
+    if (result?.source === "standard-ebooks" || /standardebooks\.org\/ebooks\//i.test(info)) {
+      const page = await fetchImpl(info, { redirect: "follow" });
+      if (!page.ok) throw new Error(`HTTP ${page.status}`);
+      const picked = downloadLinkFromStandardEbooksPage(
+        await page.text(),
+        info,
+        [String(result?.format || "epub").toLowerCase() || "epub", "epub", "azw3"],
+      );
+      if (!picked?.url) throw new Error("这个来源没有可直接下载的文件");
+      return picked;
+    }
     // Gutenberg book pages are OPDS documents: the file link lives there.
     if (/\.opds($|[?#])/i.test(info)) {
       const page = await fetchImpl(info, { redirect: "follow" });
       if (!page.ok) throw new Error(`HTTP ${page.status}`);
       const picked = downloadLinkFromOpdsPage(await page.text(), info, [String(result?.format || "epub").toLowerCase() || "epub", "epub", "pdf"]);
-    if (!picked?.url && !picked?.page) throw new Error("这个来源没有可直接下载的文件");
+      if (!picked?.url && !picked?.page) throw new Error("这个来源没有可直接下载的文件");
       return picked;
     }
     const identifier = info.match(/archive\.org\/details\/([^/?#]+)/)?.[1];

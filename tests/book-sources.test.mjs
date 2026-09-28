@@ -6,6 +6,7 @@ import {
   dedupeBookResults,
   DEFAULT_BOOK_SOURCES,
   downloadLinkFromOpdsPage,
+  downloadLinkFromStandardEbooksPage,
   downloadLinkFromZlibPage,
   enabledBookSources,
   normalizeBookSources,
@@ -13,6 +14,7 @@ import {
   resultsFromGutenbergOpds,
   resultsFromOpds,
   resultsFromSource,
+  resultsFromStandardEbooksHtml,
   resultsFromZlibHtml,
 } from "../packages/reader/src/book-sources.js";
 
@@ -59,6 +61,40 @@ test("the z-library book page yields the best download link", () => {
   assert.equal(downloadLinkFromZlibPage("<p>nothing here</p>", "https://z-library.sk"), null);
 });
 
+test("standard ebooks html search results map into the common shape", () => {
+  const html = [
+    '<ol class="ebooks-list grid">',
+    '<li typeof="schema:Book" about="/ebooks/joseph-conrad/heart-of-darkness">',
+    '<div class="thumbnail-container"><a href="/ebooks/joseph-conrad/heart-of-darkness" property="schema:url"><img src="cover.jpg"/></a></div>',
+    '<p><a href="/ebooks/joseph-conrad/heart-of-darkness" property="schema:url"><span property="schema:name">Heart of Darkness</span></a></p>',
+    '<p class="author" typeof="schema:Person" property="schema:author"><a href="https://standardebooks.org/ebooks/joseph-conrad" property="schema:url"><span property="schema:name">Joseph Conrad</span></a></p>',
+    "</li>",
+    "</ol>",
+  ].join("");
+  const source = { id: "standard-ebooks", name: "Standard Ebooks", url: "https://standardebooks.org/feeds/opds", kind: "standard-ebooks" };
+  const out = resultsFromStandardEbooksHtml(html, source);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].title, "Heart of Darkness");
+  assert.equal(out[0].author, "Joseph Conrad");
+  assert.equal(out[0].format, "epub");
+  assert.equal(out[0].url, "");
+  assert.equal(out[0].info, "https://standardebooks.org/ebooks/joseph-conrad/heart-of-darkness");
+  assert.equal(out[0].downloadable, true);
+  assert.equal(resultsFromStandardEbooksHtml("<p>no results</p>", source).length, 0);
+  assert.equal(resultsFromSource({ ...source, url: "https://standardebooks.org" }, html).length, 1);
+});
+
+test("the standard ebooks book page yields its epub link", () => {
+  const html = [
+    '<a href="/ebooks/joseph-conrad/heart-of-darkness/downloads/heart-of-darkness.azw3">azw3</a>',
+    '<a href="/ebooks/joseph-conrad/heart-of-darkness/downloads/heart-of-darkness.epub">epub</a>',
+  ].join("");
+  const picked = downloadLinkFromStandardEbooksPage(html, "https://standardebooks.org/ebooks/joseph-conrad/heart-of-darkness");
+  assert.equal(picked.format, "epub");
+  assert.equal(picked.url, "https://standardebooks.org/ebooks/joseph-conrad/heart-of-darkness/downloads/heart-of-darkness.epub");
+  assert.equal(downloadLinkFromStandardEbooksPage("<p>nothing</p>", "https://standardebooks.org"), null);
+});
+
 test("default sources include z-library, the public catalogues and pdf drive", () => {
   const kinds = DEFAULT_BOOK_SOURCES.map((source) => source.kind);
   for (const kind of ["gutenberg", "standard-ebooks", "zlib", "pdfdrive"]) {
@@ -93,7 +129,10 @@ test("search requests are built per source kind", () => {
   const gutendex = { id: "gutenberg", name: "Project Gutenberg", url: "https://gutendex.com", kind: "gutenberg" };
   assert.equal(bookSearchRequest(gutendex, "dune").kind, "json");
   assert.match(bookSearchRequest(gutendex, "dune").url, /gutendex\.com\/books\/\?search=dune$/);
-  assert.match(bookSearchRequest(standard, "dune").url, /search\?query=dune$/);
+  assert.match(bookSearchRequest(standard, "dune").url, /standardebooks\.org\/ebooks\?query=dune&per-page=24$/);
+  assert.equal(bookSearchRequest(standard, "dune").kind, "html");
+  const legacyStandard = { id: "standard-ebooks", name: "Standard Ebooks", url: "https://standardebooks.org/feeds/opds", kind: "standard-ebooks" };
+  assert.match(bookSearchRequest(legacyStandard, "dune").url, /^https:\/\/standardebooks\.org\/ebooks\?query=dune/);
   const archive = { id: "archive", name: "Internet Archive", url: "https://archive.org", kind: "archive" };
   const archiveUrl = decodeURIComponent(bookSearchRequest(archive, "dune").url);
   assert.match(archiveUrl, /AND mediatype:texts/);

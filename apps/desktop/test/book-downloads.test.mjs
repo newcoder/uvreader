@@ -28,10 +28,10 @@ function startServer() {
       }));
       return;
     }
-    if (url.pathname === "/opds/search") {
-      response.end(`<feed><entry><title>Frankenstein</title><author><name>Shelley, Mary</name></author>
-        <dc:language>en</dc:language>
-        <link type="application/epub+zip" href="http://127.0.0.1:${server.address().port}/files/frankenstein.epub"/></entry></feed>`);
+    if (url.pathname === "/ebooks") {
+      response.end(`<ol class="ebooks-list"><li typeof="schema:Book" about="/ebooks/mary-shelley/frankenstein">
+        <p><a href="/ebooks/mary-shelley/frankenstein" property="schema:url"><span property="schema:name">Frankenstein</span></a></p>
+        <p class="author" typeof="schema:Person"><a href="/ebooks/mary-shelley" property="schema:url"><span property="schema:name">Shelley, Mary</span></a></p></li></ol>`);
       return;
     }
     if (url.pathname === "/slow/books/") { setTimeout(() => response.end("{}"), 5000); return; }
@@ -83,7 +83,7 @@ test("duplicate file names get a suffix", () => {
 test("search merges sources, dedupes works and reports failing sources", async () => {
   const server = await startServer();
   const port = server.address().port;
-  const sources = SOURCES.map((source) => ({ ...source, url: `http://127.0.0.1:${port}${source.kind === "standard-ebooks" ? "/opds" : source.id === "slow" ? "/slow" : ""}` }));
+  const sources = SOURCES.map((source) => ({ ...source, url: `http://127.0.0.1:${port}${source.id === "slow" ? "/slow" : ""}` }));
   const books = createBookDownloads({ downloadRoot: fs.mkdtempSync(path.join(os.tmpdir(), "qbr-books-")) });
   try {
     const { results, errors } = await books.search({ sources, query: "frankenstein" }, { timeout: 800 });
