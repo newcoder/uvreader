@@ -148,6 +148,29 @@ export function openBookLogin(url, { parent = null } = {}) {
 // one operation at a time so a single window is enough.
 let pageWindow = null;
 let pageQueue = Promise.resolve();
+// PDF Drive gets its own window and queue: sharing the zlib one made every
+// search wait behind challenge loads and page fetches.
+let pdfdriveWindow = null;
+let pdfdriveQueue = Promise.resolve();
+let pdfdriveLastAt = 0;
+
+function pdfdriveBrowserWindow() {
+  if (pdfdriveWindow && !pdfdriveWindow.isDestroyed()) return pdfdriveWindow;
+  pdfdriveWindow = new BrowserWindow({
+    show: false,
+    width: 1280,
+    height: 900,
+    webPreferences: {
+      partition: BOOK_SESSION_PARTITION,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      backgroundThrottling: false,
+    },
+  });
+  pdfdriveWindow.on("closed", () => { pdfdriveWindow = null; });
+  return pdfdriveWindow;
+}
 
 function bookPageWindow() {
   if (pageWindow && !pageWindow.isDestroyed()) return pageWindow;
@@ -256,10 +279,14 @@ export function downloadBookFile(url, target, { onProgress = null, timeout = 240
 // PDF Drive's search box is a Google Programmable Search widget: the results
 // only exist once its script has rendered them, so the hidden renderer drives
 // the box, waits for result links and returns them for the download queue.
-export function searchPdfdrive(query, { timeout = 20000, maxPages = 5 } = {}) {
+export function searchPdfdrive(query, { timeout = 30000, maxPages = 2 } = {}) {
   const run = async () => {
-    const win = bookPageWindow();
-    await loadBookPage(win, "https://pdfdrive.pw/", 20000);
+    // Keep a polite gap between queries: bursts trip Google's rate limits.
+    const pause = Math.max(0, 1500 - (Date.now() - pdfdriveLastAt));
+    if (pause) await new Promise((resolve) => setTimeout(resolve, pause));
+    pdfdriveLastAt = Date.now();
+    const win = pdfdriveBrowserWindow();
+    await loadBookPage(win, "https://pdfdrive.pw/", 25000);
     const action = await win.webContents.executeJavaScript(`(() => {
       const input = document.querySelector(".gsc-input input") || document.querySelector("input.gsc-input");
       if (!input) return "no-input";
@@ -280,10 +307,19 @@ export function searchPdfdrive(query, { timeout = 20000, maxPages = 5 } = {}) {
       "Array.from(document.querySelectorAll('.gsc-results .gs-title a')).map((a) => ({ title: String(a.textContent || ''), url: String(a.href || '') }))",
       true,
     );
+    const clickConsent = () => win.webContents.executeJavaScript(`(() => {
+      if (!/consent\\.|accounts\\.google/i.test(location.href)) return false;
+      const button = Array.from(document.querySelectorAll("button"))
+        .find((el) => /全部拒绝|Reject all|Accept all|全部接受/i.test(String(el.textContent || "")));
+      if (!button) return false;
+      button.click();
+      return true;
+    })()`, true).catch(() => false);
     const waitFor = async (check, ms) => {
       const until = Date.now() + ms;
       for (;;) {
         if (await check()) return true;
+        await clickConsent();
         if (Date.now() > until) return false;
         await new Promise((resolve) => setTimeout(resolve, 500));
       }
@@ -320,8 +356,8 @@ export function searchPdfdrive(query, { timeout = 20000, maxPages = 5 } = {}) {
     if (!links.length) throw new Error("PDF Drive 没有返回结果（可能需要人机验证）");
     return links;
   };
-  const result = pageQueue.then(run, run);
-  pageQueue = result.catch(() => {});
+  const result = pdfdriveQueue.then(run, run);
+  pdfdriveQueue = result.catch(() => {});
   return result;
 }
 
@@ -330,6 +366,8 @@ export function closeBookSession() {
   loginWindow = null;
   try { pageWindow?.destroy(); } catch { /* already gone */ }
   pageWindow = null;
+  try { pdfdriveWindow?.destroy(); } catch { /* already gone */ }
+  pdfdriveWindow = null;
   const resolvers = loginResolvers;
   loginResolvers = [];
   for (const settle of resolvers) settle({ ok: true, closed: true });
