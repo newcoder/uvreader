@@ -57,19 +57,21 @@ test("the z-library book page yields the best download link", () => {
   assert.equal(downloadLinkFromZlibPage("<p>nothing here</p>", "https://z-library.sk"), null);
 });
 
-test("default sources include z-library and the four public catalogues", () => {
+test("default sources include z-library and the public catalogues, without archive", () => {
   const kinds = DEFAULT_BOOK_SOURCES.map((source) => source.kind);
-  for (const kind of ["gutenberg", "standard-ebooks", "archive", "openlibrary", "zlib"]) {
+  for (const kind of ["gutenberg", "standard-ebooks", "openlibrary", "zlib"]) {
     assert.ok(kinds.includes(kind), kind);
   }
+  assert.equal(kinds.includes("archive"), false, "Internet Archive was removed");
   const zlib = DEFAULT_BOOK_SOURCES.find((source) => source.kind === "zlib");
   assert.equal(zlib.url, "https://z-library.sk");
   assert.equal(zlib.enabled, true);
 });
 
-test("user sources keep their order, edits and enable flags", () => {
+test("user sources keep their order, edits and enable flags, and archive is dropped", () => {
   const normalized = normalizeBookSources([
     { id: "zlib", name: "Z-Library", url: "https://z-library.sk/", kind: "zlib", enabled: false },
+    { id: "archive", name: "Internet Archive", url: "https://archive.org", kind: "archive" },
     { id: "mine", name: "我的源", url: "https://example.com/opds", kind: "standard-ebooks" },
     { id: "bad", url: "", kind: "gutenberg" },
     { id: "weird", url: "https://x", kind: "unknown" },
@@ -81,9 +83,10 @@ test("user sources keep their order, edits and enable flags", () => {
 });
 
 test("search requests are built per source kind", () => {
-  const [gutenberg, standard, archive, openlibrary, zlib] = DEFAULT_BOOK_SOURCES;
+  const [gutenberg, standard, openlibrary, zlib] = DEFAULT_BOOK_SOURCES;
   assert.match(bookSearchRequest(gutenberg, "dune").url, /gutendex\.com\/books\/\?search=dune$/);
   assert.match(bookSearchRequest(standard, "dune").url, /search\?query=dune$/);
+  const archive = { id: "archive", name: "Internet Archive", url: "https://archive.org", kind: "archive" };
   const archiveUrl = decodeURIComponent(bookSearchRequest(archive, "dune").url);
   assert.match(archiveUrl, /AND mediatype:texts/);
   assert.match(archiveUrl, /output=json/);
@@ -134,7 +137,7 @@ test("standard ebooks OPDS entries map into the common shape", () => {
 });
 
 test("archive results point at the item page for a later resolve", () => {
-  const [, , archive] = DEFAULT_BOOK_SOURCES;
+  const archive = { id: "archive", name: "Internet Archive", url: "https://archive.org", kind: "archive" };
   const [item] = resultsFromSource(archive, {
     response: { docs: [{ identifier: "mobydick_201408", title: "Moby Dick", creator: ["Melville, Herman"], year: "1851" }] },
   });

@@ -19,7 +19,6 @@ export const BOOK_SOURCE_KINDS = Object.freeze([
 export const DEFAULT_BOOK_SOURCES = Object.freeze([
   { id: "gutenberg", name: "Project Gutenberg", url: "https://gutendex.com", kind: "gutenberg", enabled: true },
   { id: "standard-ebooks", name: "Standard Ebooks", url: "https://standardebooks.org/feeds/opds", kind: "standard-ebooks", enabled: true },
-  { id: "archive", name: "Internet Archive", url: "https://archive.org", kind: "archive", enabled: true },
   { id: "openlibrary", name: "Open Library", url: "https://openlibrary.org", kind: "openlibrary", enabled: true },
   { id: "zlib", name: "Z-Library", url: "https://z-library.sk", kind: "zlib", enabled: true },
 ]);
@@ -55,6 +54,9 @@ export function normalizeBookSources(value) {
     const url = clean(item?.url, 500);
     const id = clean(item?.id, 60) || clean(kind || url, 60);
     if (!kind || !url || !id || seen.has(id)) continue;
+    // Internet Archive was removed as a source (full-text noise); drop it from
+    // previously saved settings as well.
+    if (kind === "archive") continue;
     seen.add(id);
     out.push({
       id,
