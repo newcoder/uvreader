@@ -1672,9 +1672,9 @@ function aiToolState(view, plugin, options = {}) {
         const total = Number(view.pager?.total) || 0;
         const pageText = (page) => String(view._pdfLazy.textFor?.(page) || "");
         const wanted = parseTocPageRange(pagesArg, total);
-        // A TOC can span several pages: keep the best-scoring page and its
-        // contiguous neighbours (lower bar), always in page order, so both the
-        // text hints and the images arrive in reading order.
+        // A TOC can span many pages: keep every page that scores above the
+        // lower bar within a generous reach of the best one, in page order; no
+        // fixed page cap. Long lists are extracted in batches (below).
         const auto = (() => {
           const ranked = tocCandidates(
             Array.from({ length: total }, (_, index) => ({ page: index + 1, text: pageText(index + 1) })),
@@ -1683,35 +1683,40 @@ function aiToolState(view, plugin, options = {}) {
           const best = ranked[0];
           if (!best) return [];
           return ranked
-            .filter((item) => Math.abs(item.page - best.page) <= 1)
+            .filter((item) => Math.abs(item.page - best.page) <= 8)
             .map((item) => item.page)
-            .sort((a, b) => a - b)
-            .slice(0, 4);
+            .sort((a, b) => a - b);
         })();
-        const candidates = (wanted.length ? wanted : auto).slice(0, 4)
-          .map((page) => ({ page, text: pageText(page) }));
-        if (!candidates.length) return { preview: "没有找到目录页；请告诉我页码（例如「目录在第 6 页」），我再生成。" };
-        let entries = [];
-        // With a vision model, send the page images too: the printed page beats
-        // a scrambled text layer for line order and the number columns.
-        const images = {};
-        if (options.canSeeImages === true) {
-          for (const item of candidates) {
-            try {
-              const rendered = await view._pdfLazy.render?.(item.page, docOf(view.areaEl || view.contentEl));
-              const data = String(rendered?.src || "").split(",")[1] || "";
-              if (data) images[item.page] = { data, mimeType: "image/jpeg" };
-            } catch { /* text-only extraction */ }
+        const pages = wanted.length ? wanted : auto;
+        if (!pages.length) return { preview: "没有找到目录页；请告诉我页码（例如「目录在第 6 页」），我再生成。" };
+        const entries = [];
+        const batchSize = 6;
+        for (let start = 0; start < pages.length; start += batchSize) {
+          const batch = pages.slice(start, start + batchSize);
+          const candidatePages = batch.map((page) => ({ page, text: pageText(page) }));
+          // With a vision model, send the page images too: the printed page
+          // beats a scrambled text layer for line order and the number columns.
+          const images = {};
+          if (options.canSeeImages === true) {
+            for (const item of candidatePages) {
+              try {
+                const rendered = await view._pdfLazy.render?.(item.page, docOf(view.areaEl || view.contentEl));
+                const data = String(rendered?.src || "").split(",")[1] || "";
+                if (data) images[item.page] = { data, mimeType: "image/jpeg" };
+              } catch { /* text-only extraction */ }
+            }
           }
+          const messages = buildTocExtractionMessages(candidatePages, { images });
+          let batchEntries = [];
+          if (messages.length) {
+            try { batchEntries = parseTocExtractionReply(await aiComplete(messages, plugin, { vision: Object.keys(images).length > 0 })); } catch { batchEntries = []; }
+          }
+          if (!batchEntries.length) {
+            for (const item of candidatePages) batchEntries.push(...parseTocText(item.text));
+          }
+          entries.push(...batchEntries);
         }
-        const messages = buildTocExtractionMessages(candidates, { images });
-        if (messages.length) {
-          try { entries = parseTocExtractionReply(await aiComplete(messages, plugin, { vision: Object.keys(images).length > 0 })); } catch { entries = []; }
-        }
-        if (!entries.length) {
-          for (const item of candidates) entries.push(...parseTocText(item.text));
-        }
-        if (!entries.length) return { preview: `第 ${candidates.map((item) => item.page).join("、")} 页没有解析出条目；可以换一页或确认目录范围。` };
+        if (!entries.length) return { preview: `第 ${pages.join("、")} 页没有解析出条目；可以换一页或确认目录范围。` };
         const outline = (view._pdfOutline || []).map((item) => ({ label: item.label, page: item.page, level: item.level || 1 }));
         const verdict = inferTocOffset(tocAnchors(outline, entries));
         const offset = Number.isFinite(Number(offsetArg)) ? Math.round(Number(offsetArg)) : (verdict && verdict.agree >= 2 ? verdict.offset : 0);
@@ -1723,7 +1728,7 @@ function aiToolState(view, plugin, options = {}) {
         const kept = merged.filter((item) => item.sources.includes("outline") && !item.sources.includes("toc")).length;
         plugin._tocDraft = { merged, mode, offset, created: Date.now() };
         const lines = [
-          `目录页：第 ${candidates.map((item) => item.page).join("、")} 页；提取 ${entries.length} 条；页码偏移 ${offset >= 0 ? "+" : ""}${offset}${verdict ? `（${verdict.agree}/${verdict.total} 一致）` : ""}。`,
+          `目录页：第 ${pages.join("、")} 页；提取 ${entries.length} 条；页码偏移 ${offset >= 0 ? "+" : ""}${offset}${verdict ? `（${verdict.agree}/${verdict.total} 一致）` : ""}。`,
           `合并后 ${merged.length} 条，保留原有 ${kept} 条。`,
           "前几条：",
           ...merged.slice(0, 3).map((item) => `- ${item.title} → 第 ${item.page || "?"} 页`),
