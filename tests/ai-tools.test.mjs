@@ -18,7 +18,7 @@ function setup(state = {}) {
 test("the schemas stay minimal and are advertised as-is", () => {
   assert.deepEqual(AI_TOOL_DEFINITIONS.map((tool) => tool.name), [
     "get_reading_position", "get_book_outline", "read_page_image", "read_pages", "search_book", "list_highlights",
-    "search_books_online", "download_book",
+    "search_books_online", "download_book", "toc_scan", "toc_build", "toc_apply",
   ]);
   const { definitions } = setup();
   assert.deepEqual(definitions, AI_TOOL_DEFINITIONS
@@ -203,6 +203,29 @@ test("online search lists downloadable editions and download_book picks the best
   assert.match(fail.text, /没有找到可下载的「不存在的书」/);
   const noBridge = await createAiTools({ state: {} }).run("search_books_online", { query: "书" });
   assert.match(noBridge.text, /不支持网络搜书/);
+});
+
+test("the TOC tools forward to the reader state and refuse without it", async () => {
+  const calls = [];
+  const tools = createAiTools({
+    state: {
+      tocScan: () => "候选：第 6 页",
+      tocBuild: async (args) => { calls.push(args); return { preview: "提取 16 条；偏移 +6。确认生成吗？" }; },
+      tocApply: ({ undo }) => { calls.push({ undo }); return { summary: undo ? "已撤销。" : "已应用 32 条。" }; },
+    },
+  });
+  assert.match((await tools.run("toc_scan", {})).text, /候选：第 6 页/);
+  const build = await tools.run("toc_build", { pages: "6-7", offset: 6 });
+  assert.match(build.text, /确认生成吗/);
+  assert.deepEqual(calls[0], { pages: "6-7", offset: 6, mode: "merge" });
+  const applied = await tools.run("toc_apply", {});
+  assert.match(applied.text, /已应用 32 条/);
+  const undone = await tools.run("toc_apply", { undo: true });
+  assert.match(undone.text, /已撤销/);
+  assert.deepEqual(calls[1], { undo: false });
+  assert.deepEqual(calls[2], { undo: true });
+  const offline = await createAiTools({ state: {} }).run("toc_scan", {});
+  assert.match(offline.text, /不支持目录扫描/);
 });
 
 test("results are truncated, unknown tools and failures are errors", async () => {

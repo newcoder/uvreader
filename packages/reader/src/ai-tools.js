@@ -92,6 +92,33 @@ export const AI_TOOL_DEFINITIONS = Object.freeze([
       additionalProperties: false,
     },
   },
+  {
+    name: "toc_scan",
+    description: "扫描当前 PDF 的目录情况：已有大纲条目数、可能包含目录的页（带评分与理由）。只读。用于回答“目录为什么不能跳转/不完整”。",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "toc_build",
+    description: "根据目录页生成/更新本书的导航目录草稿（不会立即生效）。参数可缺省：pages（目录页，如 \"6-7\"）、offset（印刷页→PDF 页偏移）、mode（merge 默认 / replace）。生成后必须把预览复述给读者并等待确认，切勿自行调用 toc_apply。",
+    parameters: {
+      type: "object",
+      properties: {
+        pages: { type: "string", description: "目录页范围，如 \"6\" 或 \"6-7\"；缺省时自动扫描。" },
+        offset: { type: "number", description: "印刷页码到 PDF 页码的偏移；缺省时自动推断。" },
+        mode: { type: "string", enum: ["merge", "replace"], description: "merge 保留原有条目并补充，replace 整体替换。" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "toc_apply",
+    description: "把 toc_build 的草稿正式应用为导航目录；仅在读者明确确认后调用。args.undo=true 时撤销生成结果、恢复原有目录。",
+    parameters: {
+      type: "object",
+      properties: { undo: { type: "boolean", description: "撤销上一次应用的生成目录。" } },
+      additionalProperties: false,
+    },
+  },
 ]);
 
 // Text layers can be formula soup or half-broken scans. Handing that to the
@@ -230,6 +257,23 @@ export function createAiTools({ state = {}, maxChars = AI_TOOL_LIMITS.resultChar
       const outcome = await state.downloadBook(result);
       if (outcome?.ok) return `已下载并加入书库：${outcome.name || result.title}（来源：${result.sourceName || result.source}）。可以告诉读者在书库页打开。`;
       return `下载「${title}」失败：${outcome?.error || "未知原因"}。`;
+    },
+    toc_scan() {
+      if (typeof state.tocScan !== "function") return "当前环境不支持目录扫描（需要在 PDF 阅读视图里）。";
+      return state.tocScan() || "没有扫描结果。";
+    },
+    async toc_build(args = {}) {
+      if (typeof state.tocBuild !== "function") return "当前环境不支持生成目录（需要在 PDF 阅读视图里）。";
+      const report = await state.tocBuild({
+        pages: String(args.pages ?? ""),
+        offset: args.offset,
+        mode: args.mode === "replace" ? "replace" : "merge",
+      });
+      return report?.preview || "没有生成目录草稿。";
+    },
+    toc_apply(args = {}) {
+      if (typeof state.tocApply !== "function") return "当前环境不支持应用目录（需要在 PDF 阅读视图里）。";
+      return state.tocApply({ undo: args.undo === true })?.summary || "没有可应用的目录草稿。";
     },
   };
 

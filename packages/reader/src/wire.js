@@ -110,6 +110,7 @@ import { createReaderChrome } from "./reader-chrome.js";
 import { createAiRender } from "./ai-render.js";
 import { createPiTransport } from "./ai-pi.js";
 import { bookResultRelevant, buildBookFinderMessages, parseBookFinderReply } from "./book-finder.js";
+import { applyTocOffset, buildTocExtractionMessages, inferTocOffset, mergeTocEntries, parseTocExtractionReply, parseTocText, tocCandidates, validateTocEntries } from "./pdf-toc.js";
 import { createNotePaths } from "./note-paths.js";
 import { createBookNotes } from "./book-notes.js";
 
@@ -1502,6 +1503,44 @@ async function jumpToAiLocation(chat, value) {
 // --- AI tools --------------------------------------------------------------
 // The tools read through the reader and the plugin; the tools module sees only
 // this state object, which keeps the formatting and schemas testable.
+// "6-7", "6,7" or "6" → page numbers clamped to the document.
+function parseTocPageRange(value, total) {
+  const pages = [];
+  for (const part of String(value || "").split(/[,，、\s]+/).filter(Boolean)) {
+    const range = part.match(/^(\d+)\s*[-–—~～]\s*(\d+)$/);
+    if (range) {
+      const from = Number(range[1]), to = Number(range[2]);
+      for (let page = from; page <= to; page += 1) if (page >= 1 && page <= total) pages.push(page);
+    } else if (/^\d+$/.test(part)) {
+      const page = Number(part);
+      if (page >= 1 && page <= total) pages.push(page);
+    }
+  }
+  return [...new Set(pages)].sort((a, b) => a - b);
+}
+
+// Printed page ↔ PDF page anchors by matching generated entries to outline
+// labels; whichever printed column sits closest to the outline destination is
+// taken as the anchor (outlines often point at the answer pages).
+function tocAnchors(outline, entries) {
+  const key = (value) => String(value || "").replace(/\s+/g, "").replace(/试题\*?\d*/g, "").replace(/解答/g, "").toLowerCase();
+  const byKey = new Map();
+  for (const item of outline || []) {
+    const itemKey = key(item?.label);
+    if (itemKey && Number(item?.page) > 0) byKey.set(itemKey, Number(item.page));
+  }
+  const anchors = [];
+  for (const entry of entries || []) {
+    const pdf = byKey.get(key(entry?.title));
+    if (!pdf) continue;
+    const candidates = [entry.page, entry.page2].map((value) => Math.round(Number(value))).filter((value) => value > 0);
+    if (!candidates.length) continue;
+    const printed = candidates.reduce((best, value) => (Math.abs(pdf - value) < Math.abs(pdf - best) ? value : best));
+    anchors.push({ printed, pdf });
+  }
+  return anchors;
+}
+
 function aiToolState(view, plugin, options = {}) {
   const pager = view?.pager;
   const engine = view?.engine;
@@ -1605,6 +1644,92 @@ function aiToolState(view, plugin, options = {}) {
           try { new Notice(qiaomuReaderTranslate("search-online-downloaded-0", outcome.name), 8000); } catch { /* headless */ }
         }
         return outcome;
+      }
+      : null,
+    // ── generated table of contents ─────────────────────────────────────────
+    // PDF only: scan the derived text layer for TOC pages, let the model turn
+    // them into entries (deterministic parser as fallback), verify against the
+    // outline and store a draft; toc_apply swaps the outline and rebuilds the
+    // TOC panel, toc_apply({undo:true}) restores it.
+    tocScan: format === "pdf" && view?._pdfLazy
+      ? () => {
+        const total = Number(view.pager?.total) || 0;
+        const pages = [];
+        for (let page = 1; page <= total; page += 1) pages.push({ page, text: String(view._pdfLazy.textFor?.(page) || "") });
+        const candidates = tocCandidates(pages).slice(0, 4);
+        const lines = [`已扫描 ${total} 页；已有大纲 ${(view._pdfOutline || []).length} 条。`];
+        if (candidates.length) {
+          lines.push("目录页候选：");
+          for (const item of candidates) lines.push(`- 第 ${item.page} 页（评分 ${item.score}：${item.reason}）`);
+        } else {
+          lines.push("没有找到明确的目录页；可以直接指定页码（例如「目录在第 6 页」）。");
+        }
+        return lines.join("\n");
+      }
+      : null,
+    tocBuild: format === "pdf" && view?._pdfLazy
+      ? async ({ pages: pagesArg = "", offset: offsetArg = null, mode = "merge" } = {}) => {
+        const total = Number(view.pager?.total) || 0;
+        const pageText = (page) => String(view._pdfLazy.textFor?.(page) || "");
+        const wanted = parseTocPageRange(pagesArg, total);
+        const candidates = wanted.length
+          ? wanted.map((page) => ({ page, text: pageText(page) }))
+          : tocCandidates(Array.from({ length: total }, (_, index) => ({ page: index + 1, text: pageText(index + 1) })))
+            .slice(0, 2).map((item) => ({ page: item.page, text: pageText(item.page) }));
+        if (!candidates.length) return { preview: "没有找到目录页；请告诉我页码（例如「目录在第 6 页」），我再生成。" };
+        let entries = [];
+        const messages = buildTocExtractionMessages(candidates);
+        if (messages.length) {
+          try { entries = parseTocExtractionReply(await aiComplete(messages, plugin)); } catch { entries = []; }
+        }
+        if (!entries.length) {
+          for (const item of candidates) entries.push(...parseTocText(item.text));
+        }
+        if (!entries.length) return { preview: `第 ${candidates.map((item) => item.page).join("、")} 页没有解析出条目；可以换一页或确认目录范围。` };
+        const outline = (view._pdfOutline || []).map((item) => ({ label: item.label, page: item.page, level: item.level || 1 }));
+        const verdict = inferTocOffset(tocAnchors(outline, entries));
+        const offset = Number.isFinite(Number(offsetArg)) ? Math.round(Number(offsetArg)) : (verdict && verdict.agree >= 2 ? verdict.offset : 0);
+        const shifted = applyTocOffset(entries, offset);
+        const report = validateTocEntries(shifted, { totalPages: total });
+        const merged = mode === "replace"
+          ? shifted.map((item) => ({ title: item.title, level: item.level, page: item.pdfPage, page2: item.pdfPage2, sources: ["toc"] }))
+          : mergeTocEntries(outline, shifted);
+        const kept = merged.filter((item) => item.sources.includes("outline") && !item.sources.includes("toc")).length;
+        plugin._tocDraft = { merged, mode, offset, created: Date.now() };
+        const lines = [
+          `目录页：第 ${candidates.map((item) => item.page).join("、")} 页；提取 ${entries.length} 条；页码偏移 ${offset >= 0 ? "+" : ""}${offset}${verdict ? `（${verdict.agree}/${verdict.total} 一致）` : ""}。`,
+          `合并后 ${merged.length} 条，保留原有 ${kept} 条。`,
+          "前几条：",
+          ...merged.slice(0, 3).map((item) => `- ${item.title} → 第 ${item.page || "?"} 页`),
+        ];
+        if (merged.length > 3) lines.push("最后几条：", ...merged.slice(-3).map((item) => `- ${item.title} → 第 ${item.page || "?"} 页`));
+        if (!report.ok) lines.push(`注意：${report.problems.slice(0, 4).join("；")}`);
+        lines.push("确认生成吗？也可修正：目录页=…、偏移=…、改成替换/合并。");
+        return { preview: lines.join("\n") };
+      }
+      : null,
+    tocApply: format === "pdf" && view?._pdfLazy
+      ? ({ undo = false } = {}) => {
+        const refresh = () => {
+          view.tocItems = buildTocItems(view.bookHtml, view._pdfOutline || []);
+          view.buildTocPanel?.();
+          try { syncNavigationPanel(view, "toc"); } catch { /* panel may be closed */ }
+        };
+        if (undo) {
+          if (!plugin._tocOriginalOutline) return { summary: "没有可撤销的生成目录。" };
+          view._pdfOutline = plugin._tocOriginalOutline;
+          plugin._tocOriginalOutline = null;
+          plugin._tocDraft = null;
+          refresh();
+          return { summary: "已撤销生成的目录，恢复原有大纲。" };
+        }
+        const draft = plugin._tocDraft;
+        if (!draft?.merged?.length) return { summary: "还没有目录草稿：先生成目录并确认，再应用。" };
+        if (!plugin._tocOriginalOutline) plugin._tocOriginalOutline = view._pdfOutline || [];
+        view._pdfOutline = draft.merged.map((item) => ({ label: item.title, page: item.page || undefined, level: item.level || 1 }));
+        plugin._tocDraft = null;
+        refresh();
+        return { summary: `已应用生成的目录：${view._pdfOutline.length} 条，目录面板已更新（撤销可恢复原大纲）。` };
       }
       : null,
   };

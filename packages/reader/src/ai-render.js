@@ -557,6 +557,7 @@ export function createAiRender({
     if (name === "get_reading_position") return "bookmark";
     if (name === "search_books_online") return "globe";
     if (name === "download_book") return "download";
+    if (name === "toc_scan" || name === "toc_build" || name === "toc_apply") return "list";
     return "search";
   }
 
