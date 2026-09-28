@@ -3721,7 +3721,7 @@ QiaomuBookReader.prototype.openReadingProjects = function openReadingProjects(op
 
 // The library's online tab turns a fuzzy request into a book list through the
 // AI runtime, then looks each book up in the enabled sources (two at a time).
-QiaomuBookReader.prototype.findBooksOnline = async function findBooksOnline(input, { onGroup } = {}) {
+QiaomuBookReader.prototype.findBooksOnline = async function findBooksOnline(input, { onGroup, onBooks } = {}) {
   const query = String(input || "").trim();
   const empty = { query, books: [], groups: [], ai: false };
   if (!query) return empty;
@@ -3733,6 +3733,7 @@ QiaomuBookReader.prototype.findBooksOnline = async function findBooksOnline(inpu
   }
   const books = parseBookFinderReply(reply);
   if (!books.length) return empty;
+  try { onBooks?.(books); } catch { /* caller's problem */ }
   const groups = [];
   const queue = books.slice();
   const toQuery = (book) => [book.title, book.author].filter(Boolean).join(" ");

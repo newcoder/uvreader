@@ -391,6 +391,53 @@ export function searchPdfdrive(query, { timeout = 30000, maxPages = 2 } = {}) {
   return result;
 }
 
+// Session-gated files come from the book page, not the bare /dl/ link: the
+// site only releases the file when its page triggers the download, exactly as
+// the browser does. Load the page, click the download link, catch the file.
+export function downloadBookFileFromPage(pageUrl, target, { onProgress = null, timeout = 240000, clickTimeout = 40000 } = {}) {
+  const run = () => new Promise((resolve, reject) => {
+    const win = bookPageWindow();
+    let item = null;
+    let settled = false;
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { win.webContents.session.off("will-download", onWillDownload); } catch { /* gone */ }
+      error ? reject(error) : resolve({ ok: true });
+    };
+    const timer = setTimeout(() => { try { item?.cancel(); } catch { /* gone */ } finish(new Error("下载超时")); }, timeout);
+    const onWillDownload = (_event, downloadItem) => {
+      if (item) return;
+      item = downloadItem;
+      try { downloadItem.setSavePath(String(target)); } catch { /* the done handler reports it */ }
+      downloadItem.on("updated", (_e, state) => {
+        if (state !== "progressing") return;
+        onProgress?.({ received: downloadItem.getReceivedBytes(), total: downloadItem.getTotalBytes() });
+      });
+      downloadItem.once("done", (_e, state) => {
+        if (state === "completed") finish(null);
+        else finish(new Error(state === "cancelled" ? "已取消" : "下载失败"));
+      });
+    };
+    win.webContents.session.on("will-download", onWillDownload);
+    const clicked = new Promise((resolve, reject) => setTimeout(() => reject(new Error("书页没有触发下载")), clickTimeout));
+    loadBookPage(win, String(pageUrl), 30000).then(async () => {
+      const found = await win.webContents.executeJavaScript(`(() => {
+        const link = document.querySelector('a[href*="/dl/"], a[href*="/download"], a.addDownloadedBook');
+        if (!link) return false;
+        link.click();
+        return true;
+      })()`, true).catch(() => false);
+      if (!found) finish(new Error("书页没有找到下载按钮"));
+    }).catch((error) => finish(error));
+    clicked.catch((error) => finish(error));
+  });
+  const result = pageQueue.then(run, run);
+  pageQueue = result.catch(() => {});
+  return result;
+}
+
 export function closeBookSession() {
   try { loginWindow?.destroy(); } catch { /* already gone */ }
   loginWindow = null;

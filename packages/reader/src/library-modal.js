@@ -226,8 +226,18 @@ export function createLibraryModal({
       if (card) cardByGroup.set(group, card);
       if (status.isConnected) status.setText(`${qiaomuReaderTranslate("searching")} ${stats.done}/${stats.total}`);
     };
+    // The model's book list arrives before the per-book searches: show it so
+    // the wait explains itself.
+    const onBooks = (books) => {
+      if (this._libMode !== "online" || !grid.isConnected || !status.isConnected) return;
+      const names = books.map((book) => book.title).filter(Boolean);
+      if (!names.length) return;
+      status.setText(names.length > 3
+        ? `${names.slice(0, 3).join("、")} 等 ${names.length} 本 · 正在查找版本…`
+        : `${names.join("、")} · 正在查找版本…`);
+    };
     let report = null;
-    try { report = await this.plugin.findBooksOnline(query, { onGroup }); } catch { report = null; }
+    try { report = await this.plugin.findBooksOnline(query, { onGroup, onBooks }); } catch { report = null; }
     if (this._libMode !== "online" || this._onlineQuery.trim() !== query.trim() || !grid.isConnected) return true;
     if (!report?.ai || !Array.isArray(report.groups) || !report.groups.length) return false;
     if (status.isConnected) status.remove();

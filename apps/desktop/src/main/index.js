@@ -6,7 +6,7 @@ import { BOOK_EXTENSIONS, isBookFile } from "../shared/books.js";
 import { createAiRuntime } from "./ai-runtime.js";
 import { createPdfOcr, resolveOcrOutput } from "./pdf-ocr.js";
 import { createBookDownloads } from "./book-downloads.js";
-import { bookSessionReady, closeBookSession, downloadBookFile, fetchBookPage, openBookLogin, searchPdfdrive, sessionFetch } from "./book-session.js";
+import { bookSessionReady, closeBookSession, downloadBookFile, downloadBookFileFromPage, fetchBookPage, openBookLogin, searchPdfdrive, sessionFetch } from "./book-session.js";
 
 const aiRuntime = createAiRuntime();
 
@@ -25,6 +25,7 @@ const bookDownloads = createBookDownloads({
   pageFetch: fetchBookPage,
   fileDownload: downloadBookFile,
   pdfdriveSearch: searchPdfdrive,
+  pageDownload: downloadBookFileFromPage,
 });
 const smoke = process.argv.includes("--qbr-smoke");
 if (!app.isPackaged) process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "true";

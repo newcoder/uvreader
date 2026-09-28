@@ -83,7 +83,7 @@ export function pickArchiveFile(metadata, identifier) {
   return null;
 }
 
-export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileDownload = null, pdfdriveSearch = null, downloadRoot = "" } = {}) {
+export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileDownload = null, pageDownload = null, pdfdriveSearch = null, downloadRoot = "" } = {}) {
   const root = String(downloadRoot || "");
   const jobs = new Map();
   const waiting = [];
@@ -166,6 +166,11 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
   // a session-gated book page whose /dl/ link needs the login cookies.
   async function resolveDownload(result) {
     const url = String(result?.url || "");
+    // Session-gated sources hand out bare /dl/ links that only work when the
+    // book page triggers them; go through the page whenever we can.
+    if (result?.needsSession && result?.info && typeof pageDownload === "function") {
+      return { page: String(result.info), format: String(result?.format || ""), session: true };
+    }
     if (url) return { url, format: String(result?.format || ""), session: result?.needsSession === true };
     if (result?.needsSession && result?.info) {
       if (typeof pageFetch === "function") {
@@ -217,8 +222,11 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
     const format = picked.format || String(result?.format || "").toLowerCase() || "epub";
     const title = String(result?.title || "book").replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "book";
     const dir = ensureRoot();
+    if (picked.session && picked.page && typeof pageDownload === "function") {
+      return downloadViaBrowser(jobId, result, picked, { format, title, dir, handlers, run: pageDownload, source: picked.page });
+    }
     if (picked.session && typeof fileDownload === "function") {
-      return downloadViaBrowser(jobId, result, picked, { format, title, dir, handlers });
+      return downloadViaBrowser(jobId, result, picked, { format, title, dir, handlers, run: fileDownload, source: picked.url });
     }
     const response = await fetchImpl(picked.url, { redirect: "follow" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -249,11 +257,11 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
 
   // Session-gated files come through the hidden renderer, where the source's
   // challenge clearance applies; the file is validated from disk afterwards.
-  async function downloadViaBrowser(jobId, result, picked, { format, title, dir, handlers }) {
+  async function downloadViaBrowser(jobId, result, picked, { format, title, dir, handlers, run = fileDownload, source = "" }) {
     const job = jobs.get(jobId);
     const name = uniqueBookName(dir, `${title}.${format}`);
     const target = path.join(dir, name);
-    await fileDownload(picked.url, target, {
+    await run(source, target, {
       onProgress: (progress) => {
         if (job?.cancelled) return;
         handlers?.onProgress?.({ jobId, received: progress?.received || 0, total: progress?.total || 0 });
