@@ -13,7 +13,7 @@
 //   zlib             Z-Library search page (HTML; parsed by the main process,
 //                    downloads use the app's hidden window session)
 export const BOOK_SOURCE_KINDS = Object.freeze([
-  "gutenberg", "standard-ebooks", "archive", "openlibrary", "zlib",
+  "gutenberg", "standard-ebooks", "archive", "openlibrary", "zlib", "pdfdrive",
 ]);
 
 export const DEFAULT_BOOK_SOURCES = Object.freeze([
@@ -21,6 +21,7 @@ export const DEFAULT_BOOK_SOURCES = Object.freeze([
   { id: "standard-ebooks", name: "Standard Ebooks", url: "https://standardebooks.org/feeds/opds", kind: "standard-ebooks", enabled: true },
   { id: "openlibrary", name: "Open Library", url: "https://openlibrary.org", kind: "openlibrary", enabled: true },
   { id: "zlib", name: "Z-Library", url: "https://z-library.sk", kind: "zlib", enabled: true },
+  { id: "pdfdrive", name: "PDF Drive", url: "https://pdfdrive.pw", kind: "pdfdrive", enabled: true },
 ]);
 
 export const BOOK_SEARCH_LIMIT = 20;
@@ -281,8 +282,36 @@ export function downloadLinkFromZlibPage(html, base, formats = ["epub", "pdf", "
   return { url: best.url, format: best.format || "" };
 }
 
+// PDF Drive is a Google-powered meta search: the hidden renderer scrapes the
+// rendered result links and only direct PDFs are kept.
+export function resultsFromPdfdriveLinks(links, source) {
+  const out = [];
+  const seen = new Set();
+  for (const item of Array.isArray(links) ? links : []) {
+    const url = absolute(item?.url, source?.url || "https://pdfdrive.pw");
+    if (!url || !/^https?:/i.test(url) || !/\.pdf($|[?#])/i.test(url) || seen.has(url)) continue;
+    seen.add(url);
+    out.push({
+      source: source.id,
+      sourceName: source.name,
+      title: clean(item?.title, 200) || url.split("/").pop().replace(/\.pdf.*$/i, ""),
+      author: "",
+      language: "",
+      year: "",
+      format: "pdf",
+      url,
+      info: url,
+      license: "unknown",
+      downloadable: true,
+      size: "",
+    });
+  }
+  return out;
+}
+
 export function resultsFromSource(source, payload) {
   if (source?.kind === "zlib") return resultsFromZlibHtml(payload, source);
+  if (source?.kind === "pdfdrive") return resultsFromPdfdriveLinks(payload, source);
   if (!source || !payload) return [];
   if (source.kind === "gutenberg") return resultsFromGutendex(payload, source);
   if (source.kind === "standard-ebooks") return resultsFromOpds(payload, source);

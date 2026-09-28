@@ -253,6 +253,42 @@ export function downloadBookFile(url, target, { onProgress = null, timeout = 240
   return result;
 }
 
+// PDF Drive's search box is a Google Programmable Search widget: the results
+// only exist once its script has rendered them, so the hidden renderer drives
+// the box, waits for result links and returns them for the download queue.
+export function searchPdfdrive(query, { timeout = 15000 } = {}) {
+  const run = async () => {
+    const win = bookPageWindow();
+    await loadBookPage(win, "https://pdfdrive.pw/", 20000);
+    const started = Date.now();
+    const action = await win.webContents.executeJavaScript(`(() => {
+      const input = document.querySelector(".gsc-input input") || document.querySelector("input.gsc-input");
+      if (!input) return "no-input";
+      input.focus();
+      input.value = ${JSON.stringify(String(query))};
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      const button = document.querySelector(".gsc-search-button input, .gsc-search-button button, button.gsc-search-button");
+      if (button) { button.click(); return "clicked"; }
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 13, bubbles: true }));
+      return "pressed";
+    })()`, true);
+    if (action === "no-input") throw new Error("PDF Drive 搜索框不可用");
+    for (;;) {
+      const links = await win.webContents.executeJavaScript(
+        "Array.from(document.querySelectorAll('.gsc-results .gs-title a')).map((a) => ({ title: String(a.textContent || ''), url: String(a.href || '') }))",
+        true,
+      );
+      const usable = (Array.isArray(links) ? links : []).filter((item) => /^https?:/i.test(item.url));
+      if (usable.length) return usable;
+      if (Date.now() - started > timeout) throw new Error("PDF Drive 没有返回结果（可能需要人机验证）");
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  };
+  const result = pageQueue.then(run, run);
+  pageQueue = result.catch(() => {});
+  return result;
+}
+
 export function closeBookSession() {
   try { loginWindow?.destroy(); } catch { /* already gone */ }
   loginWindow = null;
