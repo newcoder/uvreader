@@ -66,9 +66,9 @@ img.qiaomu-reader-pdf-lazy:not([data-loaded="1"]) { background:color-mix(in srgb
 .qiaomu-reader-ibtn:hover { opacity:1; background:var(--background-modifier-hover); border-color:color-mix(in srgb,var(--text-muted) 35%,var(--background-modifier-border)); }
 .qiaomu-reader-ibtn:active { transform:scale(.87); }
 .qiaomu-reader-ibtn svg { width:18px; height:18px; }
-.qiaomu-reader-pdf-zoom-control { height:36px; display:none; grid-template-columns:30px 52px 30px 30px; align-items:stretch; flex:none; overflow:hidden; border:1px solid var(--background-modifier-border); border-radius:10px; background:color-mix(in srgb,var(--text-normal) 4%,transparent); color:var(--text-muted); }
+.qiaomu-reader-pdf-zoom-control { height:28px; display:none; grid-template-columns:30px 52px 30px 30px; align-items:stretch; flex:none; overflow:hidden; border:1px solid var(--background-modifier-border); border-radius:10px; background:color-mix(in srgb,var(--text-normal) 4%,transparent); color:var(--text-muted); }
 .qiaomu-reader-pdf-document .qiaomu-reader-pdf-zoom-control { display:grid; }
-.qiaomu-reader-pdf-zoom-control button { min-width:0; height:34px; margin:0; padding:0; border:0; border-radius:0; box-shadow:none; background:transparent; color:inherit; font-family:var(--font-interface); display:flex; align-items:center; justify-content:center; cursor:pointer; }
+.qiaomu-reader-pdf-zoom-control button { min-width:0; height:26px; margin:0; padding:0; border:0; border-radius:0; box-shadow:none; background:transparent; color:inherit; font-family:var(--font-interface); display:flex; align-items:center; justify-content:center; cursor:pointer; }
 .qiaomu-reader-pdf-zoom-control button:hover:not(:disabled) { background:var(--background-modifier-hover); color:var(--text-normal); }
 .qiaomu-reader-pdf-zoom-control button:active:not(:disabled) { background:var(--background-modifier-active-hover); }
 .qiaomu-reader-pdf-zoom-control button:focus-visible { position:relative; z-index:1; outline:2px solid var(--interactive-accent); outline-offset:-2px; }
