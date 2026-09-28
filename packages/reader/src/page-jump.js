@@ -89,32 +89,38 @@ export function createPageJump({ translate, svgIcon, docOf, isPdf, pdfPages, rem
     const raf = typeof win.requestAnimationFrame === "function"
       ? (fn) => win.requestAnimationFrame(fn)
       : (fn) => win.setTimeout(fn, 16);
+    let lastNavLog = "";
+    const logNav = (info) => {
+      const line = JSON.stringify({
+        barW: Math.round(info.barW),
+        backRight: Math.round(info.backRight),
+        afterLeft: Math.round(info.afterLeft),
+        navW: Math.round(info.navW),
+        left: Math.round(info.left),
+      });
+      if (line === lastNavLog) return;
+      lastNavLog = line;
+      try { console.log("[qbr-nav]", line); } catch { /* console may be gone */ }
+    };
     const place = () => {
       const bar = wrap.parentElement;
       if (!bar || !wrap.isConnected || !wrap.offsetWidth) return;
       const barRect = bar.getBoundingClientRect();
       if (!barRect.width) return;
-      // The title stretches to the tray, so the free strip runs from the back
-      // button to the right tray; the title itself may be overlapped (its text
-      // truncates anyway). Stay centred while it fits; otherwise clamp inside
-      // the strip, leaving a wider margin before the right tray. When even that
-      // does not fit, keep the rightmost workable spot instead of covering the
-      // back button (the page total always stays visible).
-      const gapLeft = 10;
-      const gapRight = 16;
+      // Stay centred; only ever shift to the right, and only far enough to
+      // clear the back button. Moving left is what made the nav jump around,
+      // so the position can never end up left of centre again. The page total
+      // and input always stay visible.
       const back = bar.firstElementChild;
       const after = wrap.nextElementSibling;
       const half = wrap.offsetWidth / 2;
       const backRight = back ? back.getBoundingClientRect().right : barRect.left;
       const afterLeft = after ? after.getBoundingClientRect().left : barRect.right;
-      const leftBound = backRight - barRect.left + gapLeft + half;
-      const rightBound = afterLeft - barRect.left - gapRight - half;
+      const leftBound = backRight - barRect.left + 10 + half;
       const centre = barRect.width / 2;
-      let left = centre;
-      if (rightBound >= leftBound) left = Math.max(leftBound, Math.min(centre, rightBound));
-      else left = leftBound;
-      left = Math.max(half, Math.min(barRect.width - half, left));
+      const left = Math.max(half, Math.min(barRect.width - half, Math.max(centre, leftBound)));
       wrap.style.left = `${Math.round(left)}px`;
+      logNav({ barW: barRect.width, backRight: backRight - barRect.left, afterLeft: afterLeft - barRect.left, navW: wrap.offsetWidth, left });
     };
     view.pageJumpPlace = () => { raf(place); };
     win.addEventListener("resize", view.pageJumpPlace);
