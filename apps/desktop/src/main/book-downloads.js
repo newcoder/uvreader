@@ -191,7 +191,7 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
       const page = await fetchImpl(info, { redirect: "follow" });
       if (!page.ok) throw new Error(`HTTP ${page.status}`);
       const picked = downloadLinkFromOpdsPage(await page.text(), info, [String(result?.format || "epub").toLowerCase() || "epub", "epub", "pdf"]);
-      if (!picked?.url) throw new Error("这个来源没有可直接下载的文件");
+    if (!picked?.url && !picked?.page) throw new Error("这个来源没有可直接下载的文件");
       return picked;
     }
     const identifier = info.match(/archive\.org\/details\/([^/?#]+)/)?.[1];
