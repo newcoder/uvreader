@@ -187,7 +187,9 @@ img.qiaomu-reader-pdf-lazy:not([data-loaded="1"]) { background:color-mix(in srgb
 .qiaomu-reader-lib-tabs { display:flex; align-items:center; gap:26px; margin:12px 2px 0; border-bottom:1px solid var(--qiaomu-reader-lib-border,#ddd9ce); }
 .qiaomu-reader-lib-actions { position:sticky; top:0; z-index:6; display:flex; align-items:center; gap:12px; padding:8px 2px; background:var(--qiaomu-reader-lib-bg,#fff); }
 .qiaomu-reader-lib-actions:empty { display:none; }
-.qiaomu-reader-lib-actions .qiaomu-reader-lib-download-bar { flex:1 1 auto; padding-top:0; }
+.qiaomu-reader-lib-actions .qiaomu-reader-lib-download-bar { flex:1 1 auto; padding-top:0; display:none; }
+.qiaomu-reader-lib-online .qiaomu-reader-lib-actions .qiaomu-reader-lib-download-bar { display:flex; }
+.qiaomu-reader-lib-grid[hidden] { display:none; }
 .qiaomu-reader-lib-tab { position:relative; border:0; background:transparent; color:var(--qiaomu-reader-lib-muted,#8a8678); font:inherit; font-size:13.5px; font-weight:650; padding:7px 1px 11px; cursor:pointer; letter-spacing:.01em; }
 .qiaomu-reader-lib-tab:hover { color:var(--qiaomu-reader-lib-text,#1a1a2e); }
 .qiaomu-reader-lib-tab-on { color:var(--qiaomu-reader-lib-text,#1a1a2e); }

@@ -47,7 +47,7 @@ export function createLibraryModal({
     tabs.localBtn.addEventListener("click", () => this._setLibMode("vault"));
     tabs.onlineBtn.addEventListener("click", () => this._setLibMode("online"));
     input.addEventListener("input", () => {
-      if (this._libMode === "online") this._renderOnline(this._libDeps.grid, input.value);
+      if (this._libMode === "online") this._renderOnline(this._libDeps.onlineGrid, input.value);
       else this._libDeps.redraw?.(input.value);
     });
     try { await this.plugin.ensureStarterBooks(); }
@@ -63,8 +63,13 @@ export function createLibraryModal({
     const files = this._libVaultBooks(folder);
     this._sortLibBooks(files);
     const chipRow = contentEl.createDiv("qiaomu-reader-lib-chips"), grid = contentEl.createDiv("qiaomu-reader-lib-grid");
+    // Two separate grids keep each tab's state: switching never redraws, so
+    // online results, selections and download rows survive a look at 本地书库.
+    const onlineGrid = contentEl.createDiv("qiaomu-reader-lib-grid qiaomu-reader-lib-online-grid");
+    onlineGrid.hidden = true;
     this._grid = grid;
     this._libDeps.grid = grid;
+    this._libDeps.onlineGrid = onlineGrid;
     if (files.length === 0) {
       chipRow.addClass("qiaomu-reader-hidden");
       this._buildLibEmpty(contentEl, folder);
@@ -137,12 +142,12 @@ export function createLibraryModal({
     // Downloads finished while the online tab was open: fold the freshly
     // added books into the local tab by rebuilding once, on return.
     if (mode === "vault" && this._libStale) {
+      // Refresh the local cards in place: a full rebuild would drop the
+      // online tab's results and download rows.
       this._libStale = false;
-      this._refresh();
-      return;
+      deps.redraw?.("");
     }
     const online = mode === "online";
-    if (!online) deps.actionRow?.querySelector(".qiaomu-reader-lib-download-bar")?.remove();
     this._libMode = mode;
     deps.contentEl.toggleClass("qiaomu-reader-lib-online", online);
     deps.tabs.localBtn.toggleClass("qiaomu-reader-lib-tab-on", !online);
@@ -150,9 +155,10 @@ export function createLibraryModal({
     deps.tabs.localBtn.setAttribute("aria-selected", String(!online));
     deps.tabs.onlineBtn.setAttribute("aria-selected", String(online));
     deps.input.placeholder = qiaomuReaderTranslate(online ? "search-online-placeholder" : "search-a-book");
-    deps.input.value = "";
-    if (online) this._renderOnline(deps.grid, "");
-    else deps.redraw?.("");
+    // Each tab keeps its grid: no clearing, no redraw. The download bar hides
+    // with the tab through CSS, so finished downloads stay re-downloadable.
+    if (deps.onlineGrid) deps.onlineGrid.hidden = !online;
+    if (online && deps.onlineGrid && !deps.onlineGrid.childElementCount) this._renderOnline(deps.onlineGrid, deps.input.value || "");
     deps.input.focus();
   }
   // ── online search results and the download queue ──────────────────────────
