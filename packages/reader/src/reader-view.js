@@ -255,7 +255,7 @@ export function createReaderView({
             ];
           }
           return [{ label: item.title, page: item.page || undefined, level }];
-        })
+        }).sort((a, b) => (Number.isFinite(a.page) ? a.page : 1e9) - (Number.isFinite(b.page) ? b.page : 1e9))
         : this._pdfOutline;
       this.tocItems = buildTocItems(this.bookHtml, outline); this.buildTocPanel();
       await this.plugin.ensureReadingFolder(file.path);

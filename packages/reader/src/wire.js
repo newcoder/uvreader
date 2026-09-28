@@ -1688,6 +1688,7 @@ function aiToolState(view, plugin, options = {}) {
           return { preview: "请先告诉我目录页是哪几页（例如「目录页是第 6 页」）；页码偏移如果不知道可以留空，我来推断。" };
         }
         let entries = [];
+        let attachedImages = 0;
         const batchSize = 6;
         for (let start = 0; start < pages.length; start += batchSize) {
           const batch = pages.slice(start, start + batchSize);
@@ -1704,6 +1705,7 @@ function aiToolState(view, plugin, options = {}) {
               } catch { /* text-only extraction */ }
             }
           }
+          attachedImages += Object.keys(images).length;
           const messages = buildTocExtractionMessages(candidatePages, { images });
           let batchEntries = [];
           if (messages.length) {
@@ -1754,6 +1756,9 @@ function aiToolState(view, plugin, options = {}) {
         const lines = [
           `目录页：第 ${pages.join("、")} 页；提取 ${entries.length} 条；页码偏移 ${offset >= 0 ? "+" : ""}${offset}${inferred ? `（${inferred.agree}/${inferred.total} 一致）` : ""}。`,
           `合并后 ${merged.length} 条，保留原有 ${kept} 条。`,
+          attachedImages
+            ? `图片：已附第 ${pages.join("、")} 页（${attachedImages} 张），按图片识别。`
+            : "图片：未附（模型未通过图片检测或未启用），本次仅用目录页文字。",
           "前几条：",
           ...merged.slice(0, 3).map((item) => `- ${item.title} → 第 ${item.page || "?"} 页`),
         ];
@@ -1796,6 +1801,9 @@ function aiToolState(view, plugin, options = {}) {
             rows.push({ label: item.title, page: item.page || undefined, level });
           }
         }
+        // Page order wins after the tag split, so 试题/解答 rows interleave by
+        // their real pages instead of both following their unit row.
+        rows.sort((a, b) => (Number.isFinite(a.page) ? a.page : 1e9) - (Number.isFinite(b.page) ? b.page : 1e9));
         view._pdfOutline = rows;
         plugin._tocDraft = null;
         // Persist beside the other derived data (the PDF itself stays untouched).
