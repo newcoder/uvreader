@@ -94,14 +94,23 @@ export function createPageJump({ translate, svgIcon, docOf, isPdf, pdfPages, rem
       if (!bar || !wrap.isConnected || !wrap.offsetWidth) return;
       const barRect = bar.getBoundingClientRect();
       if (!barRect.width) return;
-      const half = wrap.offsetWidth / 2;
       const gap = 8;
-      const before = wrap.previousElementSibling?.getBoundingClientRect() || null;
-      const after = wrap.nextElementSibling?.getBoundingClientRect() || null;
-      let left = barRect.width / 2;
-      if (before && before.width) left = Math.max(left, before.right - barRect.left + gap + half);
-      if (after && after.width) left = Math.min(left, after.left - barRect.left - gap - half);
-      left = Math.max(half, left);
+      // The title stretches to the tray, so the free strip runs from the back
+      // button to the right tray; the title itself may be overlapped (its text
+      // truncates anyway). Shift right when the left side reaches the centre,
+      // hug the tray when it reaches from the right, and when both sides meet
+      // keep the rightmost spot instead of jumping to the far left.
+      const back = bar.firstElementChild;
+      const after = wrap.nextElementSibling;
+      const half = wrap.offsetWidth / 2;
+      const backRight = back ? back.getBoundingClientRect().right : barRect.left;
+      const afterLeft = after ? after.getBoundingClientRect().left : barRect.right;
+      const leftBound = backRight - barRect.left + gap + half;
+      const rightBound = afterLeft - barRect.left - gap - half;
+      const centre = barRect.width / 2;
+      let left = Math.max(centre, leftBound);
+      if (rightBound >= leftBound) left = Math.min(left, rightBound);
+      left = Math.max(half, Math.min(barRect.width - half, left));
       wrap.style.left = `${Math.round(left)}px`;
     };
     view.pageJumpPlace = () => { raf(place); };
