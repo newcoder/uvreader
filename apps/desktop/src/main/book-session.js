@@ -256,11 +256,10 @@ export function downloadBookFile(url, target, { onProgress = null, timeout = 240
 // PDF Drive's search box is a Google Programmable Search widget: the results
 // only exist once its script has rendered them, so the hidden renderer drives
 // the box, waits for result links and returns them for the download queue.
-export function searchPdfdrive(query, { timeout = 15000 } = {}) {
+export function searchPdfdrive(query, { timeout = 20000, maxPages = 5 } = {}) {
   const run = async () => {
     const win = bookPageWindow();
     await loadBookPage(win, "https://pdfdrive.pw/", 20000);
-    const started = Date.now();
     const action = await win.webContents.executeJavaScript(`(() => {
       const input = document.querySelector(".gsc-input input") || document.querySelector("input.gsc-input");
       if (!input) return "no-input";
@@ -273,16 +272,53 @@ export function searchPdfdrive(query, { timeout = 15000 } = {}) {
       return "pressed";
     })()`, true);
     if (action === "no-input") throw new Error("PDF Drive 搜索框不可用");
+    const currentPage = () => win.webContents.executeJavaScript(
+      "String((document.querySelector('.gsc-cursor-current-page') || {}).textContent || '1').trim()",
+      true,
+    );
+    const scrape = () => win.webContents.executeJavaScript(
+      "Array.from(document.querySelectorAll('.gsc-results .gs-title a')).map((a) => ({ title: String(a.textContent || ''), url: String(a.href || '') }))",
+      true,
+    );
+    const waitFor = async (check, ms) => {
+      const until = Date.now() + ms;
+      for (;;) {
+        if (await check()) return true;
+        if (Date.now() > until) return false;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    };
+    const ready = await waitFor(async () => (await scrape()).length > 0, timeout);
+    if (!ready) throw new Error("PDF Drive 没有返回结果（可能需要人机验证）");
+    const links = [];
+    const seen = new Set();
+    let page = 1;
     for (;;) {
-      const links = await win.webContents.executeJavaScript(
-        "Array.from(document.querySelectorAll('.gsc-results .gs-title a')).map((a) => ({ title: String(a.textContent || ''), url: String(a.href || '') }))",
-        true,
-      );
-      const usable = (Array.isArray(links) ? links : []).filter((item) => /^https?:/i.test(item.url));
-      if (usable.length) return usable;
-      if (Date.now() - started > timeout) throw new Error("PDF Drive 没有返回结果（可能需要人机验证）");
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      const items = await scrape();
+      for (const item of Array.isArray(items) ? items : []) {
+        if (!/^https?:/i.test(item.url) || seen.has(item.url)) continue;
+        seen.add(item.url);
+        links.push(item);
+      }
+      if (page >= maxPages) break;
+      // Google CSE pager: click the number after the current one, then wait
+      // until the pager marks it current before scraping again.
+      const next = await win.webContents.executeJavaScript(`(() => {
+        const current = String((document.querySelector('.gsc-cursor-current-page') || {}).textContent || '').trim();
+        const target = String(Number(current) + 1);
+        const button = Array.from(document.querySelectorAll('.gsc-cursor-page'))
+          .find((el) => String(el.textContent || '').trim() === target);
+        if (!button) return "";
+        button.click();
+        return target;
+      })()`, true);
+      if (!next) break;
+      const moved = await waitFor(async () => (await currentPage()) === next, 8000);
+      if (!moved) break;
+      page += 1;
     }
+    if (!links.length) throw new Error("PDF Drive 没有返回结果（可能需要人机验证）");
+    return links;
   };
   const result = pageQueue.then(run, run);
   pageQueue = result.catch(() => {});

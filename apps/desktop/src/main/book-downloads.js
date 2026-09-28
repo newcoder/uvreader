@@ -83,7 +83,7 @@ export function pickArchiveFile(metadata, identifier) {
   return null;
 }
 
-export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileDownload = null, downloadRoot = "" } = {}) {
+export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileDownload = null, pdfdriveSearch = null, downloadRoot = "" } = {}) {
   const root = String(downloadRoot || "");
   const jobs = new Map();
   const waiting = [];
@@ -96,6 +96,11 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
   }
 
   async function fetchSource(source, query, signal) {
+    // PDF Drive has no catalogue endpoint: the hidden renderer runs the Google
+    // widget and hands back the rendered result links (all pages).
+    if (source.kind === "pdfdrive" && typeof pdfdriveSearch === "function") {
+      return resultsFromSource(source, await pdfdriveSearch(query));
+    }
     const request = bookSearchRequest(source, query);
     if (!request) return [];
     // Z-Library's anti-bot page only clears in a real renderer.
