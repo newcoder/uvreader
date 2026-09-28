@@ -106,7 +106,11 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
     // Z-Library's anti-bot page only clears in a real renderer.
     if (source.kind === "zlib" && typeof pageFetch === "function") {
       const html = await pageFetch(request.url);
-      return resultsFromSource(source, html);
+      const rows = resultsFromSource(source, html);
+      // A verification page can pass the title check yet carry no book cards;
+      // surface that instead of pretending the search found nothing.
+      if (!rows.length) throw new Error("来源没有返回可解析的结果（可能卡在验证页）");
+      return rows;
     }
     const response = await fetchImpl(request.url, { signal, redirect: "follow" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);

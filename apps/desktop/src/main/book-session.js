@@ -205,13 +205,13 @@ function loadBookPage(win, url, timeoutMs) {
     const poll = () => {
       if (settled) return;
       const title = String(win.webContents.getTitle?.() || "");
-      if (title && !/checking your browser/i.test(title)) {
+      if (title && !/checking your browser|just a moment|verify you are human|attention required|请稍候|正在验证/i.test(title)) {
         if (sawChallenge) log("zlib challenge passed");
         // Let late slots/scripts fill in before the DOM is read.
         setTimeout(() => finish(null), 600);
         return;
       }
-      if (/checking your browser/i.test(title)) sawChallenge = true;
+      if (/checking your browser|just a moment|verify you are human|attention required|请稍候|正在验证/i.test(title)) sawChallenge = true;
       if (Date.now() - started > timeoutMs) {
         finish(new Error("页面加载超时（未能通过来源验证）"));
         return;
