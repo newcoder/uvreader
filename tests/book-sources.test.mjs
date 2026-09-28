@@ -5,10 +5,12 @@ import {
   bookSearchRequest,
   dedupeBookResults,
   DEFAULT_BOOK_SOURCES,
+  downloadLinkFromOpdsPage,
   downloadLinkFromZlibPage,
   enabledBookSources,
   normalizeBookSources,
   pickDownloadFormat,
+  resultsFromGutenbergOpds,
   resultsFromOpds,
   resultsFromSource,
   resultsFromZlibHtml,
@@ -86,7 +88,11 @@ test("user sources keep their order, edits and enable flags, and archive is drop
 test("search requests are built per source kind", () => {
   const [gutenberg, standard, zlib] = DEFAULT_BOOK_SOURCES;
   const openlibrary = { id: "openlibrary", name: "Open Library", url: "https://openlibrary.org", kind: "openlibrary" };
-  assert.match(bookSearchRequest(gutenberg, "dune").url, /gutendex\.com\/books\/\?search=dune$/);
+  assert.match(bookSearchRequest(gutenberg, "dune").url, /www\.gutenberg\.org\/ebooks\/search\.opds\/\?query=dune$/);
+  assert.equal(bookSearchRequest(gutenberg, "dune").kind, "opds");
+  const gutendex = { id: "gutenberg", name: "Project Gutenberg", url: "https://gutendex.com", kind: "gutenberg" };
+  assert.equal(bookSearchRequest(gutendex, "dune").kind, "json");
+  assert.match(bookSearchRequest(gutendex, "dune").url, /gutendex\.com\/books\/\?search=dune$/);
   assert.match(bookSearchRequest(standard, "dune").url, /search\?query=dune$/);
   const archive = { id: "archive", name: "Internet Archive", url: "https://archive.org", kind: "archive" };
   const archiveUrl = decodeURIComponent(bookSearchRequest(archive, "dune").url);
@@ -100,7 +106,7 @@ test("search requests are built per source kind", () => {
 });
 
 test("gutendex results map into the common shape with epub preferred", () => {
-  const [gutenberg] = DEFAULT_BOOK_SOURCES;
+  const gutenberg = { id: "gutenberg", name: "Project Gutenberg", url: "https://gutendex.com", kind: "gutenberg" };
   const [book] = resultsFromSource(gutenberg, {
     results: [{
       id: 84,
@@ -136,6 +142,43 @@ test("standard ebooks OPDS entries map into the common shape", () => {
   assert.equal(book.language, "en-GB");
   assert.equal(book.downloadable, true);
   assert.match(book.url, /standardebooks\.org\/ebooks\/emily-bronte\/wuthering-heights/);
+});
+
+test("gutenberg.org OPDS search lists book pages and resolves the epub file", () => {
+  const feed = [
+    "<feed>",
+    "<entry><title>Subjects</title><content type=\"text\">3 subject headings match your search.</content>",
+    "<link rel=\"subsection\" href=\"/ebooks/subjects/search.opds/?query=dune\"/></entry>",
+    "<entry><title>Dune</title><content type=\"text\">Frank Herbert</content>",
+    "<link rel=\"subsection\" href=\"/ebooks/12345.opds\"/></entry>",
+    "</feed>",
+  ].join("");
+  const source = { id: "gutenberg", name: "Project Gutenberg", url: "https://www.gutenberg.org", kind: "gutenberg" };
+  const results = resultsFromGutenbergOpds(feed, source);
+  assert.deepEqual(results, [{
+    source: "gutenberg",
+    sourceName: "Project Gutenberg",
+    title: "Dune",
+    author: "Frank Herbert",
+    language: "",
+    year: "",
+    format: "",
+    url: "",
+    info: "https://www.gutenberg.org/ebooks/12345.opds",
+    license: "public-domain",
+    downloadable: true,
+    needsSession: false,
+    size: "",
+  }]);
+  const page = [
+    "<feed><entry>",
+    "<link rel=\"http://opds-spec.org/acquisition/open-access\" type=\"text/html\" href=\"/ebooks/12345.html.images\"/>",
+    "<link rel=\"http://opds-spec.org/acquisition/open-access\" type=\"application/pdf\" href=\"/ebooks/12345.pdf.images\"/>",
+    "<link rel=\"http://opds-spec.org/acquisition/open-access\" type=\"application/epub+zip\" href=\"/ebooks/12345.epub.images\"/>",
+    "</entry></feed>",
+  ].join("");
+  const picked = downloadLinkFromOpdsPage(page, "https://www.gutenberg.org/ebooks/12345.opds", ["epub", "pdf"]);
+  assert.deepEqual(picked, { url: "https://www.gutenberg.org/ebooks/12345.epub.images", format: "epub", priority: 0 });
 });
 
 test("archive results point at the item page for a later resolve", () => {

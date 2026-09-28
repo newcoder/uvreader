@@ -17,7 +17,7 @@ export const BOOK_SOURCE_KINDS = Object.freeze([
 ]);
 
 export const DEFAULT_BOOK_SOURCES = Object.freeze([
-  { id: "gutenberg", name: "Project Gutenberg", url: "https://gutendex.com", kind: "gutenberg", enabled: true },
+  { id: "gutenberg", name: "Project Gutenberg", url: "https://www.gutenberg.org", kind: "gutenberg", enabled: true },
   { id: "standard-ebooks", name: "Standard Ebooks", url: "https://standardebooks.org/feeds/opds", kind: "standard-ebooks", enabled: true },
   { id: "zlib", name: "Z-Library", url: "https://z-library.sk", kind: "zlib", enabled: true },
   { id: "pdfdrive", name: "PDF Drive", url: "https://pdfdrive.pw", kind: "pdfdrive", enabled: true },
@@ -81,7 +81,14 @@ export function bookSearchRequest(source, query) {
   const base = String(source.url || "").replace(/\/+$/, "");
   switch (source.kind) {
     case "gutenberg":
+      // The official site answers with OPDS; every other base (Gutendex, a
+      // local test server, a custom mirror) keeps the JSON API path.
+      if (/gutenberg\.org/i.test(base)) {
+        return { kind: "opds", url: `${base}/ebooks/search.opds/?query=${encodeURIComponent(q)}`, source };
+      }
       return { kind: "json", url: `${base}/books/?search=${encodeURIComponent(q)}`, source };
+    case "pdfdrive":
+      return null;
     case "standard-ebooks":
       return { kind: "opds", url: `${base}/search?query=${encodeURIComponent(q)}`, source };
     case "archive":
@@ -308,11 +315,66 @@ export function resultsFromPdfdriveLinks(links, source) {
   return out;
 }
 
+// Project Gutenberg's own OPDS search: entries link to each book's OPDS page
+// (`/ebooks/<id>.opds`); the actual file link is resolved from there.
+export function resultsFromGutenbergOpds(xml, source) {
+  const text = String(xml || "");
+  const out = [];
+  for (const match of text.matchAll(/<entry>([\s\S]*?)<\/entry>/gi)) {
+    const block = match[1];
+    const title = stripTags(block.match(/<title>([\s\S]*?)<\/title>/i)?.[1] || "");
+    const author = stripTags(block.match(/<content[^>]*>([\s\S]*?)<\/content>/i)?.[1] || "");
+    const href = block.match(/<link[^>]*rel="subsection"[^>]*href="([^"]+)"/i)?.[1]
+      || block.match(/<link[^>]*href="([^"]+)"[^>]*rel="subsection"/i)?.[1] || "";
+    const info = absolute(href, source?.url || "https://www.gutenberg.org");
+    if (!title || !/\/ebooks\/\d+\.opds$/i.test(info)) continue;
+    out.push({
+      source: source.id,
+      sourceName: source.name,
+      title,
+      author,
+      language: "",
+      year: "",
+      format: "",
+      url: "",
+      info,
+      license: "public-domain",
+      downloadable: true,
+      needsSession: false,
+      size: "",
+    });
+  }
+  return out;
+}
+
+// A Gutenberg book OPDS page carries the acquisition links; epub wins, then
+// pdf, then plain text.
+export function downloadLinkFromOpdsPage(xml, base, preferred = ["epub", "pdf"]) {
+  const text = String(xml || "");
+  const candidates = [];
+  for (const match of text.matchAll(/<link\b[^>]*>/gi)) {
+    const tag = match[0];
+    if (!/rel="http:\/\/opds-spec\.org\/acquisition/i.test(tag)) continue;
+    const url = absolute(tag.match(/href="([^"]+)"/i)?.[1] || "", base);
+    if (!url) continue;
+    const type = tag.match(/type="([^"]+)"/i)?.[1] || "";
+    const format = /epub/i.test(type) ? "epub" : /pdf/i.test(type) ? "pdf" : /text\/plain|text\/html/i.test(type) ? "txt" : "";
+    const priority = format ? preferred.indexOf(format) : preferred.length;
+    candidates.push({ url, format, priority: priority < 0 ? preferred.length + 1 : priority });
+  }
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => a.priority - b.priority);
+  return candidates[0];
+}
+
 export function resultsFromSource(source, payload) {
   if (source?.kind === "zlib") return resultsFromZlibHtml(payload, source);
   if (source?.kind === "pdfdrive") return resultsFromPdfdriveLinks(payload, source);
+
   if (!source || !payload) return [];
-  if (source.kind === "gutenberg") return resultsFromGutendex(payload, source);
+  if (source.kind === "gutenberg") {
+    return typeof payload === "string" ? resultsFromGutenbergOpds(payload, source) : resultsFromGutendex(payload, source);
+  }
   if (source.kind === "standard-ebooks") return resultsFromOpds(payload, source);
   if (source.kind === "archive") return resultsFromArchive(payload, source);
   if (source.kind === "openlibrary") return resultsFromOpenLibrary(payload, source);
