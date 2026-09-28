@@ -114,20 +114,40 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
     return resultsFromSource(source, payload);
   }
 
+  // A source that keeps failing (offline mirror, blocked host, broken
+  // endpoint) is skipped for a while instead of stalling every book in the
+  // batch with its timeout.
+  const sourceFails = new Map();
+  const sourceCooldown = new Map();
+  const SOURCE_FAIL_LIMIT = 2;
+  const SOURCE_COOLDOWN_MS = 10 * 60 * 1000;
+
   // Fan out; one failing source never fails the search.
   async function search({ sources = [], query = "" } = {}, { timeout = BOOK_SEARCH_TIMEOUT } = {}) {
     const cleaned = String(query || "").trim();
     const enabled = (Array.isArray(sources) ? sources : []).filter((source) => source?.enabled !== false);
     if (!cleaned || !enabled.length) return { results: [], errors: [] };
     const settled = await Promise.all(enabled.map(async (source) => {
+      if ((sourceCooldown.get(source.id) || 0) > Date.now()) {
+        log("search skipped (cooling down)", source.id);
+        return { source, results: [] };
+      }
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
       try {
         const results = await fetchSource(source, cleaned, controller.signal);
+        sourceFails.delete(source.id);
+        sourceCooldown.delete(source.id);
         return { source, results };
       } catch (error) {
         const message = String(error?.name === "AbortError" ? "超时" : error?.message || error).slice(0, 160);
         log("search failed", source.id, message);
+        const fails = (sourceFails.get(source.id) || 0) + 1;
+        sourceFails.set(source.id, fails);
+        if (fails >= SOURCE_FAIL_LIMIT) {
+          sourceCooldown.set(source.id, Date.now() + SOURCE_COOLDOWN_MS);
+          sourceFails.delete(source.id);
+        }
         return { source, error: message };
       } finally {
         clearTimeout(timer);

@@ -324,6 +324,13 @@ export function searchPdfdrive(query, { timeout = 30000, maxPages = 2 } = {}) {
         await new Promise((resolve) => setTimeout(resolve, 500));
       }
     };
+    // If Google's widget never renders, waiting the full timeout twice just
+    // stalls the whole batch: fail fast with the real reason instead.
+    const widgetLoaded = await waitFor(
+      async () => Boolean(await win.webContents.executeJavaScript("Boolean(document.querySelector('.gsc-control-cse, .gsc-results'))", true).catch(() => false)),
+      10000,
+    );
+    if (!widgetLoaded) throw new Error("PDF Drive 搜索组件未加载（网络或代理问题）");
     let ready = await waitFor(async () => (await scrape()).length > 0, timeout);
     if (!ready) {
       // Transient SSL or consent hiccups: reload once and retry the query.
