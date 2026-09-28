@@ -31,8 +31,19 @@ export function createLibraryModal({
     const hdr = this._buildLibBrand(contentEl); this._setupDropZone();
     const { input } = this._buildLibTools(hdr);
     const tabs = this._buildLibTabs(contentEl);
+    // The per-tab action row sits right under the search box: the import
+    // button on the local tab, the select-all/download bar on the online tab
+    // (sticky, so it stays visible while results scroll).
+    const actionRow = contentEl.createDiv("qiaomu-reader-lib-actions");
+    const add = actionRow.createDiv("qiaomu-reader-lib-add");
+    const addText = qiaomuReaderTranslate("add-a-book");
+    this._setAttrs(add, { role: "button", tabindex: "0" });
+    add.setAttribute("aria-label", addText);
+    svgIcon(add, "plus");
+    add.createSpan({ cls: "qiaomu-reader-lib-add-label", text: addText });
+    this._activateOnClick(add, () => this._pickBooks());
     this._libMode = "vault";
-    this._libDeps = { contentEl, input, tabs, grid: null, redraw: null };
+    this._libDeps = { contentEl, input, tabs, actionRow, grid: null, redraw: null };
     tabs.localBtn.addEventListener("click", () => this._setLibMode("vault"));
     tabs.onlineBtn.addEventListener("click", () => this._setLibMode("online"));
     input.addEventListener("input", () => {
@@ -131,6 +142,7 @@ export function createLibraryModal({
       return;
     }
     const online = mode === "online";
+    if (!online) deps.actionRow?.querySelector(".qiaomu-reader-lib-download-bar")?.remove();
     this._libMode = mode;
     deps.contentEl.toggleClass("qiaomu-reader-lib-online", online);
     deps.tabs.localBtn.toggleClass("qiaomu-reader-lib-tab-on", !online);
@@ -185,7 +197,7 @@ export function createLibraryModal({
     if (errors.length) {
       grid.createDiv({ cls: "qiaomu-reader-lib-result-errors", text: `${qiaomuReaderTranslate("search-online-sources-failed")}：${errors.map((e) => e.name || e.source).join(", ")}` });
     }
-    syncBar = this._buildOnlineActions(grid, selected, rows);
+    syncBar = this._buildOnlineActions(this._libDeps.actionRow || grid, selected, rows);
   }
   // The AI path: fuzzy request → book list → each book looked up in the
   // sources. Returns false (and lets the plain search run) when the AI is
@@ -219,7 +231,7 @@ export function createLibraryModal({
       const card = cardByGroup.get(group);
       if (card) grid.append(card);
     }
-    syncBar = this._buildOnlineActions(grid, selected, rows);
+    syncBar = this._buildOnlineActions(this._libDeps.actionRow || grid, selected, rows);
     return true;
   }
   _renderBookGroup(grid, group, context) {
@@ -283,8 +295,9 @@ export function createLibraryModal({
     rows.push({ result, row, box, status });
     return row;
   }
-  _buildOnlineActions(grid, selected, rows) {
-    const bar = grid.createDiv("qiaomu-reader-lib-download-bar");
+  _buildOnlineActions(host, selected, rows) {
+    host.querySelector(".qiaomu-reader-lib-download-bar")?.remove();
+    const bar = host.createDiv("qiaomu-reader-lib-download-bar");
     const selectAll = bar.createEl("button", { text: qiaomuReaderTranslate("select-all") });
     const start = bar.createEl("button", { cls: "mod-cta", text: qiaomuReaderTranslate("search-online-download-selected") });
     const syncBar = () => { start.setText(`${qiaomuReaderTranslate("search-online-download-selected")}${selected.size ? ` (${selected.size})` : ""}`); start.disabled = !selected.size; };
@@ -381,14 +394,6 @@ export function createLibraryModal({
     const hw = brand.createDiv("qiaomu-reader-lib-hw");
     hw.createDiv("qiaomu-reader-lib-title").setText(qiaomuReaderTranslate("library"));
 
-    // Primary action: import book files into the library folder.
-    const add = headline.createDiv("qiaomu-reader-lib-add");
-    const addText = qiaomuReaderTranslate("add-a-book");
-    this._setAttrs(add, { role: "button", tabindex: "0" });
-    add.setAttribute("aria-label", addText);
-    svgIcon(add, "plus");
-    add.createSpan({ cls: "qiaomu-reader-lib-add-label", text: addText });
-    this._activateOnClick(add, () => this._pickBooks());
     return hdr;
   }
   _buildLibTools(hdr) {
