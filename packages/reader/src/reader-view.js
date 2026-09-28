@@ -297,6 +297,13 @@ export function createReaderView({
     const scan = ready?.scan || result?.scan;
     if (!scan || !(scan.total > 0) || scan.textPages >= scan.total) return;
     if (!file || file.extension !== "pdf") return;
+    // The layer was already generated for this exact file: skip the queue and
+    // never show the progress bar again.
+    const stat = file.stat || {};
+    const stamp = Number.isFinite(stat.mtime) || Number.isFinite(stat.size) ? `${stat.mtime || 0}:${stat.size || 0}` : "";
+    let done = false;
+    try { done = await this.plugin.ocrTextLayerComplete?.(file.path, stamp) === true; } catch { done = false; }
+    if (done) return;
     if (!this.plugin.ocrEnabled?.()) return;
     if (!this.plugin.ocrConfigured?.()) {
       if (this.plugin.ocrNotConfiguredHint?.()) {
@@ -343,7 +350,13 @@ export function createReaderView({
         token.done = 0;
         await this._runTextLayerPass(file, total, token);
       }
-      if (this._ocrJob === token && !token.cancelled) this._showOcrBar({ kind: "ready", file });
+      if (this._ocrJob === token && !token.cancelled) {
+        // Fully generated: remember it so the progress bar never returns.
+        const stat = file?.stat || {};
+        const stamp = Number.isFinite(stat.mtime) || Number.isFinite(stat.size) ? `${stat.mtime || 0}:${stat.size || 0}` : "";
+        void this.plugin.markOcrTextLayerComplete?.(file.path, stamp);
+        this._showOcrBar({ kind: "ready", file });
+      }
     } catch (error) {
       if (this._ocrJob === token) this._showOcrBar({ kind: "error", message: this.plugin.ocrErrorText?.(error) || "OCR" });
     } finally {

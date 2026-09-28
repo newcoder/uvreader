@@ -676,6 +676,36 @@ export function createPlugin({
       if (rel && adapter?.remove && (await adapter.exists(rel))) await adapter.remove(rel);
     } catch { /* undo is best-effort */ }
   }
+  // ── OCR text layer completion marker ──────────────────────────────────────
+  // derived/ocr-done.json (same mtime:size stamp): once the layer is fully
+  // generated the reader skips the queue, and its progress bar, on later opens.
+  async _ocrDonePath(bookPath) {
+    const { folder } = await this._readingStore().ensureBook(bookPath, this._bookMeta(bookPath));
+    return `${this._readingRoot()}/${folder}/derived/ocr-done.json`;
+  }
+  async ocrTextLayerComplete(bookPath, stamp = "") {
+    try {
+      const rel = await this._ocrDonePath(bookPath);
+      const adapter = this.app.vault.adapter;
+      if (!rel || !adapter?.read || !(await adapter.exists(rel))) return false;
+      const payload = JSON.parse(await adapter.read(rel));
+      const data = payload?.data || payload;
+      if (!data?.done) return false;
+      if (stamp && data.stamp && data.stamp !== stamp) return false;
+      return true;
+    } catch { return false; }
+  }
+  async markOcrTextLayerComplete(bookPath, stamp = "") {
+    try {
+      const rel = await this._ocrDonePath(bookPath);
+      const adapter = this.app.vault.adapter;
+      if (!rel || !adapter?.write) return false;
+      const dir = rel.split("/").slice(0, -1).join("/");
+      if (adapter.mkdir && dir && !(await adapter.exists(dir))) await adapter.mkdir(dir).catch(() => {});
+      await adapter.write(rel, JSON.stringify({ schemaVersion: 1, data: { done: true, stamp } }, null, 2));
+      return true;
+    } catch { return false; }
+  }
   // ── online book search and downloads ──────────────────────────────────────
   booksBridge() {
     return typeof window !== "undefined" ? window.qbrDesktop?.books || null : null;
