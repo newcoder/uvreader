@@ -441,6 +441,7 @@ export default {
   "search-online-downloading": "내려받는 중…",
   "search-online-download-selected": "선택 항목 내려받기",
   "search-online-downloaded-0": "서재에 추가했습니다: {0}",
+  "download-failed": "내려받기 실패",
   "search-a-book": "책 검색…",
   "smaller-covers": "표지 작게",
   "larger-covers": "표지 크게",

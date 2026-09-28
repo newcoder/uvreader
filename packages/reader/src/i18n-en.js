@@ -441,6 +441,7 @@ export const QIAOMU_READER_EN = {
   "search-online-downloading": "Downloading…",
   "search-online-download-selected": "Download selected",
   "search-online-downloaded-0": "Added to the library: {0}",
+  "download-failed": "Download failed",
   "search-a-book": "Search a book…",
   "smaller-covers": "Smaller covers",
   "larger-covers": "Larger covers",

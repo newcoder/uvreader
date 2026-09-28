@@ -521,6 +521,7 @@ export const QIAOMU_READER_ZH_CN = {
   "search-online-downloading": "下载中…",
   "search-online-download-selected": "下载所选",
   "search-online-downloaded-0": "已加入书库：{0}",
+  "download-failed": "下载失败",
   "search-a-book": "搜索图书…",
   "smaller-covers": "较少覆盖",
   "larger-covers": "更多封面",

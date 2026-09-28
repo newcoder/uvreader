@@ -325,8 +325,9 @@ export function createLibraryModal({
         // switches back to the local tab.
         this._libStale = true;
       } else {
-        if (status) status.setText(`${qiaomuReaderTranslate("search-online-failed")}：${String(outcome?.error || "").slice(0, 60)}`);
-        if (!outcome?.cancelled) new Notice(`${qiaomuReaderTranslate("search-online-failed")}：${String(outcome?.error || "").slice(0, 120)}`, 10000);
+        const reason = String(outcome?.error || "").slice(0, 120) || qiaomuReaderTranslate("download-failed");
+        if (status) status.setText(`${qiaomuReaderTranslate("download-failed")}：${reason.slice(0, 60)}`);
+        if (!outcome?.cancelled) new Notice(`${qiaomuReaderTranslate("download-failed")}：${reason}`, 10000);
       }
     } finally {
       this._onlineDownloads.delete(jobId);

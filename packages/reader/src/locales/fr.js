@@ -441,6 +441,7 @@ export default {
   "search-online-downloading": "Téléchargement…",
   "search-online-download-selected": "Télécharger la sélection",
   "search-online-downloaded-0": "Ajouté à la bibliothèque : {0}",
+  "download-failed": "Échec du téléchargement",
   "search-a-book": "Rechercher un livre…",
   "smaller-covers": "Couvertures plus petites",
   "larger-covers": "Couvertures plus grandes",

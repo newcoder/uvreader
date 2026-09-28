@@ -443,6 +443,7 @@ export default {
   "search-online-downloading": "Скачивание…",
   "search-online-download-selected": "Скачать выбранное",
   "search-online-downloaded-0": "Добавлено в библиотеку: {0}",
+  "download-failed": "Не удалось скачать",
   "search-a-book": "Поиск книги…",
   "smaller-covers": "Меньше обложки",
   "larger-covers": "Больше обложки",

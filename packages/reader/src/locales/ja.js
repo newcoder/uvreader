@@ -441,6 +441,7 @@ export default {
   "search-online-downloading": "ダウンロード中…",
   "search-online-download-selected": "選択をダウンロード",
   "search-online-downloaded-0": "書庫に追加しました：{0}",
+  "download-failed": "ダウンロードに失敗しました",
   "search-a-book": "本を検索…",
   "smaller-covers": "カバーを小さく",
   "larger-covers": "カバーを大きく",
