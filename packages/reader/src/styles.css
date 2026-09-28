@@ -190,6 +190,7 @@ img.qiaomu-reader-pdf-lazy:not([data-loaded="1"]) { background:color-mix(in srgb
 .qiaomu-reader-lib-actions .qiaomu-reader-lib-download-bar { flex:1 1 auto; padding-top:0; display:none; }
 .qiaomu-reader-lib-online .qiaomu-reader-lib-actions .qiaomu-reader-lib-download-bar { display:flex; }
 .qiaomu-reader-lib-grid[hidden] { display:none; }
+.qiaomu-reader-lib-online .qiaomu-reader-lib-grid:not(.qiaomu-reader-lib-online-grid) { display:none; }
 .qiaomu-reader-lib-tab { position:relative; border:0; background:transparent; color:var(--qiaomu-reader-lib-muted,#8a8678); font:inherit; font-size:13.5px; font-weight:650; padding:7px 1px 11px; cursor:pointer; letter-spacing:.01em; }
 .qiaomu-reader-lib-tab:hover { color:var(--qiaomu-reader-lib-text,#1a1a2e); }
 .qiaomu-reader-lib-tab-on { color:var(--qiaomu-reader-lib-text,#1a1a2e); }
