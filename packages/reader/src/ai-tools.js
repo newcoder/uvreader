@@ -94,7 +94,7 @@ export const AI_TOOL_DEFINITIONS = Object.freeze([
   },
   {
     name: "toc_scan",
-    description: "只读检查当前 PDF 的目录情况（已有大纲条目数等），用于回答“目录为什么不能跳转/不完整”。不要在制作目录时读取正文页或发送无关截图。",
+    description: "只读检查当前 PDF 的目录情况（已有大纲条目数等），用于回答“目录为什么不能跳转/不完整”。制作目录时不要读取正文页、不要发送无关截图、不要调用 get_book_outline，直接询问读者目录页与偏移。",
     parameters: { type: "object", properties: {}, additionalProperties: false },
   },
   {

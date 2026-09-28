@@ -144,7 +144,7 @@ export function createAiExplainModal({
     empty.createDiv({ cls: "qiaomu-reader-ai-empty-title", text: qiaomuReaderTranslate("what-would-you-like-to-ask") });
     empty.createDiv({ cls: "qiaomu-reader-ai-empty-sub", text: qiaomuReaderTranslate("choose-a-quick-prompt-or-write-your-own") });
     if (this.scannedPdf) {
-      empty.createDiv({ cls: "qiaomu-reader-ai-empty-sub qiaomu-reader-ai-empty-note", text: qiaomuReaderTranslate("scanned-pdf-the-current-page-image-is-attached-automatically") });
+
     }
     this.empty = empty;
   }
@@ -249,11 +249,8 @@ export function createAiExplainModal({
     if (this.busy || this._historySaving || (!text && !(this.attachments || []).length)) return false;
     if (!this._regeneratingContext) this._prepareContext?.();
     this._regeneratingContext = false;
-    // A scanned PDF has no text to send; its page image rides along instead.
-    if (aiNeedsPageImage?.(this)) {
-      try { await captureAiScreenshot(this, { page: true }); }
-      catch { /* the turn still goes out, just without the page image */ }
-    }
+    // Page screenshots are attached only when the reader asks for them (the
+    // paperclip menu); nothing rides along automatically.
     this.busy = true;
     this.abortController = new AbortController();
     this._setSending(true);
