@@ -151,6 +151,16 @@ function titleKey(value) {
 // the generated (verified) pages and gain the missing ones, outline-only items
 // such as 前言/附录 survive, and every record knows where it came from.
 export function mergeTocEntries(existing, generated) {
+  // Outline titles are canonical, so a generated entry whose answer page lands
+  // on an outline destination adopts that title: OCR text layers sometimes
+  // mis-order lines (a unit subtitle glued to the previous unit), and the
+  // printed numbers still line up.
+  const outlineByPage = new Map();
+  for (const item of Array.isArray(existing) ? existing : []) {
+    const page = Math.round(Number(item?.page)) || 0;
+    const title = cleanTocLine(item?.label || item?.title);
+    if (page && title) outlineByPage.set(page, title);
+  }
   const merged = [];
   const seen = new Map();
   const push = (entry) => {
@@ -170,7 +180,12 @@ export function mergeTocEntries(existing, generated) {
   // Generated entries come first so their verified pages win; the outline then
   // fills gaps (its label is kept when it is the fuller one).
   for (const item of Array.isArray(generated) ? generated : []) {
-    push({ title: cleanTocLine(item?.title), level: Math.round(Number(item?.level)) || 1, page: Math.round(Number(item?.pdfPage ?? item?.page)) || null, page2: Math.round(Number(item?.pdfPage2 ?? item?.page2)) || null, source: "toc" });
+    const page = Math.round(Number(item?.pdfPage ?? item?.page)) || null;
+    const page2 = Math.round(Number(item?.pdfPage2 ?? item?.page2)) || null;
+    const generatedTitle = cleanTocLine(item?.title);
+    const outlineTitle = outlineByPage.get(page2 || page);
+    const title = outlineTitle && titleKey(outlineTitle) !== titleKey(generatedTitle) ? outlineTitle : generatedTitle;
+    push({ title, level: Math.round(Number(item?.level)) || 1, page, page2, source: "toc" });
   }
   for (const item of Array.isArray(existing) ? existing : []) {
     const title = cleanTocLine(item?.label || item?.title);

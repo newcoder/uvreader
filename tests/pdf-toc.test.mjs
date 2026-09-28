@@ -94,6 +94,30 @@ test("merging keeps outline-only entries and adds the missing exercise links", (
   assert.deepEqual([...ordered].sort((a, b) => a - b), ordered, "merged list stays ordered by page");
 });
 
+test("mis-ordered OCR titles are repaired from the outline by matching answer pages", () => {
+  // The real page-6 text layer glues 第十五单元's subtitle onto 第十四单元 and
+  // puts 试题解答 (the column header) at the end; the printed numbers still land
+  // on the outline destinations, so those titles win.
+  const outline = [
+    { label: "第十四单元 最佳选择 试题*67 解答", page: 128, level: 1 },
+    { label: "第十五单元 最大最小问题 试题*73 解答", page: 134, level: 1 },
+    { label: "第十六单元 博奕问题 试题*78 解答", page: 140, level: 1 },
+  ];
+  const generated = [
+    { title: "第十四单元 最佳选择 最大最小问题", level: 1, pdfPage: 73, pdfPage2: 128 },
+    { title: "第十五单元 博奕问题", level: 1, pdfPage: 79, pdfPage2: 134 },
+    { title: "第十六单元 试题解答", level: 1, pdfPage: 84, pdfPage2: 140 },
+  ];
+  const merged = mergeTocEntries(outline, generated);
+  assert.deepEqual(merged.map((item) => item.title), [
+    "第十四单元 最佳选择",
+    "第十五单元 最大最小问题",
+    "第十六单元 博奕问题",
+  ]);
+  assert.deepEqual(merged.map((item) => item.page), [73, 79, 84]);
+  assert.deepEqual(merged.map((item) => item.page2), [128, 134, 140]);
+});
+
 test("validation flags impossible levels, ranges and reversals", () => {
   const report = validateTocEntries([
     { title: "a", level: 1, pdfPage: 10 },
