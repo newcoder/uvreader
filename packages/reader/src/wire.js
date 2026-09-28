@@ -1678,9 +1678,21 @@ function aiToolState(view, plugin, options = {}) {
             .slice(0, 2).map((item) => ({ page: item.page, text: pageText(item.page) }));
         if (!candidates.length) return { preview: "没有找到目录页；请告诉我页码（例如「目录在第 6 页」），我再生成。" };
         let entries = [];
-        const messages = buildTocExtractionMessages(candidates);
+        // With a vision model, send the page images too: the printed page beats
+        // a scrambled text layer for line order and the number columns.
+        const images = {};
+        if (options.canSeeImages === true) {
+          for (const item of candidates) {
+            try {
+              const rendered = await view._pdfLazy.render?.(item.page, docOf(view.areaEl || view.contentEl));
+              const data = String(rendered?.src || "").split(",")[1] || "";
+              if (data) images[item.page] = { data, mimeType: "image/jpeg" };
+            } catch { /* text-only extraction */ }
+          }
+        }
+        const messages = buildTocExtractionMessages(candidates, { images });
         if (messages.length) {
-          try { entries = parseTocExtractionReply(await aiComplete(messages, plugin)); } catch { entries = []; }
+          try { entries = parseTocExtractionReply(await aiComplete(messages, plugin, { vision: Object.keys(images).length > 0 })); } catch { entries = []; }
         }
         if (!entries.length) {
           for (const item of candidates) entries.push(...parseTocText(item.text));

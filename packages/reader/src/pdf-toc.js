@@ -214,13 +214,32 @@ export const TOC_EXTRACTION_SYSTEM_PROMPT = [
   "5. 只输出：{\"entries\":[{\"level\":1,\"title\":\"…\",\"page\":1,\"page2\":82}]}",
 ].join("\n");
 
-export function buildTocExtractionMessages(pages) {
-  const list = (Array.isArray(pages) ? pages : []).filter((item) => String(item?.text || "").trim());
+export function buildTocExtractionMessages(pages, { images = {} } = {}) {
+  const list = (Array.isArray(pages) ? pages : []).map((item) => ({
+    page: item?.page,
+    text: String(item?.text || "").trim(),
+    image: images?.[item?.page] || null,
+  })).filter((item) => item.text || item.image?.data);
   if (!list.length) return [];
-  const body = list.map((item) => `【第 ${item.page} 页】\n${String(item.text).trim()}`).join("\n\n");
+  const body = list.map((item) => `【第 ${item.page} 页】\n${item.text || "（无可用文字层）"}`).join("\n\n");
+  const withImages = list.filter((item) => item.image?.data);
+  if (!withImages.length) {
+    return [
+      { role: "system", content: TOC_EXTRACTION_SYSTEM_PROMPT },
+      { role: "user", content: `目录页文本如下：\n\n${body}` },
+    ];
+  }
+  // Vision models read the printed page directly: the image is authoritative
+  // for line order and the two page-number columns, the text layer is a hint
+  // (its line order is sometimes scrambled).
+  const parts = [{
+    type: "text",
+    text: `目录页文本（可能行序错乱，仅作参考）：\n\n${body}\n\n已附上目录页图片，请优先按图片识别：行序、试题/解答两列页码、标题折行都以图片为准；文字层与图片冲突时以图片为准。`,
+  }];
+  for (const item of withImages) parts.push({ type: "image", data: item.image.data, mimeType: item.image.mimeType || "image/jpeg" });
   return [
     { role: "system", content: TOC_EXTRACTION_SYSTEM_PROMPT },
-    { role: "user", content: `目录页文本如下：\n\n${body}` },
+    { role: "user", content: parts },
   ];
 }
 

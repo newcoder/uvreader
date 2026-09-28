@@ -152,7 +152,7 @@ export function createPiTransport({ bridge, aiConfig, aiMessages }) {
     try {
       const result = await bridge.stream({
         requestId,
-        config: runtimeConfig(cfg, { thinking: false }),
+        config: runtimeConfig(cfg, { thinking: false, vision: options.vision === true }),
         messages: list,
         options: { sessionKey: "", connectionTest: false },
       }, (delta) => {
