@@ -148,7 +148,7 @@ test("archive results point at the item page for a later resolve", () => {
 });
 
 test("open library keeps public scans downloadable and borrow-only out", () => {
-  const [, , , openlibrary] = DEFAULT_BOOK_SOURCES;
+  const [, , openlibrary] = DEFAULT_BOOK_SOURCES;
   const results = resultsFromSource(openlibrary, {
     docs: [
       { key: "/works/OL1W", title: "Public Scan", ia: ["pubscan01"], public_scan_b: true, author_name: ["A. Author"] },
