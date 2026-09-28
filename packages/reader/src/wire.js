@@ -1689,7 +1689,7 @@ function aiToolState(view, plugin, options = {}) {
         })();
         const pages = wanted.length ? wanted : auto;
         if (!pages.length) return { preview: "没有找到目录页；请告诉我页码（例如「目录在第 6 页」），我再生成。" };
-        const entries = [];
+        let entries = [];
         const batchSize = 6;
         for (let start = 0; start < pages.length; start += batchSize) {
           const batch = pages.slice(start, start + batchSize);
@@ -1717,6 +1717,16 @@ function aiToolState(view, plugin, options = {}) {
           entries.push(...batchEntries);
         }
         if (!entries.length) return { preview: `第 ${pages.join("、")} 页没有解析出条目；可以换一页或确认目录范围。` };
+        // The text layer of some scans loses its line order, which makes the
+        // model fuse or drop unit rows (第十四单元 can disappear). The
+        // deterministic parser keeps the printed number columns in order, and
+        // the outline repair fixes the title rows afterwards, so whenever it
+        // finds more distinct 第N单元 headings than the model did, it wins.
+        const unitCount = (list) => new Set((Array.isArray(list) ? list : [])
+          .map((item) => String(item?.title || "").match(/第[^\s单元]{1,6}单元/)?.[0])
+          .filter(Boolean)).size;
+        const deterministic = pages.flatMap((page) => parseTocText(pageText(page)));
+        if (unitCount(deterministic) > unitCount(entries)) entries = deterministic;
         const outline = (view._pdfOutline || []).map((item) => ({ label: item.label, page: item.page, level: item.level || 1 }));
         const verdict = inferTocOffset(tocAnchors(outline, entries));
         // When titles do not line up (scrambled text layer), align the printed
