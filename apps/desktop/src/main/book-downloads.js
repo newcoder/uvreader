@@ -167,9 +167,12 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
   async function resolveDownload(result) {
     const url = String(result?.url || "");
     // Session-gated sources hand out bare /dl/ links that only work when the
-    // book page triggers them; go through the page whenever we can.
-    if (result?.needsSession && result?.info && typeof pageDownload === "function") {
-      return { page: String(result.info), format: String(result?.format || ""), session: true };
+    // book page triggers them; go through the page whenever we can (a Z-Library
+    // row counts even if the marker got lost on the way).
+    const info = String(result?.info || "");
+    const wantsPage = info && !url && (result?.needsSession === true || result?.source === "zlib" || /\/book\//i.test(info));
+    if (wantsPage && typeof pageDownload === "function") {
+      return { page: info, format: String(result?.format || ""), session: true };
     }
     if (url) return { url, format: String(result?.format || ""), session: result?.needsSession === true };
     if (result?.needsSession && result?.info) {
@@ -185,7 +188,6 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
       if (!picked?.url) throw new Error("没有找到下载链接；请先在上方登录来源，登录后再试");
       return picked;
     }
-    const info = String(result?.info || "");
     // Gutenberg book pages are OPDS documents: the file link lives there.
     if (/\.opds($|[?#])/i.test(info)) {
       const page = await fetchImpl(info, { redirect: "follow" });
