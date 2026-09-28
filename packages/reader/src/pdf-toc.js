@@ -137,14 +137,19 @@ export function validateTocEntries(entries, { totalPages = 0 } = {}) {
   return { ok: problems.length === 0, problems };
 }
 
+// Outline labels often carry hints the TOC text does not ("试题*1 解答");
+// remove them for both display and matching.
+function stripOutlineHints(value) {
+  const cleaned = cleanTocLine(value)
+    .replace(/\s*试题\s*\*?\s*[0-9]*/g, " ")
+    .replace(/\s*解答/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || cleanTocLine(value);
+}
+
 function titleKey(value) {
-  // Outline labels often carry hints the TOC text does not ("试题*1 解答");
-  // strip them so both sides key on the same title.
-  return cleanTocLine(value)
-    .replace(/\s*试题\s*\*?\s*[0-9]*/g, "")
-    .replace(/\s*解答/g, "")
-    .replace(/\s+/g, "")
-    .toLowerCase();
+  return stripOutlineHints(value).replace(/\s+/g, "").toLowerCase();
 }
 
 // Merge the embedded outline with the generated entries: same-title items keep
@@ -158,7 +163,7 @@ export function mergeTocEntries(existing, generated) {
   const outlineByPage = new Map();
   for (const item of Array.isArray(existing) ? existing : []) {
     const page = Math.round(Number(item?.page)) || 0;
-    const title = cleanTocLine(item?.label || item?.title);
+    const title = stripOutlineHints(item?.label || item?.title);
     if (page && title) outlineByPage.set(page, title);
   }
   const merged = [];
@@ -188,7 +193,7 @@ export function mergeTocEntries(existing, generated) {
     push({ title, level: Math.round(Number(item?.level)) || 1, page, page2, source: "toc" });
   }
   for (const item of Array.isArray(existing) ? existing : []) {
-    const title = cleanTocLine(item?.label || item?.title);
+    const title = stripOutlineHints(item?.label || item?.title);
     const key = titleKey(title);
     const record = key ? seen.get(key) : null;
     if (record && title.length > record.title.length) record.title = title;
