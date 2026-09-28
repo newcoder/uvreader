@@ -857,6 +857,13 @@ export function createPlugin({
     this.settings.aiCapabilities = normalizeAiCapabilities(this.settings.aiCapabilities);
     this.settings.aiChatHistory = normalizeAiChatHistory(this.settings.aiChatHistory);
     this.settings.downloadSources = normalizeBookSources(this.settings.downloadSources);
+    // Existing installs keep their saved list, which never gains new defaults
+    // on its own: surface PDF Drive once (Open Library/archive are dropped by
+    // the normaliser above).
+    if (!this.settings.downloadSourcesNew?.pdfdrive && !this.settings.downloadSources.some((source) => source.id === "pdfdrive")) {
+      this.settings.downloadSources.push({ id: "pdfdrive", name: "PDF Drive", url: "https://pdfdrive.pw", kind: "pdfdrive", enabled: true });
+    }
+    this.settings.downloadSourcesNew = { ...(this.settings.downloadSourcesNew || {}), pdfdrive: true };
     this.settings.locationMarks = normalizeLocationMarks(this.settings.locationMarks);
     if (this.settings.aiProvider && this.settings.aiModel && !this.settings.aiModels[this.settings.aiProvider]) {
       this.settings.aiModels[this.settings.aiProvider] = this.settings.aiModel;

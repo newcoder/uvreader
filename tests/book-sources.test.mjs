@@ -57,12 +57,13 @@ test("the z-library book page yields the best download link", () => {
   assert.equal(downloadLinkFromZlibPage("<p>nothing here</p>", "https://z-library.sk"), null);
 });
 
-test("default sources include z-library and the public catalogues, without archive", () => {
+test("default sources include z-library, the public catalogues and pdf drive", () => {
   const kinds = DEFAULT_BOOK_SOURCES.map((source) => source.kind);
-  for (const kind of ["gutenberg", "standard-ebooks", "openlibrary", "zlib"]) {
+  for (const kind of ["gutenberg", "standard-ebooks", "zlib", "pdfdrive"]) {
     assert.ok(kinds.includes(kind), kind);
   }
   assert.equal(kinds.includes("archive"), false, "Internet Archive was removed");
+  assert.equal(kinds.includes("openlibrary"), false, "Open Library was removed");
   const zlib = DEFAULT_BOOK_SOURCES.find((source) => source.kind === "zlib");
   assert.equal(zlib.url, "https://z-library.sk");
   assert.equal(zlib.enabled, true);
@@ -83,7 +84,8 @@ test("user sources keep their order, edits and enable flags, and archive is drop
 });
 
 test("search requests are built per source kind", () => {
-  const [gutenberg, standard, openlibrary, zlib] = DEFAULT_BOOK_SOURCES;
+  const [gutenberg, standard, zlib] = DEFAULT_BOOK_SOURCES;
+  const openlibrary = { id: "openlibrary", name: "Open Library", url: "https://openlibrary.org", kind: "openlibrary" };
   assert.match(bookSearchRequest(gutenberg, "dune").url, /gutendex\.com\/books\/\?search=dune$/);
   assert.match(bookSearchRequest(standard, "dune").url, /search\?query=dune$/);
   const archive = { id: "archive", name: "Internet Archive", url: "https://archive.org", kind: "archive" };
@@ -148,7 +150,7 @@ test("archive results point at the item page for a later resolve", () => {
 });
 
 test("open library keeps public scans downloadable and borrow-only out", () => {
-  const [, , openlibrary] = DEFAULT_BOOK_SOURCES;
+  const openlibrary = { id: "openlibrary", name: "Open Library", url: "https://openlibrary.org", kind: "openlibrary" };
   const results = resultsFromSource(openlibrary, {
     docs: [
       { key: "/works/OL1W", title: "Public Scan", ia: ["pubscan01"], public_scan_b: true, author_name: ["A. Author"] },
