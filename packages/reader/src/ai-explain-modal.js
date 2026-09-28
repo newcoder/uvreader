@@ -143,9 +143,6 @@ export function createAiExplainModal({
     svgIcon(empty.createDiv("qiaomu-reader-ai-empty-icon"), "wand-sparkles");
     empty.createDiv({ cls: "qiaomu-reader-ai-empty-title", text: qiaomuReaderTranslate("what-would-you-like-to-ask") });
     empty.createDiv({ cls: "qiaomu-reader-ai-empty-sub", text: qiaomuReaderTranslate("choose-a-quick-prompt-or-write-your-own") });
-    if (this.scannedPdf) {
-
-    }
     this.empty = empty;
   }
   _scroll() { this._readingEarlier = false; this.log.scrollTop = this.log.scrollHeight; }
