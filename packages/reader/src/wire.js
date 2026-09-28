@@ -1719,7 +1719,23 @@ function aiToolState(view, plugin, options = {}) {
         if (!entries.length) return { preview: `第 ${pages.join("、")} 页没有解析出条目；可以换一页或确认目录范围。` };
         const outline = (view._pdfOutline || []).map((item) => ({ label: item.label, page: item.page, level: item.level || 1 }));
         const verdict = inferTocOffset(tocAnchors(outline, entries));
-        const offset = Number.isFinite(Number(offsetArg)) ? Math.round(Number(offsetArg)) : (verdict && verdict.agree >= 2 ? verdict.offset : 0);
+        // When titles do not line up (scrambled text layer), align the printed
+        // answer pages with the outline's largest destinations instead: front
+        // matter sits at the small pages, so pairing from the end skips it.
+        const tailVerdict = (() => {
+          if (verdict && verdict.agree >= 2) return null;
+          const printed = entries.map((item) => Math.round(Number(item.page2))).filter((value) => value > 0).sort((a, b) => a - b);
+          const outlinePages = outline.map((item) => Math.round(Number(item.page))).filter((value) => value > 0).sort((a, b) => a - b);
+          const count = Math.min(printed.length, outlinePages.length);
+          if (count < 2) return null;
+          const pairs = [];
+          for (let index = 0; index < count; index += 1) {
+            pairs.push({ printed: printed[printed.length - 1 - index], pdf: outlinePages[outlinePages.length - 1 - index] });
+          }
+          return inferTocOffset(pairs);
+        })();
+        const inferred = verdict && verdict.agree >= 2 ? verdict : tailVerdict;
+        const offset = Number.isFinite(Number(offsetArg)) ? Math.round(Number(offsetArg)) : (inferred ? inferred.offset : 0);
         const shifted = applyTocOffset(entries, offset);
         const report = validateTocEntries(shifted, { totalPages: total });
         const merged = mode === "replace"
@@ -1728,7 +1744,7 @@ function aiToolState(view, plugin, options = {}) {
         const kept = merged.filter((item) => item.sources.includes("outline") && !item.sources.includes("toc")).length;
         plugin._tocDraft = { merged, mode, offset, created: Date.now() };
         const lines = [
-          `目录页：第 ${pages.join("、")} 页；提取 ${entries.length} 条；页码偏移 ${offset >= 0 ? "+" : ""}${offset}${verdict ? `（${verdict.agree}/${verdict.total} 一致）` : ""}。`,
+          `目录页：第 ${pages.join("、")} 页；提取 ${entries.length} 条；页码偏移 ${offset >= 0 ? "+" : ""}${offset}${inferred ? `（${inferred.agree}/${inferred.total} 一致）` : ""}。`,
           `合并后 ${merged.length} 条，保留原有 ${kept} 条。`,
           "前几条：",
           ...merged.slice(0, 3).map((item) => `- ${item.title} → 第 ${item.page || "?"} 页`),
