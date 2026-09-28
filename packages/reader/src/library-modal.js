@@ -123,6 +123,13 @@ export function createLibraryModal({
   _setLibMode(mode) {
     const deps = this._libDeps;
     if (!deps) return;
+    // Downloads finished while the online tab was open: fold the freshly
+    // added books into the local tab by rebuilding once, on return.
+    if (mode === "vault" && this._libStale) {
+      this._libStale = false;
+      this._refresh();
+      return;
+    }
     const online = mode === "online";
     this._libMode = mode;
     deps.contentEl.toggleClass("qiaomu-reader-lib-online", online);
@@ -313,7 +320,10 @@ export function createLibraryModal({
             else new Notice(qiaomuReaderTranslate("could-not-open-the-book"), 8000);
           });
         }
-        this._refresh();
+        // Do not rebuild the modal here: that would drop the online tab and
+        // its queue. Mark the library stale and refresh when the reader
+        // switches back to the local tab.
+        this._libStale = true;
       } else {
         if (status) status.setText(`${qiaomuReaderTranslate("search-online-failed")}：${String(outcome?.error || "").slice(0, 60)}`);
         if (!outcome?.cancelled) new Notice(`${qiaomuReaderTranslate("search-online-failed")}：${String(outcome?.error || "").slice(0, 120)}`, 10000);
