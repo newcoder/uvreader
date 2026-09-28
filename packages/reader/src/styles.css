@@ -1668,8 +1668,6 @@ button.qiaomu-reader-find-item.qiaomu-reader-toc-active { background: var(--back
 
 /* Inline page position + jump control in the top bar (desktop-style reader). */
 .qiaomu-reader-pagejump { position:absolute; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:4px; height:28px; padding:0 8px; box-sizing:border-box; border:1px solid var(--background-modifier-border); border-radius:8px; background:color-mix(in srgb,var(--text-normal) 4%,transparent); color:var(--text-muted); font-size:12px; z-index:17; }
-.qiaomu-reader-pagejump-compact .qiaomu-reader-pageinput { width:28px; padding:0 2px; }
-.qiaomu-reader-pagejump-compact .qiaomu-reader-pagetotal { display:none; }
 .qiaomu-reader-pageinput { width:46px; height:22px; padding:0 4px; border:0; border-radius:6px; background:transparent; color:var(--text-normal); text-align:center; font-size:12px; font-family:var(--font-interface); }
 .qiaomu-reader-pageinput:focus { outline:1px solid var(--interactive-accent); outline-offset:-1px; }
 .qiaomu-reader-pageinput:disabled { opacity:.5; }

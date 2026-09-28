@@ -94,36 +94,26 @@ export function createPageJump({ translate, svgIcon, docOf, isPdf, pdfPages, rem
       if (!bar || !wrap.isConnected || !wrap.offsetWidth) return;
       const barRect = bar.getBoundingClientRect();
       if (!barRect.width) return;
-      const gap = 8;
       // The title stretches to the tray, so the free strip runs from the back
       // button to the right tray; the title itself may be overlapped (its text
-      // truncates anyway). Shift right when the left side reaches the centre,
-      // hug the tray when it reaches from the right, and when the strip is too
-      // narrow even for that, compact to the arrows plus a slim page box
-      // instead of sitting on top of the buttons.
+      // truncates anyway). Stay centred while it fits; otherwise clamp inside
+      // the strip, leaving a wider margin before the right tray. When even that
+      // does not fit, keep the rightmost workable spot instead of covering the
+      // back button (the page total always stays visible).
+      const gapLeft = 10;
+      const gapRight = 16;
       const back = bar.firstElementChild;
       const after = wrap.nextElementSibling;
+      const half = wrap.offsetWidth / 2;
       const backRight = back ? back.getBoundingClientRect().right : barRect.left;
       const afterLeft = after ? after.getBoundingClientRect().left : barRect.right;
-      const bounds = () => {
-        const half = wrap.offsetWidth / 2;
-        return {
-          left: backRight - barRect.left + gap + half,
-          right: afterLeft - barRect.left - gap - half,
-          centre: barRect.width / 2,
-          half,
-        };
-      };
-      let fit = bounds();
-      if (fit.left > fit.right) {
-        wrap.addClass("qiaomu-reader-pagejump-compact");
-        fit = bounds();
-      } else {
-        wrap.removeClass("qiaomu-reader-pagejump-compact");
-      }
-      let left = Math.max(fit.centre, fit.left);
-      if (fit.right >= fit.left) left = Math.min(left, fit.right);
-      left = Math.max(fit.half, Math.min(barRect.width - fit.half, left));
+      const leftBound = backRight - barRect.left + gapLeft + half;
+      const rightBound = afterLeft - barRect.left - gapRight - half;
+      const centre = barRect.width / 2;
+      let left = centre;
+      if (rightBound >= leftBound) left = Math.max(leftBound, Math.min(centre, rightBound));
+      else left = leftBound;
+      left = Math.max(half, Math.min(barRect.width - half, left));
       wrap.style.left = `${Math.round(left)}px`;
     };
     view.pageJumpPlace = () => { raf(place); };
