@@ -94,7 +94,7 @@ export const AI_TOOL_DEFINITIONS = Object.freeze([
   },
   {
     name: "toc_scan",
-    description: "扫描当前 PDF 的目录情况：已有大纲条目数、可能包含目录的页（带评分与理由）。只读。用于回答“目录为什么不能跳转/不完整”。",
+    description: "扫描当前 PDF 的目录情况：已有大纲条目数、可能包含目录的页（带评分与理由）。只读。用于回答“目录为什么不能跳转/不完整”。读者要求制作/更新目录导航时，扫描之后应继续调用 toc_build 生成草稿（缺页码时先问读者）。",
     parameters: { type: "object", properties: {}, additionalProperties: false },
   },
   {

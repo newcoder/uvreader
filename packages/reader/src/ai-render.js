@@ -573,10 +573,14 @@ export function createAiRender({
     return {
       card,
       finish(result) {
-        text.setText(String(result?.text || ""));
+        const value = String(result?.text || "");
+        text.setText(value);
         status.setText(result?.isError ? translate("tool-failed") : translate("tool-done"));
         card.toggleClass("is-error", result?.isError === true);
         card.toggleClass("is-done", result?.isError !== true);
+        // A draft waiting for the reader's decision opens itself so the
+        // preview and the confirmation line are visible without a click.
+        if (/确认生成吗/.test(value)) body.open = true;
         // Page images the tool read travel with the step: a small preview that
         // opens full size on double click.
         const images = Array.isArray(result?.images) ? result.images : [];
