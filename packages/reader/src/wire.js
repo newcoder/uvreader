@@ -1672,10 +1672,24 @@ function aiToolState(view, plugin, options = {}) {
         const total = Number(view.pager?.total) || 0;
         const pageText = (page) => String(view._pdfLazy.textFor?.(page) || "");
         const wanted = parseTocPageRange(pagesArg, total);
-        const candidates = wanted.length
-          ? wanted.map((page) => ({ page, text: pageText(page) }))
-          : tocCandidates(Array.from({ length: total }, (_, index) => ({ page: index + 1, text: pageText(index + 1) })))
-            .slice(0, 2).map((item) => ({ page: item.page, text: pageText(item.page) }));
+        // A TOC can span several pages: keep the best-scoring page and its
+        // contiguous neighbours (lower bar), always in page order, so both the
+        // text hints and the images arrive in reading order.
+        const auto = (() => {
+          const ranked = tocCandidates(
+            Array.from({ length: total }, (_, index) => ({ page: index + 1, text: pageText(index + 1) })),
+            { minScore: 20 },
+          );
+          const best = ranked[0];
+          if (!best) return [];
+          return ranked
+            .filter((item) => Math.abs(item.page - best.page) <= 1)
+            .map((item) => item.page)
+            .sort((a, b) => a - b)
+            .slice(0, 4);
+        })();
+        const candidates = (wanted.length ? wanted : auto).slice(0, 4)
+          .map((page) => ({ page, text: pageText(page) }));
         if (!candidates.length) return { preview: "没有找到目录页；请告诉我页码（例如「目录在第 6 页」），我再生成。" };
         let entries = [];
         // With a vision model, send the page images too: the printed page beats

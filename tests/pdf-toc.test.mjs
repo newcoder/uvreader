@@ -94,6 +94,19 @@ test("merging keeps outline-only entries and adds the missing exercise links", (
   assert.deepEqual([...ordered].sort((a, b) => a - b), ordered, "merged list stays ordered by page");
 });
 
+test("multi-page images travel in page order, each beside its own text", () => {
+  const messages = buildTocExtractionMessages(
+    [{ page: 6, text: "甲" }, { page: 7, text: "乙" }],
+    { images: { 7: { data: "B", mimeType: "image/jpeg" }, 6: { data: "A", mimeType: "image/jpeg" } } },
+  );
+  const parts = messages[1].content;
+  assert.deepEqual(parts.map((part) => part.type), ["text", "text", "image", "text", "image"]);
+  assert.equal(parts[2].data, "A");
+  assert.equal(parts[4].data, "B");
+  assert.match(parts[0].text, /共 2 页/);
+  assert.match(parts[0].text, /以图片为准/);
+});
+
 test("mis-ordered OCR titles are repaired from the outline by matching answer pages", () => {
   // The real page-6 text layer glues 第十五单元's subtitle onto 第十四单元 and
   // puts 试题解答 (the column header) at the end; the printed numbers still land
