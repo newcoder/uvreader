@@ -1503,6 +1503,15 @@ async function jumpToAiLocation(chat, value) {
 // --- AI tools --------------------------------------------------------------
 // The tools read through the reader and the plugin; the tools module sees only
 // this state object, which keeps the formatting and schemas testable.
+// Real PDF page count: pager.total counts viewport screens in scroll mode
+// (scrollHeight / viewportHeight, so a 201-page scan can read as 332), while
+// the lazy view keeps one text slot per actual page.
+function pdfPageCount(view) {
+  const tracked = Number(view?._pdfLazy?._pageText?.length);
+  if (Number.isFinite(tracked) && tracked > 0) return tracked;
+  return Number(view?.pager?.total) || 0;
+}
+
 // "6-7", "6,7" or "6" → page numbers clamped to the document.
 function parseTocPageRange(value, total) {
   const pages = [];
@@ -1653,7 +1662,7 @@ function aiToolState(view, plugin, options = {}) {
     // TOC panel, toc_apply({undo:true}) restores it.
     tocScan: format === "pdf" && view?._pdfLazy
       ? () => {
-        const total = Number(view.pager?.total) || 0;
+        const total = pdfPageCount(view);
         const pages = [];
         for (let page = 1; page <= total; page += 1) pages.push({ page, text: String(view._pdfLazy.textFor?.(page) || "") });
         const candidates = tocCandidates(pages).slice(0, 4);
@@ -1669,7 +1678,7 @@ function aiToolState(view, plugin, options = {}) {
       : null,
     tocBuild: format === "pdf" && view?._pdfLazy
       ? async ({ pages: pagesArg = "", offset: offsetArg = null, mode = "merge" } = {}) => {
-        const total = Number(view.pager?.total) || 0;
+        const total = pdfPageCount(view);
         const pageText = (page) => String(view._pdfLazy.textFor?.(page) || "");
         const wanted = parseTocPageRange(pagesArg, total);
         // A TOC can span many pages: keep every page that scores above the
