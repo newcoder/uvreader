@@ -1388,6 +1388,8 @@ export function createReaderView({
     this._hideOcrBar();
     this._closed = true;
     this._resizeObs?.disconnect();
+    this.pageJumpObs?.disconnect();
+    this.pageJumpOff?.();
     this._columnDragWatchOff?.();
     this._columnDragOff?.();
     this._selectionCleanup?.();

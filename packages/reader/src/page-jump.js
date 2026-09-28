@@ -80,6 +80,39 @@ export function createPageJump({ translate, svgIcon, docOf, isPdf, pdfPages, rem
     topBar.insertBefore(wrap, tray);
     view.pageInputEl = input;
     view.pageTotalEl = total;
+    view.pageJumpEl = wrap;
+    // The bar is centred by CSS; on narrow windows the side clusters grow past
+    // the centre and the centred nav would sit under them (the search box and
+    // settings live right after it). Clamp it into the free gap instead of
+    // insisting on the exact centre, so it only moves when space runs out.
+    const win = wrap.ownerDocument?.defaultView || window;
+    const raf = typeof win.requestAnimationFrame === "function"
+      ? (fn) => win.requestAnimationFrame(fn)
+      : (fn) => win.setTimeout(fn, 16);
+    const place = () => {
+      const bar = wrap.parentElement;
+      if (!bar || !wrap.isConnected || !wrap.offsetWidth) return;
+      const barRect = bar.getBoundingClientRect();
+      if (!barRect.width) return;
+      const half = wrap.offsetWidth / 2;
+      const gap = 8;
+      const before = wrap.previousElementSibling?.getBoundingClientRect() || null;
+      const after = wrap.nextElementSibling?.getBoundingClientRect() || null;
+      let left = barRect.width / 2;
+      if (before && before.width) left = Math.max(left, before.right - barRect.left + gap + half);
+      if (after && after.width) left = Math.min(left, after.left - barRect.left - gap - half);
+      left = Math.max(half, left);
+      wrap.style.left = `${Math.round(left)}px`;
+    };
+    view.pageJumpPlace = () => { raf(place); };
+    win.addEventListener("resize", view.pageJumpPlace);
+    view.pageJumpOff = () => win.removeEventListener("resize", view.pageJumpPlace);
+    if (typeof win.ResizeObserver === "function") {
+      view.pageJumpObs = new win.ResizeObserver(() => view.pageJumpPlace());
+      view.pageJumpObs.observe(topBar);
+      view.pageJumpObs.observe(tray);
+    }
+    view.pageJumpPlace();
     const commit = () => {
       const value = Number(input.value.trim());
       if (!Number.isFinite(value) || value < 1) {
