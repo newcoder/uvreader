@@ -1896,6 +1896,62 @@ async function runScrollScenario() {
   }
 }
 
+// Geometry regression for the toolbar page nav: as the window narrows it must
+// never sit on top of the back button or the right tray (search, settings,
+// zoom). Prints the measured numbers so a failure explains itself.
+async function runNavScenario() {
+  const { app, page, userData } = await launch(book, {
+    seed: (dir) => {
+      fs.mkdirSync(path.join(dir, "data"), { recursive: true });
+      fs.writeFileSync(path.join(dir, "data", "data.json"), JSON.stringify({
+        settings: {
+          onboarded: true,
+          language: "zh",
+          bookNotesFolder: "notes",
+          dataFolder: "plugin",
+          lastSeenVersion: appPackage.version,
+          readMode: "scroll",
+        },
+      }, null, 2));
+    },
+  });
+  try {
+    await page.waitForSelector(".qiaomu-reader-view", { timeout: 30_000 });
+    await waitFor("reader ready", () => readerReady(page), 30_000);
+    const measure = () => page.evaluate(() => {
+      const rect = (el) => {
+        const box = el?.getBoundingClientRect();
+        return box ? { left: Math.round(box.left), right: Math.round(box.right), width: Math.round(box.width) } : null;
+      };
+      const bar = document.querySelector(".qiaomu-reader-top");
+      return {
+        bar: rect(bar),
+        back: rect(bar?.firstElementChild),
+        nav: rect(document.querySelector(".qiaomu-reader-pagejump")),
+        tray: rect(document.querySelector(".qiaomu-reader-top-right")),
+        left: document.querySelector(".qiaomu-reader-pagejump")?.style?.left || "",
+      };
+    });
+    for (const width of [1200, 1000, 900, 820, 760, 700, 660]) {
+      await app.evaluate(({ BrowserWindow }, value) => {
+        BrowserWindow.getAllWindows()[0]?.setSize(value, 760);
+      }, width);
+      await sleep(600);
+      const m = await measure();
+      // The tray is left-aligned; the nav must clear its right edge. The other
+      // side only has to stay inside the bar.
+      const overlapsTray = m.nav && m.tray ? m.nav.left < m.tray.right + 4 : false;
+      const insideBar = m.nav && m.bar ? m.nav.left >= m.bar.left && m.nav.right <= m.bar.right : false;
+      console.log(`nav: width=${width} bar=${m.bar?.left}-${m.bar?.right} tray=${m.tray?.left}-${m.tray?.right} nav=${m.nav?.left}-${m.nav?.right} styleLeft=${m.left} overlapTray=${overlapsTray} insideBar=${insideBar}`);
+      if (overlapsTray) throw new Error(`page nav overlaps the button tray at width ${width}`);
+      if (!insideBar) throw new Error(`page nav leaves the toolbar at width ${width}`);
+    }
+  } finally {
+    await app.close().catch(() => {});
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+}
+
 async function runHomeScenario() {
   const { app, page, userData } = await launch("");
   try {
@@ -2175,6 +2231,7 @@ const scenarios = [
   ["api-key", runApiKeyScenario],
   ["capability", runCapabilityScenario],
   ["scroll", runScrollScenario],
+  ["nav", runNavScenario],
 ];
 const only = (process.env.QBR_E2E_ONLY || "").split(",").map((name) => name.trim()).filter(Boolean);
 
