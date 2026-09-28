@@ -1680,24 +1680,13 @@ function aiToolState(view, plugin, options = {}) {
       ? async ({ pages: pagesArg = "", offset: offsetArg = null, mode = "merge" } = {}) => {
         const total = pdfPageCount(view);
         const pageText = (page) => String(view._pdfLazy.textFor?.(page) || "");
-        const wanted = parseTocPageRange(pagesArg, total);
-        // A TOC can span many pages: keep every page that scores above the
-        // lower bar within a generous reach of the best one, in page order; no
-        // fixed page cap. Long lists are extracted in batches (below).
-        const auto = (() => {
-          const ranked = tocCandidates(
-            Array.from({ length: total }, (_, index) => ({ page: index + 1, text: pageText(index + 1) })),
-            { minScore: 20 },
-          );
-          const best = ranked[0];
-          if (!best) return [];
-          return ranked
-            .filter((item) => Math.abs(item.page - best.page) <= 8)
-            .map((item) => item.page)
-            .sort((a, b) => a - b);
-        })();
-        const pages = wanted.length ? wanted : auto;
-        if (!pages.length) return { preview: "没有找到目录页；请告诉我页码（例如「目录在第 6 页」），我再生成。" };
+        // Contract: the pages come from the reader (the model must ask first).
+        // Never scan the document, never read body pages, never send a page the
+        // reader did not name.
+        const pages = parseTocPageRange(pagesArg, total);
+        if (!pages.length) {
+          return { preview: "请先告诉我目录页是哪几页（例如「目录页是第 6 页」）；页码偏移如果不知道可以留空，我来推断。" };
+        }
         let entries = [];
         const batchSize = 6;
         for (let start = 0; start < pages.length; start += batchSize) {

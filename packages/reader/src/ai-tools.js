@@ -94,19 +94,20 @@ export const AI_TOOL_DEFINITIONS = Object.freeze([
   },
   {
     name: "toc_scan",
-    description: "扫描当前 PDF 的目录情况：已有大纲条目数、可能包含目录的页（带评分与理由）。只读。用于回答“目录为什么不能跳转/不完整”。读者要求制作/更新目录导航时，扫描之后应继续调用 toc_build 生成草稿（缺页码时先问读者）。",
+    description: "只读检查当前 PDF 的目录情况（已有大纲条目数等），用于回答“目录为什么不能跳转/不完整”。不要在制作目录时读取正文页或发送无关截图。",
     parameters: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "toc_build",
-    description: "根据目录页生成/更新本书的导航目录草稿（不会立即生效）。参数可缺省：pages（目录页，如 \"6-7\"）、offset（印刷页→PDF 页偏移）、mode（merge 默认 / replace）。生成后必须把预览复述给读者并等待确认，切勿自行调用 toc_apply。",
+    description: "根据读者给出的目录页生成/更新本书的导航目录草稿（不会立即生效）。调用前必须先问读者：目录页是哪几页、印刷页码到 PDF 页码的偏移（不知道可留空由我推断）；拿到回答后再调用。只发送这几页，绝不读取正文页。生成后把预览复述给读者并等待确认，切勿自行调用 toc_apply。",
     parameters: {
       type: "object",
       properties: {
-        pages: { type: "string", description: "目录页范围，如 \"6\" 或 \"6-7\"；缺省时自动扫描。" },
-        offset: { type: "number", description: "印刷页码到 PDF 页码的偏移；缺省时自动推断。" },
+        pages: { type: "string", description: "读者确认的目录页，如 \"6\" 或 \"6-7\"；必填。" },
+        offset: { type: "number", description: "印刷页码到 PDF 页码的偏移；读者不知道时留空，由标题搜索推断。" },
         mode: { type: "string", enum: ["merge", "replace"], description: "merge 保留原有条目并补充，replace 整体替换。" },
       },
+      required: ["pages"],
       additionalProperties: false,
     },
   },
