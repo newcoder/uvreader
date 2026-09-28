@@ -192,17 +192,33 @@ export function createLibraryModal({
   // unavailable or gave nothing to search for.
   async _runBookFinder(grid, query) {
     grid.empty();
-    grid.createDiv("qiaomu-reader-lib-noresult").setText(qiaomuReaderTranslate("search-online-thinking"));
-    let report = null;
-    try { report = await this.plugin.findBooksOnline(query); } catch { report = null; }
-    if (this._libMode !== "online" || this._onlineQuery.trim() !== query.trim() || !grid.isConnected) return true;
-    if (!report?.ai || !Array.isArray(report.groups) || !report.groups.length) return false;
-    grid.empty();
+    const status = grid.createDiv("qiaomu-reader-lib-noresult");
+    status.setText(qiaomuReaderTranslate("search-online-thinking"));
     const selected = new Set();
     const rows = [];
     let syncBar = () => {};
     const context = { selected, rows, grid, onToggle: () => syncBar() };
-    for (const group of report.groups) this._renderBookGroup(grid, group, context);
+    const cardByGroup = new Map();
+    // Version links appear the moment each book's search comes back: the card
+    // is appended right away and the status line counts the progress.
+    const onGroup = (group, stats) => {
+      if (this._libMode !== "online" || this._onlineQuery.trim() !== query.trim() || !grid.isConnected) return;
+      if (cardByGroup.size === 0 && status.isConnected) status.remove();
+      const card = this._renderBookGroup(grid, group, context);
+      if (card) cardByGroup.set(group, card);
+      if (status.isConnected) status.setText(`${qiaomuReaderTranslate("searching")} ${stats.done}/${stats.total}`);
+    };
+    let report = null;
+    try { report = await this.plugin.findBooksOnline(query, { onGroup }); } catch { report = null; }
+    if (this._libMode !== "online" || this._onlineQuery.trim() !== query.trim() || !grid.isConnected) return true;
+    if (!report?.ai || !Array.isArray(report.groups) || !report.groups.length) return false;
+    if (status.isConnected) status.remove();
+    // The finished list settles into the recommended order (arrival order is
+    // by search speed), with the actions bar last.
+    for (const group of report.groups) {
+      const card = cardByGroup.get(group);
+      if (card) grid.append(card);
+    }
     syncBar = this._buildOnlineActions(grid, selected, rows);
     return true;
   }
@@ -216,9 +232,10 @@ export function createLibraryModal({
     const versions = Array.isArray(group.results) ? group.results.slice(0, 6) : [];
     if (!versions.length) {
       card.createDiv("qiaomu-reader-lib-bookgroup-empty").setText(qiaomuReaderTranslate("search-online-no-version"));
-      return;
+      return card;
     }
     for (const result of versions) this._buildOnlineRow(card, result, context);
+    return card;
   }
   _buildOnlineRow(container, result, context) {
     const { selected, rows, grid, onToggle } = context;

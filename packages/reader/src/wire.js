@@ -3721,7 +3721,7 @@ QiaomuBookReader.prototype.openReadingProjects = function openReadingProjects(op
 
 // The library's online tab turns a fuzzy request into a book list through the
 // AI runtime, then looks each book up in the enabled sources (two at a time).
-QiaomuBookReader.prototype.findBooksOnline = async function findBooksOnline(input) {
+QiaomuBookReader.prototype.findBooksOnline = async function findBooksOnline(input, { onGroup } = {}) {
   const query = String(input || "").trim();
   const empty = { query, books: [], groups: [], ai: false };
   if (!query) return empty;
@@ -3736,6 +3736,12 @@ QiaomuBookReader.prototype.findBooksOnline = async function findBooksOnline(inpu
   const groups = [];
   const queue = books.slice();
   const toQuery = (book) => [book.title, book.author].filter(Boolean).join(" ");
+  // Each finished book is handed to the caller right away, so the library can
+  // show version links as they arrive instead of waiting for the whole list.
+  const emit = (group) => {
+    groups.push(group);
+    try { onGroup?.(group, { done: groups.length, total: books.length }); } catch { /* caller's problem */ }
+  };
   const worker = async () => {
     for (;;) {
       const book = queue.shift();
@@ -3745,9 +3751,9 @@ QiaomuBookReader.prototype.findBooksOnline = async function findBooksOnline(inpu
         // Archive-style full-text hits are not versions of the book; keep only
         // results whose title or author really match the found title.
         const results = (report?.results || []).filter((item) => bookResultRelevant(book, item));
-        groups.push({ book, results, errors: report?.errors || [] });
+        emit({ book, results, errors: report?.errors || [] });
       } catch (error) {
-        groups.push({ book, results: [], errors: [{ source: "search", name: "", message: String(error?.message || error).slice(0, 160) }] });
+        emit({ book, results: [], errors: [{ source: "search", name: "", message: String(error?.message || error).slice(0, 160) }] });
       }
     }
   };
