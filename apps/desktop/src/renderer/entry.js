@@ -127,6 +127,15 @@ async function boot() {
   window.__qbrApp = app;
   window.__qbrPlugin = plugin;
 
+  // The product is 纽扣 in the Chinese UI and UV Reader everywhere else; the
+  // toolbar brand and the window titles follow the interface language.
+  const displayName = () => (String(plugin.settings?.language || "zh").toLowerCase().startsWith("zh") ? "纽扣" : "UV Reader");
+  const brandEl = document.querySelector(".qbr-nav-brand");
+  function applyBrand() {
+    if (brandEl) brandEl.textContent = displayName();
+    syncWindowTitle();
+  }
+
   async function waitForReaderReady(timeoutMs = 30_000) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
@@ -279,17 +288,18 @@ async function boot() {
       titleObserver.observe(titleEl, { childList: true, characterData: true, subtree: true });
     }
     syncReadingTheme();
-    syncWindowTitle();
+    applyBrand();
   }
   function syncWindowTitle() {
     const reader = app.workspace.getLeavesOfType(READER_VIEW)[0]?.view;
     const active = app.workspace.activeLeaf?.view;
     const reading = active?.getViewType?.() === READER_VIEW;
     const name = reading ? (active?.file?.basename || reader?.file?.basename || "") : "";
-    document.title = name ? `${name} — UV Reader` : "UV Reader";
+    document.title = name ? `${name} — ${displayName()}` : displayName();
   }
   app.workspace.on("active-leaf-change", watchReadingTheme);
   app.workspace.on("layout-change", watchReadingTheme);
+  applyBrand();
 
   function syncChrome() {
     const type = app.workspace.activeLeaf?.view?.getViewType?.() || "";

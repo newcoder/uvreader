@@ -68,7 +68,7 @@ export function createHomeView(leaf, options) {
       const host = this.contentEl;
       host.empty();
       const head = host.createDiv("qbr-home-head");
-      head.createDiv({ cls: "qbr-home-title", text: "UV Reader" });
+      head.createDiv({ cls: "qbr-home-title", text: String(plugin.settings?.language || "zh").toLowerCase().startsWith("zh") ? "纽扣" : "UV Reader" });
       const actions = head.createDiv("qbr-home-actions");
       const open = actions.createEl("button", { cls: "mod-cta", text: "打开书籍…" });
       open.addEventListener("click", () => void onOpenFileDialog());
