@@ -297,21 +297,23 @@ export function createReaderView({
     const scan = ready?.scan || result?.scan;
     if (!scan || !(scan.total > 0) || scan.textPages >= scan.total) return;
     if (!file || file.extension !== "pdf") return;
-    // The layer was already generated for this exact file: skip the queue and
-    // never show the progress bar again.
+    // The layer was already generated for this exact file: replay it from the
+    // sidecar cache WITHOUT the progress bar. The text itself lives in the OCR
+    // cache and has to be applied on every open; skipping the pass made
+    // finished books open with no text layer at all.
     const stat = file.stat || {};
     const stamp = Number.isFinite(stat.mtime) || Number.isFinite(stat.size) ? `${stat.mtime || 0}:${stat.size || 0}` : "";
     let done = false;
     try { done = await this.plugin.ocrTextLayerComplete?.(file.path, stamp) === true; } catch { done = false; }
-    if (done) return;
+    const silent = done === true;
     if (!this.plugin.ocrEnabled?.()) return;
     if (!this.plugin.ocrConfigured?.()) {
-      if (this.plugin.ocrNotConfiguredHint?.()) {
+      if (!silent && this.plugin.ocrNotConfiguredHint?.()) {
         new Notice(qiaomuReaderTranslate("ocr-sidecar-not-configured-hint"), 12000);
       }
       return;
     }
-    await this._startTextLayerQueue(file, scan.total);
+    await this._startTextLayerQueue(file, scan.total, { silent });
   }
   _textLayerPageOrder(total) {
     const current = Math.max(1, Math.min(total, (this.pager?.spread || 0) + 1));
@@ -322,17 +324,17 @@ export function createReaderView({
     }
     return order;
   }
-  async _startTextLayerQueue(file, total) {
+  async _startTextLayerQueue(file, total, { silent = false } = {}) {
     if (this._ocrJob || !file) return;
-    const token = { jobId: `ocr-${Date.now().toString(36)}`, sessionId: "", done: 0, total, cancelled: false };
+    const token = { jobId: `ocr-${Date.now().toString(36)}`, sessionId: "", done: 0, total, cancelled: false, silent };
     this._ocrJob = token;
-    this._showOcrBar({ kind: "working", done: 0, total });
+    if (!silent) this._showOcrBar({ kind: "working", done: 0, total });
     try {
       // Hybrid: a missing layout runs in the background while the plain pass
       // already hands the reader its text; when it lands the pages are fetched
       // again (cache-hot) and upgraded in place. An existing source skips the
-      // plain round entirely.
-      const hybridWanted = this.plugin.settings.ocrHybrid === true;
+      // plain round entirely. Silent replays never start MinerU again.
+      const hybridWanted = this.plugin.settings.ocrHybrid === true && !silent;
       let existing = "";
       if (hybridWanted) {
         try { existing = await this.plugin.ocrTextSourceFor(file.path); }
@@ -346,7 +348,7 @@ export function createReaderView({
       const layoutReady = await layoutJob;
       if (token.cancelled || this._ocrJob !== token) return;
       if (!existing && layoutReady === "ready") {
-        new Notice(qiaomuReaderTranslate("ocr-hybrid-upgraded"), 6000);
+        if (!silent) new Notice(qiaomuReaderTranslate("ocr-hybrid-upgraded"), 6000);
         token.done = 0;
         await this._runTextLayerPass(file, total, token);
       }
@@ -355,10 +357,10 @@ export function createReaderView({
         const stat = file?.stat || {};
         const stamp = Number.isFinite(stat.mtime) || Number.isFinite(stat.size) ? `${stat.mtime || 0}:${stat.size || 0}` : "";
         void this.plugin.markOcrTextLayerComplete?.(file.path, stamp);
-        this._showOcrBar({ kind: "ready", file });
+        if (!silent) this._showOcrBar({ kind: "ready", file });
       }
     } catch (error) {
-      if (this._ocrJob === token) this._showOcrBar({ kind: "error", message: this.plugin.ocrErrorText?.(error) || "OCR" });
+      if (this._ocrJob === token && !silent) this._showOcrBar({ kind: "error", message: this.plugin.ocrErrorText?.(error) || "OCR" });
     } finally {
       this.plugin.closeOcrSession?.(token.sessionId);
       if (this._ocrJob === token) this._ocrJob = null;
@@ -397,7 +399,7 @@ export function createReaderView({
       // digital book only pays for the few scanned pages in it.
       if (String(this._pdfLazy?._pageText?.[pageNumber - 1] || "").trim()) {
         token.done += 1;
-        this._showOcrBar({ kind: "working", done: token.done, total });
+        if (!token.silent) this._showOcrBar({ kind: "working", done: token.done, total });
         continue;
       }
       const fetched = await this.plugin.fetchOcrPage(token.sessionId, pageNumber);
@@ -420,7 +422,7 @@ export function createReaderView({
         }
       }
       token.done += 1;
-      this._showOcrBar({ kind: "working", done: token.done, total });
+      if (!token.silent) this._showOcrBar({ kind: "working", done: token.done, total });
       renderVisibleFigures(this);
       if (this._foundQuery) markFoundIn(this, this._foundQuery);
     }
