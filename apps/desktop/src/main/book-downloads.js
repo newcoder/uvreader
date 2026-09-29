@@ -136,6 +136,7 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
         log("search skipped (cooling down)", source.id);
         return { source, results: [] };
       }
+      const startedAt = Date.now();
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
       // The hidden-window sources (zlib's challenge, PDF Drive's Google widget)
@@ -150,10 +151,11 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
         const results = await Promise.race([fetchSource(source, cleaned, controller.signal), hardStop]);
         sourceFails.delete(source.id);
         sourceCooldown.delete(source.id);
+        log("search", source.id, `${Date.now() - startedAt}ms`, results.length, "hits");
         return { source, results };
       } catch (error) {
         const message = String(error?.name === "AbortError" ? "超时" : error?.message || error).slice(0, 160);
-        log("search failed", source.id, message);
+        log("search failed", source.id, message, `${Date.now() - startedAt}ms`);
         const fails = (sourceFails.get(source.id) || 0) + 1;
         sourceFails.set(source.id, fails);
         if (fails >= SOURCE_FAIL_LIMIT) {
@@ -168,6 +170,7 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
     }));
     const errors = settled.filter((entry) => entry.error).map((entry) => ({ source: entry.source.id, name: entry.source.name, message: entry.error }));
     const results = dedupeBookResults(settled.flatMap((entry) => entry.results || []));
+    log(`search "${cleaned}"`, `${results.length} results,`, `${errors.length} source(s) failed`);
     return { results, errors };
   }
 

@@ -12,6 +12,20 @@ const aiRuntime = createAiRuntime();
 
 if (process.env.QBR_USER_DATA) app.setPath("userData", process.env.QBR_USER_DATA);
 const userData = app.getPath("userData");
+// Main-process logs (the [qbr-books] search/download lines) also land in
+// userData/qbr.log so a slow or stuck search can be inspected after the fact;
+// the file is truncated once it passes ~1 MB.
+const logPath = path.join(userData, "qbr.log");
+try {
+  const originalError = console.error.bind(console);
+  console.error = (...args) => {
+    originalError(...args);
+    try {
+      if (fs.existsSync(logPath) && fs.statSync(logPath).size > 1024 * 1024) fs.writeFileSync(logPath, "");
+      fs.appendFileSync(logPath, `${new Date().toISOString()} ${args.map((arg) => (typeof arg === "string" ? arg : String(arg?.stack || arg))).join(" ")}\n`);
+    } catch { /* logging must never break the app */ }
+  };
+} catch { /* console keeps working */ }
 const dataRoot = path.join(userData, "data");
 const vaultRoot = path.join(userData, "library");
 const secretsPath = path.join(userData, "secrets.json");
