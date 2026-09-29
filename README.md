@@ -1,4 +1,6 @@
-# UV Reader（柚肥阅读）
+<p align="center"><img src="logo.jpg" alt="UV Reader（纽扣）" width="160"></p>
+
+# UV Reader（纽扣）
 
 **中文** · [English](#english) · [许可证](LICENSE) · [问题反馈](https://github.com/newcoder/uvreader/issues)
 

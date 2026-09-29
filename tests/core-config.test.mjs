@@ -479,7 +479,7 @@ test("public README presents the standalone desktop app and preserved notices", 
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
   assert.doesNotMatch(readme, /fork 上架授权/i);
   assert.match(readme, /UV Reader/);
-  assert.match(readme, /柚肥阅读/);
+  assert.match(readme, /纽扣/);
   assert.match(readme, /DeepSeek/);
   assert.match(readme, /Ollama/);
   assert.match(readme, /GPL-3\.0-only/);

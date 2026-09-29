@@ -1,6 +1,6 @@
 # UV Reader — agent notes
 
-Standalone desktop reader (Electron) for EPUB/PDF/FB2/MOBI/AZW3/CBZ with highlights, notes and optional AI. Product name: **UV Reader / 柚肥阅读**. UI copy, README and docs are Chinese-first. The Obsidian plugin packaging has been removed and the reader has been extracted into host-agnostic modules; only the wiring and the two adapters still touch the host API.
+Standalone desktop reader (Electron) for EPUB/PDF/FB2/MOBI/AZW3/CBZ with highlights, notes and optional AI. Product name: **UV Reader / 纽扣**. UI copy, README and docs are Chinese-first. The Obsidian plugin packaging has been removed and the reader has been extracted into host-agnostic modules; only the wiring and the two adapters still touch the host API.
 
 ## Layout
 

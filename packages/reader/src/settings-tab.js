@@ -1137,7 +1137,7 @@ export function createSettingsTab({
         new WhatsNewModal(this.app, this.plugin, WHATS_NEW.slice(0, 4)).open();
       }));
     const about = c.createEl("div", { cls: "qiaomu-reader-set-note" });
-    about.createEl("b", { text: "UV Reader / 柚肥阅读" });
+    about.createEl("b", { text: "UV Reader / 纽扣" });
     about.appendText(qiaomuReaderTranslate("version-0-adapted-and-maintained-by-qiaomu", this.plugin.manifest.version));
     about.createEl("br");
     about.createEl("a", { text: "GitHub @newcoder", href: "https://github.com/newcoder/uvreader" });

@@ -1,6 +1,6 @@
 # 正式版本截图 / Release screenshot evidence
 
-日期：2026-09-10。环境：macOS、Obsidian 1.13.7、正式发布的 **UV Reader（柚肥阅读）4.2.4**。插件 ID：`qiaomu-reader`。
+日期：2026-09-10。环境：macOS、Obsidian 1.13.7、正式发布的 **UV Reader（纽扣）4.2.4**。插件 ID：`qiaomu-reader`。
 
 ## 版本核验
 
