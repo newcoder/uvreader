@@ -124,7 +124,10 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
   const sourceFails = new Map();
   const sourceCooldown = new Map();
   const SOURCE_FAIL_LIMIT = 2;
-  const SOURCE_COOLDOWN_MS = 10 * 60 * 1000;
+  // Long cooldowns silently emptied every Book Finder book when one source
+  // hiccuped twice; two minutes is enough to stop a stalling source dragging a
+  // batch down without hiding it for the rest of the session.
+  const SOURCE_COOLDOWN_MS = 2 * 60 * 1000;
 
   // Fan out; one failing source never fails the search.
   async function search({ sources = [], query = "" } = {}, { timeout = BOOK_SEARCH_TIMEOUT, onSource = null } = {}) {

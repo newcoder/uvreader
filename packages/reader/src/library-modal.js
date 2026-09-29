@@ -298,7 +298,14 @@ export function createLibraryModal({
     if (group.book?.reason) card.createDiv("qiaomu-reader-lib-bookgroup-reason").setText(String(group.book.reason));
     const versions = Array.isArray(group.results) ? group.results.slice(0, 6) : [];
     if (!versions.length) {
-      card.createDiv("qiaomu-reader-lib-bookgroup-empty").setText(qiaomuReaderTranslate("search-online-no-version"));
+      // Say which sources were down instead of implying the book does not
+      // exist: an all-empty finder run is usually one failed source, not ten
+      // missing books.
+      const failed = (Array.isArray(group.errors) ? group.errors : []).map((entry) => entry?.name || entry?.source).filter(Boolean);
+      const line = card.createDiv("qiaomu-reader-lib-bookgroup-empty");
+      line.setText(failed.length
+        ? `${qiaomuReaderTranslate("search-online-no-version")}（${qiaomuReaderTranslate("search-online-sources-failed")}：${failed.join("、")}）`
+        : qiaomuReaderTranslate("search-online-no-version"));
       return card;
     }
     for (const result of versions) this._buildOnlineRow(card, result, context);

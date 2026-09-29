@@ -2,6 +2,8 @@
 // concrete book list the sources can be searched for. Kept in Chinese — it is
 // model input, not UI copy — while the model writes `reason` in the reader's
 // language. Pure module: prompt text, message builder and reply parser.
+import { normalizeHanzi } from "./hanzi-normalize.js";
+
 export const BOOK_FINDER_MAX = 8;
 
 export const BOOK_FINDER_SYSTEM_PROMPT = `# 搜书助手（Book Finder）
@@ -45,9 +47,11 @@ export function isBookFinderRequest(query) {
 
 // Source search is fuzzy by nature (Internet Archive matches full text), so a
 // version only counts when its title or author actually matches the book the
-// AI asked for. Keys drop case, whitespace and punctuation for comparison.
+// AI asked for. Traditional and simplified forms compare as the same words
+// (PDF Drive often returns 繁體 titles), and keys drop case, whitespace and
+// punctuation.
 function bookKey(value) {
-  return String(value || "").toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
+  return normalizeHanzi(String(value || "")).toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
 }
 
 export function bookResultRelevant(book, result) {
