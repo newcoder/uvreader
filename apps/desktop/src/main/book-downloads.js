@@ -138,8 +138,16 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
       }
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
+      // The hidden-window sources (zlib's challenge, PDF Drive's Google widget)
+      // ignore the abort signal, so every source also races a wall-clock
+      // budget: the fan-out never waits on the slowest browser for minutes.
+      const budget = source.kind === "zlib" || source.kind === "pdfdrive" ? Math.max(timeout, 20000) : timeout;
+      let hardTimer = null;
+      const hardStop = new Promise((_, reject) => {
+        hardTimer = setTimeout(() => { controller.abort(); reject(new Error("超时")); }, budget);
+      });
       try {
-        const results = await fetchSource(source, cleaned, controller.signal);
+        const results = await Promise.race([fetchSource(source, cleaned, controller.signal), hardStop]);
         sourceFails.delete(source.id);
         sourceCooldown.delete(source.id);
         return { source, results };
@@ -155,6 +163,7 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
         return { source, error: message };
       } finally {
         clearTimeout(timer);
+        clearTimeout(hardTimer);
       }
     }));
     const errors = settled.filter((entry) => entry.error).map((entry) => ({ source: entry.source.id, name: entry.source.name, message: entry.error }));

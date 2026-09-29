@@ -172,7 +172,16 @@ export function createLibraryModal({
       grid.createDiv("qiaomu-reader-lib-noresult").setText(qiaomuReaderTranslate("search-online-hint"));
       return;
     }
-    grid.createDiv("qiaomu-reader-lib-noresult").setText(qiaomuReaderTranslate("searching"));
+    const status = grid.createDiv("qiaomu-reader-lib-noresult");
+    status.setText(qiaomuReaderTranslate("searching"));
+    // Elapsed seconds: a search can legitimately take 10-20s (zlib runs in a
+    // hidden browser, PDF Drive through its widget), so show it is working.
+    const startedAt = Date.now();
+    clearInterval(this._onlineTick);
+    this._onlineTick = setInterval(() => {
+      if (!status.isConnected) { clearInterval(this._onlineTick); return; }
+      status.setText(`${qiaomuReaderTranslate("searching")} ${Math.round((Date.now() - startedAt) / 1000)}s`);
+    }, 1000);
     this._onlineTimer = setTimeout(() => { void this._runOnlineSearch(grid, q); }, 450);
   }
   async _runOnlineSearch(grid, query) {
@@ -184,12 +193,14 @@ export function createLibraryModal({
     try {
       report = await this.plugin.searchOnlineBooks(query);
     } catch (error) {
+      clearInterval(this._onlineTick);
       if (this._libMode !== "online" || !grid.isConnected) return;
       grid.empty();
       grid.createDiv("qiaomu-reader-lib-noresult").setText(
         `${qiaomuReaderTranslate("search-online-failed")}：${this.plugin.ocrErrorText?.(error) || ""}`.slice(0, 160));
       return;
     }
+    clearInterval(this._onlineTick);
     if (this._libMode !== "online" || this._onlineQuery.trim() !== query.trim() || !grid.isConnected) return;
     grid.empty();
     const results = report?.results || [];
