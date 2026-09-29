@@ -6,7 +6,7 @@ import { BOOK_EXTENSIONS, isBookFile } from "../shared/books.js";
 import { createAiRuntime } from "./ai-runtime.js";
 import { createPdfOcr, resolveOcrOutput } from "./pdf-ocr.js";
 import { createBookDownloads } from "./book-downloads.js";
-import { bookSessionReady, closeBookSession, downloadBookFile, downloadBookFileFromPage, fetchBookPage, openBookLogin, searchPdfdrive, sessionFetch } from "./book-session.js";
+import { bookSessionReady, closeBookSession, downloadBookFile, downloadBookFileFromPage, fetchBookPage, forgetBookSession, openBookLogin, searchPdfdrive, sessionFetch } from "./book-session.js";
 
 const aiRuntime = createAiRuntime();
 
@@ -38,6 +38,7 @@ const bookDownloads = createBookDownloads({
   fetchImpl: sessionFetch,
   pageFetch: fetchBookPage,
   fileDownload: downloadBookFile,
+  forgetSession: forgetBookSession,
   pdfdriveSearch: searchPdfdrive,
   pageDownload: downloadBookFileFromPage,
 });

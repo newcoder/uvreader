@@ -110,6 +110,25 @@ export async function bookSessionReady(url) {
   }
 }
 
+// A download that never starts (z-library answers 204 for a dead account
+// session, or serves a login page) means the stored login is not valid any
+// more: drop the partition's cookies so the next render offers the sign-in
+// button again instead of pretending the source is ready.
+export async function forgetBookSession(url) {
+  try {
+    const ses = bookSession();
+    const target = String(url || "");
+    if (!target) return false;
+    const cookies = await ses.cookies.get({ url: target });
+    await Promise.all((Array.isArray(cookies) ? cookies : []).map((cookie) => (
+      ses.cookies.remove(target, String(cookie?.name || "")).catch(() => false)
+    )));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 let loginWindow = null;
 let loginResolvers = [];
 

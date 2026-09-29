@@ -83,7 +83,7 @@ export function pickArchiveFile(metadata, identifier) {
   return null;
 }
 
-export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileDownload = null, pageDownload = null, pdfdriveSearch = null, downloadRoot = "" } = {}) {
+export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileDownload = null, pageDownload = null, pdfdriveSearch = null, forgetSession = null, downloadRoot = "" } = {}) {
   const root = String(downloadRoot || "");
   const jobs = new Map();
   const waiting = [];
@@ -259,7 +259,7 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
   async function downloadOne(jobId, result, handlers) {
     const job = jobs.get(jobId);
     const picked = await resolveDownload(result);
-    if (!picked?.url) throw new Error("这个来源没有可直接下载的文件");
+    if (!picked?.url && !picked?.page) throw new Error("这个来源没有可直接下载的文件");
     const format = picked.format || String(result?.format || "").toLowerCase() || "epub";
     const title = String(result?.title || "book").replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "book";
     const dir = ensureRoot();
@@ -313,10 +313,28 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
       await attempt();
     } catch (error) {
       if (job?.cancelled) throw error;
-      // Transient drops (proxy resets, interrupted downloads) get one retry.
+      const message = String(error?.message || error);
+      // An auth wall (the site answers 204 and never starts the transfer) is
+      // not transient: retrying only wastes a minute, and the dead session
+      // must go so the row offers the login flow again.
+      if (/没有开始下载|204/.test(message)) {
+        try { fs.unlinkSync(target); } catch { /* gone */ }
+        try { await forgetSession?.(source); } catch { /* best effort */ }
+        throw error;
+      }
+      // Transient drops (proxy resets, interrupted downloads) get one retry;
+      // a session source that fails twice counts as a dead login.
       try { fs.unlinkSync(target); } catch { /* gone */ }
       await new Promise((resolve) => setTimeout(resolve, 1200));
-      await attempt();
+      try {
+        await attempt();
+      } catch (second) {
+        if (picked.session) {
+          try { fs.unlinkSync(target); } catch { /* gone */ }
+          try { await forgetSession?.(source); } catch { /* best effort */ }
+        }
+        throw second;
+      }
     }
     if (job?.cancelled) {
       try { fs.unlinkSync(target); } catch { /* gone */ }
@@ -326,9 +344,12 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
     if (size < MIN_BOOK_BYTES || !bookHeadLooksValid(readFileHead(target), name)) {
       const head = readFileHead(target).toString("utf8").trimStart();
       try { fs.unlinkSync(target); } catch { /* gone */ }
-      throw new Error(head.startsWith("<")
-        ? "下载到的是网页而不是文件（可能触发来源限额或需要登录）"
-        : "下载到的不是有效书籍文件");
+      if (head.startsWith("<")) {
+        // A login/limit page in place of the file: same dead-session story.
+        try { await forgetSession?.(source); } catch { /* best effort */ }
+        throw new Error("下载到的是网页而不是文件（可能触发来源限额或需要登录）");
+      }
+      throw new Error("下载到的不是有效书籍文件");
     }
     return { ok: true, jobId, path: target, name, bytes: size, source: result?.source || "", format };
   }
@@ -350,6 +371,7 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
           const outcome = await downloadOne(id, result, handlers);
           handlers.onDone?.(outcome);
         } catch (error) {
+          log("download failed", id, result?.source || "", String(error?.message || error).slice(0, 160));
           handlers.onDone?.({ ok: false, jobId: id, cancelled: job.cancelled, error: String(error?.message || error).slice(0, 200) });
         } finally {
           jobs.delete(id);

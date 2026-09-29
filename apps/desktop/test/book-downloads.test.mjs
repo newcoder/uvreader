@@ -121,6 +121,53 @@ test("search streams per-source updates so rows can render early", async () => {
   }
 });
 
+test("a session download that fails twice forgets the dead login", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-books-"));
+  let calls = 0;
+  const forgotten = [];
+  const books = createBookDownloads({
+    downloadRoot: root,
+    fileDownload: async () => {
+      calls += 1;
+      throw new Error("下载失败");
+    },
+    forgetSession: async (url) => { forgotten.push(url); },
+  });
+  const outcome = await new Promise((resolve) => {
+    books.download("job-auth", {
+      source: "zlib", title: "Auth Wall", format: "epub", needsSession: true,
+      url: "https://z-library.sk/dl/abc123",
+      info: "https://z-library.sk/book/abc/def.html",
+    }, { onDone: resolve });
+  });
+  assert.equal(outcome.ok, false);
+  assert.equal(calls, 2, "the transient retry runs once");
+  assert.deepEqual(forgotten, ["https://z-library.sk/dl/abc123"]);
+});
+
+test("an explicit 204 auth wall skips the retry and forgets the session", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-books-"));
+  let calls = 0;
+  const forgotten = [];
+  const books = createBookDownloads({
+    downloadRoot: root,
+    pageDownload: async () => {
+      calls += 1;
+      throw new Error("来源没有开始下载（/dl/ 返回 204，通常表示未登录；请先用「登录后下载」登录该来源）");
+    },
+    forgetSession: async (url) => { forgotten.push(url); },
+  });
+  const outcome = await new Promise((resolve) => {
+    books.download("job-auth", {
+      source: "zlib", title: "Auth Wall", format: "epub", needsSession: true,
+      info: "https://z-library.sk/book/abc/def.html",
+    }, { onDone: resolve });
+  });
+  assert.equal(outcome.ok, false);
+  assert.equal(calls, 1, "the auth wall is not retried");
+  assert.deepEqual(forgotten, ["https://z-library.sk/book/abc/def.html"]);
+});
+
 test("downloads land in the library folder with progress and validated bytes", async () => {
   const server = await startServer();
   const port = server.address().port;
