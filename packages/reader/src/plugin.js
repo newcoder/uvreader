@@ -710,10 +710,10 @@ export function createPlugin({
   booksBridge() {
     return typeof window !== "undefined" ? window.qbrDesktop?.books || null : null;
   }
-  async searchOnlineBooks(query) {
+  async searchOnlineBooks(query, handlers = {}) {
     const bridge = this.booksBridge();
     if (!bridge?.search) throw new Error(qiaomuReaderTranslate("search-online-needs-desktop"));
-    return bridge.search({ sources: this.settings.downloadSources || [], query });
+    return bridge.search({ sources: this.settings.downloadSources || [], query }, handlers.onSource);
   }
   async downloadBook(jobId, result, handlers = {}) {
     const bridge = this.booksBridge();

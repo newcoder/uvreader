@@ -29,7 +29,18 @@ window.qbrDesktop = {
     listSecrets: () => ipcRenderer.invoke("qbr:secret", "list"),
   },
   books: {
-    search: (payload) => ipcRenderer.invoke("qbr:books:search", payload),
+    search: (payload, onSource) => {
+      if (typeof onSource !== "function") return ipcRenderer.invoke("qbr:books:search", payload);
+      const requestId = `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      const listener = (_event, message) => {
+        if (message?.requestId !== requestId) return;
+        onSource(message);
+      };
+      ipcRenderer.on("qbr:books:search-source", listener);
+      return ipcRenderer.invoke("qbr:books:search", { ...payload, requestId }).finally(() => {
+        ipcRenderer.removeListener("qbr:books:search-source", listener);
+      });
+    },
     download: (payload, onEvent) => {
       const listener = (_event, message) => {
         if (message?.jobId !== payload?.jobId) return;

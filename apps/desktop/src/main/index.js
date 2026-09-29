@@ -331,8 +331,20 @@ ipcMain.handle("qbr:secret", (_event, action, id, value) => {
 
 // Online book search and downloads: the renderer sends the configured sources,
 // the main process reaches the network and writes files into the library.
-ipcMain.handle("qbr:books:search", (_event, payload = {}) =>
-  bookDownloads.search({ sources: payload.sources || [], query: payload.query || "" }));
+ipcMain.handle("qbr:books:search", (event, payload = {}) => {
+  const sender = event.sender;
+  return bookDownloads.search(
+    { sources: payload.sources || [], query: payload.query || "" },
+    {
+      // Each source's rows go to the renderer as they settle; requestId lets
+      // the preload ignore updates from a superseded search.
+      onSource: (update) => {
+        if (sender.isDestroyed()) return;
+        sender.send("qbr:books:search-source", { requestId: String(payload.requestId || ""), ...update });
+      },
+    },
+  );
+});
 ipcMain.handle("qbr:books:download", (event, payload = {}) => {
   const sender = event.sender;
   const jobId = String(payload.jobId || "");

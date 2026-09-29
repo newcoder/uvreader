@@ -127,13 +127,23 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
   const SOURCE_COOLDOWN_MS = 10 * 60 * 1000;
 
   // Fan out; one failing source never fails the search.
-  async function search({ sources = [], query = "" } = {}, { timeout = BOOK_SEARCH_TIMEOUT } = {}) {
+  async function search({ sources = [], query = "" } = {}, { timeout = BOOK_SEARCH_TIMEOUT, onSource = null } = {}) {
     const cleaned = String(query || "").trim();
     const enabled = (Array.isArray(sources) ? sources : []).filter((source) => source?.enabled !== false);
     if (!cleaned || !enabled.length) return { results: [], errors: [] };
+    // Progressive results: every source reports the moment it settles, so the
+    // caller can render (and start downloading) rows while slower sources
+    // (zlib's browser challenge, PDF Drive's widget) are still running.
+    let done = 0;
+    const notify = (source, results, error = "") => {
+      done += 1;
+      try { onSource?.({ source: source.id, name: source.name, results, error, done, total: enabled.length }); }
+      catch { /* the listener must never break the search */ }
+    };
     const settled = await Promise.all(enabled.map(async (source) => {
       if ((sourceCooldown.get(source.id) || 0) > Date.now()) {
         log("search skipped (cooling down)", source.id);
+        notify(source, []);
         return { source, results: [] };
       }
       const startedAt = Date.now();
@@ -152,10 +162,12 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
         sourceFails.delete(source.id);
         sourceCooldown.delete(source.id);
         log("search", source.id, `${Date.now() - startedAt}ms`, results.length, "hits");
+        notify(source, results);
         return { source, results };
       } catch (error) {
         const message = String(error?.name === "AbortError" ? "超时" : error?.message || error).slice(0, 160);
         log("search failed", source.id, message, `${Date.now() - startedAt}ms`);
+        notify(source, [], message);
         const fails = (sourceFails.get(source.id) || 0) + 1;
         sourceFails.set(source.id, fails);
         if (fails >= SOURCE_FAIL_LIMIT) {

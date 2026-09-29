@@ -189,32 +189,60 @@ export function createLibraryModal({
       const handled = await this._runBookFinder(grid, query);
       if (handled) return;
     }
+    // Rows render (and downloads can start) the moment each source settles;
+    // the promise only guarantees that every source did.
+    const selected = new Set();
+    const rows = [];
+    const seen = new Set();
+    let syncBar = () => {};
+    const context = { selected, rows, grid, onToggle: () => syncBar() };
+    const valid = () => this._libMode === "online" && this._onlineQuery.trim() === query.trim() && grid.isConnected;
+    const onSource = (update) => {
+      if (!valid()) return;
+      const incoming = Array.isArray(update?.results) ? update.results : [];
+      let added = false;
+      for (const result of incoming) {
+        const key = `${String(result?.title || "").trim().toLowerCase()}|${String(result?.author || "").trim().toLowerCase()}`;
+        if (!key.trim() || key === "|" || seen.has(key)) continue;
+        seen.add(key);
+        this._buildOnlineRow(grid, result, context);
+        added = true;
+      }
+      if (!added) return;
+      clearInterval(this._onlineTick);
+      grid.querySelector(".qiaomu-reader-lib-noresult")?.remove();
+      syncBar = this._buildOnlineActions(this._libDeps.actionRow || grid, selected, rows);
+    };
     let report = null;
     try {
-      report = await this.plugin.searchOnlineBooks(query);
+      report = await this.plugin.searchOnlineBooks(query, { onSource });
     } catch (error) {
       clearInterval(this._onlineTick);
-      if (this._libMode !== "online" || !grid.isConnected) return;
+      if (!valid()) return;
       grid.empty();
       grid.createDiv("qiaomu-reader-lib-noresult").setText(
         `${qiaomuReaderTranslate("search-online-failed")}：${this.plugin.ocrErrorText?.(error) || ""}`.slice(0, 160));
       return;
     }
     clearInterval(this._onlineTick);
-    if (this._libMode !== "online" || this._onlineQuery.trim() !== query.trim() || !grid.isConnected) return;
-    grid.empty();
+    if (!valid()) return;
     const results = report?.results || [];
     const errors = report?.errors || [];
-    if (!results.length) grid.createDiv("qiaomu-reader-lib-noresult").setText(qiaomuReaderTranslate("nothing-found"));
-    const selected = new Set();
-    const rows = [];
-    let syncBar = () => {};
-    const context = { selected, rows, grid, onToggle: () => syncBar() };
-    for (const result of results) this._buildOnlineRow(grid, result, context);
+    if (!rows.length) {
+      // Nothing streamed (bridge without progress support, or no source had
+      // hits): render the final report once, as before.
+      grid.empty();
+      if (!results.length) grid.createDiv("qiaomu-reader-lib-noresult").setText(qiaomuReaderTranslate("nothing-found"));
+      for (const result of results) this._buildOnlineRow(grid, result, context);
+      if (errors.length) {
+        grid.createDiv({ cls: "qiaomu-reader-lib-result-errors", text: `${qiaomuReaderTranslate("search-online-sources-failed")}：${errors.map((e) => e.name || e.source).join(", ")}` });
+      }
+      this._buildOnlineActions(this._libDeps.actionRow || grid, selected, rows);
+      return;
+    }
     if (errors.length) {
       grid.createDiv({ cls: "qiaomu-reader-lib-result-errors", text: `${qiaomuReaderTranslate("search-online-sources-failed")}：${errors.map((e) => e.name || e.source).join(", ")}` });
     }
-    syncBar = this._buildOnlineActions(this._libDeps.actionRow || grid, selected, rows);
   }
   // The AI path: fuzzy request → book list → each book looked up in the
   // sources. Returns false (and lets the plain search run) when the AI is

@@ -98,6 +98,29 @@ test("search merges sources, dedupes works and reports failing sources", async (
   }
 });
 
+test("search streams per-source updates so rows can render early", async () => {
+  const server = await startServer();
+  const port = server.address().port;
+  const sources = [
+    { id: "gutenberg", name: "Project Gutenberg", url: `http://127.0.0.1:${port}`, kind: "gutenberg", enabled: true },
+    { id: "standard-ebooks", name: "Standard Ebooks", url: `http://127.0.0.1:${port}`, kind: "standard-ebooks", enabled: true },
+  ];
+  const books = createBookDownloads({ downloadRoot: fs.mkdtempSync(path.join(os.tmpdir(), "qbr-books-")) });
+  const updates = [];
+  try {
+    const { results } = await books.search({ sources, query: "frankenstein" }, { onSource: (update) => updates.push(update) });
+    assert.equal(results.length, 1);
+    assert.equal(updates.length, 2);
+    assert.equal(updates[0].done, 1);
+    assert.equal(updates[1].done, 2);
+    assert.equal(updates[1].total, 2);
+    assert.equal(updates.every((update) => update.error === ""), true);
+    assert.equal(updates.some((update) => (update.results || []).length === 1), true);
+  } finally {
+    server.close();
+  }
+});
+
 test("downloads land in the library folder with progress and validated bytes", async () => {
   const server = await startServer();
   const port = server.address().port;
