@@ -271,20 +271,59 @@ export function fetchBookPage(url, { timeout = 30000 } = {}) {
 
 // Runs a browser download in the hidden renderer: the session holds the
 // challenge clearance, so the file comes down exactly as in a real browser.
+// Watches the session's completed/failed requests for one URL and records the
+// status that answered. The download item alone cannot tell a dead login
+// (204/401/403) from a network drop, but the HTTP answer can; forgetting a
+// fresh login on a transient error made the login window pop in a loop.
+function watchDownloadStatus(ses, match) {
+  const state = { status: 0 };
+  const onCompleted = (details) => {
+    const requestUrl = String(details?.url || "");
+    if (!match(requestUrl)) return;
+    const code = Number(details?.statusCode) || 0;
+    // Redirects say nothing; keep whatever the last real answer was.
+    if (code >= 300 && code < 400) return;
+    state.status = code;
+  };
+  const onFailed = (details) => {
+    if (match(String(details?.url || ""))) state.status = -1;
+  };
+  try { ses.webRequest.onCompleted(onCompleted); } catch { /* optional */ }
+  try { ses.webRequest.onErrorOccurred(onFailed); } catch { /* optional */ }
+  return {
+    get status() { return state.status; },
+    stop() {
+      try { ses.webRequest.onCompleted(null); } catch { /* gone */ }
+      try { ses.webRequest.onErrorOccurred(null); } catch { /* gone */ }
+    },
+  };
+}
+
+function downloadError(status, fallback = "下载失败") {
+  const auth = status === 204 || status === 401 || status === 403;
+  const error = new Error(auth
+    ? `来源没有开始下载（HTTP ${status}，登录已失效；请先用「登录后下载」登录该来源）`
+    : status > 0 ? `下载失败（HTTP ${status}）` : fallback);
+  if (auth) error.auth = true;
+  return error;
+}
+
 export function downloadBookFile(url, target, { onProgress = null, timeout = 240000 } = {}) {
   const run = () => new Promise((resolve, reject) => {
     const win = bookPageWindow();
     const ses = win.webContents.session;
     let settled = false;
     let item = null;
+    const watcher = watchDownloadStatus(ses, (requestUrl) => requestUrl === String(url) || /\/dl\//i.test(requestUrl));
     const finish = (error) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      watcher.stop();
       try { ses.off("will-download", onWillDownload); } catch { /* gone */ }
       error ? reject(error) : resolve({ ok: true });
     };
-    const timer = setTimeout(() => { try { item?.cancel(); } catch { /* gone */ } finish(new Error("下载超时")); }, timeout);
+    const timer = setTimeout(() => { try { item?.cancel(); } catch { /* gone */ } finish(downloadError(watcher.status, "下载超时")); }, timeout);
     const onWillDownload = (_event, downloadItem) => {
       if (item) return;
       item = downloadItem;
@@ -295,7 +334,8 @@ export function downloadBookFile(url, target, { onProgress = null, timeout = 240
       });
       downloadItem.once("done", (_e, state) => {
         if (state === "completed") finish(null);
-        else finish(new Error(state === "cancelled" ? "已取消" : "下载失败"));
+        else if (state === "cancelled") finish(new Error("已取消"));
+        else finish(downloadError(watcher.status));
       });
     };
     ses.on("will-download", onWillDownload);
@@ -427,16 +467,19 @@ export function searchPdfdrive(query, { timeout = 30000, maxPages = 2 } = {}) {
 export function downloadBookFileFromPage(pageUrl, target, { onProgress = null, format = "", timeout = 240000, clickTimeout = 40000 } = {}) {
   const run = () => new Promise((resolve, reject) => {
     const win = bookPageWindow();
+    const ses = win.webContents.session;
     let item = null;
     let settled = false;
+    const watcher = watchDownloadStatus(ses, (requestUrl) => /\/dl\//.test(requestUrl));
     const finish = (error) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      try { win.webContents.session.off("will-download", onWillDownload); } catch { /* gone */ }
+      watcher.stop();
+      try { ses.off("will-download", onWillDownload); } catch { /* gone */ }
       error ? reject(error) : resolve({ ok: true });
     };
-    const timer = setTimeout(() => { try { item?.cancel(); } catch { /* gone */ } finish(new Error("下载超时")); }, timeout);
+    const timer = setTimeout(() => { try { item?.cancel(); } catch { /* gone */ } finish(downloadError(watcher.status, "下载超时")); }, timeout);
     const onWillDownload = (_event, downloadItem) => {
       if (item) return;
       item = downloadItem;
@@ -447,11 +490,15 @@ export function downloadBookFileFromPage(pageUrl, target, { onProgress = null, f
       });
       downloadItem.once("done", (_e, state) => {
         if (state === "completed") finish(null);
-        else finish(new Error(state === "cancelled" ? "已取消" : "下载失败"));
+        else if (state === "cancelled") finish(new Error("已取消"));
+        else finish(downloadError(watcher.status));
       });
     };
-    win.webContents.session.on("will-download", onWillDownload);
-    const clicked = new Promise((resolve, reject) => setTimeout(() => reject(new Error("来源没有开始下载（/dl/ 返回 204，通常表示未登录；请先用「登录后下载」登录该来源）")), clickTimeout));
+    ses.on("will-download", onWillDownload);
+    const clicked = new Promise((resolve, reject) => setTimeout(
+      () => reject(downloadError(watcher.status, "书页没有触发下载（可能需要登录；请先用「登录后下载」登录该来源）")),
+      clickTimeout,
+    ));
     loadBookPage(win, String(pageUrl), 30000).then(async () => {
       // The download buttons are rendered from <template> blocks (querySelector
       // never reaches those). Materialise them into the page, then click the

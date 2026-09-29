@@ -121,7 +121,7 @@ test("search streams per-source updates so rows can render early", async () => {
   }
 });
 
-test("a session download that fails twice forgets the dead login", async () => {
+test("a session download that fails twice is retried but keeps its login", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-books-"));
   let calls = 0;
   const forgotten = [];
@@ -144,8 +144,8 @@ test("a session download that fails twice forgets the dead login", async () => {
   });
   assert.equal(outcome.ok, false);
   assert.equal(calls, 2, "the transient retry runs once");
-  assert.deepEqual(forgotten, ["https://z-library.sk/dl/abc123"]);
-  assert.deepEqual(walls, ["https://z-library.sk/book/abc/def.html"], "the login window opens at the book page");
+  assert.deepEqual(forgotten, [], "a generic failure never clears the login");
+  assert.deepEqual(walls, [], "the login window stays closed for a generic failure");
 });
 
 test("an explicit 204 auth wall skips the retry and forgets the session", async () => {
@@ -157,7 +157,9 @@ test("an explicit 204 auth wall skips the retry and forgets the session", async 
     downloadRoot: root,
     pageDownload: async () => {
       calls += 1;
-      throw new Error("来源没有开始下载（/dl/ 返回 204，通常表示未登录；请先用「登录后下载」登录该来源）");
+      const error = new Error("来源没有开始下载（HTTP 204，登录已失效；请先用「登录后下载」登录该来源）");
+      error.auth = true;
+      throw error;
     },
     forgetSession: async (url) => { forgotten.push(url); },
     onAuthWall: async (url) => { walls.push(url); },

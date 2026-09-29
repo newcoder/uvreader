@@ -314,24 +314,23 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
       await attempt();
     } catch (error) {
       if (job?.cancelled) throw error;
-      const message = String(error?.message || error);
-      // An auth wall (the site answers 204 and never starts the transfer) is
-      // not transient: retrying only wastes a minute, and the dead session
-      // must go so the row offers the login flow again.
-      if (/没有开始下载|204/.test(message)) {
+      // Only a real auth wall (the session layer saw 204/401/403 and flagged
+      // it) clears the login and pops the window; guessing from a generic
+      // failure wiped fresh logins and made the login window pop in a loop.
+      if (error?.auth === true) {
         try { fs.unlinkSync(target); } catch { /* gone */ }
         try { await forgetSession?.(source); } catch { /* best effort */ }
         try { onAuthWall?.(loginUrl || source); } catch { /* best effort */ }
         throw error;
       }
       // Transient drops (proxy resets, interrupted downloads) get one retry;
-      // a session source that fails twice counts as a dead login.
+      // the retry may itself hit the wall and then clears the session.
       try { fs.unlinkSync(target); } catch { /* gone */ }
       await new Promise((resolve) => setTimeout(resolve, 1200));
       try {
         await attempt();
       } catch (second) {
-        if (picked.session) {
+        if (second?.auth === true) {
           try { fs.unlinkSync(target); } catch { /* gone */ }
           try { await forgetSession?.(source); } catch { /* best effort */ }
           try { onAuthWall?.(loginUrl || source); } catch { /* best effort */ }
