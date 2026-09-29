@@ -83,7 +83,7 @@ export function pickArchiveFile(metadata, identifier) {
   return null;
 }
 
-export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileDownload = null, pageDownload = null, pdfdriveSearch = null, forgetSession = null, downloadRoot = "" } = {}) {
+export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileDownload = null, pageDownload = null, pdfdriveSearch = null, forgetSession = null, onAuthWall = null, downloadRoot = "" } = {}) {
   const root = String(downloadRoot || "");
   const jobs = new Map();
   const waiting = [];
@@ -263,11 +263,12 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
     const format = picked.format || String(result?.format || "").toLowerCase() || "epub";
     const title = String(result?.title || "book").replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "book";
     const dir = ensureRoot();
+    const loginUrl = String(result?.info || picked.page || "");
     if (picked.session && picked.page && typeof pageDownload === "function") {
-      return downloadViaBrowser(jobId, result, picked, { format, title, dir, handlers, run: pageDownload, source: picked.page });
+      return downloadViaBrowser(jobId, result, picked, { format, title, dir, handlers, run: pageDownload, source: picked.page, loginUrl });
     }
     if (picked.session && typeof fileDownload === "function") {
-      return downloadViaBrowser(jobId, result, picked, { format, title, dir, handlers, run: fileDownload, source: picked.url });
+      return downloadViaBrowser(jobId, result, picked, { format, title, dir, handlers, run: fileDownload, source: picked.url, loginUrl });
     }
     const response = await fetchImpl(picked.url, { redirect: "follow" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -298,7 +299,7 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
 
   // Session-gated files come through the hidden renderer, where the source's
   // challenge clearance applies; the file is validated from disk afterwards.
-  async function downloadViaBrowser(jobId, result, picked, { format, title, dir, handlers, run = fileDownload, source = "" }) {
+  async function downloadViaBrowser(jobId, result, picked, { format, title, dir, handlers, run = fileDownload, source = "", loginUrl = "" }) {
     const job = jobs.get(jobId);
     const name = uniqueBookName(dir, `${title}.${format}`);
     const target = path.join(dir, name);
@@ -320,6 +321,7 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
       if (/没有开始下载|204/.test(message)) {
         try { fs.unlinkSync(target); } catch { /* gone */ }
         try { await forgetSession?.(source); } catch { /* best effort */ }
+        try { onAuthWall?.(loginUrl || source); } catch { /* best effort */ }
         throw error;
       }
       // Transient drops (proxy resets, interrupted downloads) get one retry;
@@ -332,6 +334,7 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
         if (picked.session) {
           try { fs.unlinkSync(target); } catch { /* gone */ }
           try { await forgetSession?.(source); } catch { /* best effort */ }
+          try { onAuthWall?.(loginUrl || source); } catch { /* best effort */ }
         }
         throw second;
       }
@@ -347,6 +350,7 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
       if (head.startsWith("<")) {
         // A login/limit page in place of the file: same dead-session story.
         try { await forgetSession?.(source); } catch { /* best effort */ }
+        try { onAuthWall?.(loginUrl || source); } catch { /* best effort */ }
         throw new Error("下载到的是网页而不是文件（可能触发来源限额或需要登录）");
       }
       throw new Error("下载到的不是有效书籍文件");

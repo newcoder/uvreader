@@ -39,6 +39,12 @@ const bookDownloads = createBookDownloads({
   pageFetch: fetchBookPage,
   fileDownload: downloadBookFile,
   forgetSession: forgetBookSession,
+  // A download killed by a login wall pops the source's login window by
+  // itself; the row offers the sign-in button again if it is dismissed.
+  onAuthWall: (url) => {
+    try { void openBookLogin(String(url || ""), { parent: BrowserWindow.getFocusedWindow() || mainWindow }); }
+    catch { /* best effort */ }
+  },
   pdfdriveSearch: searchPdfdrive,
   pageDownload: downloadBookFileFromPage,
 });
