@@ -277,6 +277,11 @@ function createWindow() {
   mainWindow.setMenuBarVisibility(false);
   mainWindow.on("closed", () => {
     mainWindow = null;
+    // The hidden windows (zlib's page loader, PDF Drive, a login window) count
+    // as open windows, so window-all-closed never fires after the visible
+    // window goes away and the process lingers invisibly. Quitting here runs
+    // before-quit, which cancels the jobs and destroys those windows.
+    if (process.platform !== "darwin") app.quit();
   });
   mainWindow.webContents.on("console-message", (...args) => {
     const details = args[1];
