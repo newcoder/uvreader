@@ -83,7 +83,7 @@ export function pickArchiveFile(metadata, identifier) {
   return null;
 }
 
-export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileDownload = null, pageDownload = null, pdfdriveSearch = null, forgetSession = null, onAuthWall = null, downloadRoot = "" } = {}) {
+export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileDownload = null, pageDownload = null, pdfdriveSearch = null, onAuthWall = null, downloadRoot = "" } = {}) {
   const root = String(downloadRoot || "");
   const jobs = new Map();
   const waiting = [];
@@ -315,16 +315,16 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
     } catch (error) {
       if (job?.cancelled) throw error;
       // Only a real auth wall (the session layer saw 204/401/403 and flagged
-      // it) clears the login and pops the window; guessing from a generic
-      // failure wiped fresh logins and made the login window pop in a loop.
+      // it) reports the wall; whether that means a dead login (clear + open
+      // the login window) or the daily download limit (keep the session) is
+      // decided by the shell, which can check the account state.
       if (error?.auth === true) {
         try { fs.unlinkSync(target); } catch { /* gone */ }
-        try { await forgetSession?.(source); } catch { /* best effort */ }
-        try { onAuthWall?.(loginUrl || source); } catch { /* best effort */ }
+        try { await onAuthWall?.(loginUrl || source); } catch { /* best effort */ }
         throw error;
       }
       // Transient drops (proxy resets, interrupted downloads) get one retry;
-      // the retry may itself hit the wall and then clears the session.
+      // the retry may itself hit the wall.
       try { fs.unlinkSync(target); } catch { /* gone */ }
       await new Promise((resolve) => setTimeout(resolve, 1200));
       try {
@@ -332,8 +332,7 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
       } catch (second) {
         if (second?.auth === true) {
           try { fs.unlinkSync(target); } catch { /* gone */ }
-          try { await forgetSession?.(source); } catch { /* best effort */ }
-          try { onAuthWall?.(loginUrl || source); } catch { /* best effort */ }
+          try { await onAuthWall?.(loginUrl || source); } catch { /* best effort */ }
         }
         throw second;
       }
@@ -347,9 +346,8 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
       const head = readFileHead(target).toString("utf8").trimStart();
       try { fs.unlinkSync(target); } catch { /* gone */ }
       if (head.startsWith("<")) {
-        // A login/limit page in place of the file: same dead-session story.
-        try { await forgetSession?.(source); } catch { /* best effort */ }
-        try { onAuthWall?.(loginUrl || source); } catch { /* best effort */ }
+        // A login/limit page in place of the file: same wall, same handling.
+        try { await onAuthWall?.(loginUrl || source); } catch { /* best effort */ }
         throw new Error("下载到的是网页而不是文件（可能触发来源限额或需要登录）");
       }
       throw new Error("下载到的不是有效书籍文件");

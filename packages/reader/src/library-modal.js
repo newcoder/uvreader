@@ -418,7 +418,20 @@ export function createLibraryModal({
         this._libStale = true;
       } else {
         const reason = String(outcome?.error || "").slice(0, 120) || qiaomuReaderTranslate("download-failed");
-        if (status) status.setText(`${qiaomuReaderTranslate("download-failed")}：${reason.slice(0, 60)}`);
+        if (status && status.isConnected) {
+          status.setText(`${qiaomuReaderTranslate("download-failed")}：${reason.slice(0, 60)} `);
+          // Manual escape hatch: a wall that left the session alone (the daily
+          // download limit looks the same as a dead login) keeps the row usable.
+          if (result?.needsSession || result?.source === "zlib") {
+            const signIn = status.createEl("button", { cls: "qiaomu-reader-lib-result-open", text: qiaomuReaderTranslate("search-online-sign-in") });
+            signIn.addEventListener("click", async (event) => {
+              event.stopPropagation();
+              signIn.disabled = true;
+              await this.plugin.openBookLogin(this._loginUrlFor(result));
+              if (this._libMode === "online" && this._grid?.isConnected) this._renderOnline(this._grid, this._onlineQuery);
+            });
+          }
+        }
         if (!outcome?.cancelled) new Notice(`${qiaomuReaderTranslate("download-failed")}：${reason}`, 10000);
       }
     } finally {

@@ -124,7 +124,6 @@ test("search streams per-source updates so rows can render early", async () => {
 test("a session download that fails twice is retried but keeps its login", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-books-"));
   let calls = 0;
-  const forgotten = [];
   const walls = [];
   const books = createBookDownloads({
     downloadRoot: root,
@@ -132,7 +131,6 @@ test("a session download that fails twice is retried but keeps its login", async
       calls += 1;
       throw new Error("下载失败");
     },
-    forgetSession: async (url) => { forgotten.push(url); },
     onAuthWall: async (url) => { walls.push(url); },
   });
   const outcome = await new Promise((resolve) => {
@@ -144,24 +142,21 @@ test("a session download that fails twice is retried but keeps its login", async
   });
   assert.equal(outcome.ok, false);
   assert.equal(calls, 2, "the transient retry runs once");
-  assert.deepEqual(forgotten, [], "a generic failure never clears the login");
-  assert.deepEqual(walls, [], "the login window stays closed for a generic failure");
+  assert.deepEqual(walls, [], "a generic failure never reports a login wall");
 });
 
 test("an explicit 204 auth wall skips the retry and forgets the session", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-books-"));
   let calls = 0;
-  const forgotten = [];
   const walls = [];
   const books = createBookDownloads({
     downloadRoot: root,
     pageDownload: async () => {
       calls += 1;
-      const error = new Error("来源没有开始下载（HTTP 204，登录已失效；请先用「登录后下载」登录该来源）");
+      const error = new Error("来源拒绝了下载（HTTP 204）：可能登录已失效，或今日额度已用完");
       error.auth = true;
       throw error;
     },
-    forgetSession: async (url) => { forgotten.push(url); },
     onAuthWall: async (url) => { walls.push(url); },
   });
   const outcome = await new Promise((resolve) => {
@@ -172,8 +167,7 @@ test("an explicit 204 auth wall skips the retry and forgets the session", async 
   });
   assert.equal(outcome.ok, false);
   assert.equal(calls, 1, "the auth wall is not retried");
-  assert.deepEqual(forgotten, ["https://z-library.sk/book/abc/def.html"]);
-  assert.deepEqual(walls, ["https://z-library.sk/book/abc/def.html"], "the login window opens at the book page");
+  assert.deepEqual(walls, ["https://z-library.sk/book/abc/def.html"], "the wall is reported with the book page");
 });
 
 test("downloads land in the library folder with progress and validated bytes", async () => {

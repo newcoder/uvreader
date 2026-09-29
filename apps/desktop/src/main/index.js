@@ -38,12 +38,20 @@ const bookDownloads = createBookDownloads({
   fetchImpl: sessionFetch,
   pageFetch: fetchBookPage,
   fileDownload: downloadBookFile,
-  forgetSession: forgetBookSession,
-  // A download killed by a login wall pops the source's login window by
-  // itself; the row offers the sign-in button again if it is dismissed.
+  // A download wall is either a dead login or the daily download limit
+  // (Z-Library: 10 books/day signed in, 5 anonymous). Only an anonymous
+  // session is wiped and sent to the login window; a signed-in account keeps
+  // its cookies because re-login cannot lift a quota, and the failed row
+  // offers a manual 登录后下载 button instead.
   onAuthWall: (url) => {
-    try { void openBookLogin(String(url || ""), { parent: BrowserWindow.getFocusedWindow() || mainWindow }); }
-    catch { /* best effort */ }
+    const target = String(url || "");
+    void bookSessionReady(target).then((signedIn) => {
+      if (signedIn) return;
+      void forgetBookSession(target).finally(() => {
+        try { void openBookLogin(target, { parent: BrowserWindow.getFocusedWindow() || mainWindow }); }
+        catch { /* best effort */ }
+      });
+    }).catch(() => {});
   },
   pdfdriveSearch: searchPdfdrive,
   pageDownload: downloadBookFileFromPage,

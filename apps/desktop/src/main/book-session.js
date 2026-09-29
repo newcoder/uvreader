@@ -302,7 +302,7 @@ function watchDownloadStatus(ses, match) {
 function downloadError(status, fallback = "下载失败") {
   const auth = status === 204 || status === 401 || status === 403;
   const error = new Error(auth
-    ? `来源没有开始下载（HTTP ${status}，登录已失效；请先用「登录后下载」登录该来源）`
+    ? `来源拒绝了下载（HTTP ${status}）：可能登录已失效，或今日额度已用完（登录 10 本/天、未登录 5 本/天）`
     : status > 0 ? `下载失败（HTTP ${status}）` : fallback);
   if (auth) error.auth = true;
   return error;
