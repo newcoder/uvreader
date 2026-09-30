@@ -50,6 +50,26 @@ export function engineLayout(settings = {}, width = 0) {
     };
 }
 
+// WeRead-style EPUBs point @font-face at remote CDNs (jsdelivr); the desktop
+// CSP refuses those anyway (books stay offline), and every attempt logs a
+// console error. Drop the rules when a section loads so the fallback fonts are
+// deliberate; foreign stylesheets that cannot be read stay untouched.
+function stripRemoteFontFaces(doc) {
+    try {
+        for (const sheet of Array.from(doc?.styleSheets || [])) {
+            let rules = null;
+            try { rules = sheet.cssRules; } catch { continue; }
+            if (!rules) continue;
+            for (let i = rules.length - 1; i >= 0; i -= 1) {
+                const rule = rules[i];
+                if (rule.type !== 5) continue; // CSSFontFaceRule
+                const src = String(rule.style?.getPropertyValue?.("src") || "");
+                if (/https?:/i.test(src)) sheet.deleteRule(i);
+            }
+        }
+    } catch { /* best effort */ }
+}
+
 export function bindEngineKeys(doc, navigate, scrolled = () => false) {
     const keydown = (event) => {
         if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
@@ -185,6 +205,7 @@ export class EpubEngine {
             if (this.#view !== view) return;
             const { doc, index } = e.detail || {};
             if (!doc) return;
+            stripRemoteFontFaces(doc);
             this.#keyCleanup?.();
             this.#keyCleanup = bindEngineKeys(doc, (direction) => {
                 if (this.#hooks.onNavigate) this.#hooks.onNavigate(direction);
