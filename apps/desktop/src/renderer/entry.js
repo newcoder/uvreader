@@ -2,6 +2,7 @@ import { configureHost, createApp, installDomExtensions } from "obsidian";
 import { marked } from "marked";
 
 import QiaomuBookReader from "../../../../packages/reader/src/main.js";
+import { READER_THEMES, migrateReaderTheme } from "../../../../packages/reader/src/reader-themes.js";
 import { isBookFile } from "../shared/books.js";
 import { iconResolver } from "./icons.js";
 import { renderMathIn } from "./math.js";
@@ -130,6 +131,23 @@ async function boot() {
   // The product is 纽扣 in the Chinese UI and UV Reader everywhere else; the
   // toolbar brand and the window titles follow the interface language.
   const displayName = () => (String(plugin.settings?.language || "zh").toLowerCase().startsWith("zh") ? "纽扣" : "UV Reader");
+  // Reading theme → shell palette. When a reader is open its inline variables
+  // win (they carry the live eink toggle); otherwise the saved settings paint
+  // home/library/settings directly, so a theme change applies without opening
+  // a book and survives a restart.
+  const THEME_VAR_KEY = {
+    "--qiaomu-reader-bg": "bg",
+    "--qiaomu-reader-ui": "ui",
+    "--qiaomu-reader-text": "text",
+    "--qiaomu-reader-accent": "accent",
+    "--qiaomu-reader-border": "border",
+    "--qiaomu-reader-muted": "muted",
+  };
+  const themeFromSettings = () => {
+    const settings = plugin.settings || {};
+    if (settings.einkMode === true) return READER_THEMES.eink;
+    return READER_THEMES[migrateReaderTheme(settings.theme)] || READER_THEMES.auto;
+  };
   const brandEl = document.querySelector(".qbr-nav-brand");
   function applyBrand() {
     if (brandEl) brandEl.textContent = displayName();
@@ -242,32 +260,51 @@ async function boot() {
   function syncReadingTheme() {
     const reader = app.workspace.getLeavesOfType(READER_VIEW)[0]?.view;
     const source = reader?.contentEl;
-    if (!source) return;
-    for (const [target, variable] of READING_THEME_MAP) {
-      const value = source.style.getPropertyValue(variable);
-      if (!value || value.startsWith("var(")) continue;
-      document.body.style.setProperty(target, value);
+    const fromSettings = source ? null : themeFromSettings();
+    const readVar = (variable) => (source
+      ? source.style.getPropertyValue(variable)
+      : String(fromSettings?.[THEME_VAR_KEY[variable]] || ""));
+    // A value that is empty (reader not styled yet) or a var() reference
+    // (theme "auto") means "no override": drop what an earlier theme set on
+    // the shell instead of leaving stale colours behind.
+    const body = document.body.style;
+    const applyVar = (target, value) => {
+      if (value && !value.startsWith("var(")) body.setProperty(target, value);
+      else if (!source) body.removeProperty(target);
+    };
+    for (const [target, variable] of READING_THEME_MAP) applyVar(target, readVar(variable));
+    const bg = readVar("--qiaomu-reader-bg");
+    const ui = readVar("--qiaomu-reader-ui");
+    const text = readVar("--qiaomu-reader-text");
+    const accent = readVar("--qiaomu-reader-accent");
+    const resolved = (value) => Boolean(value) && !value.startsWith("var(");
+    if (resolved(ui)) {
+      body.setProperty("--interactive-normal", ui);
+      body.setProperty("--background-modifier-form-field", ui);
+    } else if (!source) {
+      body.removeProperty("--interactive-normal");
+      body.removeProperty("--background-modifier-form-field");
     }
-    const bg = source.style.getPropertyValue("--qiaomu-reader-bg");
-    const ui = source.style.getPropertyValue("--qiaomu-reader-ui");
-    const text = source.style.getPropertyValue("--qiaomu-reader-text");
-    const accent = source.style.getPropertyValue("--qiaomu-reader-accent");
-    if (ui) {
-      document.body.style.setProperty("--interactive-normal", ui);
-      document.body.style.setProperty("--background-modifier-form-field", ui);
+    if (resolved(ui) && resolved(text)) {
+      body.setProperty("--interactive-hover", `color-mix(in srgb, ${text} 10%, ${ui})`);
+      body.setProperty("--background-modifier-hover", `color-mix(in srgb, ${text} 8%, transparent)`);
+      body.setProperty("--background-modifier-active-hover", `color-mix(in srgb, ${text} 14%, transparent)`);
+    } else if (!source) {
+      body.removeProperty("--interactive-hover");
+      body.removeProperty("--background-modifier-hover");
+      body.removeProperty("--background-modifier-active-hover");
     }
-    if (ui && text) {
-      document.body.style.setProperty("--interactive-hover", `color-mix(in srgb, ${text} 10%, ${ui})`);
-      document.body.style.setProperty("--background-modifier-hover", `color-mix(in srgb, ${text} 8%, transparent)`);
-      document.body.style.setProperty("--background-modifier-active-hover", `color-mix(in srgb, ${text} 14%, transparent)`);
-    }
-    if (accent) document.body.style.setProperty("--selection-color", `color-mix(in srgb, ${accent} 30%, transparent)`);
-    const accentLuminance = colorLuminance(accent);
+    if (resolved(accent)) body.setProperty("--selection-color", `color-mix(in srgb, ${accent} 30%, transparent)`);
+    else if (!source) body.removeProperty("--selection-color");
+    const accentLuminance = colorLuminance(resolved(accent) ? accent : "");
     if (accentLuminance !== null) {
-      document.body.style.setProperty("--text-on-accent", accentLuminance > 0.55 ? (bg || "#111111") : "#ffffff");
+      body.setProperty("--text-on-accent", accentLuminance > 0.55 ? (bg || "#111111") : "#ffffff");
+    } else if (!source) {
+      body.removeProperty("--text-on-accent");
     }
-    const luminance = colorLuminance(bg);
-    if (luminance !== null) document.body.style.colorScheme = luminance > 0.55 ? "light" : "dark";
+    const luminance = colorLuminance(resolved(bg) ? bg : "");
+    if (luminance !== null) body.colorScheme = luminance > 0.55 ? "light" : "dark";
+    else if (!source) body.removeProperty("color-scheme");
   }
   function watchReadingTheme() {
     const reader = app.workspace.getLeavesOfType(READER_VIEW)[0]?.view;
@@ -300,6 +337,7 @@ async function boot() {
   app.workspace.on("active-leaf-change", watchReadingTheme);
   app.workspace.on("layout-change", watchReadingTheme);
   applyBrand();
+  syncReadingTheme();
 
   function syncChrome() {
     const type = app.workspace.activeLeaf?.view?.getViewType?.() || "";
