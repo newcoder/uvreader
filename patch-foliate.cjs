@@ -37,4 +37,44 @@ if (fs.existsSync(epubPath)) {
     patched += 1;
   }
 }
+
+// The lenient fallback is deliberate, but the warning it logs dumps the whole
+// XML parser error text into the console on every section of a sloppy book,
+// which reads as an app failure. Silence it.
+const warnFrom = "console.warn(doc.querySelector('parsererror')?.innerText ?? 'Invalid XHTML')";
+const warnTo = "/* malformed XHTML falls back to HTML parsing below; stay quiet */";
+if (fs.existsSync(epubPath)) {
+  const text = fs.readFileSync(epubPath, "utf8");
+  if (text.includes(warnFrom)) {
+    fs.writeFileSync(epubPath, text.split(warnFrom).join(warnTo));
+    patched += 1;
+  } else if (text.includes(warnTo)) {
+    patched += 1;
+  }
+}
+
+// Remote @font-face rules (WeRead scraper exports point at jsdelivr) can never
+// load under the desktop CSP; the iframe then logs a refusal per font. Strip
+// the rules while the book CSS is rewritten so no request is ever made.
+const cssFrom = `        return replaceSeries(replacedUrls,
+            /@import\\s*["']([^"'\\n]*?)["']/gi,
+            (_, url) => this.loadHref(url, href, parents)
+                .then(url => \`@import "\${url}"\`))`;
+const cssTo = `        const withImports = await replaceSeries(replacedUrls,
+            /@import\\s*["']([^"'\\n]*?)["']/gi,
+            (_, url) => this.loadHref(url, href, parents)
+                .then(url => \`@import "\${url}"\`))
+        // Remote fonts cannot load offline; drop those rules and the CSP
+        // refusal noise with them.
+        return withImports.replace(/@font-face\\s*\\{[^}]*\\}/gi,
+            (rule) => /url\\(\\s*["']?https?:/i.test(rule) ? "" : rule)`;
+if (fs.existsSync(epubPath)) {
+  const text = fs.readFileSync(epubPath, "utf8");
+  if (text.includes(cssFrom)) {
+    fs.writeFileSync(epubPath, text.split(cssFrom).join(cssTo));
+    patched += 1;
+  } else if (text.includes(cssTo)) {
+    patched += 1;
+  }
+}
 console.log(`foliate-js hardened in ${patched} file(s)`);
