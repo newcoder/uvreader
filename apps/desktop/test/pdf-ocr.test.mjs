@@ -207,6 +207,24 @@ test("a reading session fetches pages lazily and closes cleanly", async () => {
   await assert.rejects(() => ocr.page(sessionId, 1), /会话不存在/);
 });
 
+test("a page request times out on a silent sidecar instead of hanging", async () => {
+  const ocr = createPdfOcr({ spawnImpl: fakeSpawn(writeSidecar("silent", SILENT_SIDECAR)), sessionTimeoutMs: 120 });
+  const { sessionId } = ocr.openSession(settingsFor(), fakeSource());
+  await assert.rejects(() => ocr.page(sessionId, 1), /OCR 请求超时/);
+  ocr.closeSession(sessionId);
+});
+
+test("an export start times out when the sidecar accepts nothing", async () => {
+  const ocr = createPdfOcr({ spawnImpl: fakeSpawn(writeSidecar("silent", SILENT_SIDECAR)), startTimeoutMs: 120 });
+  const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "qbr-ocr-out-")), "x.pdf");
+  const done = await new Promise((resolve) => {
+    ocr.start(settingsFor(), { jobId: "job-silent", source: fakeSource(), out }, { onDone: resolve });
+  });
+  assert.equal(done.ok, false);
+  assert.match(done.error, /超时/);
+  assert.equal(ocr.jobs.size, 0);
+});
+
 test("a text source turns the session into hybrid mode", async () => {
   const script = writeSidecar("ok", OK_SIDECAR);
   const ocr = createPdfOcr({ spawnImpl: fakeSpawn(script) });

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 
-import { looksLikeMath, mathSegments, renderMathIn } from "../src/renderer/math.js";
+import { looksLikeMath, renderMathIn } from "../src/renderer/math.js";
 
 function makeElement(html) {
   const { window } = new JSDOM(`<div id="root">${html}</div>`);

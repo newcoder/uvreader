@@ -3,12 +3,34 @@
 // through a small queue (two at a time), write into the library folder, verify
 // the bytes and are cancellable. Network access is injectable for tests.
 import { bookSearchRequest, dedupeBookResults, downloadLinkFromOpdsPage, downloadLinkFromStandardEbooksPage, downloadLinkFromZlibPage, resultsFromSource } from "../../../../packages/reader/src/book-sources.js";
+import { BOOK_EXTENSIONS } from "../shared/books.js";
 import fs from "node:fs";
 import path from "node:path";
 
 export const BOOK_SEARCH_TIMEOUT = 9000;
 export const BOOK_DOWNLOAD_CONCURRENCY = 2;
+export const BOOK_DOWNLOAD_MAX_BYTES = 1024 * 1024 * 1024;
 const MIN_BOOK_BYTES = 1024;
+const DOWNLOAD_EXTENSIONS = new Set(BOOK_EXTENSIONS);
+
+function formatFromUrl(url) {
+  try {
+    const pathname = new URL(String(url)).pathname;
+    return pathname.slice(pathname.lastIndexOf(".") + 1).toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+// Remote search rows choose the file name, so the extension is allowlisted:
+// an unknown format falls back to the row's first usable candidate or epub.
+function safeDownloadFormat(...candidates) {
+  for (const candidate of candidates) {
+    const ext = String(candidate || "").trim().toLowerCase().replace(/^\./, "");
+    if (DOWNLOAD_EXTENSIONS.has(ext)) return ext;
+  }
+  return "epub";
+}
 
 const MAGIC = [
   { ext: "pdf", bytes: [0x25, 0x50, 0x44, 0x46] },
@@ -83,8 +105,9 @@ export function pickArchiveFile(metadata, identifier) {
   return null;
 }
 
-export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileDownload = null, pageDownload = null, pdfdriveSearch = null, onAuthWall = null, downloadRoot = "" } = {}) {
+export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileDownload = null, pageDownload = null, pdfdriveSearch = null, onAuthWall = null, downloadRoot = "", maxBytes = BOOK_DOWNLOAD_MAX_BYTES } = {}) {
   const root = String(downloadRoot || "");
+  const byteLimit = Number(maxBytes) > 0 ? Number(maxBytes) : BOOK_DOWNLOAD_MAX_BYTES;
   const jobs = new Map();
   const waiting = [];
   let active = 0;
@@ -256,23 +279,25 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
     }
   }
 
-  async function downloadOne(jobId, result, handlers) {
-    const job = jobs.get(jobId);
+  async function downloadOne(jobId, result, handlers, job) {
     const picked = await resolveDownload(result);
     if (!picked?.url && !picked?.page) throw new Error("这个来源没有可直接下载的文件");
-    const format = picked.format || String(result?.format || "").toLowerCase() || "epub";
+    // The search row chooses the extension; allowlist it so a hostile source
+    // cannot write an executable next to the books.
+    const format = safeDownloadFormat(picked.format, result?.format, formatFromUrl(picked.url || picked.page));
     const title = String(result?.title || "book").replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "book";
     const dir = ensureRoot();
     const loginUrl = String(result?.info || picked.page || "");
     if (picked.session && picked.page && typeof pageDownload === "function") {
-      return downloadViaBrowser(jobId, result, picked, { format, title, dir, handlers, run: pageDownload, source: picked.page, loginUrl });
+      return downloadViaBrowser(jobId, result, picked, { job, format, title, dir, handlers, run: pageDownload, source: picked.page, loginUrl });
     }
     if (picked.session && typeof fileDownload === "function") {
-      return downloadViaBrowser(jobId, result, picked, { format, title, dir, handlers, run: fileDownload, source: picked.url, loginUrl });
+      return downloadViaBrowser(jobId, result, picked, { job, format, title, dir, handlers, run: fileDownload, source: picked.url, loginUrl });
     }
     const response = await fetchImpl(picked.url, { redirect: "follow" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const total = Number(response.headers?.get?.("content-length")) || 0;
+    const declared = Number(response.headers?.get?.("content-length")) || 0;
+    if (declared > byteLimit) throw new Error("文件超过下载大小上限");
     const chunks = [];
     let received = 0;
     if (response.body?.getReader) {
@@ -281,12 +306,18 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
         if (job?.cancelled) { try { await reader.cancel(); } catch { /* gone */ } throw new Error("已取消"); }
         const { done, value } = await reader.read();
         if (done) break;
-        chunks.push(Buffer.from(value));
         received += value?.length || 0;
-        handlers?.onProgress?.({ jobId, received, total });
+        if (received > byteLimit) {
+          try { await reader.cancel(); } catch { /* gone */ }
+          throw new Error("文件超过下载大小上限");
+        }
+        chunks.push(Buffer.from(value));
+        handlers?.onProgress?.({ jobId, received, total: declared });
       }
     } else {
-      chunks.push(Buffer.from(await response.arrayBuffer()));
+      const whole = Buffer.from(await response.arrayBuffer());
+      if (whole.length > byteLimit) throw new Error("文件超过下载大小上限");
+      chunks.push(whole);
     }
     const buffer = Buffer.concat(chunks);
     const provisional = `${title}.${format}`;
@@ -299,8 +330,7 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
 
   // Session-gated files come through the hidden renderer, where the source's
   // challenge clearance applies; the file is validated from disk afterwards.
-  async function downloadViaBrowser(jobId, result, picked, { format, title, dir, handlers, run = fileDownload, source = "", loginUrl = "" }) {
-    const job = jobs.get(jobId);
+  async function downloadViaBrowser(jobId, result, picked, { job = null, format, title, dir, handlers, run = fileDownload, source = "", loginUrl = "" }) {
     const name = uniqueBookName(dir, `${title}.${format}`);
     const target = path.join(dir, name);
     const attempt = () => run(source, target, {
@@ -342,6 +372,10 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
       throw new Error("已取消");
     }
     const size = fs.statSync(target).size;
+    if (size > byteLimit) {
+      try { fs.unlinkSync(target); } catch { /* gone */ }
+      throw new Error("文件超过下载大小上限");
+    }
     if (size < MIN_BOOK_BYTES || !bookHeadLooksValid(readFileHead(target), name)) {
       const head = readFileHead(target).toString("utf8").trimStart();
       try { fs.unlinkSync(target); } catch { /* gone */ }
@@ -361,15 +395,16 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
     if (!id) throw new Error("缺少任务 id");
     if (jobs.has(id)) throw new Error(`任务已存在：${id}`);
     ensureRoot();
-    const job = { jobId: id, cancelled: false };
+    const job = { jobId: id, cancelled: false, started: false };
     jobs.set(id, job);
     log("download queued", id, result?.title, result?.source || "");
     waiting.push({
       jobId: id,
       get cancelled() { return job.cancelled; },
       run: async () => {
+        job.started = true;
         try {
-          const outcome = await downloadOne(id, result, handlers);
+          const outcome = await downloadOne(id, result, handlers, job);
           handlers.onDone?.(outcome);
         } catch (error) {
           log("download failed", id, result?.source || "", String(error?.message || error).slice(0, 160));
@@ -385,16 +420,27 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
   }
 
   function cancel(jobId) {
-    const job = jobs.get(String(jobId || ""));
+    const id = String(jobId || "");
+    const job = jobs.get(id);
     if (!job) return false;
     job.cancelled = true;
-    jobs.delete(String(jobId));
+    // A job that never started will never run, so drop it and its queued slot.
+    // A running job must stay in the map: its progress and finish checks hold
+    // this same object, and deleting it here made cancel a no-op for browser
+    // downloads (the partial file was kept and success was reported).
+    if (!job.started) {
+      jobs.delete(id);
+      const index = waiting.findIndex((task) => task.jobId === id);
+      if (index >= 0) waiting.splice(index, 1);
+    }
     return true;
   }
 
   function cancelAll() {
-    for (const job of jobs.values()) job.cancelled = true;
-    jobs.clear();
+    for (const job of jobs.values()) {
+      job.cancelled = true;
+      if (!job.started) jobs.delete(job.jobId);
+    }
     waiting.length = 0;
   }
 

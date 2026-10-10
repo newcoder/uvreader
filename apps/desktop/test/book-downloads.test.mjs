@@ -222,3 +222,90 @@ test("cancelling a queued download stops it and reports back", async () => {
     server.close();
   }
 });
+
+test("cancelling an in-flight browser download stops it and removes the partial file", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-books-"));
+  let release = () => {};
+  const gate = new Promise((resolve) => { release = resolve; });
+  let targetPath = "";
+  let sawProgress = false;
+  const books = createBookDownloads({
+    downloadRoot: root,
+    pageDownload: async (_source, target, options = {}) => {
+      targetPath = target;
+      options.onProgress?.({ received: 10, total: 100 });
+      sawProgress = true;
+      await gate;
+      fs.writeFileSync(target, Buffer.concat([Buffer.from("PK\x03\x04", "latin1"), Buffer.alloc(4096, 1)]));
+      return { ok: true };
+    },
+  });
+  const outcomePromise = new Promise((resolve) => {
+    books.download("job-browser", {
+      source: "zlib", title: "Busy", format: "epub", needsSession: true,
+      info: "https://z-library.sk/book/abc/def.html",
+    }, { onDone: resolve });
+  });
+  while (!sawProgress) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(books.cancel("job-browser"), true);
+  release();
+  const outcome = await outcomePromise;
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.cancelled, true);
+  assert.equal(fs.existsSync(targetPath), false, "the partial file is removed");
+});
+
+test("downloads are refused past the configured size cap", async () => {
+  const server = await startServer();
+  const port = server.address().port;
+  const books = createBookDownloads({ downloadRoot: fs.mkdtempSync(path.join(os.tmpdir(), "qbr-books-")), maxBytes: 2048 });
+  try {
+    // The fixture epub is about 4 KB, past the 2 KB test cap.
+    const outcome = await new Promise((resolve) => {
+      books.download("job-big", {
+        source: "gutenberg", title: "Frankenstein", format: "epub",
+        url: `http://127.0.0.1:${port}/files/frankenstein.epub`,
+      }, { onDone: resolve });
+    });
+    assert.equal(outcome.ok, false);
+    assert.match(outcome.error, /大小上限/);
+  } finally {
+    server.close();
+  }
+});
+
+test("unknown download formats fall back to the URL's book extension", async () => {
+  const server = await startServer();
+  const port = server.address().port;
+  const books = createBookDownloads({ downloadRoot: fs.mkdtempSync(path.join(os.tmpdir(), "qbr-books-")) });
+  try {
+    const outcome = await new Promise((resolve) => {
+      books.download("job-fmt", {
+        source: "zlib", title: "Sketchy", format: "exe",
+        url: `http://127.0.0.1:${port}/files/frankenstein.epub`,
+      }, { onDone: resolve });
+    });
+    assert.equal(outcome.ok, true);
+    assert.equal(path.extname(outcome.path), ".epub");
+  } finally {
+    server.close();
+  }
+});
+
+test("a format missing everywhere defaults to epub", async () => {
+  const server = await startServer();
+  const port = server.address().port;
+  const books = createBookDownloads({ downloadRoot: fs.mkdtempSync(path.join(os.tmpdir(), "qbr-books-")) });
+  try {
+    const outcome = await new Promise((resolve) => {
+      books.download("job-fmt2", {
+        source: "zlib", title: "NoFormat", format: "",
+        url: `http://127.0.0.1:${port}/files/frankenstein.epub`,
+      }, { onDone: resolve });
+    });
+    assert.equal(outcome.ok, true);
+    assert.equal(path.extname(outcome.path), ".epub");
+  } finally {
+    server.close();
+  }
+});

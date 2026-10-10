@@ -60,7 +60,6 @@ test("existing notes get only missing exact quote links, preserving manual edits
 });
 
 test("protocol dispatch waits for its opened view and keeps CFI ahead of legacy page fields", async () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
 const pluginSource = fs.readFileSync(new URL("../packages/reader/src/plugin.js", import.meta.url), "utf8");
   const code = pluginSource.slice(pluginSource.indexOf("  async openBookAt("), pluginSource.indexOf("  _dataFolder()"));
   class TFile { constructor(path) { this.path = path; } }
@@ -88,7 +87,6 @@ const pluginSource = fs.readFileSync(new URL("../packages/reader/src/plugin.js",
 });
 
 test("new and existing note protocols dispatch to the same book location", async () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   const code = pluginSource.slice(pluginSource.indexOf("  _registerBookProtocol() {"), pluginSource.indexOf("  _registerReaderExtensions() {"));
   const register = vm.runInNewContext(`({${code}})._registerBookProtocol`);
   const handlers = new Map();

@@ -26,6 +26,18 @@ function aborted() {
   return Object.assign(new Error("aborted"), { name: "AbortError" });
 }
 
+// Only http(s) may load in the hidden source windows: remote pages drive
+// navigation (redirects, window.open), and javascript:/file:/data: targets
+// must never reach loadURL or downloadURL.
+function safeHttpUrl(target) {
+  try {
+    const url = new URL(String(target));
+    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
 // fetch-like wrapper over Electron's net stack, bound to the book session.
 export function sessionFetch(url, options = {}) {
   return new Promise((resolve, reject) => {
@@ -136,9 +148,14 @@ let loginResolvers = [];
 // promise settles when the reader closes it, so callers can refresh after.
 export function openBookLogin(url, { parent = null } = {}) {
   return new Promise((resolve) => {
+    const target = safeHttpUrl(url);
+    if (!target) {
+      resolve({ ok: false, closed: false, error: "不支持的链接" });
+      return;
+    }
     if (loginWindow && !loginWindow.isDestroyed()) {
       loginResolvers.push(resolve);
-      loginWindow.loadURL(String(url)).catch(() => {});
+      loginWindow.loadURL(target).catch(() => {});
       try { loginWindow.focus(); } catch { /* gone */ }
       return;
     }
@@ -158,9 +175,13 @@ export function openBookLogin(url, { parent = null } = {}) {
     });
     loginWindow = win;
     loginResolvers = [resolve];
-    win.webContents.setWindowOpenHandler(({ url: target }) => {
-      win.loadURL(String(target)).catch(() => {});
+    win.webContents.setWindowOpenHandler(({ url: opened }) => {
+      const next = safeHttpUrl(opened);
+      if (next) win.loadURL(next).catch(() => {});
       return { action: "deny" };
+    });
+    win.webContents.on("will-navigate", (event, navigated) => {
+      if (!safeHttpUrl(navigated)) event.preventDefault();
     });
     win.on("closed", () => {
       loginWindow = null;
@@ -168,7 +189,7 @@ export function openBookLogin(url, { parent = null } = {}) {
       loginResolvers = [];
       for (const settle of resolvers) settle({ ok: true, closed: true });
     });
-    win.loadURL(String(url)).catch(() => {});
+    win.loadURL(target).catch(() => {});
   });
 }
 
@@ -198,6 +219,9 @@ function pdfdriveBrowserWindow() {
       backgroundThrottling: false,
     },
   });
+  pdfdriveWindow.webContents.on("will-navigate", (event, navigated) => {
+    if (!safeHttpUrl(navigated)) event.preventDefault();
+  });
   pdfdriveWindow.on("closed", () => { pdfdriveWindow = null; });
   return pdfdriveWindow;
 }
@@ -216,12 +240,20 @@ function bookPageWindow() {
       backgroundThrottling: false,
     },
   });
+  pageWindow.webContents.on("will-navigate", (event, navigated) => {
+    if (!safeHttpUrl(navigated)) event.preventDefault();
+  });
   pageWindow.on("closed", () => { pageWindow = null; });
   return pageWindow;
 }
 
 function loadBookPage(win, url, timeoutMs) {
   return new Promise((resolve, reject) => {
+    const target = safeHttpUrl(url);
+    if (!target) {
+      reject(new Error("不支持的页面地址"));
+      return;
+    }
     let settled = false;
     let sawChallenge = false;
     const started = Date.now();
@@ -251,7 +283,7 @@ function loadBookPage(win, url, timeoutMs) {
     const timer = setTimeout(() => finish(new Error("页面加载超时")), timeoutMs + 2000);
     const onFail = (_event, code, description) => finish(new Error(`页面加载失败（${code} ${description || ""}）`));
     win.webContents.on("did-fail-load", onFail);
-    win.loadURL(String(url)).catch((error) => finish(error instanceof Error ? error : new Error(String(error))));
+    win.loadURL(target).catch((error) => finish(error instanceof Error ? error : new Error(String(error))));
     setTimeout(poll, 800);
   });
 }
@@ -310,6 +342,11 @@ function downloadError(status, fallback = "下载失败") {
 
 export function downloadBookFile(url, target, { onProgress = null, timeout = 240000 } = {}) {
   const run = () => new Promise((resolve, reject) => {
+    const downloadUrl = safeHttpUrl(url);
+    if (!downloadUrl) {
+      reject(new Error("不支持的下载地址"));
+      return;
+    }
     const win = bookPageWindow();
     const ses = win.webContents.session;
     let settled = false;
@@ -339,7 +376,7 @@ export function downloadBookFile(url, target, { onProgress = null, timeout = 240
       });
     };
     ses.on("will-download", onWillDownload);
-    win.webContents.downloadURL(String(url));
+    win.webContents.downloadURL(downloadUrl);
   });
   const result = pageQueue.then(run, run);
   pageQueue = result.catch(() => {});

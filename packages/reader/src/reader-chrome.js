@@ -38,7 +38,7 @@ export function createReaderChrome({
   qiaomuReaderFontLabel,
   ensureBundledReaderFont,
 }) {
-  function attachEngineChrome(view, doc, index) {
+  function attachEngineChrome(view, doc) {
     doc.addEventListener("pointerdown", (event) => {
       view._armImmersive?.();
       selectionHud.beginReaderSelection(view, event);

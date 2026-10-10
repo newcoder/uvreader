@@ -26,7 +26,9 @@
 - 阅读交互补充：滚动模式下插件默认隐藏上一页/下一页按钮（`.qiaomu-reader-scrolling .qiaomu-reader-navbtn`），桌面壳通过宿主 CSS 恢复显示并还原三列底栏；插件新增滚轮翻页 `handleReaderWheel`（分页模式任意滚轮翻页；滚动模式仅在滚动容器到达顶部/底部时翻页，450ms 冷却，Ctrl/Cmd/Alt 滚轮与面板内滚轮不拦截），引擎书挂到每个章节文档，自带排版书挂到阅读区。E2E 覆盖分页滚轮翻页与滚动模式按钮可见/可翻。
 - API 密钥链路修复：Obsidian 的 `SecretStorage.getSecret` 是**同步** API（插件构造请求头时同步读取），桌面端用 `ipcRenderer.sendSync` + 内存缓存桥接，否则 `cfg.key` 是 Promise、请求头变成 `Bearer [object Promise]`；`SecretComponent` 改为密码输入，粘贴后写入 safeStorage 并把 secret id 交给插件（原先只把输入当作 id，密钥从未保存）；失焦提交不得删除已存密钥（只在用户主动清空时删除）。E2E 新增 DeepSeek + 密钥场景，断言 mock 收到 `Bearer <key>`。
 - 细节调整：阅读区滚动条与顶栏/底栏按钮重叠 → 桌面壳改为**顶栏与底栏各自占一行**（不再绝对定位覆盖阅读区，滚动条只在阅读区内部滚动），并禁用桌面壳的沉浸自动收起，保证两栏始终可见、不遮挡；AI 侧栏的 Setting 行允许换行，“获取密钥”按钮不再被挤成竖排文字。此调整与 `DESIGN.md` 第 5 节“HUD 不占文档高度”的 Obsidian 端行为不同，仅桌面壳生效（宿主 CSS 覆盖，未改插件样式）。
+- 品牌与工具栏图标：`logo.jpg` 经 `apps/desktop/scripts/import-logo.cjs` 生成透明圆形 logo（`assets/logo.png`）与安装图标（`build/icon.png`），用于导航品牌、首页标题与打包图标；`uvreader_icons.png` 经 `scripts/slice-app-icons.mjs` 切出 16 个白底转透明的 32px 图标（`assets/icons/`），桌面壳以 CSS mask + `currentColor` 渲染并替换工具栏对应图标（返回/AI/适合宽度/目录/搜索/缩放/翻页/批注/笔记/书库等），非桌面宿主仍用内联 SVG 兜底。
 - 待办：`base.css` 组件细节；P5 CLI/ACP 实测（Electron 原生 `window.require`）；打包签名；Windows 外的平台验证。
+- 渲染层收紧（安全）：主窗口加 `will-navigate`/`setWindowOpenHandler` 守卫（外链交给系统浏览器，`window.open` 一律拒绝）；Markdown 清洗升级为 `renderer/sanitize.js`（标签与 URL 协议白名单，notes/AI 输出统一入口，另配点击兜底）；CSP 去掉 `script-src` 的内联脚本许可；来源窗口（登录/页加载/下载）只允许 http(s) 加载；下载格式白名单与大小上限；OCR 请求加超时。剩余：`contextIsolation`/`sandbox` 翻转（需把 shim 的 fs 端口改为 IPC）与 `webSecurity` 关闭项清理。
 
 ## 1. 目标与范围
 
@@ -156,13 +158,13 @@ AI 会话拆文件在 shim 的 `loadData/saveData` 完成，`src/main.js` 无感
 | M2.4b-1 | `reader-timer.js`（`createReaderTimer({ translate, notice, window })`：计时/目标条/计时胶囊）与 `reader-hud.js`（`createReaderHud({ translate, notice, window, platform, isPdf, jumpToHighlight, escapeSelector })`：启动遮罩、autoFocus/blur、footnote 弹层与回跳胶囊、`positionPopup`） | 完成，`tests/reader-timer.test.mjs`、`tests/reader-hud.test.mjs` |
 | M2.4b-2 | `reader-view.js`：`createReaderView(ports)` 返回 `class ReaderView extends ItemView`（宿主基类注入），整类 1,056 行移出；纯模块（reader-engine/reader-dom/reader-icons/reader-load/reader-experience/pdf-page-mode/pdf-zoom/reader-appearance/highlight-navigation）直接 import，其余 74 个宿主/本地依赖走端口 | 完成，`tests/reader-view.test.mjs`；`main.js` 13,018 → 11,848 行 |
 | M2.4b-3 | `reader-modal.js`：`createReaderModal(ports)` 返回 `class ReaderModal extends Modal`（Modal 基类注入），772 行移出；65 个端口 | 完成，`tests/reader-modal.test.mjs`；`main.js` 11,848 → 11,144 行 |
-| M2.4b-4 | `LibraryModal`（573）、`AiChatView`（406）、`AiExplainModal`（374）、`ReadSettingsModal`（333）同样按工厂模式抽离 | 下一步 |
+| M2.4b-4 | `LibraryModal`（573）、`AiChatView`（406）、`AiExplainModal`（374）、`ReadSettingsModal`（333）同样按工厂模式抽离 | 完成（`library-modal.js`、`ai-chat-view.js`、`ai-explain-modal.js`、`read-settings-modal.js` 均为工厂；`wire.js` 只做装配） |
 
 ## 12. 打包与发布进度
 
 | 步骤 | 内容 | 状态 |
 | --- | --- | --- |
-| P-1 | 应用图标：`scripts/make-app-icon.mjs`（纯 Node 生成 512×512 PNG，无外部工具） | 完成 |
+| P-1 | 应用图标：`logo.jpg` → `apps/desktop/scripts/import-logo.cjs`（Chromium 解码 JPEG，圆形透明遮罩，输出 512×512 PNG） | 完成 |
 | P-2 | electron-builder 26 接入：`apps/desktop/electron-builder.config.cjs`，版本取根 `package.json`（`extraMetadata.version`），Win NSIS+portable、mac dmg、Linux AppImage | 完成 |
 | P-3 | 文件关联（epub/pdf/mobi/azw3/fb2/cbz）、单实例、命令行打开书籍 | 完成 |
 | P-4 | 打包产物冒烟：`npm run desktop:smoke:packaged`（免安装目录 / 便携版，退出码 0/1） | 完成（Windows 实测 0） |

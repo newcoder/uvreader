@@ -59,7 +59,48 @@ const ICONS = {
 
 const FALLBACK = ICONS["book-open"];
 
+// Toolbar icons sliced from `uvreader_icons.png` (see
+// scripts/slice-app-icons.mjs). They are rendered as CSS masks so the
+// transparent PNG takes `currentColor` and follows every reading theme.
+const RASTER_ICONS = new Set([
+  "fit-width", "ai-chat", "back", "home", "search", "zoom-out", "zoom-in",
+  "next-page", "previous-page", "comment", "notes", "outline", "navigator",
+  "toc", "library", "tag",
+]);
+
+// Obsidian/lucide icon names → sheet icon. Anything not listed keeps the
+// inline SVG below.
+const RASTER_ALIASES = {
+  "arrow-left": "back",
+  home: "home",
+  search: "search",
+  "zoom-out": "zoom-out",
+  "zoom-in": "zoom-in",
+  "chevron-left": "previous-page",
+  "chevron-right": "next-page",
+  sparkles: "ai-chat",
+  "wand-sparkles": "ai-chat",
+  maximize: "fit-width",
+  "message-square": "comment",
+  message: "comment",
+  comment: "comment",
+  "file-text": "notes",
+  note: "notes",
+  "reading-note": "notes",
+  list: "toc",
+  library: "library",
+  "qiaomu-library": "library",
+};
+
+export function rasterIconMarkup(name) {
+  const raster = RASTER_ALIASES[String(name || "")];
+  if (!raster || !RASTER_ICONS.has(raster)) return "";
+  return `<svg xmlns="http://www.w3.org/2000/svg" class="svg-icon qbr-raster-icon qbr-icon-${raster}" width="16" height="16" aria-hidden="true"></svg>`;
+}
+
 export function iconResolver(name) {
+  const raster = rasterIconMarkup(name);
+  if (raster) return raster;
   const body = ICONS[name] || FALLBACK;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="svg-icon" aria-hidden="true">${body}</svg>`;
 }

@@ -376,7 +376,7 @@ export class Workspace extends Events {
     return this.leaves.filter((leaf) => leaf.view?.getViewType?.() === type);
   }
 
-  getLeaf(type = "tab") {
+  getLeaf(_type = "tab") {
     const leaf = new WorkspaceLeaf(this, { right: false });
     this.leaves.push(leaf);
     return leaf;

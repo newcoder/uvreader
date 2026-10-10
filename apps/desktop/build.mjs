@@ -126,6 +126,10 @@ function writeAssets() {
     + `\n/* Bundled reading subset: SIL OFL 1.1\n${fontLicense}\n*/\n`
     + `@font-face { font-family: 'QBR Zhuque Fangsong'; src: url('data:font/woff2;base64,${fontData}') format('woff2'); font-style: normal; font-weight: 400; font-display: swap; }\n`;
   fs.writeFileSync(path.join(dist, "styles.css"), css);
+  // Brand logo and the sliced toolbar icon set (generated assets, see
+  // scripts/slice-app-icons.mjs and apps/desktop/scripts/import-logo.cjs).
+  fs.copyFileSync(path.join(here, "assets/logo.png"), path.join(dist, "logo.png"));
+  fs.cpSync(path.join(here, "assets/icons"), path.join(dist, "icons"), { recursive: true });
   fs.copyFileSync(path.join(here, "src/renderer/index.html"), path.join(dist, "index.html"));
   fs.copyFileSync(path.join(here, "src/renderer/base.css"), path.join(dist, "base.css"));
   console.log(`desktop assets written to ${path.relative(repoRoot, dist)}`);

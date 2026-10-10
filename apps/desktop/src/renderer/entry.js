@@ -3,9 +3,11 @@ import { marked } from "marked";
 
 import QiaomuBookReader from "../../../../packages/reader/src/main.js";
 import { READER_THEMES, migrateReaderTheme } from "../../../../packages/reader/src/reader-themes.js";
+import { setIconProvider } from "../../../../packages/reader/src/reader-icons.js";
 import { isBookFile } from "../shared/books.js";
-import { iconResolver } from "./icons.js";
+import { iconResolver, rasterIconMarkup } from "./icons.js";
 import { renderMathIn } from "./math.js";
+import { isBlockedHref, sanitizeHtml } from "./sanitize.js";
 import { createHomeView, createNoteView, createSettingsView, createTocView } from "./views.js";
 
 const bridge = window.qbrDesktop || { paths: {} };
@@ -17,15 +19,7 @@ const TOC_VIEW = "qbr-toc";
 const SETTINGS_VIEW = "qbr-settings";
 
 function renderMarkdown(markdown) {
-  const template = document.createElement("template");
-  template.innerHTML = marked.parse(String(markdown || ""));
-  template.content.querySelectorAll("script,iframe,object,embed,link,style").forEach((element) => element.remove());
-  template.content.querySelectorAll("*").forEach((element) => {
-    for (const attribute of [...element.attributes]) {
-      if (/^on/i.test(attribute.name)) element.removeAttribute(attribute.name);
-    }
-  });
-  return template.innerHTML;
+  return sanitizeHtml(document, marked.parse(String(markdown || "")));
 }
 
 function setOpening(visible, name = "") {
@@ -76,6 +70,9 @@ function colorLuminance(value) {
 
 async function boot() {
   installDomExtensions(window);
+  // The reader's toolbar icons come from the sliced sheet where a match
+  // exists (raster masks, currentColor); everything else keeps its inline SVG.
+  setIconProvider(rasterIconMarkup);
   window.activeDocument = document;
   window.activeWindow = window;
   window.addEventListener("error", (event) => {
@@ -88,6 +85,15 @@ async function boot() {
     const original = console[level].bind(console);
     console[level] = (...args) => original(...args.map((arg) => (arg instanceof Error ? `${arg.message}\n${arg.stack}` : arg)));
   }
+
+  // Defense in depth for the privileged renderer: a javascript: link that
+  // bypassed the markdown sanitizer must never run.
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    const anchor = target && typeof target.closest === "function" ? target.closest("a[href]") : null;
+    if (!anchor) return;
+    if (isBlockedHref(anchor.getAttribute("href"))) event.preventDefault();
+  });
 
   const requireFn = typeof window.require === "function" ? window.require.bind(window) : null;
   configureHost({
@@ -149,8 +155,9 @@ async function boot() {
     return READER_THEMES[migrateReaderTheme(settings.theme)] || READER_THEMES.auto;
   };
   const brandEl = document.querySelector(".qbr-nav-brand");
+  const brandNameEl = brandEl?.querySelector(".qbr-nav-name") || brandEl;
   function applyBrand() {
-    if (brandEl) brandEl.textContent = displayName();
+    if (brandNameEl) brandNameEl.textContent = displayName();
     syncWindowTitle();
   }
 
@@ -250,6 +257,9 @@ async function boot() {
 
   const navButtons = [...document.querySelectorAll("[data-route]")];
   for (const button of navButtons) {
+    // The sheet's Home and Library glyphs label the two route buttons.
+    const markup = rasterIconMarkup({ home: "home", library: "library" }[button.dataset.route] || "");
+    if (markup) button.insertAdjacentHTML("afterbegin", markup);
     button.addEventListener("click", () => void showRoute(button.dataset.route));
   }
 

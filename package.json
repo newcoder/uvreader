@@ -1,6 +1,6 @@
 {
   "name": "uvreader",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "中文优先的独立桌面阅读器，支持 EPUB、PDF、FB2、MOBI、AZW3 与 CBZ，含划线、批注、阅读笔记和可选 AI 伴读。",
   "type": "module",
   "scripts": {
@@ -19,7 +19,8 @@
     "desktop:dist": "npm --prefix apps/desktop run dist",
     "desktop:dist:dir": "npm --prefix apps/desktop run dist:dir",
     "desktop:smoke:packaged": "npm --prefix apps/desktop run smoke:packaged",
-    "build:icon": "node scripts/make-app-icon.mjs"
+    "build:icon": "npm --prefix apps/desktop run build:logo",
+    "build:icons": "node scripts/slice-app-icons.mjs"
   },
   "keywords": [
     "reader",

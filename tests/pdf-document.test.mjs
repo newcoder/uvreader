@@ -101,7 +101,7 @@ test("the lazy view renders a page image and tears the loading task down", async
   const reader = makeReader();
   const canvases = [];
   const ownerDocument = {
-    createElement(tag) {
+    createElement(_tag) {
       const canvas = {
         width: 0,
         height: 0,

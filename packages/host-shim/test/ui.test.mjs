@@ -7,7 +7,6 @@ import {
   Modal,
   Notice,
   PluginSettingTab,
-  Scope,
   SecretComponent,
   SecretStorage,
   Setting,
@@ -54,7 +53,6 @@ test("Setting.addComponent receives a container element", () => {
 });
 
 test("Modal keeps its keyboard scope and closes on Escape", () => {
-  const keyboardScope = new Scope();
   class DemoModal extends Modal {}
   const modal = new DemoModal(null);
   const originalScope = modal.scope;

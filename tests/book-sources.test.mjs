@@ -12,7 +12,6 @@ import {
   normalizeBookSources,
   pickDownloadFormat,
   resultsFromGutenbergOpds,
-  resultsFromOpds,
   resultsFromSource,
   resultsFromStandardEbooksHtml,
   resultsFromZlibHtml,

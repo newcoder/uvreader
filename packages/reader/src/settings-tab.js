@@ -6,10 +6,9 @@ import { capabilityMode, capabilityStateHint, capabilityStateLabel } from "./ai-
 import { READER_THEME_CHOICES } from "./reader-themes.js";
 import { UI_LANGUAGES } from "./i18n-languages.js";
 import { selectionActionPreferences } from "./selection-preferences.js";
-import { svgIcon } from "./reader-icons.js";
 
 export function createSettingsTab({
-  Notice, Platform, PluginSettingTab, SecretComponent, Setting, setIcon, HL_COLORS, OnboardingModal, QUOTE_TEMPLATE_DEFAULT, SettingsGroupModal, TRANSLATION_LANGUAGE_CHOICES, VIEW_TYPE, WHATS_NEW, WhatsNewModal, addFolderPathControl, addMarkdownFilePathControl, aiConfig, aiConnectionErrorMessage, aiSetupMessage, aiSetupState, aiTestConnection, aiCapabilityState, bindSettingsTabKeys, buildCustomFontInput, buildPageButtonsSetting, copyToClipboard, detectAiCapability, ensureAiCliReady, fmtReadTime, openPluginAiSettings, qiaomuReaderDeviceKey, qiaomuReaderFontLabel, qiaomuReaderReaderFonts, qiaomuReaderSetLanguage, qiaomuReaderTranslate, readerThemeLabel, readerTimer, readerTodayKey, readingStats, selectedReaderTheme, setReaderTheme, testAndEnableAi, withSliderValue,
+  Notice, Platform, PluginSettingTab, SecretComponent, Setting, setIcon, HL_COLORS, OnboardingModal, QUOTE_TEMPLATE_DEFAULT, SettingsGroupModal, TRANSLATION_LANGUAGE_CHOICES, VIEW_TYPE, WHATS_NEW, WhatsNewModal, addFolderPathControl, addMarkdownFilePathControl, aiConfig, aiConnectionErrorMessage, aiSetupMessage, aiSetupState, aiTestConnection, aiCapabilityState, bindSettingsTabKeys, buildCustomFontInput, buildPageButtonsSetting, detectAiCapability, fmtReadTime, openPluginAiSettings, qiaomuReaderDeviceKey, qiaomuReaderFontLabel, qiaomuReaderReaderFonts, qiaomuReaderSetLanguage, qiaomuReaderTranslate, readerThemeLabel, readerTimer, readerTodayKey, readingStats, selectedReaderTheme, setReaderTheme, testAndEnableAi, withSliderValue,
 }) {
   return class SettingsTab extends PluginSettingTab {
   _group(c, { name, desc, build }) {

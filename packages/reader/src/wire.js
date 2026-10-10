@@ -1,8 +1,3 @@
-import { selectionActionPreferences } from "./selection-preferences.js";
-import { watchQuietUi } from "./quiet-ui.js";
-import { STARTER_BOOKS } from "./starter-book-data.js";
-import { createStarterLibraryInstaller, findStarterBook } from "./starter-library.js";
-import { isNonChineseSource } from "./ai-source-language.js";
 import { HL_COLOR_SWATCHES } from "./highlight-colors.js";
 /*
  * UV Reader — source.
@@ -12,8 +7,7 @@ import { HL_COLOR_SWATCHES } from "./highlight-colors.js";
  * esbuild at build time — see esbuild.config.mjs for what gets stubbed out.
  */
 import { AbstractInputSuggest, Component, FuzzySuggestModal, ItemView, MarkdownView, MarkdownRenderer, Menu, Modal, Notice, Platform, Plugin, PluginSettingTab, Scope, SecretComponent, Setting, TFile, TFolder, normalizePath, requestUrl, setIcon } from "obsidian";
-import { EpubEngine, ENGINE_EXTENSIONS, coverFromBytes } from "./reader-engine.js";
-import { coverPalette, migrateCoverCache } from "./book-cover.js";
+import { ENGINE_EXTENSIONS } from "./reader-engine.js";
 // One place decides which extensions the reader opens: the rendering engine
 // handles everything here except PDF, which keeps its dedicated pdf.js path.
 const BOOK_EXTENSIONS = new Set([...ENGINE_EXTENSIONS, "pdf"]);
@@ -22,7 +16,6 @@ const BOOK_EXTENSIONS = new Set([...ENGINE_EXTENSIONS, "pdf"]);
 // makes every page render fail. The supported legacy browser build includes the
 // required compatibility layer while exposing the same API.
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
-import { classifyAiHttpStatus } from "./ai-providers.js";
 import {
   effectiveCapability,
   interpretImageProbe,
@@ -34,7 +27,6 @@ import { createAiTools } from "./ai-tools.js";
 import {
   MAX_AI_ATTACHMENTS,
   aiAttachmentPath,
-  aiAttachmentsHaveImages,
   base64FromBytes,
   blobFromBase64,
   bytesFromBase64,
@@ -43,28 +35,22 @@ import {
   normalizeAiAttachments,
   stripAttachmentData,
 } from "./ai-attachments.js";
-import { composeAiAnswerNote } from "./ai-note.js";
-import { suggestAiNoteTitle } from "./ai-note-title.js";
-import { addMissingQuoteLinks, highlightBacklink, jumpToEngineHighlight } from "./highlight-navigation.js";
-import { bindAiComposer } from "./ai-composer.js";
-import { DRAFT_LIMIT, loadAiDrafts } from "./ai-drafts.js";
-import { aiAnswerMarker, appendAiAnswer, verifiedQuotes, normalizeLocationMarks } from "./reading-workflow.js";
-import { searchableQuery, searchBookBlocks, nextSearchIndex } from "./reader-search.js";
+import { highlightBacklink, jumpToEngineHighlight } from "./highlight-navigation.js";
+import { normalizeLocationMarks } from "./reading-workflow.js";
+import { searchableQuery, searchBookBlocks } from "./reader-search.js";
 import { DEFAULT_BOOK_SOURCES } from "./book-sources.js";
-import { captureReadingAnchor, restoreReadingAnchor, queueReadingLayout, shouldFollowContext, comfortableLineWidth, zoomAnchorOffset, textPoint } from "./reader-experience.js";
-import { PDF_AI_CONTEXT_MAX_CHARS, READER_BLOCK_SELECTOR } from "./pdf-page-mode.js";
-import { PDF_ZOOM_DEFAULT, PDF_ZOOM_MAX, PDF_ZOOM_MIN, clampPdfZoom, pdfZoomFromWheel, pdfZoomPercent, pdfZoomShortcut, stepPdfZoom } from "./pdf-zoom.js";
-import { appendReadingNoteExcerpts, isReadingHighlightsHeading, migrateAndReplaceReadingHighlights, replaceManagedReadingHighlights } from "./reading-note.js";
+import { captureReadingAnchor, restoreReadingAnchor, textPoint } from "./reader-experience.js";
+import { READER_BLOCK_SELECTOR } from "./pdf-page-mode.js";
+import { PDF_ZOOM_DEFAULT, PDF_ZOOM_MAX, PDF_ZOOM_MIN, clampPdfZoom, pdfZoomFromWheel, pdfZoomPercent } from "./pdf-zoom.js";
 import { QIAOMU_READER_EN } from "./i18n-en.js";
 import { QIAOMU_READER_ZH_CN } from "./i18n-zh.js";
 import { translateUiText } from "./i18n-runtime.js";
-import { UI_LANGUAGES, normalizeUiLanguage, uiLanguageMetadata } from "./i18n-languages.js";
+import { normalizeUiLanguage, uiLanguageMetadata } from "./i18n-languages.js";
 import { READER_THEMES, READER_THEME_CHOICES, migrateReaderTheme } from "./reader-themes.js";
-import { FONT_FILE_ACCEPT, disposeReaderFonts, importedReaderFonts, listSystemFonts, readerFontStore } from "./reader-fonts.js";
-import { normalizeCustomFontFamily, resolveReaderFont, readerTextCss, syncPageButtons } from "./reader-appearance.js";
+import { importedReaderFonts, readerFontStore } from "./reader-fonts.js";
+import { syncPageButtons } from "./reader-appearance.js";
 import { BUNDLED_FONT_FAMILIES, ensureBundledReaderFont } from "./bundled-fonts.js";
-import { cloneJson, createSerialTaskQueue, isPlainRecord, mergeReadingProgress, readJsonRecordStore, writeVerifiedJsonRecord } from "./storage.js";
-import { createReaderLoadCoordinator, isReaderLoadAbort, throwIfReaderLoadAborted, waitForReaderFrame } from "./reader-load.js";
+import { throwIfReaderLoadAborted } from "./reader-load.js";
 import { docOf, selOf, winOf } from "./reader-dom.js";
 import { iconLabel, svgIcon } from "./reader-icons.js";
 import { createPageJump } from "./page-jump.js";
@@ -80,7 +66,6 @@ import { createPlugin } from "./plugin.js";
 import { createSettingsTab } from "./settings-tab.js";
 import { createBuildBookSettings } from "./book-settings.js";
 import { createBuildFindPanelFor } from "./find-panel.js";
-import { createAiStreamingMarkdownRendererFactory } from "./ai-streaming-markdown.js";
 import { createBuildCustomFontInput } from "./custom-font-input.js";
 import { createWhatsNew } from "./whats-new.js";
 import { createTranslateModal } from "./translate-modal.js";
@@ -131,11 +116,7 @@ const {
   BookNotePicker,
   BookQuickOpen,
   TemplatePicker,
-  vaultFolders,
-  FolderPicker,
   FolderSuggest,
-  attachFolderSuggest,
-  attachPathInput,
   addFolderPathControl,
   addMarkdownFilePathControl,
   sanitizeNoteTitle,
@@ -148,7 +129,6 @@ const {
   isUnsafeReadingNote,
   isMarkedReadingNote,
   stripGeneratedReadingNoteTitle,
-  bookNoteFromFrontmatter,
   writeBookProperty,
   flattenSelectionText,
 } = createNotePaths({
@@ -163,12 +143,9 @@ const {
   getCreateFolderModal: () => CreateFolderModal,
 });
 const {
-  aiSecretValue,
   aiConfig,
   aiSetupState,
   aiSetupMessage,
-  aiSystemChat,
-  defaultAiQuickPrompts,
   aiQuickPrompts,
   normalizeAiChatHistory,
   normalizeAiTurnContext,
@@ -177,7 +154,6 @@ const {
   locationLine,
   aiChatTitle,
   newAiSessionKey,
-  aiContextMessage,
   aiMessages,
   aiTurnsHaveDocumentContext,
   clearAiSource,
@@ -186,38 +162,23 @@ const {
 } = createAiContext({ translate: qiaomuReaderTranslate, platform: Platform, win: window, locateHl });
 const {
   QUOTE_TEMPLATE_DEFAULT,
-  appendLinkToBookNote,
-  writeNoteText,
-  promptForNoteTitle,
   firstFreeNoteName,
-  tagPrefix,
-  composeExcerptQuote,
-  renderNoteTemplate,
   createTemplatedNote,
   createNoteFromSelection,
   createNoteFromAiAnswer,
-  appendAnswerToBookNote,
   _escHtml,
   hlMark,
-  normalizeHlText,
   splitExportedHighlights,
   openNoteBesideBook,
   openOrCreateBookNoteBeside,
   addBookFileMenu,
-  dropBookState,
   deleteBookFromVault,
-  backlinkLabel,
-  quoteMarkdown,
   hlCommentMd,
-  renderManagedReadingHighlights,
   syncHighlightsToReadingNote,
   exportHighlightsSeparate,
-  openNoteInTab,
-  collectHighlightGroups,
   exportHighlightsToBookNote,
   exportHighlightsMenu,
   bookNoteAction,
-  cmpVer,
   whatsNewSince,
   writeWhatsNewNote,
 } = createBookNotes({
@@ -379,13 +340,11 @@ function qiaomuReaderLocale() {
 const VIEW_TYPE = "qiaomu-reader";
 const AI_CHAT_VIEW_TYPE = "qiaomu-book-reader-ai-chat";
 const {
-  readerPageContext,
   readerDefaultAiContext,
   readerAiPanelContext,
   readerSupportsAiContext,
   syncReaderAiCapability,
   renderAiHeadMeta,
-  enhanceAiMarkdown,
   renderAiMarkdown,
   aiLogFollowsTail,
   createAiChatLog,
@@ -394,10 +353,8 @@ const {
   renderAiAttachmentList,
   renderAiToolStep,
   openAiAttachMenu,
-  closeAiAttachMenu,
   bindReaderAiComposer,
   ReaderNameModal,
-  contextualAiQuickPrompts,
   renderAiComposerPrompts,
   bindAiSlashPrompts,
   renderMobileAiHeader,
@@ -888,7 +845,7 @@ async function copyToClipboard(text) {
 }
 
 let workerReady = false;
-async function setupWorker(app) {
+async function setupWorker() {
   if (workerReady)
     return;
   try {
@@ -1321,13 +1278,13 @@ function createPdfZoomControls(parent, view) {
     cls: "qiaomu-reader-pdf-zoom-step",
     attr: { type: "button", "aria-label": qiaomuReaderTranslate("zoom-pdf-out") },
   });
-  svgIcon(out, "minus");
+  svgIcon(out, "zoom-out");
   const label = group.createEl("button", { cls: "qiaomu-reader-pdf-zoom-value", attr: { type: "button" } });
   const input = group.createEl("button", {
     cls: "qiaomu-reader-pdf-zoom-step",
     attr: { type: "button", "aria-label": qiaomuReaderTranslate("zoom-pdf-in") },
   });
-  svgIcon(input, "plus");
+  svgIcon(input, "zoom-in");
   out.addEventListener("click", () => pdfZoom.change(view, -1));
   label.addEventListener("click", (event) => showPdfZoomMenu(view, event));
   input.addEventListener("click", () => pdfZoom.change(view, 1));
@@ -1348,7 +1305,7 @@ function createPdfZoomSettings(parent, view) {
     cls: "qiaomu-reader-sz-btn",
     attr: { type: "button", "aria-label": qiaomuReaderTranslate("zoom-pdf-out") },
   });
-  svgIcon(out, "minus");
+  svgIcon(out, "zoom-out");
   const label = row.createEl("button", {
     cls: "qiaomu-reader-sz-label qiaomu-reader-pdf-zoom-settings-value",
     attr: { type: "button", "aria-label": qiaomuReaderTranslate("fit-page") },
@@ -1357,7 +1314,7 @@ function createPdfZoomSettings(parent, view) {
     cls: "qiaomu-reader-sz-btn",
     attr: { type: "button", "aria-label": qiaomuReaderTranslate("zoom-pdf-in") },
   });
-  svgIcon(input, "plus");
+  svgIcon(input, "zoom-in");
   out.addEventListener("click", () => pdfZoom.change(view, -1));
   label.addEventListener("click", (event) => showPdfZoomMenu(view, event));
   input.addEventListener("click", () => pdfZoom.change(view, 1));
@@ -1448,7 +1405,7 @@ function setupPdfZoomInteractions(view) {
 // The desktop shell exposes its pi-ai runtime through the preload bridge; the
 // reader only sees the stable aiExplain contract.
 const aiRuntimeBridge = typeof window !== "undefined" && window.qbrDesktop ? window.qbrDesktop.ai || null : null;
-const { aiExplainStream, aiExplain, aiExplainStep, aiComplete, aiTranslate, aiProbe } = createPiTransport({
+const { aiExplain, aiExplainStep, aiComplete, aiTranslate, aiProbe } = createPiTransport({
   bridge: aiRuntimeBridge,
   aiConfig,
   aiMessages,
@@ -2390,7 +2347,6 @@ function raiseSelectionPopup(view, parts, range) {
 
 // All entry points share the same record, selection and menu actions. Keep the
 // source document alive only while selecting; engine chapters are disposable.
-const QUICK_HL_COLOR_IDS = ["yellow", "green", "pink"];
 
 
 

@@ -11,7 +11,6 @@ export function createNotePaths({
   TFolder,
   AbstractInputSuggest,
   FuzzySuggestModal,
-  Setting,
   window: win,
   getCreateFolderModal,
 }) {

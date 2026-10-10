@@ -116,7 +116,6 @@ test("bridge failures become reader errors with the partial flag", async () => {
 test("aborting the caller signal aborts the bridge request", async () => {
   const controller = new AbortController();
   const calls = { stream: [], aborted: [] };
-  let resolveStream;
   const bridge = {
     stream(payload, onEvent) {
       calls.stream.push(payload);

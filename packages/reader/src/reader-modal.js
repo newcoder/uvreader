@@ -174,7 +174,7 @@ export function createReaderModal({
     // title retains enough room to identify the current book.
     buildReaderMoreButton(tray, this, (list, add) => {
       add("the-book-note", "file-text", () => openOrCreateBookNoteBeside(this.plugin, this.file));
-      add("highlights", "highlighter", () => this._togglePanel("highlights"));
+      add("highlights", "comment", () => this._togglePanel("highlights"));
       add("reset-timer", "rotate-ccw", () => readerTimer.reset(this));
       add("reading-settings", "sliders", () => new ReadSettingsModal(this.app, this).open());
       addPdfZoomMenuItems(list, this);

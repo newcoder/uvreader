@@ -66,15 +66,19 @@ export default [
       "no-undef": "error",
       "no-empty": ["error", { allowEmptyCatch: true }],
       "no-control-regex": "error",
+      "no-unused-vars": ["error", { args: "after-used", argsIgnorePattern: "^_", varsIgnorePattern: "^_", ignoreRestSiblings: true, caughtErrors: "none" }],
       "no-restricted-imports": ["error", { paths: NODE_BUILTINS.map((name) => ({ name, message: "Reader sources must stay host-agnostic; use the host ports instead." })) }],
     },
   },
   {
-    files: ["tests/**/*.mjs", "scripts/**/*.mjs", "packages/host-shim/**/*.mjs", "apps/desktop/**/*.mjs"],
+    files: ["tests/**/*.mjs", "scripts/**/*.mjs", "packages/host-shim/**/*.js", "packages/host-shim/**/*.mjs", "apps/desktop/**/*.js", "apps/desktop/**/*.mjs"],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "module",
       globals: { setImmediate: "readonly", process: "readonly", console: "readonly", Buffer: "readonly", URL: "readonly", __dirname: "readonly" },
+    },
+    rules: {
+      "no-unused-vars": ["error", { args: "after-used", argsIgnorePattern: "^_", varsIgnorePattern: "^_", ignoreRestSiblings: true, caughtErrors: "none" }],
     },
   },
 ];

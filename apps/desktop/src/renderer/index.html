@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' data: blob: file:; connect-src *; img-src 'self' data: blob: file:; font-src 'self' data:;"
+      content="default-src 'self' data: blob: file:; script-src 'self' 'wasm-unsafe-eval' file: blob:; style-src 'self' 'unsafe-inline' data: blob: file:; img-src 'self' data: blob: file:; font-src 'self' data:; media-src 'self' data: blob: file:; frame-src 'self' data: blob: file:; worker-src 'self' blob: file:; connect-src *; object-src 'none'; base-uri 'none'; form-action 'none';"
     />
     <title>UV Reader</title>
     <link rel="stylesheet" href="base.css" />
@@ -12,7 +12,10 @@
   </head>
   <body class="theme-dark">
     <div id="app-nav">
-      <div class="qbr-nav-brand">UV Reader</div>
+      <div class="qbr-nav-brand">
+        <img class="qbr-brand-logo" src="logo.png" alt="" />
+        <span class="qbr-nav-name">UV Reader</span>
+      </div>
       <div class="qbr-nav-routes">
         <button type="button" data-route="home" class="qbr-nav-btn">首页</button>
         <button type="button" data-route="library" class="qbr-nav-btn">书库</button>

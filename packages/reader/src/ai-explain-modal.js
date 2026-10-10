@@ -5,7 +5,7 @@ import { svgIcon } from "./reader-icons.js";
 import { verifiedQuotes } from "./reading-workflow.js";
 
 export function createAiExplainModal({
-  Component, Menu, Modal, Notice, aiExplain, aiExplainStep, aiLogFollowsTail, aiNeedsPageImage, aiTurnsHaveAttachments, bindAiAttachmentIntake, captureAiScreenshot, bindAiSlashPrompts, bindReaderAiComposer, bookNoteLinkFor, copyToClipboard, createAiChatLog, createAiStreamingMarkdownRenderer, createNoteFromAiAnswer, jumpToAiQuote, newAiSessionKey, normalizeAiTurnContext, noteAiImageFailure, openAiAttachMenu, pickAiAttachments, prepareAiTools, prepareAiTurns, qiaomuReaderTranslate,
+  Component, Menu, Modal, Notice, aiExplain, aiExplainStep, aiLogFollowsTail, aiTurnsHaveAttachments, bindAiAttachmentIntake, captureAiScreenshot, bindAiSlashPrompts, bindReaderAiComposer, bookNoteLinkFor, copyToClipboard, createAiChatLog, createAiStreamingMarkdownRenderer, createNoteFromAiAnswer, jumpToAiQuote, newAiSessionKey, normalizeAiTurnContext, noteAiImageFailure, openAiAttachMenu, pickAiAttachments, prepareAiTools, prepareAiTurns, qiaomuReaderTranslate,
   readerAiPosition, readerHud, removeAiAttachment, renderAiAttachmentList, renderAiComposerPrompts, renderAiContextQuote, renderAiToolStep, renderAiUserTurn, renderMobileAiHeader, stripAiAttachmentData,
 }) {
   // How many tool-call rounds a single question may take before the model has

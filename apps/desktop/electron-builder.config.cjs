@@ -42,8 +42,10 @@ module.exports = {
     { ext: ["epub"], name: "EPUB 电子书", role: "Viewer" },
     { ext: ["pdf"], name: "PDF 文档", role: "Viewer" },
     { ext: ["mobi"], name: "MOBI 电子书", role: "Viewer" },
+    { ext: ["azw"], name: "AZW 电子书", role: "Viewer" },
     { ext: ["azw3"], name: "AZW3 电子书", role: "Viewer" },
     { ext: ["fb2"], name: "FB2 电子书", role: "Viewer" },
+    { ext: ["fbz"], name: "FB2 压缩包", role: "Viewer" },
     { ext: ["cbz"], name: "CBZ 漫画", role: "Viewer" },
   ],
 };

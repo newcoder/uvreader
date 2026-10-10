@@ -16,20 +16,11 @@ const modalSource = fs.readFileSync(new URL("../packages/reader/src/reader-modal
 const librarySource = fs.readFileSync(new URL("../packages/reader/src/library-modal.js", import.meta.url), "utf8");
 const explainSource = fs.readFileSync(new URL("../packages/reader/src/ai-explain-modal.js", import.meta.url), "utf8");
 const chatViewSource = fs.readFileSync(new URL("../packages/reader/src/ai-chat-view.js", import.meta.url), "utf8");
-const readSettingsSource = fs.readFileSync(new URL("../packages/reader/src/read-settings-modal.js", import.meta.url), "utf8");
 const noteTitleSource = fs.readFileSync(new URL("../packages/reader/src/note-title-modal.js", import.meta.url), "utf8");
 const historySource = fs.readFileSync(new URL("../packages/reader/src/ai-chat-history-modal.js", import.meta.url), "utf8");
 const aiPiSource = fs.readFileSync(new URL("../packages/reader/src/ai-pi.js", import.meta.url), "utf8");
 const settingsTabSource = fs.readFileSync(new URL("../packages/reader/src/settings-tab.js", import.meta.url), "utf8");
-const bookSetupSource = fs.readFileSync(new URL("../packages/reader/src/book-setup-modal.js", import.meta.url), "utf8");
-const highlightExportSource = fs.readFileSync(new URL("../packages/reader/src/highlight-export-modal.js", import.meta.url), "utf8");
-const settingsGroupSource = fs.readFileSync(new URL("../packages/reader/src/settings-group-modal.js", import.meta.url), "utf8");
 const folderSource = fs.readFileSync(new URL("../packages/reader/src/create-folder-modal.js", import.meta.url), "utf8");
-const infoSource = fs.readFileSync(new URL("../packages/reader/src/info-modal.js", import.meta.url), "utf8");
-const gotoSource = fs.readFileSync(new URL("../packages/reader/src/goto-page-modal.js", import.meta.url), "utf8");
-const whatsNewSource = fs.readFileSync(new URL("../packages/reader/src/whats-new-modal.js", import.meta.url), "utf8");
-const onboardingSource = fs.readFileSync(new URL("../packages/reader/src/onboarding-modal.js", import.meta.url), "utf8");
-const confirmSource = fs.readFileSync(new URL("../packages/reader/src/confirm-modal.js", import.meta.url), "utf8");
 const paginatorSource = fs.readFileSync(new URL("../packages/reader/src/pdf-paginator.js", import.meta.url), "utf8");
 const readerSources = mainSource + viewSource + modalSource + librarySource;
 import { EMBEDDED_PDF_CMAPS } from "../packages/reader/src/pdf-cmaps-data.js";
@@ -181,8 +172,10 @@ test("PDF zoom stays bounded and supports buttons, gestures, and shortcuts", () 
   assert.equal(pdfZoomShortcut({ metaKey: true, ctrlKey: false, altKey: false, key: "0" }), "reset");
   assert.equal(pdfZoomShortcut({ metaKey: false, ctrlKey: false, altKey: false, key: "+" }), null);
   const icons = fs.readFileSync(new URL("../packages/reader/src/reader-icons.js", import.meta.url), "utf8");
-  assert.match(icons, /"minus": `<svg[^`]+<line x1="5" y1="12" x2="19" y2="12"\/><\/svg>`/);
-  assert.match(source, /svgIcon\(out, "minus"\)/);
+  assert.match(icons, /"zoom-out": `<svg[^`]+<line x1="8" y1="11" x2="14" y2="11"\/><\/svg>`/);
+  assert.match(icons, /"zoom-in": `<svg[^`]+<line x1="11" y1="8" x2="11" y2="14"\/>/);
+  assert.match(source, /svgIcon\(out, "zoom-out"\)/);
+  assert.match(source, /svgIcon\(input, "zoom-in"\)/);
 });
 
 test("saving an AI response keeps the answer as the note body", () => {
@@ -693,7 +686,6 @@ test("reader chrome stays white and removes only the reader's redundant host hea
 });
 
 test("immersive reader chrome overlays the page and retracts without reserving rows", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   const chromeSource = fs.readFileSync(new URL("../packages/reader/src/reader-chrome.js", import.meta.url), "utf8");
   const bookNotesSource = fs.readFileSync(new URL("../packages/reader/src/book-notes.js", import.meta.url), "utf8");
   const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
@@ -811,7 +803,6 @@ test("reading settings own their scroll area without horizontal overflow", () =>
 });
 
 test("reading settings split reading and AI assistance without exposing secrets", () => {
-  const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   const css = fs.readFileSync(new URL("../packages/reader/src/styles.css", import.meta.url), "utf8");
   const modalSource = fs.readFileSync(new URL("../packages/reader/src/read-settings-modal.js", import.meta.url), "utf8");
   assert.match(modalSource, /initialTab = "reading"/);

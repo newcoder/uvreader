@@ -8,7 +8,6 @@ import {
   mergeTocEntries,
   parseTocExtractionReply,
   parseTocText,
-  scoreTocPage,
   tocCandidates,
   validateTocEntries,
 } from "../packages/reader/src/pdf-toc.js";

@@ -521,7 +521,7 @@ export function createBookNotes({
     }
   }
 
-  async function exportHighlightsMenu(app, plugin, bookFile, highlights, evt) {
+  async function exportHighlightsMenu(app, plugin, bookFile, highlights, _evt) {
     if (!highlights || !highlights.length) {
       new Notice(translate("no-highlights-to-export"));
       return;

@@ -11,7 +11,7 @@ export function createSelectionActions({
   translate, Notice, Scope, TranslateModal, setIcon, window,
   isPdf, hlColorCss, hlColors, positionPopup, refreshHlPanel, autoFocus,
   paintAiSource, copyToClipboard,
-  flowSelectionParts, raiseSelectionPopup, lookupPinyin, lookupWord,
+  lookupPinyin, lookupWord,
   translateSelection, translationTarget,
 }) {
   function selectionActions(view) {

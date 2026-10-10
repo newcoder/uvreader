@@ -105,7 +105,7 @@ test("image intake downscales the bitmap and builds a thumbnail", async () => {
   const canvas = {
     width: 0,
     height: 0,
-    getContext: () => ({ drawImage: (...args) => draws.push([canvas.width, canvas.height]) }),
+    getContext: () => ({ drawImage: (..._args) => draws.push([canvas.width, canvas.height]) }),
     toDataURL: (mime) => `data:${mime};base64,QUJD`,
   };
   const bitmap = { width: 3200, height: 1600, close: () => draws.push("closed") };

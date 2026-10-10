@@ -1,6 +1,6 @@
 // PDF zoom state and layout math. Pure DOM work: the host supplies only the
 // translated labels and its PDF check, so the module can be unit tested.
-import { PDF_ZOOM_DEFAULT, PDF_ZOOM_MAX, PDF_ZOOM_MIN, clampPdfZoom, pdfZoomPercent, stepPdfZoom } from "./pdf-zoom.js";
+import { PDF_ZOOM_MAX, PDF_ZOOM_MIN, clampPdfZoom, pdfZoomPercent, stepPdfZoom } from "./pdf-zoom.js";
 import { zoomAnchorOffset } from "./reader-experience.js";
 
 export function createPdfZoomUi({ translate, isPdf }) {

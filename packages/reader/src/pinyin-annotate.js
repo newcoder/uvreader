@@ -58,7 +58,6 @@ export function glossFor(char) {
 // ── multi-character word glossary ───────────────────────────────────────────
 // The generated table is gzipped to keep the bundle small; it is inflated on
 // the first word lookup (and pre-warmed when a book opens).
-let wordGlosses = null;
 let wordGlossesLoad = null;
 
 function wordTable() {
@@ -72,7 +71,6 @@ function wordTable() {
         const at = line.indexOf("\t");
         if (at > 0) map.set(line.slice(0, at), line.slice(at + 1));
       }
-      wordGlosses = map;
       return map;
     })();
   }

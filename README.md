@@ -12,7 +12,7 @@ UV Reader 是中文优先的**独立桌面阅读器**（Electron），支持 EPU
 >
 > **设计原则**：好快省多（Do it well, do it fast, do it lean, then scale it.）
 
-> 状态：v0.1.0 已发布，提供 Windows / macOS / Linux 安装包，见 [Releases](https://github.com/newcoder/uvreader/releases)；也可从源码构建运行。
+> 状态：v0.3.0 已发布，提供 Windows / macOS / Linux 安装包，见 [Releases](https://github.com/newcoder/uvreader/releases)；也可从源码构建运行。
 
 ## 功能
 
@@ -47,12 +47,13 @@ npm run desktop:start
 npm run desktop:dist:dir   # 只出免安装目录（apps/desktop/release/win-unpacked）
 npm run desktop:dist       # Windows：NSIS 安装包 + 便携版
 npm run desktop:smoke:packaged   # 用打包产物跑冒烟（退出码 0/1）
-npm run build:icon         # 重新生成应用图标（纯 Node，无外部依赖）
+npm run build:icon         # 由 logo.jpg 重新生成品牌 logo 与应用图标（需要已安装 Electron）
+npm run build:icons        # 从 uvreader_icons.png 重新切出工具栏图标（纯 Node，白底转透明）
 ```
 
 - 产物：`apps/desktop/release/UV-Reader-<版本>-setup.exe`、`UV-Reader-<版本>-portable.exe`；macOS 为 dmg、Linux 为 AppImage（需在对应系统上构建）。
 - 发布：把版本号写进根 `package.json` 后推送 `v<版本>` tag，`.github/workflows/release.yml` 会先跑门禁校验版本一致性，再在三个平台构建并创建 GitHub Release。
-- 版本号取自根 `package.json`；图标由 `scripts/make-app-icon.mjs` 生成到 `apps/desktop/build/icon.png`。
+- 版本号取自根 `package.json`；品牌 logo 与应用图标由 `logo.jpg` 经 `apps/desktop/scripts/import-logo.cjs` 生成到 `apps/desktop/assets/logo.png` 与 `apps/desktop/build/icon.png`（`npm run build:icon`）；工具栏图标由 `uvreader_icons.png` 经 `scripts/slice-app-icons.mjs` 切到 `apps/desktop/assets/icons/`（`npm run build:icons`）。
 - 已注册 `.epub/.pdf/.mobi/.azw3/.fb2/.cbz` 文件关联与单实例；用“打开方式”传入的路径会在启动后自动打开。
 - 网络受限时先设置镜像：`ELECTRON_MIRROR`、`ELECTRON_BUILDER_BINARIES_MIRROR`（例如 npmmirror 对应路径）。
 
@@ -63,7 +64,7 @@ npm test              # 阅读核心单元测试
 npm run test:shim     # 宿主兼容层契约测试
 npm run test:desktop  # 桌面壳测试
 npm run check:i18n    # 9 种语言字典与占位符一致性
-npx eslint packages/reader/src/ --max-warnings=0
+npx eslint packages/reader/src packages/host-shim apps/desktop/src apps/desktop/test apps/desktop/scripts apps/desktop/build.mjs tests scripts --max-warnings=0
 ```
 
 CI（`.github/workflows/ci.yml`）按上述顺序执行，并在 xvfb 下跑一次桌面冒烟。
@@ -74,7 +75,7 @@ AI 伴读的传输层由桌面主进程的 pi-ai 运行时提供：渲染层通�
 
 ```text
 apps/desktop/         Electron 壳：主进程、预加载、渲染进程、打包脚本
-packages/reader/src/  阅读核心：60+ 个宿主无关模块（阅读、划线、笔记、AI、界面）
+packages/reader/src/  阅读核心：90+ 个宿主无关模块（阅读、划线、笔记、AI、界面）
   main.js             入口（仅 re-export，供桌面壳与测试引用）
   wire.js             辅助函数与端口装配（唯一接触宿主 API 的接线层）
   plugin.js           Obsidian 插件适配（注入 Plugin 基类）
@@ -107,7 +108,7 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 >
 > **Design principles**: do it well, do it fast, do it lean, then scale it.
 
-> Status: v0.1.0 is released with Windows / macOS / Linux installers — see [Releases](https://github.com/newcoder/uvreader/releases). You can also build from source.
+> Status: v0.3.0 is released with Windows / macOS / Linux installers — see [Releases](https://github.com/newcoder/uvreader/releases). You can also build from source.
 
 Features: paged/scrolling reading, wheel paging, page jump, single or two columns, five page themes, bundled and custom fonts, three-colour highlights with inline comments, one Markdown reading note per book with backlinks, a searchable left TOC sidebar, fit-to-width reading (PDFs are zoomed to ~90% of the reading area), and optional AI assistance through HTTP providers or local OpenAI-compatible endpoints (Ollama, LM Studio, llama.cpp).
 
@@ -120,6 +121,6 @@ npm run desktop:build
 npm run desktop:start
 ```
 
-Tests: `npm test`, `npm run test:shim`, `npm run test:desktop`, `npm run check:i18n`, `npx eslint packages/reader/src/ --max-warnings=0`.
+Tests: `npm test`, `npm run test:shim`, `npm run test:desktop`, `npm run check:i18n`, `npx eslint packages/reader/src packages/host-shim apps/desktop/src apps/desktop/test apps/desktop/scripts apps/desktop/build.mjs tests scripts --max-warnings=0`.
 
 License: GNU GPL v3.0 only. Third-party notices live in [NOTICE.md](NOTICE.md).

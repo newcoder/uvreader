@@ -31,7 +31,8 @@ jobs:
       - run: npm run test:shim
       - run: npm run test:desktop
       - run: npm run check:i18n
-      - run: npx eslint packages/reader/src/ --max-warnings=0
+      - name: Lint the reader and the desktop shell
+        run: npx eslint packages/reader/src packages/host-shim apps/desktop/src apps/desktop/test apps/desktop/scripts apps/desktop/build.mjs tests scripts --max-warnings=0
 
   build:
     needs: verify

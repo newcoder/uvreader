@@ -13,6 +13,11 @@ import fs from "node:fs";
 import path from "node:path";
 
 export const OCR_PROBE_TIMEOUT = 8000;
+// One-shot starts answer as soon as the sidecar accepts the job; a page fetch
+// runs OCR on a single page. Both get a ceiling so a hung sidecar cannot leave
+// renderer calls pending forever.
+export const OCR_START_TIMEOUT = 30000;
+export const OCR_SESSION_TIMEOUT = 120000;
 
 function log(...args) {
   try { console.error("[qbr-ocr]", ...args); } catch { /* stderr may be gone */ }
@@ -199,7 +204,7 @@ function spawnSession({ command, args, cwd, spawnImpl, onNotification, onExit, c
   };
 }
 
-export function createPdfOcr({ spawnImpl = spawn, cacheRoot = "" } = {}) {
+export function createPdfOcr({ spawnImpl = spawn, cacheRoot = "", startTimeoutMs = OCR_START_TIMEOUT, sessionTimeoutMs = OCR_SESSION_TIMEOUT } = {}) {
   const cacheDir = String(cacheRoot || "").trim();
   if (cacheDir) {
     try { fs.mkdirSync(cacheDir, { recursive: true }); } catch { /* created lazily by the sidecar */ }
@@ -254,7 +259,7 @@ export function createPdfOcr({ spawnImpl = spawn, cacheRoot = "" } = {}) {
     if (entry.textSource) params.text_source = entry.textSource;
     if (options.force) params.force = true;
     if (Number.isFinite(Number(options.dpi)) && Number(options.dpi) > 0) params.dpi = Number(options.dpi);
-    return entry.session.request("ocr.page", params).then((result) => ({
+    return entry.session.request("ocr.page", params, sessionTimeoutMs).then((result) => ({
       page: Number(result?.page) || params.page,
       hasText: Boolean(result?.has_text),
       source: String(result?.source || "ocr"),
@@ -331,7 +336,7 @@ export function createPdfOcr({ spawnImpl = spawn, cacheRoot = "" } = {}) {
     job.session = session;
     const payload = { path: source, mode: "export", out, workers: 1 };
     if (Number.isFinite(Number(request.timeout)) && Number(request.timeout) > 0) payload.timeout = Number(request.timeout);
-    session.request("convert.start", payload)
+    session.request("convert.start", payload, startTimeoutMs)
       .then((result) => { job.sidecarJob = String(result?.job || ""); })
       .catch((error) => fail(error));
     return { jobId };
@@ -408,7 +413,7 @@ export function createPdfOcr({ spawnImpl = spawn, cacheRoot = "" } = {}) {
     if (Number.isFinite(Number(request.timeout)) && Number(request.timeout) > 0) {
       payload.timeout = Number(request.timeout);
     }
-    session.request("doc.convert", payload)
+    session.request("doc.convert", payload, startTimeoutMs)
       .then((result) => { job.sidecarJob = String(result?.job || ""); })
       .catch((error) => fail(error));
     return { jobId };

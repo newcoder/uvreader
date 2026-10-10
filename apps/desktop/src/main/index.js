@@ -1,6 +1,7 @@
 import { BrowserWindow, Menu, app, dialog, ipcMain, safeStorage, shell } from "electron";
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { BOOK_EXTENSIONS, isBookFile } from "../shared/books.js";
 import { createAiRuntime } from "./ai-runtime.js";
@@ -57,7 +58,6 @@ const bookDownloads = createBookDownloads({
   pageDownload: downloadBookFileFromPage,
 });
 const smoke = process.argv.includes("--qbr-smoke");
-if (!app.isPackaged) process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "true";
 
 process.env.QBR_DATA_ROOT = dataRoot;
 process.env.QBR_VAULT_ROOT = vaultRoot;
@@ -71,6 +71,17 @@ let smokeTimer = null;
 
 function bookFromArgv(argv) {
   return (argv || []).find((arg) => isBookFile(arg) && fs.existsSync(arg)) || "";
+}
+
+// External links are the only URLs allowed to leave the renderer: anything
+// else (javascript:, file:, data:) is dropped instead of opened.
+function externalHttpUrl(target) {
+  try {
+    const url = new URL(String(target));
+    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : "";
+  } catch {
+    return "";
+  }
 }
 
 function sendOpen(filePath) {
@@ -200,11 +211,23 @@ function readSecrets() {
 
 function writeSecrets(value) {
   fs.mkdirSync(path.dirname(secretsPath), { recursive: true });
-  fs.writeFileSync(secretsPath, JSON.stringify(value, null, 2));
+  // Atomic write: a crash mid-save must not leave a truncated secret store.
+  const body = JSON.stringify(value, null, 2);
+  const temp = `${secretsPath}.tmp`;
+  fs.writeFileSync(temp, body, { mode: 0o600 });
+  fs.renameSync(temp, secretsPath);
 }
+
+let warnedPlainSecrets = false;
 
 function encryptSecret(value) {
   if (safeStorage.isEncryptionAvailable()) return `enc:${safeStorage.encryptString(value).toString("base64")}`;
+  // No OS keyring (some Linux sessions): the keys stay usable, but say so once
+  // instead of silently storing plain base64.
+  if (!warnedPlainSecrets) {
+    warnedPlainSecrets = true;
+    console.error("[qbr] 系统密钥加密不可用，API 密钥将以本地编码形式保存在 secrets.json");
+  }
   return `plain:${Buffer.from(value, "utf8").toString("base64")}`;
 }
 
@@ -283,6 +306,21 @@ function createWindow() {
   });
   mainWindow.once("ready-to-show", () => mainWindow.show());
   mainWindow.setMenuBarVisibility(false);
+  // The renderer is privileged (Node integration is how the host shim reads
+  // files), so it must never navigate away from the shell. Book links open in
+  // the system browser; window.open is denied outright.
+  const appUrl = pathToFileURL(path.join(__dirname, "index.html")).toString();
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (url === appUrl || url.startsWith(`${appUrl}#`)) return;
+    event.preventDefault();
+    const external = externalHttpUrl(url);
+    if (external) void shell.openExternal(external);
+  });
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    const external = externalHttpUrl(url);
+    if (external) void shell.openExternal(external);
+    return { action: "deny" };
+  });
   mainWindow.on("closed", () => {
     mainWindow = null;
     // The hidden windows (zlib's page loader, PDF Drive, a login window) count
@@ -304,7 +342,14 @@ function createWindow() {
 
 ipcMain.handle("qbr:launch-file", () => launchFile);
 ipcMain.handle("qbr:open-book-dialog", () => openBookDialog());
-ipcMain.handle("qbr:open-path", (_event, target) => (target ? shell.openPath(String(target)) : ""));
+ipcMain.handle("qbr:open-path", (_event, target) => {
+  const value = String(target || "");
+  if (!value) return "";
+  // The note view sends a vault-relative path; shell.openPath needs an
+  // absolute one or it silently fails.
+  const absolute = path.isAbsolute(value) ? value : path.resolve(vaultRoot, value);
+  return shell.openPath(absolute);
+});
 ipcMain.handle("qbr:boot", (_event, payload = {}) => {
   const status = payload.ok ? "ok" : "failed";
   console.log(`[qbr] boot ${status}${payload.file ? ` (${payload.file})` : ""}${payload.detail ? ` ${payload.detail}` : ""}`);
