@@ -838,7 +838,7 @@ export function createReaderView({
     // The book note stays reachable from the more menu and the context menus;
     // the tray keeps reading actions only.
     this.aiBtn = trayButton(null, "ai-reading", () => {
-      void this.plugin.openAiChat(readerAiPanelContext(this));
+      void this._toggleAiCompanion();
     }, { lucide: "sparkles" });
     this.fitBtn = trayButton(null, "fit-page", () => {
       this.plugin.settings.fitPage = this.plugin.settings.fitPage !== true;
@@ -856,7 +856,10 @@ export function createReaderView({
       }
       this.togglePanel("toc");
     });
-    trayButton("comment", "highlights", () => this.togglePanel("highlights"));
+    this.hlBtn = trayButton("comment", "highlights", () => {
+      this.togglePanel("highlights");
+      this._syncToolButtons();
+    });
     trayButton("sliders", "reading-settings", () => new ReadSettingsModal(this.app, this).open());
     pageJump.build(this, tray);
     // Search sits right after the reading settings, in its original place: a
@@ -1184,6 +1187,43 @@ export function createReaderView({
     this.tocPan.classList.remove("qiaomu-reader-panel-open");
     if (this.findPan) this.findPan.classList.remove("qiaomu-reader-panel-open");
     this.overlayEl.classList.remove("qiaomu-reader-overlay-on");
+  }
+  // The AI button toggles: a second click closes the companion sidebar,
+  // exactly like the highlights dock and the navigation panels.
+  async _toggleAiCompanion() {
+    const plugin = this.plugin;
+    const isOpen = typeof plugin?.aiCompanionOpen === "function" && plugin.aiCompanionOpen() === true;
+    if (isOpen) {
+      plugin.closeReadingCompanion?.();
+      this._syncToolButtons();
+      return;
+    }
+    await plugin?.openAiChat?.(readerAiPanelContext(this));
+    this._syncToolButtons();
+  }
+  // Toolbar toggles show what is open (pressed style + aria-expanded). The
+  // desktop shell syncs the TOC button itself (its TOC lives in a workspace
+  // leaf) and calls this again whenever leaves change, so a sidebar closed
+  // from its own ✕ clears the pressed look too.
+  _syncToolButtons() {
+    const plugin = this.plugin;
+    const aiOpen = typeof plugin?.aiCompanionOpen === "function" && plugin.aiCompanionOpen() === true;
+    if (this.aiBtn) {
+      this.aiBtn.toggleClass("qiaomu-reader-ibtn-on", aiOpen);
+      this.aiBtn.setAttribute("aria-expanded", String(aiOpen));
+    }
+    const hlOpen = this.hlDockPanel?.isOpen?.() === true;
+    if (this.hlBtn) {
+      this.hlBtn.toggleClass("qiaomu-reader-ibtn-on", hlOpen);
+      this.hlBtn.setAttribute("aria-expanded", String(hlOpen));
+    }
+    // Non-desktop hosts keep the TOC as an in-reader panel; the desktop TOC
+    // button is synced by the shell.
+    if (typeof plugin?.app?.qbrDesktopOpenToc !== "function" && this.tocBtn) {
+      const tocOpen = this.panelOpen === "toc";
+      this.tocBtn.toggleClass("qiaomu-reader-ibtn-on", tocOpen);
+      this.tocBtn.setAttribute("aria-expanded", String(tocOpen));
+    }
   }
   async reloadView() {
     if (!this.bookHtml || !this.file) {

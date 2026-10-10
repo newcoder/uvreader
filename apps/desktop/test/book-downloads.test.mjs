@@ -205,6 +205,25 @@ test("downloads land in the library folder with progress and validated bytes", a
   }
 });
 
+test("a cooled-down source is reported instead of silently empty", async () => {
+  const server = await startServer();
+  const port = server.address().port;
+  const sources = [{ id: "slow", name: "Slow", url: `http://127.0.0.1:${port}/slow`, kind: "gutenberg", enabled: true }];
+  const books = createBookDownloads({ downloadRoot: fs.mkdtempSync(path.join(os.tmpdir(), "qbr-books-")) });
+  try {
+    // Two timeouts trip the per-source cooldown.
+    await books.search({ sources, query: "x" }, { timeout: 300 });
+    await books.search({ sources, query: "x" }, { timeout: 300 });
+    const third = await books.search({ sources, query: "x" }, { timeout: 300 });
+    assert.equal(third.results.length, 0);
+    assert.equal(third.errors.length, 1, "the skipped source must be reported");
+    assert.equal(third.errors[0].source, "slow");
+    assert.match(third.errors[0].message, /冷却/);
+  } finally {
+    server.close();
+  }
+});
+
 test("cancelling a queued download stops it and reports back", async () => {
   const server = await startServer();
   const port = server.address().port;

@@ -37,6 +37,7 @@ export function createReaderChrome({
   qiaomuReaderReaderFonts,
   qiaomuReaderFontLabel,
   ensureBundledReaderFont,
+  attachImageToAi = null,
 }) {
   function attachEngineChrome(view, doc) {
     doc.addEventListener("pointerdown", (event) => {
@@ -63,6 +64,17 @@ export function createReaderChrome({
         target: event.target, defaultPrevented: event.defaultPrevented,
         clientX: event.clientX + frame.left,
       })) event.preventDefault();
+    });
+    // A book illustration opens the zoomable viewer; linked images keep their
+    // link behaviour and small ornaments stay inert.
+    doc.addEventListener("click", (event) => {
+      const target = event.target;
+      const img = target && typeof target.closest === "function" ? target.closest("img") : null;
+      if (!img || !(img.currentSrc || img.src) || img.closest("a")) return;
+      const rect = img.getBoundingClientRect?.() || { width: 0, height: 0 };
+      if (rect.width < 72 && rect.height < 72) return;
+      event.preventDefault();
+      openBookImage(view, img, docOf(view.contentEl));
     });
     doc.addEventListener("wheel", (event) => handleReaderWheel(view, event), { passive: false });
   }
@@ -313,7 +325,7 @@ export function createReaderChrome({
       const img = el ? el.closest("img") : null;
       if (img && img.src) {
         ev.preventDefault();
-        openImageLightbox(img.currentSrc || img.src, view.app, img);
+        openBookImage(view, img, docOf(view.areaEl));
         return;
       }
       const mark = el ? el.closest(".qiaomu-reader-hl") : null;
@@ -592,12 +604,182 @@ export function createReaderChrome({
   function buildLightboxLayer(doc, src) {
     const layer = doc.createElement("div");
     layer.className = "qiaomu-reader-lightbox";
-    const img = layer.createEl("img");
+    const stage = layer.createDiv("qiaomu-reader-lightbox-stage");
+    const img = stage.createEl("img");
     img.setAttribute("src", src);
+    img.setAttribute("draggable", "false");
     const closer = layer.createDiv("qiaomu-reader-lightbox-close");
     closer.setText("✕");
-    layer.createDiv("qiaomu-reader-lightbox-hint").setText(translate("tap-the-image-to-zoom-background-or-to-close"));
-    return { layer, img, closer };
+    layer.createDiv("qiaomu-reader-lightbox-hint").setText(translate("image-viewer-hint"));
+    return { layer, stage, img, closer };
+  }
+
+  // The viewer toolbar: zoom out / current percentage / zoom in / fit, plus the
+  // AI attach action when the host wired one. The percentage button resets to
+  // the actual pixel size.
+  function buildLightboxBar(layer, options) {
+    const bar = layer.createDiv("qiaomu-reader-lightbox-bar");
+    const alt = String(options.name || "").trim();
+    if (alt) bar.createDiv("qiaomu-reader-lightbox-name").setText(alt);
+    const button = (text, aria, run) => {
+      const el = bar.createEl("button", { cls: "qiaomu-reader-lightbox-btn", attr: { type: "button" } });
+      el.setText(text);
+      if (aria) el.setAttribute("aria-label", aria);
+      el.addEventListener("click", (event) => { event.stopPropagation(); run(); });
+      return el;
+    };
+    const out = button("−", translate("zoom-out"), () => options.zoomBy(-1));
+    const label = button("100%", translate("zoom-actual"), () => options.zoomActual());
+    const input = button("＋", translate("zoom-in"), () => options.zoomBy(1));
+    const fit = button(translate("zoom-to-fit"), null, () => options.zoomFit());
+    let attach = null;
+    if (typeof options.onAttach === "function") {
+      attach = button(translate("attach-to-ai"), null, () => {
+        attach.disabled = true;
+        void Promise.resolve(options.onAttach()).then((ok) => {
+          if (ok === false) attach.disabled = false;
+          else options.dismiss();
+        });
+      });
+      attach.addClass("qiaomu-reader-lightbox-attach");
+    }
+    return { bar, out, label, input, fit, attach };
+  }
+
+  // One entry point for book images: resolve the source, show the viewer and
+  // offer the AI attach action when the host wired one. `doc` is the document
+  // the overlay must live in (the reader shell, never a chapter iframe).
+  function openBookImage(view, img, doc) {
+    const src = img?.currentSrc || img?.src || "";
+    if (!src) return null;
+    const alt = String(img.getAttribute?.("alt") || "").trim();
+    return openImageLightbox(src, view?.app, img, {
+      doc: doc || docOf(view?.contentEl),
+      name: alt || translate("illustration"),
+      onAttach: typeof attachImageToAi === "function" ? () => attachImageToAi(view, img) : null,
+    });
+  }
+
+  function openImageLightbox(srcUrl, app, ownerEl, options = {}) {
+    if (!srcUrl) return null;
+    const ownerDoc = options.doc || docOf(ownerEl);
+    const ownerWin = ownerDoc.defaultView || win;
+    const { layer, stage, img, closer } = buildLightboxLayer(ownerDoc, srcUrl);
+    const state = { scale: 1, fit: 1, x: 0, y: 0, dragging: false, moved: 0, startX: 0, startY: 0, ox: 0, oy: 0, touched: false };
+    const viewport = () => ({ w: ownerWin.innerWidth || 1024, h: ownerWin.innerHeight || 768 });
+    const natural = () => ({ w: img.naturalWidth || 0, h: img.naturalHeight || 0 });
+    let dismissed = false;
+    const dismiss = () => {
+      if (dismissed) return;
+      dismissed = true;
+      popEscapeScope(app, scope);
+      ownerDoc.removeEventListener("keydown", onDocKey, true);
+      ownerWin.removeEventListener("resize", onResize);
+      layer.remove();
+    };
+    const apply = () => {
+      img.style.transform = `translate(${Math.round(state.x)}px, ${Math.round(state.y)}px) scale(${state.scale})`;
+      layer.dataset.zoom = state.scale.toFixed(3);
+      img.classList.toggle("qiaomu-reader-lightbox-zoom", state.scale > state.fit + 0.01);
+      barParts.label.setText(`${Math.round(state.scale * 100)}%`);
+    };
+    const center = () => {
+      const { w, h } = viewport();
+      const n = natural();
+      state.x = Math.round((w - n.w * state.scale) / 2);
+      state.y = Math.round((h - n.h * state.scale) / 2);
+    };
+    const fitToWindow = () => {
+      const { w, h } = viewport();
+      const n = natural();
+      state.fit = n.w && n.h ? Math.max(0.05, Math.min(1, (w - 80) / n.w, (h - 112) / n.h)) : 1;
+      state.scale = state.fit;
+      center();
+      apply();
+    };
+    const zoomAt = (cx, cy, factor) => {
+      const next = Math.min(8, Math.max(state.fit * 0.4, state.scale * factor));
+      if (Math.abs(next - state.scale) < 0.001) return;
+      const px = (cx - state.x) / state.scale;
+      const py = (cy - state.y) / state.scale;
+      state.scale = next;
+      state.x = cx - px * state.scale;
+      state.y = cy - py * state.scale;
+      state.touched = true;
+      apply();
+    };
+    const zoomBy = (dir) => {
+      const { w, h } = viewport();
+      zoomAt(w / 2, h / 2, dir > 0 ? 1.25 : 0.8);
+    };
+    const zoomActual = () => { state.scale = 1; center(); apply(); };
+    // A click without a drag toggles between fit and actual size.
+    const reset = () => { if (state.scale > state.fit + 0.01) fitToWindow(); else zoomActual(); };
+
+    const barParts = buildLightboxBar(layer, {
+      name: options.name || img.getAttribute("alt") || "",
+      zoomBy: (dir) => { state.touched = true; zoomBy(dir); },
+      zoomActual: () => { state.touched = true; zoomActual(); },
+      zoomFit: () => { state.touched = true; fitToWindow(); },
+      onAttach: options.onAttach,
+      dismiss,
+    });
+
+    const onDocKey = (e) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault(); e.stopPropagation();
+      if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+      dismiss();
+    };
+    const onResize = () => { if (Math.abs(state.scale - state.fit) < 0.01) fitToWindow(); };
+    const scope = pushEscapeScope(app, dismiss);
+    ownerDoc.addEventListener("keydown", onDocKey, true);
+    ownerWin.addEventListener("resize", onResize);
+    closer.addEventListener("click", (e) => { e.stopPropagation(); dismiss(); });
+    layer.addEventListener("click", (e) => {
+      if (e.target !== layer && e.target !== stage) return;
+      // The click that ends a pan must not close the viewer.
+      if (state.moved >= 4) { state.moved = 0; return; }
+      dismiss();
+    });
+    stage.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0015));
+    }, { passive: false });
+    stage.addEventListener("pointerdown", (e) => {
+      state.dragging = true;
+      state.moved = 0;
+      state.startX = e.clientX;
+      state.startY = e.clientY;
+      state.ox = state.x;
+      state.oy = state.y;
+      try { stage.setPointerCapture?.(e.pointerId); } catch { /* capture is optional */ }
+    });
+    stage.addEventListener("pointermove", (e) => {
+      if (!state.dragging) return;
+      const dx = e.clientX - state.startX;
+      const dy = e.clientY - state.startY;
+      state.moved = Math.max(state.moved, Math.abs(dx) + Math.abs(dy));
+      state.x = state.ox + dx;
+      state.y = state.oy + dy;
+      apply();
+    });
+    const endDrag = () => {
+      if (!state.dragging) return;
+      state.dragging = false;
+      if (state.moved < 4) reset();
+    };
+    stage.addEventListener("pointerup", endDrag);
+    stage.addEventListener("pointercancel", () => { state.dragging = false; });
+    img.addEventListener("dblclick", (e) => { e.preventDefault(); reset(); });
+    // A late load must not undo a zoom the reader already made.
+    img.addEventListener("load", () => { if (!state.touched) fitToWindow(); });
+
+    ownerDoc.body.appendChild(layer);
+    if (natural().w) fitToWindow();
+    else apply();
+    ownerWin.requestAnimationFrame(() => layer.classList.add("qiaomu-reader-lightbox-on"));
+    return { layer, img, dismiss };
   }
 
   function pushEscapeScope(app, onEscape) {
@@ -616,36 +798,6 @@ export function createReaderChrome({
   function popEscapeScope(app, escapeScope) {
     if (!escapeScope || !app || !app.keymap) return;
     try { app.keymap.popScope(escapeScope); } catch { /* keymap may already be gone */ }
-  }
-
-  function openImageLightbox(srcUrl, app, ownerEl) {
-    if (!srcUrl) return;
-    const ownerDoc = docOf(ownerEl);
-    const { layer, img, closer } = buildLightboxLayer(ownerDoc, srcUrl);
-    let dismissed = false;
-    let scope;
-    const dismiss = () => {
-      if (dismissed) return;
-      dismissed = true;
-      popEscapeScope(app, scope);
-      ownerDoc.removeEventListener("keydown", onDocKey, true);
-      layer.remove();
-    };
-    const onDocKey = (e) => {
-      if (e.key !== "Escape") return;
-      e.preventDefault(); e.stopPropagation();
-      if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-      dismiss();
-    };
-    scope = pushEscapeScope(app, dismiss);
-    ownerDoc.addEventListener("keydown", onDocKey, true);
-    closer.addEventListener("click", (e) => { e.stopPropagation(); dismiss(); });
-    layer.addEventListener("click", (e) => { if (e.target === layer) dismiss(); });
-    img.addEventListener("click", (e) => {
-      e.stopPropagation(); img.classList.toggle("qiaomu-reader-lightbox-zoom");
-    });
-    ownerDoc.body.appendChild(layer);
-    win.requestAnimationFrame(() => layer.classList.add("qiaomu-reader-lightbox-on"));
   }
 
   return {

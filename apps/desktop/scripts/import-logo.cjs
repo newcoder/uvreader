@@ -1,6 +1,5 @@
 // Regenerates the product logo assets from `logo.jpg`:
-//   - apps/desktop/assets/logo.png  (512×512, transparent background, used by
-//     the shell brand and the home page)
+//   - apps/desktop/assets/logo.png  (512×512, transparent master copy)
 //   - apps/desktop/build/icon.png   (the installer/app icon electron-builder
 //     derives .ico/.icns from)
 //

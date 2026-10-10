@@ -21,6 +21,7 @@ function build() {
     ItemView: Base,
     VIEW_TYPE: "qiaomu-reader",
     createPdfPaginator: () => ({ total: 0, spread: 0 }),
+    readerAiPanelContext: (view) => (view.file && view.bookHtml ? { bookFile: view.file, readerView: view } : null),
   });
   return { Base, ReaderView };
 }
@@ -91,4 +92,68 @@ test("a divider drag holds the reflow and lands it when the pointer is released"
   view._afterColumnDrag();
   assert.equal(view.repaginations, 1, "a drag without a pending resize does nothing");
   window.clearTimeout(view._resizeTimer);
+});
+
+function stubButton() {
+  return {
+    classes: new Set(),
+    attrs: {},
+    toggleClass(name, on) { if (on) this.classes.add(name); else this.classes.delete(name); },
+    setAttribute(name, value) { this.attrs[name] = String(value); },
+  };
+}
+
+test("the AI toolbar button toggles the companion and presses while it is open", async () => {
+  const { ReaderView } = build();
+  const plugin = {
+    settings: {},
+    companionOpen: false,
+    opened: 0,
+    closed: 0,
+    aiCompanionOpen() { return this.companionOpen; },
+    async openAiChat() { this.opened += 1; this.companionOpen = true; },
+    closeReadingCompanion() { this.closed += 1; this.companionOpen = false; },
+  };
+  const view = new ReaderView({}, plugin);
+  view.file = { path: "Books/A.epub", basename: "A", extension: "epub" };
+  view.bookHtml = "<p>x</p>";
+  view.aiBtn = stubButton();
+  view.hlBtn = stubButton();
+  view.tocBtn = stubButton();
+
+  await view._toggleAiCompanion();
+  assert.equal(plugin.opened, 1, "a closed companion opens");
+  assert.equal(view.aiBtn.classes.has("qiaomu-reader-ibtn-on"), true, "the button looks pressed while open");
+  assert.equal(view.aiBtn.attrs["aria-expanded"], "true");
+
+  await view._toggleAiCompanion();
+  assert.equal(plugin.closed, 1, "a second click closes the companion");
+  assert.equal(view.aiBtn.classes.has("qiaomu-reader-ibtn-on"), false);
+  assert.equal(view.aiBtn.attrs["aria-expanded"], "false");
+});
+
+test("the toolbar sync mirrors the companion, the highlights dock and the TOC panel", () => {
+  const { ReaderView } = build();
+  const plugin = { settings: {}, aiCompanionOpen: () => true };
+  const view = new ReaderView({}, plugin);
+  view.aiBtn = stubButton();
+  view.hlBtn = stubButton();
+  view.tocBtn = stubButton();
+  view.hlDockPanel = { isOpen: () => true };
+  view.panelOpen = "toc";
+
+  view._syncToolButtons();
+  for (const [name, btn] of [["ai", view.aiBtn], ["highlights", view.hlBtn], ["toc", view.tocBtn]]) {
+    assert.equal(btn.classes.has("qiaomu-reader-ibtn-on"), true, `${name} looks pressed while open`);
+    assert.equal(btn.attrs["aria-expanded"], "true", `${name} announces its open state`);
+  }
+
+  plugin.aiCompanionOpen = () => false;
+  view.hlDockPanel = { isOpen: () => false };
+  view.panelOpen = null;
+  view._syncToolButtons();
+  for (const [name, btn] of [["ai", view.aiBtn], ["highlights", view.hlBtn], ["toc", view.tocBtn]]) {
+    assert.equal(btn.classes.has("qiaomu-reader-ibtn-on"), false, `${name} releases when closed`);
+    assert.equal(btn.attrs["aria-expanded"], "false", `${name} announces its closed state`);
+  }
 });

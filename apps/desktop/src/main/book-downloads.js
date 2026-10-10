@@ -168,9 +168,12 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
     };
     const settled = await Promise.all(enabled.map(async (source) => {
       if ((sourceCooldown.get(source.id) || 0) > Date.now()) {
+        // Say the source was skipped instead of leaving the caller with an
+        // empty result and no reason (the book list then looked like "no
+        // downloadable version" for every book).
         log("search skipped (cooling down)", source.id);
-        notify(source, []);
-        return { source, results: [] };
+        notify(source, [], "已跳过（冷却中）");
+        return { source, results: [], error: "已跳过（冷却中）" };
       }
       const startedAt = Date.now();
       const controller = new AbortController();
@@ -178,7 +181,12 @@ export function createBookDownloads({ fetchImpl = fetch, pageFetch = null, fileD
       // The hidden-window sources (zlib's challenge, PDF Drive's Google widget)
       // ignore the abort signal, so every source also races a wall-clock
       // budget: the fan-out never waits on the slowest browser for minutes.
-      const budget = source.kind === "zlib" || source.kind === "pdfdrive" ? Math.max(timeout, 20000) : timeout;
+      // Z-Library's challenge can take 15-30s once its anti-bot slows down; a
+      // 20s ceiling turned every throttled query into a timeout and then a
+      // cooldown that emptied the whole book list.
+      const budget = source.kind === "zlib" ? Math.max(timeout, 35000)
+        : source.kind === "pdfdrive" ? Math.max(timeout, 20000)
+          : timeout;
       let hardTimer = null;
       const hardStop = new Promise((_, reject) => {
         hardTimer = setTimeout(() => { controller.abort(); reject(new Error("超时")); }, budget);

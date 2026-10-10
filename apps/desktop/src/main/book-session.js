@@ -289,8 +289,14 @@ function loadBookPage(win, url, timeoutMs) {
 }
 
 // Loads a page in the hidden renderer and returns its final DOM.
+let zlibLastAt = 0;
 export function fetchBookPage(url, { timeout = 30000 } = {}) {
   const run = async () => {
+    // Z-Library throttles bursts of page loads: keep a polite gap between
+    // queries so a book-list search does not tip its anti-bot into timeouts.
+    const pause = Math.max(0, 1500 - (Date.now() - zlibLastAt));
+    if (pause) await new Promise((resolve) => setTimeout(resolve, pause));
+    zlibLastAt = Date.now();
     const win = bookPageWindow();
     await loadBookPage(win, String(url), timeout);
     const html = await win.webContents.executeJavaScript("document.documentElement.outerHTML", true);

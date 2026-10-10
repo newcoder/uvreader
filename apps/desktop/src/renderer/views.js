@@ -13,7 +13,7 @@ function formatOf(file) {
 }
 
 export function createHomeView(leaf, options) {
-  const { app, plugin, onOpenBook, onOpenLibrary, onOpenFileDialog } = options;
+  const { app, plugin, onOpenBook, onOpenFileDialog } = options;
 
   class HomeView extends ItemView {
     getViewType() {
@@ -68,14 +68,9 @@ export function createHomeView(leaf, options) {
       const host = this.contentEl;
       host.empty();
       const head = host.createDiv("qbr-home-head");
-      const title = head.createDiv("qbr-home-title");
-      title.createEl("img", { cls: "qbr-home-logo", attr: { src: "logo.png", alt: "" } });
-      title.createSpan({ text: String(plugin.settings?.language || "zh").toLowerCase().startsWith("zh") ? "纽扣" : "UV Reader" });
       const actions = head.createDiv("qbr-home-actions");
       const open = actions.createEl("button", { cls: "mod-cta", text: "打开书籍…" });
       open.addEventListener("click", () => void onOpenFileDialog());
-      const library = actions.createEl("button", { text: "书库" });
-      library.addEventListener("click", () => void onOpenLibrary());
       const projects = actions.createEl("button", { text: "阅读项目" });
       projects.addEventListener("click", () => plugin.openReadingProjects?.({ mode: "manage" }));
 

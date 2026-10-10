@@ -97,8 +97,13 @@ test("overlapping library refreshes render only the newest content", async () =>
   library.containerEl = library.modalEl = library.contentEl = x.host;
   x.host.empty = () => x.host.replaceChildren();
   library._applyLibTheme = library._setupDropZone = () => {};
-  library._buildLibBrand = () => x.host.createDiv("header");
-  library._buildLibTools = () => ({ input: x.host.createEl("input") });
+  library._buildLibSide = (side) => {
+    side.createDiv("header");
+    return { collapse: side.createEl("button"), tree: side.createDiv("tree") };
+  };
+  library._buildLibSearch = () => ({ input: x.host.createEl("input") });
+  library._drawLibTree = () => {};
+  library._selectLibNode = () => {};
   library._libVaultBooks = () => [];
   let emptyRenders = 0;
   library._buildLibEmpty = () => { emptyRenders++; };

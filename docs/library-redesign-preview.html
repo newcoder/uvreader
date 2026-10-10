@@ -1,0 +1,524 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>书库重构 · 交互预览</title>
+<style>
+  :root {
+    --bg: #f8f6f0;
+    --text: #24231f;
+    --ui: #efebe2;
+    --border: #dcd5c8;
+    --accent: #4f6758;
+    --muted: #746f66;
+    --hover: color-mix(in srgb, var(--text) 6%, transparent);
+    --accent-soft: color-mix(in srgb, var(--accent) 13%, transparent);
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: #e7e3d9;
+    color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    display: flex; flex-direction: column; align-items: center; padding: 20px;
+  }
+  .caption { width: min(1180px, 100%); color: #6b665c; font-size: 12px; margin-bottom: 8px; display: flex; gap: 10px; align-items: baseline; }
+  .caption b { font-size: 13px; color: #3d3a34; }
+  .app {
+    position: relative;
+    width: min(1180px, 100%); height: min(720px, calc(100vh - 90px));
+    display: flex; overflow: hidden;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 18px 50px rgba(60, 50, 30, .18);
+  }
+
+  /* ── 左侧导航 ─────────────────────────────────────────────── */
+  .side {
+    width: 236px; flex: none; display: flex; flex-direction: column;
+    background: var(--ui); border-right: 1px solid var(--border);
+    transition: width .16s ease, border-color .16s ease; overflow: hidden;
+  }
+  .app.collapsed .side { width: 0; border-right-color: transparent; }
+  .side-head {
+    height: 48px; flex: none; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 8px 0 16px; color: var(--muted); font-size: 12px; letter-spacing: .06em;
+  }
+  .iconbtn {
+    width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
+    border: 0; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer;
+  }
+  .iconbtn:hover { background: var(--hover); color: var(--text); }
+  .tree { flex: 1; overflow-y: auto; padding: 4px 8px 14px; }
+  .node {
+    display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 8px;
+    border-radius: 6px; cursor: pointer; color: var(--text); font-size: 13px; white-space: nowrap;
+    border-left: 2px solid transparent;
+  }
+  .node:hover { background: var(--hover); }
+  .node.on { background: var(--accent-soft); border-left-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .node .label { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  .node .count { color: var(--muted); font-size: 12px; font-weight: 400; }
+  .node.on .count { color: var(--accent); opacity: .75; }
+  .node .chev { width: 12px; flex: none; color: var(--muted); font-size: 10px; text-align: center; }
+  .node.group { color: var(--muted); font-size: 12px; letter-spacing: .04em; }
+  .node.group .label { flex: none; }
+  .node.sub { padding-left: 30px; }
+  .node.sub2 { padding-left: 46px; }
+  .node.action { color: var(--muted); }
+  .node.action:hover { color: var(--accent); }
+  .children { overflow: hidden; }
+  .children.closed { display: none; }
+  .hint { padding: 4px 8px 6px 30px; color: var(--muted); font-size: 12px; }
+
+  .ric {
+    display: inline-block; width: 16px; height: 16px; flex: none;
+    background: currentColor;
+    -webkit-mask: var(--i) center / contain no-repeat;
+    mask: var(--i) center / contain no-repeat;
+  }
+  .i-library { --i: url("../apps/desktop/assets/icons/library.png"); }
+  .i-search { --i: url("../apps/desktop/assets/icons/search.png"); }
+  .i-tag { --i: url("../apps/desktop/assets/icons/tag.png"); }
+  .i-collapse { --i: url("../apps/desktop/assets/icons/previous-page.png"); }
+  .i-nav { --i: url("../apps/desktop/assets/icons/navigator.png"); }
+  .i-notes { --i: url("../apps/desktop/assets/icons/notes.png"); }
+  .i-home { --i: url("../apps/desktop/assets/icons/home.png"); }
+  .plus { width: 16px; height: 16px; flex: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; fill: none; }
+
+  /* ── 右侧内容 ─────────────────────────────────────────────── */
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .toolbar {
+    height: 48px; flex: none; display: flex; align-items: center; gap: 10px;
+    padding: 0 20px; border-bottom: 1px solid var(--border);
+  }
+  .navbtn { display: none; }
+  .app.collapsed .navbtn { display: inline-flex; }
+  .search {
+    display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px;
+    width: min(420px, 46%); border: 1px solid var(--border); border-radius: 8px;
+    background: color-mix(in srgb, var(--text) 3%, transparent); color: var(--muted);
+  }
+  .search input { flex: 1; min-width: 0; border: 0; background: transparent; outline: none; color: var(--text); font: inherit; font-size: 13px; }
+  .search input::placeholder { color: var(--muted); }
+  .viewlabel { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .content { flex: 1; overflow-y: auto; padding: 18px 20px 28px; }
+  .resume {
+    display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 18px;
+    border: 1px solid var(--border); border-radius: 9px; background: var(--ui); font-size: 13px;
+  }
+  .resume b { font-weight: 600; }
+  .resume .pct { margin-left: auto; color: var(--accent); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 24px 18px; }
+  .card { cursor: pointer; min-width: 0; }
+  .cover {
+    position: relative; aspect-ratio: 3 / 4; border-radius: 7px; overflow: hidden;
+    border: 1px solid var(--border);
+    display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; padding: 12px 10px;
+    background: linear-gradient(160deg, var(--paper, #e9e3d6), color-mix(in srgb, var(--paper, #e9e3d6) 62%, #fff));
+    color: var(--ink, #3c362c);
+  }
+  .cover .ext { position: absolute; top: 9px; left: 10px; font-size: 10px; letter-spacing: .08em; opacity: .65; }
+  .cover .t { font-size: 13px; font-weight: 600; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .strip { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: color-mix(in srgb, var(--ink) 15%, transparent); }
+  .strip i { display: block; height: 100%; background: var(--accent); }
+  .card .meta { margin-top: 7px; color: var(--muted); font-size: 12px; }
+  .empty { color: var(--muted); padding: 40px 0; text-align: center; }
+
+  /* ── 在线搜书 ─────────────────────────────────────────────── */
+  .online-list { display: flex; flex-direction: column; gap: 8px; }
+  .result {
+    display: flex; align-items: center; gap: 12px; padding: 11px 13px;
+    border: 1px solid var(--border); border-radius: 9px; background: color-mix(in srgb, var(--text) 3%, transparent);
+  }
+  .result input { width: 15px; height: 15px; accent-color: var(--accent); }
+  .result .body { flex: 1; min-width: 0; }
+  .result .rt { display: block; font-size: 13px; font-weight: 600; }
+  .result .rm { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .result .rs { color: var(--accent); font-size: 12px; white-space: nowrap; }
+  .result .rs.signin { color: var(--muted); }
+  .dlbar { display: flex; justify-content: flex-end; gap: 10px; padding-top: 14px; }
+  .btn { height: 32px; padding: 0 14px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+  .btn.cta { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .searching { color: var(--muted); padding: 30px 0; text-align: center; }
+
+  /* ── 标签弹层(下载/导入完成后) ─────────────────────────── */
+  .picker-backdrop {
+    position: absolute; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center;
+    background: rgba(40, 36, 28, .18);
+  }
+  .picker {
+    width: min(440px, 86%); background: var(--bg); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px 18px 14px; box-shadow: 0 16px 40px rgba(50, 40, 20, .25);
+  }
+  .picker h3 { margin: 0 0 4px; font-size: 14px; }
+  .picker .sub { color: var(--muted); font-size: 12px; margin-bottom: 12px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px; }
+  .chip {
+    padding: 4px 11px; border-radius: 99px; border: 1px solid var(--border); background: transparent;
+    color: var(--text); font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .chip.new { color: var(--muted); border-style: dashed; }
+  .picker input {
+    width: 100%; height: 34px; border: 1px solid var(--border); border-radius: 8px;
+    background: transparent; color: var(--text); padding: 0 10px; font: inherit; font-size: 13px; outline: none;
+  }
+  .picker .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+  .ctxmenu {
+    position: absolute; z-index: 35; min-width: 150px; padding: 5px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 9px;
+    box-shadow: 0 10px 30px rgba(50, 40, 20, .22); font-size: 13px;
+  }
+  .ctxmenu button {
+    display: block; width: 100%; text-align: left; padding: 7px 10px; border: 0; border-radius: 6px;
+    background: transparent; color: var(--text); font: inherit; font-size: 13px; cursor: pointer;
+  }
+  .ctxmenu button:hover { background: var(--hover); }
+  .ctxmenu button.danger { color: #a04b3d; }
+  .toast {
+    position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%);
+    background: var(--accent); color: #fff; padding: 8px 16px; border-radius: 8px; font-size: 13px; z-index: 40;
+  }
+</style>
+</head>
+<body>
+<div class="caption"><b>书库重构 · 交互预览</b><span>示意数据;树/折叠/标签筛选可点;右键书卡看「标签…」编辑;网络搜书点「下载所选」演示自动打标</span></div>
+<div class="app" id="app">
+
+  <aside class="side">
+    <div class="side-head">
+      <span>书库导航</span>
+      <button class="iconbtn" id="collapse" title="收起导航"><i class="ric i-collapse"></i></button>
+    </div>
+    <nav class="tree" id="tree">
+      <div class="node root on" data-node="all">
+        <span class="chev" data-chev="all">▾</span><i class="ric i-library"></i><span class="label">本地书库</span><span class="count" data-count="all"></span>
+      </div>
+      <div class="children" data-children="all">
+        <div class="node action" id="addbooks">
+          <span class="chev"></span><svg class="plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg><span class="label">添加图书</span>
+        </div>
+        <div class="node group" data-group="tags">
+          <span class="chev" data-chev="tags">▾</span><span class="label">标签</span>
+        </div>
+        <div class="children" data-children="tags" id="tagnodes"></div>
+        <div class="node group" data-group="status">
+          <span class="chev" data-chev="status">▾</span><span class="label">阅读状态</span>
+        </div>
+        <div class="children" data-children="status">
+          <div class="node sub" data-node="status:reading"><span class="label">正在阅读</span><span class="count" data-count="status:reading"></span></div>
+          <div class="node sub" data-node="status:new"><span class="label">未开始</span><span class="count" data-count="status:new"></span></div>
+          <div class="node sub" data-node="status:done"><span class="label">已读完</span><span class="count" data-count="status:done"></span></div>
+          <div class="node sub" data-node="status:marked"><span class="label">有划线</span><span class="count" data-count="status:marked"></span></div>
+        </div>
+        <div class="node group" data-group="folders">
+          <span class="chev" data-chev="folders">▾</span><span class="label">文件夹</span>
+        </div>
+        <div class="children" data-children="folders" id="foldernodes"></div>
+      </div>
+      <div class="node root" data-node="online" style="margin-top:6px">
+        <span class="chev"></span><i class="ric i-search"></i><span class="label">网络搜书</span>
+      </div>
+    </nav>
+  </aside>
+
+  <section class="main">
+    <div class="toolbar">
+      <button class="iconbtn navbtn" id="expand" title="展开导航"><i class="ric i-nav"></i></button>
+      <label class="search"><i class="ric i-search"></i><input id="q" placeholder="搜索图书…" spellcheck="false" /></label>
+      <div class="viewlabel" id="viewlabel"></div>
+    </div>
+    <div class="content">
+      <div id="local">
+        <div class="resume" id="resume">
+          <i class="ric i-notes"></i>继续阅读 · <b>Alice in Wonderland</b><span class="pct">35%</span>
+        </div>
+        <div class="grid" id="grid"></div>
+      </div>
+      <div id="online" hidden>
+        <div class="online-list" id="onlineList">
+          <div class="searching">输入书名或作者,从已启用的书籍来源里搜索可下载的版本。</div>
+        </div>
+        <div class="dlbar" id="dlbar" hidden>
+          <button class="btn" id="selectAll">全选</button>
+          <button class="btn cta" id="download" disabled>下载所选</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="picker-backdrop" id="picker" hidden>
+    <div class="picker" role="dialog" aria-label="编辑标签">
+      <h3 id="pickerTitle">标签</h3>
+      <div class="sub">选择已有标签或输入新标签</div>
+      <div class="chips" id="pickerChips"></div>
+      <input id="pickerInput" placeholder="也可以输入新标签,用逗号分隔" spellcheck="false" />
+      <div class="foot">
+        <button class="btn" id="pickerCancel">取消</button>
+        <button class="btn cta" id="pickerSave">保存</button>
+      </div>
+    </div>
+  </div>
+  <div class="ctxmenu" id="ctxmenu" hidden></div>
+  <div class="toast" id="toast" hidden></div>
+</div>
+
+<script>
+  const BOOKS = [
+    { title: "Alice in Wonderland", ext: "EPUB", tags: ["小说"], status: "reading", pct: 35, folder: "Books" },
+    { title: "世说新语", ext: "EPUB", tags: ["历史", "古籍"], status: "new", pct: 0, folder: "Books" },
+    { title: "Meditations", ext: "EPUB", tags: ["哲学"], status: "done", pct: 100, folder: "Books" },
+    { title: "Jekyll and Hyde", ext: "EPUB", tags: ["小说"], status: "new", pct: 0, folder: "下载" },
+    { title: "唐诗三百首", ext: "EPUB", tags: ["古籍"], status: "reading", pct: 60, folder: "Books" },
+    { title: "道德经", ext: "EPUB", tags: ["哲学", "古籍"], status: "new", pct: 0, folder: "下载" },
+    { title: "Frankenstein", ext: "EPUB", tags: ["小说"], status: "new", pct: 0, folder: "Books" },
+    { title: "人类群星闪耀时", ext: "EPUB", tags: ["历史"], status: "done", pct: 100, folder: "Books" },
+  ];
+  const PAPERS = ["#e9e3d6", "#dfe6df", "#e6dfe9", "#e9e0d8", "#dde5ea", "#ece4d4", "#e3e0d2", "#e8dede"];
+  const state = { node: "all", query: "" };
+
+  // ── 渲染卡片与计数 ───────────────────────────────────────────
+  const grid = document.getElementById("grid");
+  BOOKS.forEach((b, i) => {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.dataset.tags = b.tags.join(",");
+    card.dataset.status = b.status;
+    card.dataset.folder = b.folder;
+    card.dataset.title = b.title;
+    card.dataset.marked = b.pct > 0 ? "1" : "";
+    card.innerHTML =
+      '<div class="cover" style="--paper:' + PAPERS[i % PAPERS.length] + '">' +
+      '<span class="ext">' + b.ext + '</span><span class="t">' + b.title + "</span>" +
+      (b.pct > 0 ? '<span class="strip"><i style="width:' + b.pct + '%"></i></span>' : "") +
+      "</div><div class=\"meta\">" + (b.pct > 0 ? b.pct + "%" : "未开始") + "</div>";
+    grid.append(card);
+  });
+
+  const count = (fn) => BOOKS.filter(fn).length;
+  document.querySelectorAll("[data-count]").forEach((el) => {
+    const id = el.dataset.count;
+    const n =
+      id === "all" ? BOOKS.length :
+      id.startsWith("tag:") ? count((b) => b.tags.includes(id.slice(4))) :
+      id === "status:reading" ? count((b) => b.status === "reading") :
+      id === "status:new" ? count((b) => b.status === "new") :
+      id === "status:done" ? count((b) => b.status === "done") :
+      id === "status:marked" ? count((b) => b.pct > 0) : 0;
+    el.textContent = n;
+  });
+  const tagWrap = document.getElementById("tagnodes");
+  const tags = [...new Set(BOOKS.flatMap((b) => b.tags))].sort((a, b) => a.localeCompare(b, "zh"));
+  if (!tags.length) {
+    tagWrap.innerHTML = '<div class="hint">还没有标签,可在图书菜单里添加</div>';
+  } else {
+    for (const t of tags) {
+      const el = document.createElement("div");
+      el.className = "node sub";
+      el.dataset.node = "tag:" + t;
+      el.innerHTML = '<i class="ric i-tag"></i><span class="label">' + t + '</span><span class="count">' + count((b) => b.tags.includes(t)) + "</span>";
+      tagWrap.append(el);
+    }
+  }
+  const folderWrap = document.getElementById("foldernodes");
+  for (const f of [...new Set(BOOKS.map((b) => b.folder))].sort()) {
+    const el = document.createElement("div");
+    el.className = "node sub";
+    el.dataset.node = "folder:" + f;
+    el.innerHTML = '<span class="label">' + f + '</span><span class="count">' + count((b) => b.folder === f) + "</span>";
+    folderWrap.append(el);
+  }
+
+  // ── 节点选择与过滤 ───────────────────────────────────────────
+  const viewLabel = document.getElementById("viewlabel");
+  const local = document.getElementById("local");
+  const online = document.getElementById("online");
+  const resume = document.getElementById("resume");
+  const input = document.getElementById("q");
+
+  function matches(card) {
+    const node = state.node;
+    if (node === "all") return true;
+    if (node.startsWith("tag:")) return card.dataset.tags.split(",").includes(node.slice(4));
+    if (node === "status:marked") return Boolean(card.dataset.marked);
+    if (node.startsWith("status:")) return card.dataset.status === node.slice(7);
+    if (node.startsWith("folder:")) return card.dataset.folder === node.slice(7);
+    return true;
+  }
+  function redraw() {
+    const q = state.query.trim().toLowerCase();
+    let shown = 0;
+    for (const card of grid.children) {
+      const ok = matches(card) && (!q || card.dataset.title.toLowerCase().includes(q));
+      card.style.display = ok ? "" : "none";
+      if (ok) shown += 1;
+    }
+    resume.hidden = !(state.node === "all" && !q);
+    const label = state.node === "all" ? "本地书库" : state.node === "online" ? "网络搜书" : document.querySelector('[data-node="' + state.node + '"] .label')?.textContent || "";
+    viewLabel.textContent = state.node === "online" ? label : label + " · " + shown + " 本";
+  }
+  function selectNode(id) {
+    state.node = id;
+    for (const el of document.querySelectorAll(".node.on")) el.classList.remove("on");
+    if (id !== "online") document.querySelector('[data-node="' + id + '"]')?.classList.add("on");
+    else document.querySelector('[data-node="online"]')?.classList.add("on");
+    local.hidden = id === "online";
+    online.hidden = id !== "online";
+    input.placeholder = id === "online" ? "搜索可下载的书籍…" : "搜索图书…";
+    if (id !== "online") redraw();
+    else viewLabel.textContent = "网络搜书";
+  }
+  document.getElementById("tree").addEventListener("click", (ev) => {
+    const node = ev.target.closest(".node");
+    if (!node) return;
+    if (node.id === "addbooks") { node.animate?.([{ opacity: .4 }, { opacity: 1 }], 240); return; }
+    const group = node.dataset.group;
+    if (group) {
+      node.closest(".children")?.querySelector('[data-children="' + group + '"]')?.classList.toggle("closed");
+      const chev = node.querySelector("[data-chev]");
+      if (chev) chev.textContent = chev.textContent === "▾" ? "▸" : "▾";
+      return;
+    }
+    if (node.dataset.node) selectNode(node.dataset.node);
+  });
+
+  // ── 折叠 ────────────────────────────────────────────────────
+  const app = document.getElementById("app");
+  document.getElementById("collapse").addEventListener("click", () => app.classList.add("collapsed"));
+  document.getElementById("expand").addEventListener("click", () => app.classList.remove("collapsed"));
+
+  // ── 搜索 ────────────────────────────────────────────────────
+  let onlineTimer = null;
+  input.addEventListener("input", () => {
+    state.query = input.value;
+    if (state.node !== "online") { redraw(); return; }
+    const list = document.getElementById("onlineList");
+    const bar = document.getElementById("dlbar");
+    clearTimeout(onlineTimer);
+    if (!state.query.trim()) { list.innerHTML = '<div class="searching">输入书名或作者,从已启用的书籍来源里搜索可下载的版本。</div>'; bar.hidden = true; return; }
+    list.innerHTML = '<div class="searching">搜索中… 0s</div>';
+    onlineTimer = setTimeout(() => {
+      const rows = [
+        { t: state.query + "(精校版)", m: "示例作者 · Z-Library · EPUB · 2.3 MB", s: "可下载" },
+        { t: state.query, m: "示例作者 · Project Gutenberg · EPUB · 1.1 MB", s: "可下载" },
+        { t: state.query + "(注释本)", m: "示例作者 · 标准电子书 · AZW3 · 3.0 MB", s: "需登录", signin: true },
+      ];
+      list.innerHTML = rows.map((r) =>
+        '<label class="result"><input type="checkbox"' + (r.signin ? " disabled" : "") + ' />' +
+        '<span class="body"><span class="rt">' + r.t + '</span><span class="rm">' + r.m + "</span></span>" +
+        '<span class="rs' + (r.signin ? " signin" : "") + '">' + r.s + "</span></label>").join("");
+      bar.hidden = false;
+      const boxes = [...list.querySelectorAll("input")];
+      const btn = document.getElementById("download");
+      const sync = () => {
+        const n = boxes.filter((b) => b.checked).length;
+        btn.disabled = !n;
+        btn.textContent = "下载所选" + (n ? " (" + n + ")" : "");
+      };
+      boxes.forEach((b) => b.addEventListener("change", sync));
+      document.getElementById("selectAll").onclick = () => {
+        const on = boxes.some((b) => !b.disabled && !b.checked);
+        boxes.forEach((b) => { if (!b.disabled) b.checked = on; });
+        sync();
+      };
+      sync();
+    }, 600);
+  });
+
+  selectNode("all");
+
+  // ── 标签编辑(书籍右键菜单 →「标签…」) ────────────────────
+  const picker = document.getElementById("picker");
+  const toast = document.getElementById("toast");
+  const ctxmenu = document.getElementById("ctxmenu");
+  let toastTimer = null;
+  let editingCard = null;
+
+  function say(text) {
+    toast.textContent = text;
+    toast.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toast.hidden = true; }, 2400);
+  }
+  const ALL_TAGS = () => [...new Set([...tags, "导入", "下载"])];
+
+  function openTagEditor(card) {
+    editingCard = card;
+    document.getElementById("pickerTitle").textContent = "标签 · " + card.dataset.title;
+    const wrap = document.getElementById("pickerChips");
+    wrap.innerHTML = "";
+    const current = card.dataset.tags ? card.dataset.tags.split(",") : [];
+    for (const name of ALL_TAGS()) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "chip" + (current.includes(name) ? " on" : "");
+      chip.textContent = name;
+      chip.addEventListener("click", () => chip.classList.toggle("on"));
+      wrap.append(chip);
+    }
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "chip new";
+    add.textContent = "＋ 新建";
+    add.addEventListener("click", () => document.getElementById("pickerInput").focus());
+    wrap.append(add);
+    document.getElementById("pickerInput").value = "";
+    picker.hidden = false;
+  }
+  function closeTagEditor() { picker.hidden = true; editingCard = null; }
+  document.getElementById("pickerCancel").addEventListener("click", closeTagEditor);
+  document.getElementById("pickerSave").addEventListener("click", () => {
+    const card = editingCard;
+    const picked = [...document.querySelectorAll("#pickerChips .chip.on")].map((c) => c.textContent);
+    const typed = document.getElementById("pickerInput").value.split(/[,;,、\n]+/).map((t) => t.trim()).filter(Boolean);
+    const all = [...new Set([...picked, ...typed])];
+    if (card) card.dataset.tags = all.join(",");
+    closeTagEditor();
+    say(all.length ? "已保存标签:" + all.join("、") : "已清空标签");
+  });
+  picker.addEventListener("click", (ev) => { if (ev.target === picker) closeTagEditor(); });
+
+  // ── 右键菜单 ────────────────────────────────────────────────
+  const appRect = () => app.getBoundingClientRect();
+  function openMenu(card, x, y) {
+    ctxmenu.innerHTML = "";
+    const items = [
+      ["打开", () => say("打开:" + card.dataset.title)],
+      ["阅读笔记", () => say("打开阅读笔记:" + card.dataset.title)],
+      ["标签…", () => openTagEditor(card)],
+      ["移动到阅读项目…", () => say("移动到阅读项目")],
+      ["从书库移除", () => say("已从书库移除(示意)"), "danger"],
+    ];
+    for (const [label, run, cls] of items) {
+      const button = document.createElement("button");
+      button.textContent = label;
+      if (cls) button.className = cls;
+      button.addEventListener("click", () => { closeMenu(); run(); });
+      ctxmenu.append(button);
+    }
+    const rect = appRect();
+    ctxmenu.style.left = Math.min(x - rect.left, rect.width - 170) + "px";
+    ctxmenu.style.top = Math.min(y - rect.top, rect.height - 200) + "px";
+    ctxmenu.hidden = false;
+  }
+  function closeMenu() { ctxmenu.hidden = true; }
+  grid.addEventListener("contextmenu", (ev) => {
+    const card = ev.target.closest(".card");
+    if (!card) return;
+    ev.preventDefault();
+    openMenu(card, ev.clientX, ev.clientY);
+  });
+  document.addEventListener("click", (ev) => { if (!ev.target.closest(".ctxmenu")) closeMenu(); });
+
+  // ── 下载完成:自动打标(不再弹层) ───────────────────────────
+  document.getElementById("download").addEventListener("click", () => {
+    const n = document.querySelectorAll("#onlineList input:checked").length || 1;
+    say("已加入书库 · " + n + " 本 · 自动打标签「下载」");
+  });
+</script>
+</body>
+</html>

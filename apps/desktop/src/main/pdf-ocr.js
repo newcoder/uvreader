@@ -317,9 +317,14 @@ export function createPdfOcr({ spawnImpl = spawn, cacheRoot = "", startTimeoutMs
         onNotification: (message) => {
           if (job.finished) return;
           const params = message.params || {};
-          if (message.method === "convert.progress" && params.job === job.sidecarJob) {
+          // A notification can arrive in the same stdout chunk as the
+          // convert.start response, before the response's .then assigned the
+          // job id; the session has exactly one job, so an empty id still
+          // belongs to it.
+          const belongs = !job.sidecarJob || params.job === job.sidecarJob;
+          if (message.method === "convert.progress" && belongs) {
             handlers.onProgress?.({ jobId, done: Number(params.done) || 0, total: Number(params.total) || 0, page: Number(params.page) || 0 });
-          } else if (message.method === "convert.done" && params.job === job.sidecarJob) {
+          } else if (message.method === "convert.done" && belongs) {
             if (params.error) { fail(params.error); return; }
             if (!fs.existsSync(out)) { fail("OCR 完成但没有生成文件"); return; }
             finish({ ok: true, jobId, out, stats: params.stats || null });
@@ -381,9 +386,12 @@ export function createPdfOcr({ spawnImpl = spawn, cacheRoot = "", startTimeoutMs
         onNotification: (message) => {
           if (job.finished) return;
           const params = message.params || {};
-          if (message.method === "convert.progress" && params.job === job.sidecarJob) {
+          // Same as the export path: the response and its first notification
+          // can share one stdout chunk, so an unset job id still belongs here.
+          const belongs = !job.sidecarJob || params.job === job.sidecarJob;
+          if (message.method === "convert.progress" && belongs) {
             handlers.onProgress?.({ jobId, done: Number(params.done) || 0, total: Number(params.total) || 0, page: Number(params.page) || 0 });
-          } else if (message.method === "convert.done" && params.job === job.sidecarJob) {
+          } else if (message.method === "convert.done" && belongs) {
             if (params.error) { fail(params.error); return; }
             const layout = findLayoutSource(out);
             if (!layout) { fail("MinerU 完成但没有找到版式文件"); return; }

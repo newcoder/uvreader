@@ -238,12 +238,69 @@ test("tool turns keep image blocks in the model request but not in saved history
     updatedAt: 4,
     turns: [
       { role: "user", content: "看看第 26 页" },
+      { role: "assistant", content: "", toolCalls: [{ id: "call_1", name: "read_pages", arguments: { start: 26 } }], stopReason: "toolUse" },
       { role: "tool", toolCallId: "call_1", toolName: "read_pages", content, isError: false },
       { role: "assistant", content: "看到了" },
     ],
   }]);
-  assert.match(history[0].turns[1].content, /（页面图片已省略）$/);
+  assert.equal(history[0].turns[1].role, "assistant", "the empty tool round survives with its calls");
+  assert.match(history[0].turns[2].content, /（页面图片已省略）$/);
   assert.equal(JSON.stringify(history[0]).includes("AAAA"), false, "no image bytes in history");
+});
+
+test("orphan tool results are dropped so the next request is accepted", () => {
+  const ctx = makeContext();
+  // An assistant round that only called a tool carries no text: it must stay
+  // (its tool result answers it), while a result with no matching call is an
+  // API 400 waiting to happen and is dropped when the conversation loads.
+  const history = ctx.normalizeAiChatHistory([{
+    id: "c6",
+    title: "T",
+    bookPath: "Books/a.pdf",
+    updatedAt: 5,
+    turns: [
+      { role: "user", content: "问" },
+      { role: "assistant", content: "", toolCalls: [{ id: "call_1", name: "search_book", arguments: { query: "x" } }], stopReason: "toolUse" },
+      { role: "tool", toolCallId: "call_1", toolName: "search_book", content: "命中" },
+      { role: "tool", toolCallId: "call_orphan", toolName: "read_pages", content: "孤立结果" },
+      { role: "assistant", content: "答" },
+    ],
+  }]);
+  const turns = history[0].turns;
+  assert.deepEqual(turns.map((turn) => turn.role), ["user", "assistant", "tool", "assistant"]);
+  assert.equal(turns[2].toolCallId, "call_1");
+
+  // The same guard protects a live conversation that still holds an orphan.
+  const msgs = ctx.aiMessages("", { aiInto: "中文" }, [
+    { role: "user", content: "问" },
+    { role: "tool", toolCallId: "call_orphan", toolName: "read_pages", content: "孤立结果" },
+    { role: "assistant", content: "答" },
+  ], "书");
+  assert.deepEqual(msgs.map((message) => message.role), ["system", "user", "assistant"]);
+
+  // A round interrupted between the call and its result is downgraded to a
+  // plain assistant message instead of announcing a call without a response.
+  const interrupted = ctx.aiMessages("", { aiInto: "中文" }, [
+    { role: "user", content: "问" },
+    { role: "assistant", content: "我查一下。", toolCalls: [{ id: "call_1", name: "read_pages", arguments: {} }], stopReason: "toolUse" },
+    { role: "assistant", content: "答" },
+  ], "书");
+  assert.deepEqual(interrupted.map((message) => message.role), ["system", "user", "assistant", "assistant"]);
+  assert.equal("toolCalls" in interrupted[2], false, "a call without a stored result is not announced");
+
+  const healed = ctx.normalizeAiChatHistory([{
+    id: "c7",
+    title: "T",
+    bookPath: "Books/a.pdf",
+    updatedAt: 6,
+    turns: [
+      { role: "user", content: "问" },
+      { role: "assistant", content: "", toolCalls: [{ id: "call_1", name: "read_pages", arguments: {} }], stopReason: "toolUse" },
+      { role: "assistant", content: "答" },
+    ],
+  }]);
+  assert.deepEqual(healed[0].turns.map((turn) => turn.role), ["user", "assistant"]);
+  assert.equal(healed[0].turns[1].content, "答");
 });
 
 test("aiMessages sends tool turns and assistant calls back to the model", () => {

@@ -229,15 +229,32 @@ test("attachReaderSwipeNav pages on a horizontal swipe and defers on selection",
   assert.deepEqual(nav, ["next", "prev"], "a live selection defers to scrolling");
 });
 
-test("openImageLightbox opens, zooms, and closes on backdrop, close button or Escape", () => {
+test("openImageLightbox zooms with the toolbar and the wheel, and closes on backdrop, close button or Escape", () => {
   const { doc, chrome } = setup();
   const app = { keymap: { pushScope() {}, popScope() {} } };
-  chrome.openImageLightbox("cover.png", app, doc.body);
+  const viewer = chrome.openImageLightbox("cover.png", app, doc.body, { name: "图 1" });
   const layer = doc.querySelector(".qiaomu-reader-lightbox");
   assert.ok(layer);
   assert.equal(layer.querySelector("img").getAttribute("src"), "cover.png");
-  layer.querySelector("img").click();
+  assert.equal(layer.querySelector(".qiaomu-reader-lightbox-name").textContent, "图 1");
+  const [zoomOut, zoomLabel, zoomIn, fit] = layer.querySelectorAll(".qiaomu-reader-lightbox-btn");
+  zoomIn.click();
+  assert.equal(layer.dataset.zoom, "1.250", "the plus button zooms in");
   assert.ok(layer.querySelector("img").classList.contains("qiaomu-reader-lightbox-zoom"));
+  assert.equal(zoomLabel.textContent, "125%");
+  zoomOut.click();
+  assert.equal(layer.dataset.zoom, "1.000", "the minus button zooms back");
+  const stage = layer.querySelector(".qiaomu-reader-lightbox-stage");
+  stage.dispatchEvent(new doc.defaultView.WheelEvent("wheel", { deltaY: -120, clientX: 120, clientY: 90, cancelable: true, bubbles: true }));
+  assert.ok(Number(layer.dataset.zoom) > 1, "the wheel zooms at the cursor");
+  fit.click();
+  assert.equal(layer.dataset.zoom, "1.000", "fit returns to the window scale");
+  // A pan (pointer drag) must not close the viewer, but a plain click does.
+  stage.dispatchEvent(new doc.defaultView.PointerEvent("pointerdown", { clientX: 100, clientY: 100, bubbles: true }));
+  stage.dispatchEvent(new doc.defaultView.PointerEvent("pointermove", { clientX: 160, clientY: 140, bubbles: true }));
+  stage.dispatchEvent(new doc.defaultView.PointerEvent("pointerup", { clientX: 160, clientY: 140, bubbles: true }));
+  stage.dispatchEvent(new doc.defaultView.MouseEvent("click", { bubbles: true }));
+  assert.ok(doc.querySelector(".qiaomu-reader-lightbox"), "a pan does not dismiss");
   layer.querySelector(".qiaomu-reader-lightbox-close").click();
   assert.equal(doc.querySelector(".qiaomu-reader-lightbox"), null);
   chrome.openImageLightbox("cover.png", app, doc.body);
@@ -246,8 +263,53 @@ test("openImageLightbox opens, zooms, and closes on backdrop, close button or Es
   assert.equal(doc.querySelector(".qiaomu-reader-lightbox"), null);
   chrome.openImageLightbox("cover.png", app, doc.body);
   const second = doc.querySelector(".qiaomu-reader-lightbox");
-  second.dispatchEvent(new doc.defaultView.Event("click", { bubbles: true }));
-  assert.equal(doc.querySelector(".qiaomu-reader-lightbox"), null);
+  second.querySelector(".qiaomu-reader-lightbox-stage").dispatchEvent(new doc.defaultView.Event("click", { bubbles: true }));
+  assert.equal(doc.querySelector(".qiaomu-reader-lightbox"), null, "the backdrop closes");
+  assert.ok(viewer);
+});
+
+test("openImageLightbox attaches the image to AI and closes only on success", async () => {
+  const { doc, chrome } = setup();
+  const app = { keymap: { pushScope() {}, popScope() {} } };
+  let attempts = 0;
+  let allow = false;
+  chrome.openImageLightbox("cover.png", app, doc.body, {
+    onAttach: async () => { attempts += 1; return allow; },
+  });
+  const layer = doc.querySelector(".qiaomu-reader-lightbox");
+  const attach = layer.querySelector(".qiaomu-reader-lightbox-attach");
+  assert.ok(attach, "the attach action is rendered when the host wires it");
+  attach.click();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(attempts, 1);
+  assert.ok(doc.querySelector(".qiaomu-reader-lightbox"), "a failed attach keeps the viewer open");
+  allow = true;
+  attach.click();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(attempts, 2);
+  assert.equal(doc.querySelector(".qiaomu-reader-lightbox"), null, "a successful attach closes the viewer");
+});
+
+test("attachEngineChrome opens the viewer for large illustrations and ignores ornaments", () => {
+  const { doc, chrome } = setup();
+  const view = makeView(doc);
+  chrome.attachEngineChrome(view, doc);
+  const click = (el) => el.dispatchEvent(new doc.defaultView.MouseEvent("click", { bubbles: true, cancelable: true }));
+  const illustration = doc.createElement("img");
+  illustration.setAttribute("src", "https://example.com/cover.png");
+  illustration.getBoundingClientRect = () => ({ width: 300, height: 200 });
+  doc.body.appendChild(illustration);
+  click(illustration);
+  const layer = doc.querySelector(".qiaomu-reader-lightbox");
+  assert.ok(layer, "a large image opens the viewer");
+  assert.equal(layer.querySelector("img").getAttribute("src"), "https://example.com/cover.png");
+  layer.querySelector(".qiaomu-reader-lightbox-close").click();
+  const ornament = doc.createElement("img");
+  ornament.setAttribute("src", "https://example.com/dot.png");
+  ornament.getBoundingClientRect = () => ({ width: 12, height: 12 });
+  doc.body.appendChild(ornament);
+  click(ornament);
+  assert.equal(doc.querySelector(".qiaomu-reader-lightbox"), null, "small ornaments stay inert");
 });
 
 test("wireReaderChrome connects zoom gestures and immersive chrome", () => {

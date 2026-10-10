@@ -21,6 +21,7 @@ import { migrateReaderTheme } from "./reader-themes.js";
 import { normalizeLocationMarks } from "./reading-workflow.js";
 import { normalizeUiLanguage } from "./i18n-languages.js";
 import { watchQuietUi } from "./quiet-ui.js";
+import { bookTagsOf, existingVaultBookPath, freeBookPath, mergeBookTags, pickLibraryFolder } from "./library-data.js";
 
 export function createPlugin({
   MarkdownView, Notice, Plugin, TFile, AI_CHAT_VIEW_TYPE, AiChatView, AiExplainModal, BOOK_EXTENSIONS, BookQuickOpen, DEFAULT, LIB_VIEW_TYPE, LibraryView, MAX_BOOK_COMMANDS, OnboardingModal, ReaderModal, ReaderView, SettingsTab, VIEW_TYPE, WhatsNewModal, aiSetupState, applyDeviceProfile, bookNoteFiles, bookNoteLinkFor, bookNoteTemplatePath, bookNotesFolderPath, captureDeviceProfile, flattenSelectionText, hlMark, isMarkedReadingNote, isUnsafeReadingNote, normalizeAiChatHistory, notesFolderPath, openPluginAiSettings, processTemplateManually, qiaomuReaderPath, qiaomuReaderSetLanguage, qiaomuReaderTranslate, readerAiPanelContext, readerDefaultAiContext, readerHud, readerSupportsAiContext, readerTodayKey, rememberReaderJump, resolveBookNote, sanitizeNoteTitle, selectedReaderTheme, stripGeneratedReadingNoteTitle, syncHighlightsToReadingNote, whatsNewSince, writeBookProperty, writeWhatsNewNote,
@@ -383,6 +384,16 @@ export function createPlugin({
     this._closingCompanionForRoute = true;
     for (const leaf of leaves) leaf.detach();
     this._closingCompanionForRoute = false;
+  }
+  // Whether the companion sidebar is on screen; the toolbar's AI button uses
+  // this to toggle and to show its pressed state. Mobile opens the companion
+  // as a modal, so the button never claims "open" there.
+  aiCompanionOpen() {
+    if (this.app.isMobile) return false;
+    const leaf = this.app.workspace.getLeavesOfType(AI_CHAT_VIEW_TYPE)[0];
+    if (!leaf) return false;
+    const split = this.app.workspace.rightSplit;
+    return !split || split.collapsed !== true;
   }
   async openAiChat(context = null, options = {}) {
     let target = null;
@@ -1532,6 +1543,35 @@ export function createPlugin({
     if (list.length) s.bookTags[bookPath] = list;
     else delete s.bookTags[bookPath];
     await this.saveAll();
+  }
+  // A book opened from outside the library (home page, "open with", dropped on
+  // the shell) is copied in first so it lives with the rest, then auto-tagged
+  // as imported. Returns the vault-relative path, or "" when the copy failed.
+  async importBookToLibrary(sourcePath) {
+    const raw = String(sourcePath || "");
+    if (!raw) return "";
+    // A book already inside the vault needs no copy: recent lists hand over
+    // vault-relative paths, and copying one forked a duplicate book with its
+    // own tags and reading record.
+    const inVault = existingVaultBookPath(raw, (candidate) => this.app.vault.getAbstractFileByPath(candidate));
+    if (inVault) return inVault;
+    // Opening the same outside file again reuses its copy instead of piling up
+    // duplicates in the library.
+    const sourceKey = raw.replace(/\\/g, "/");
+    const known = this.settings.importedBooks || (this.settings.importedBooks = {});
+    if (known[sourceKey] && this.app.vault.getAbstractFileByPath(known[sourceKey])) return known[sourceKey];
+    const bytes = await this.app.vault.adapter.readBinary(raw);
+    const name = raw.split(/[\\/]/).pop() || "book";
+    const dir = pickLibraryFolder(this.app.vault.getFiles(), this.settings.booksFolder || "", BOOK_EXTENSIONS);
+    if (dir && !this.app.vault.getAbstractFileByPath(dir)) {
+      await this.app.vault.createFolder(dir).catch(() => {});
+    }
+    const target = qiaomuReaderPath(freeBookPath(dir, name, (candidate) => this.app.vault.getAbstractFileByPath(candidate)));
+    await this.app.vault.createBinary(target, bytes);
+    known[sourceKey] = target;
+    const tags = mergeBookTags(bookTagsOf(this.settings, target), [qiaomuReaderTranslate("auto-tag-import")]);
+    await this.setBookTags(target, tags);
+    return target;
   }
   async createBookNote(file, title, folder) { // create (or reuse) the note linked to a book
     try {

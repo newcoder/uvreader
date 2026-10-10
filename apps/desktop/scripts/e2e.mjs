@@ -378,6 +378,15 @@ function readerReady(page) {
   });
 }
 
+// Books opened from outside the library are copied into the vault by the shell,
+// so the reader's book key is the vault-relative path, not the launched path.
+async function currentBookKey(page) {
+  return await waitFor("book key", () => page.evaluate(() => {
+    const view = window.__qbrApp?.workspace?.getLeavesOfType("qiaomu-reader")[0]?.view;
+    return view?.file?.path || "";
+  }), 20_000);
+}
+
 // Highlights now live in per-book folders (with the legacy global file as the
 // archived fallback), so read whichever layout is authoritative.
 function readStoredHighlights(userData, bookKey) {
@@ -536,9 +545,9 @@ async function wheelInBook(page, deltaY) {
 async function runEbookScenario() {
   const { app, page, userData } = await launch(book);
   try {
-    const bookKey = book.replace(/\\/g, "/");
     await page.waitForSelector(".qiaomu-reader-view", { timeout: 30_000 });
     await waitFor("reader ready", () => readerReady(page), 30_000);
+    const bookKey = await currentBookKey(page);
     console.log("epub: reader ready");
 
     // Toolbar: reading actions only — no note or reset-timer buttons — and the
@@ -654,6 +663,20 @@ async function runEbookScenario() {
       return readerVisible && tocVisible && items ? String(items) : "";
     }), 15_000);
     console.log("epub: toc panel opens on the left", tocItems, "items");
+    await waitFor("toc button pressed", () => page.evaluate(() => {
+      const btn = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view?.tocBtn;
+      return btn?.classList.contains("qiaomu-reader-ibtn-on") && btn?.getAttribute("aria-expanded") === "true" ? "ok" : "";
+    }), 8_000);
+    const tocPressedStyle = await page.evaluate(() => {
+      const btn = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view?.tocBtn;
+      if (!btn) return null;
+      const style = getComputedStyle(btn);
+      return { background: style.backgroundColor, shadow: style.boxShadow, color: style.color };
+    });
+    if (!tocPressedStyle || tocPressedStyle.background === "rgba(0, 0, 0, 0)" || tocPressedStyle.shadow === "none") {
+      throw new Error(`the pressed TOC button should paint a pressed state: ${JSON.stringify(tocPressedStyle)}`);
+    }
+    console.log("epub: toc button pressed style", JSON.stringify(tocPressedStyle));
     const tocHeader = await page.evaluate(() => {
       const head = document.querySelector(".qbr-toc-panel .qbr-panel-head");
       const title = head?.querySelector(".qbr-panel-title");
@@ -667,6 +690,10 @@ async function runEbookScenario() {
       toc?.view?.contentEl?.querySelector(".qbr-panel-actions button")?.click();
     });
     await waitFor("toc panel closed", () => page.evaluate(() => !window.__qbrApp.workspace.getLeavesOfType("qbr-toc").length), 8_000);
+    await waitFor("toc button released", () => page.evaluate(() => {
+      const btn = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view?.tocBtn;
+      return btn && !btn.classList.contains("qiaomu-reader-ibtn-on") && btn.getAttribute("aria-expanded") === "false" ? "ok" : "";
+    }), 8_000);
 
     // The book note left the tray: the book's own menus (library card, mobile
     // overflow) open it, and it still opens beside the reader.
@@ -900,9 +927,16 @@ async function runEbookScenario() {
     });
     await page.waitForSelector(".qiaomu-reader-lib-card", { timeout: 15_000 });
     const cards = await page.evaluate(() => document.querySelectorAll(".qiaomu-reader-lib-card").length);
-    await page.evaluate(() => {
-      document.querySelector(".qiaomu-reader-lib-card")?.click();
-    });
+    await page.evaluate((previous) => {
+      // The launched book was copied into the library and sorts first (most
+      // recently read), so pick the first card for a different book. Card
+      // titles show the basename without the extension.
+      const name = String(previous).split("/").pop().replace(/\.[^.]+$/, "");
+      const cards = [...document.querySelectorAll(".qiaomu-reader-lib-card")];
+      const titleOf = (card) => card.querySelector(".qiaomu-reader-lib-book-title")?.textContent || "";
+      const target = cards.find((card) => titleOf(card) !== name) || cards[1] || cards[0];
+      target?.click();
+    }, beforeLibrary);
     const libraryBook = await waitFor("reader switched from the library", () => page.evaluate((previous) => {
       const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view;
       const library = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader-library")[0]?.view;
@@ -929,13 +963,14 @@ async function runEbookScenario() {
 // the in-memory maps on every book open).
 async function runRestartScenario() {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-e2e-restart-"));
-  const bookKey = book.replace(/\\/g, "/");
+  let bookKey = "";
   const readingRoot = path.join(userData, "library", "plugin", "reading");
   try {
     const { app, page } = await launch(book, { userData });
     try {
       await page.waitForSelector(".qiaomu-reader-view", { timeout: 30_000 });
       await waitFor("reader ready", () => readerReady(page), 30_000);
+      bookKey = await currentBookKey(page);
       const folder = await waitFor("reading folder created on open", () => {
         const indexFile = path.join(readingRoot, "index.json");
         if (!fs.existsSync(indexFile)) return "";
@@ -1005,11 +1040,12 @@ async function runRestartScenario() {
 // Reading projects: the traces move into the project folder, identity and
 // bookmarks stay with the book, and deleting the project brings everything back.
 async function runProjectsScenario() {
-  const bookKey = book.replace(/\\/g, "/");
+  let bookKey = "";
   const { app, page, userData } = await launch(book);
   try {
     await page.waitForSelector(".qiaomu-reader-view", { timeout: 30_000 });
     await waitFor("reader ready", () => readerReady(page), 30_000);
+    bookKey = await currentBookKey(page);
     await page.evaluate((key) => window.__qbrPlugin.addHighlight(key, {
       id: "project-hl", color: "yellow", text: "项目测试划线", cfi: "epubcfi(/6/2!/4/2,/1:0,/1:6)", created: Date.now(),
     }), bookKey);
@@ -1176,9 +1212,9 @@ async function runPdfScenario() {
   writeMinimalPdf(fixture);
   const { app, page, userData } = await launch(fixture);
   try {
-    const bookKey = fixture.replace(/\\/g, "/");
     await page.waitForSelector(".qiaomu-reader-view", { timeout: 30_000 });
     await waitFor("pdf ready", () => readerReady(page), 30_000);
+    const bookKey = await currentBookKey(page);
     console.log("pdf: reader ready");
 
     // The selection popup follows the debounced selection check; retry the
@@ -1379,6 +1415,35 @@ async function runCjkPdfPinScenario() {
       if (!/^\[第 4 页\]/.test(jumped.entryText)) throw new Error(`the entry has no page prefix: ${jumped.entryText}`);
       if (jumped.after === jumped.before) throw new Error(`the highlight did not jump: ${JSON.stringify(jumped)}`);
       console.log("pdf: highlight entry jumped to page", jumped.after);
+
+      // A page illustration opens the zoomable viewer; its toolbar carries the
+      // zoom controls and the AI attach action, and Escape closes it.
+      await page.evaluate(() => {
+        const img = document.querySelector(".qiaomu-reader-pdf-lazy[src]");
+        img?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      });
+      const viewer = await waitFor("image viewer", () => page.evaluate(() => {
+        const layer = document.querySelector(".qiaomu-reader-lightbox");
+        if (!layer) return "";
+        return JSON.stringify({
+          buttons: [...layer.querySelectorAll(".qiaomu-reader-lightbox-btn")].map((b) => b.textContent),
+          zoom: layer.dataset.zoom || "",
+        });
+      }), 10_000);
+      if (!viewer.includes("AI")) throw new Error(`the image viewer has no AI attach action: ${viewer}`);
+      const zoomed = await page.evaluate(async () => {
+        const layer = document.querySelector(".qiaomu-reader-lightbox");
+        const before = Number(layer.dataset.zoom) || 0;
+        [...layer.querySelectorAll(".qiaomu-reader-lightbox-btn")].find((b) => b.textContent === "＋")?.click();
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        return { before, after: Number(layer.dataset.zoom) || 0 };
+      });
+      if (!(zoomed.after > zoomed.before)) throw new Error(`the viewer did not zoom: ${JSON.stringify(zoomed)}`);
+      await page.keyboard.press("Escape");
+      await sleep(300);
+      const viewerClosed = await page.evaluate(() => !document.querySelector(".qiaomu-reader-lightbox"));
+      if (!viewerClosed) throw new Error("Escape did not close the image viewer");
+      console.log("pdf: page image opens the zoomable viewer", viewer);
     } finally {
       await again.close().catch(() => {});
     }
@@ -1391,7 +1456,7 @@ async function runCjkPdfPinScenario() {
 async function runAiScenario() {
   const mock = await startMockAi();
   const base = `http://127.0.0.1:${mock.port}/v1`;
-  const bookKey = book.replace(/\\/g, "/");
+  let bookKey = "";
   const { app, page, userData } = await launch(book, {
     seed: (dir) => {
       fs.mkdirSync(path.join(dir, "data"), { recursive: true });
@@ -1415,6 +1480,7 @@ async function runAiScenario() {
   try {
     await page.waitForSelector(".qiaomu-reader-view", { timeout: 30_000 });
     await waitFor("reader ready", () => readerReady(page), 30_000);
+    bookKey = await currentBookKey(page);
     if (!(await page.$(".qiaomu-reader-companion-setup"))) {
       await page.evaluate(async () => {
         try {
@@ -1511,6 +1577,36 @@ async function runAiScenario() {
     });
     const draft = await waitFor("draft stored in the book folder", () => readStoredDraft(userData, bookKey), 15_000);
     console.log("ai: draft stored in the book folder", draft.text.slice(0, 24));
+
+    // The toolbar AI button is a toggle: it closes an open companion, opens it
+    // again and keeps its pressed state in sync with the sidebar.
+    const aiButtonState = () => page.evaluate(() => {
+      const button = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view?.aiBtn;
+      return {
+        open: window.__qbrApp.workspace.getLeavesOfType("qiaomu-book-reader-ai-chat").length > 0,
+        pressed: Boolean(button?.classList.contains("qiaomu-reader-ibtn-on")),
+        expanded: button?.getAttribute("aria-expanded") || "",
+      };
+    });
+    const beforeToggle = await aiButtonState();
+    if (!beforeToggle.open || !beforeToggle.pressed || beforeToggle.expanded !== "true") {
+      throw new Error(`the AI button should be pressed while the companion is open: ${JSON.stringify(beforeToggle)}`);
+    }
+    await page.evaluate(() => {
+      window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view?.aiBtn?.click();
+    });
+    await waitFor("ai button closes the companion", async () => {
+      const state = await aiButtonState();
+      return !state.open && !state.pressed && state.expanded === "false" ? "closed" : "";
+    }, 10_000);
+    await page.evaluate(() => {
+      window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view?.aiBtn?.click();
+    });
+    await waitFor("ai button reopens the companion", async () => {
+      const state = await aiButtonState();
+      return state.open && state.pressed && state.expanded === "true" ? "open" : "";
+    }, 15_000);
+    console.log("ai: toolbar button toggles the companion with a pressed state");
 
     // Leaving the reader (the back button opens the library) closes the
     // companion sidebar while keeping the saved preference.
@@ -2059,26 +2155,51 @@ async function runLibraryTabsScenario() {
   try {
     await page.waitForSelector(".qbr-home-view", { timeout: 30_000 });
     await waitFor("home cards", async () => (await page.$$(".qbr-home-card")).length > 0, 20_000);
+    // Tag one book first so the tree's tag node has something to filter.
+    await page.evaluate(() => window.__qbrPlugin.setBookTags("Books/示例书库/Alice in Wonderland.epub", ["测试标签"]));
     await page.evaluate(() => window.__qbrPlugin.openLibrary());
     await waitFor("library modal", async () => Boolean(await page.$(".qiaomu-reader-modal-lib")), 15_000);
+    await waitFor("library tree", () => page.evaluate(() => document.querySelectorAll(".qiaomu-reader-lib-tree .qiaomu-reader-lib-node").length >= 5), 30_000);
     await waitFor("library grids", () => page.evaluate(() => document.querySelectorAll(".qiaomu-reader-lib-grid").length === 2), 30_000);
     const state = () => page.evaluate(() => {
       const local = document.querySelector(".qiaomu-reader-lib-grid:not(.qiaomu-reader-lib-online-grid)");
       const online = document.querySelector(".qiaomu-reader-lib-online-grid");
       const visible = (el) => Boolean(el && typeof el.checkVisibility === "function" && el.checkVisibility());
-      return { local: visible(local), online: visible(online) };
+      return {
+        local: visible(local),
+        online: visible(online),
+        on: document.querySelector(".qiaomu-reader-lib-node-on")?.dataset?.node || "",
+        cards: document.querySelectorAll(".qiaomu-reader-lib-card").length,
+      };
     });
     let seen = await state();
-    if (!seen.local || seen.online) throw new Error(`local tab should show the local grid: ${JSON.stringify(seen)}`);
-    await page.click(".qiaomu-reader-lib-tabs .qiaomu-reader-lib-tab:nth-child(2)");
+    if (!seen.local || seen.online || seen.on !== "all") {
+      throw new Error(`本地书库 should be the default node with the local grid: ${JSON.stringify(seen)}`);
+    }
+    // A tag node filters the local grid to that tag.
+    await page.evaluate(() => document.querySelector('.qiaomu-reader-lib-node[data-node="tag:测试标签"]')?.click());
+    await sleep(300);
+    seen = await state();
+    if (seen.on !== "tag:测试标签" || seen.cards !== 1) {
+      throw new Error(`the tag node should filter to one book: ${JSON.stringify(seen)}`);
+    }
+    // 网络搜书 swaps the pane for the online search.
+    await page.evaluate(() => document.querySelector('.qiaomu-reader-lib-node[data-node="online"]')?.click());
     await sleep(400);
     seen = await state();
-    if (seen.local || !seen.online) throw new Error(`online tab should hide the local grid: ${JSON.stringify(seen)}`);
-    await page.click(".qiaomu-reader-lib-tabs .qiaomu-reader-lib-tab:nth-child(1)");
-    await sleep(400);
-    seen = await state();
-    if (!seen.local || seen.online) throw new Error(`switching back should restore the local grid: ${JSON.stringify(seen)}`);
-    console.log("library tabs: local/online grids swap visibility correctly");
+    if (seen.local || !seen.online) throw new Error(`the online node should hide the local grid: ${JSON.stringify(seen)}`);
+    // Back to the local library, then collapse and expand the tree.
+    await page.evaluate(() => document.querySelector('.qiaomu-reader-lib-node[data-node="all"]')?.click());
+    await sleep(300);
+    await page.click(".qiaomu-reader-lib-collapse");
+    await sleep(300);
+    const collapsed = await page.evaluate(() => document.querySelector(".qiaomu-reader-lib")?.classList.contains("qiaomu-reader-lib-nav-collapsed"));
+    if (!collapsed) throw new Error("the tree did not collapse");
+    await page.click(".qiaomu-reader-lib-navbtn");
+    await sleep(300);
+    const stillCollapsed = await page.evaluate(() => document.querySelector(".qiaomu-reader-lib")?.classList.contains("qiaomu-reader-lib-nav-collapsed"));
+    if (stillCollapsed) throw new Error("the tree did not expand again");
+    console.log("library tree: node selection, tag filtering and collapse work");
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(userData, { recursive: true, force: true });
@@ -2101,7 +2222,16 @@ async function runHomeScenario() {
     });
     if (!clicked) throw new Error("the home page has no Alice in Wonderland card");
     await waitFor("reader opened from the home page", () => readerReady(page), 30_000);
-    console.log("home: opened a book from the home page", cards, "cards");
+    // A home card hands over a vault-relative path: the book is already in the
+    // library, so opening it must reuse it instead of importing a copy.
+    const opened = await page.evaluate(() => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view?.file?.path || "");
+    if (!opened.endsWith("Alice in Wonderland.epub") || opened.includes(" (")) {
+      throw new Error(`the home page should open the library copy in place, saw ${opened}`);
+    }
+    const copies = await page.evaluate(() => window.__qbrApp.vault.getFiles()
+      .filter((f) => f.extension === "epub" && f.basename.startsWith("Alice in Wonderland")).length);
+    if (copies !== 1) throw new Error(`opening a library book from the home page copied it (${copies} copies)`);
+    console.log("home: opened a book from the home page", cards, "cards, library copy reused");
     // The native menu bar stays hidden (Alt still reveals it).
     const menuBarVisible = await app.evaluate(({ BrowserWindow }) => {
       const window = BrowserWindow.getAllWindows()[0];

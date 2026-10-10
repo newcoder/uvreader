@@ -152,7 +152,7 @@ export function createAiContext({ translate, platform, win = globalThis, locateH
     if (!Array.isArray(value)) return [];
     return value.slice(0, 30).map((item) => {
       const legacyText = String(item?.text || "").slice(0, 50_000);
-      const turns = Array.isArray(item?.turns) ? item.turns.slice(-40).map((turn) => ({
+      const mapped = Array.isArray(item?.turns) ? item.turns.slice(-40).map((turn) => ({
         role: turn?.role === "assistant" ? "assistant" : turn?.role === "tool" ? "tool" : "user",
         content: turn?.role === "tool"
           ? normalizeToolTurnContent(turn?.content)
@@ -181,7 +181,35 @@ export function createAiContext({ translate, platform, win = globalThis, locateH
         ...(turn?.role !== "assistant" && normalizeAiTurnLocation(turn?.location)
           ? { location: normalizeAiTurnLocation(turn.location) }
           : {}),
-      })).filter((turn) => turn.content) : [];
+      })) : [];
+      // A tool round can carry no text of its own; that assistant turn must
+      // survive so its tool results keep a matching tool_calls message. Every
+      // announced call also needs its stored result — a round interrupted
+      // between the call and the result would be rejected as well — and tool
+      // results without that match are an API 400 waiting to happen.
+      const responded = new Set();
+      for (const turn of mapped) if (turn.role === "tool" && turn.toolCallId) responded.add(turn.toolCallId);
+      const announced = new Set();
+      const turns = [];
+      for (const turn of mapped) {
+        if (turn.role === "assistant" && turn.toolCalls?.length) {
+          const calls = turn.toolCalls.filter((call) => responded.has(call.id));
+          if (calls.length !== turn.toolCalls.length) {
+            if (!turn.content) continue;
+            const { toolCalls: _calls, ...rest } = turn;
+            turns.push(rest);
+            continue;
+          }
+          for (const call of calls) announced.add(call.id);
+          turns.push(turn);
+          continue;
+        }
+        if (turn.role === "tool") {
+          if (turn.toolCallId && announced.has(turn.toolCallId)) turns.push(turn);
+          continue;
+        }
+        if (turn.content) turns.push(turn);
+      }
       const firstUser = turns.find((turn) => turn.role === "user");
       if (!item?.contextVersion && legacyText && firstUser && !firstUser.context) {
         firstUser.context = normalizeAiTurnContext({ kind: "selection", text: legacyText });
@@ -226,8 +254,16 @@ export function createAiContext({ translate, platform, win = globalThis, locateH
     const own = (settings.aiSystem || "").trim();
     const msgs = [{ role: "system", content: own || aiSystemChat(into) }];
     const from = String(book || "").trim();
+    // Only tool results that answer an announced tool_calls message may go
+    // out; an orphan result is rejected by the API (400) and would break the
+    // whole conversation. A call whose result never arrived is downgraded to a
+    // plain assistant message instead of announcing it without a response.
+    const responded = new Set();
+    for (const turn of turns) if (turn?.role === "tool" && turn.toolCallId) responded.add(turn.toolCallId);
+    const announced = new Set();
     turns.forEach((turn, i) => {
       if (turn.role === "tool") {
+        if (!turn.toolCallId || !announced.has(turn.toolCallId)) return;
         msgs.push({
           role: "tool",
           toolCallId: turn.toolCallId || "",
@@ -238,10 +274,12 @@ export function createAiContext({ translate, platform, win = globalThis, locateH
         return;
       }
       if (turn.role !== "user") {
+        const calls = (turn.toolCalls || []).filter((call) => call?.id && responded.has(call.id));
+        for (const call of calls) announced.add(call.id);
         msgs.push({
           role: "assistant",
           content: turn.content,
-          ...(turn.toolCalls?.length ? { toolCalls: turn.toolCalls, stopReason: turn.stopReason || "toolUse" } : {}),
+          ...(calls.length ? { toolCalls: calls, stopReason: turn.stopReason || "toolUse" } : {}),
         });
         return;
       }

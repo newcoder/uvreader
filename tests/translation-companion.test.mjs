@@ -83,9 +83,11 @@ test('reader companion entry renders an icon and opens setup before configuratio
   const tray=document.querySelector('#tray');
   tray.createEl=(tag,spec)=>{const el=document.createElement(tag);el.className=spec.cls;for(const [key,value] of Object.entries(spec.attr))el.setAttribute(key,value);tray.append(el);return el;};
   let opened=0;
-  const view={plugin:{openAiChat:()=>opened++}};
+  const view={plugin:{openAiChat:()=>opened++,aiCompanionOpen:()=>false},_syncToolButtons(){}};
   const helper=viewSource.slice(viewSource.indexOf('    const trayButton ='),viewSource.indexOf('    this.aiBtn = trayButton('));
   const entry=viewSource.slice(viewSource.indexOf('    this.aiBtn = trayButton('),viewSource.indexOf('    this.fitBtn = trayButton('));
+  const toggle=viewSource.slice(viewSource.indexOf('  async _toggleAiCompanion() {'),viewSource.indexOf('  // Toolbar toggles show what is open'));
+  view._toggleAiCompanion=vm.runInNewContext(`({${toggle}})`,{readerAiPanelContext:()=>({})})._toggleAiCompanion;
   vm.runInNewContext(`(function(){${helper}${entry}}).call(view)`,{view,tray,svgIcon:()=>{},setIcon:(el,name)=>{assert.equal(name,'sparkles');el.append(document.createElementNS('http://www.w3.org/2000/svg','svg'));},qiaomuReaderTranslate:x=>x,readerAiPanelContext:()=>({})});
   assert.ok(view.aiBtn.querySelector('svg'));
   assert.equal(view.aiBtn.hidden,false);

@@ -90,6 +90,8 @@ const RASTER_ALIASES = {
   list: "toc",
   library: "library",
   "qiaomu-library": "library",
+  tag: "tag",
+  navigator: "navigator",
 };
 
 export function rasterIconMarkup(name) {

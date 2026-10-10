@@ -22,11 +22,13 @@ function renderMarkdown(markdown) {
   return sanitizeHtml(document, marked.parse(String(markdown || "")));
 }
 
-function setOpening(visible, name = "") {
+function setOpening(visible, name = "", hint = "正在打开…") {
   const opening = document.getElementById("opening");
   if (!opening) return;
   const label = opening.querySelector("[data-name]");
   if (label) label.textContent = name;
+  const hintEl = opening.querySelector(".qbr-opening-hint");
+  if (hintEl) hintEl.textContent = hint;
   opening.hidden = !visible;
 }
 
@@ -154,12 +156,6 @@ async function boot() {
     if (settings.einkMode === true) return READER_THEMES.eink;
     return READER_THEMES[migrateReaderTheme(settings.theme)] || READER_THEMES.auto;
   };
-  const brandEl = document.querySelector(".qbr-nav-brand");
-  const brandNameEl = brandEl?.querySelector(".qbr-nav-name") || brandEl;
-  function applyBrand() {
-    if (brandNameEl) brandNameEl.textContent = displayName();
-    syncWindowTitle();
-  }
 
   async function waitForReaderReady(timeoutMs = 30_000) {
     const deadline = Date.now() + timeoutMs;
@@ -184,12 +180,40 @@ async function boot() {
       return false;
     }
     const normalized = String(filePath).replace(/\\/g, "/");
-    const file = app.vault.getAbstractFileByPath(normalized);
+    const name = normalized.split("/").pop() || normalized;
+    const vaultRoot = String(bridge.paths?.vaultRoot || "").replace(/\\/g, "/").replace(/\/+$/, "");
+    const absolute = /^[a-zA-Z]:\//.test(normalized) || normalized.startsWith("//");
+    let target = "";
+    if (!absolute && app.vault.getAbstractFileByPath(normalized)) {
+      // Home cards and recent lists hand over vault-relative paths. The book is
+      // already in the library; opening it must not copy it again.
+      target = normalized;
+    } else if (vaultRoot && absolute && normalized.toLowerCase().startsWith(`${vaultRoot.toLowerCase()}/`)) {
+      target = normalized.slice(vaultRoot.length + 1);
+    }
+    if (!target) {
+      // A book opened from outside the library (home page, "open with",
+      // dropped on the shell) is copied in first so it lives with the rest
+      // and appears in the library, auto-tagged 导入.
+      setOpening(true, name, "正在加入书库…");
+      try {
+        target = String(await plugin.importBookToLibrary?.(filePath) || "");
+      } catch (error) {
+        console.error("UV Reader: could not add the book to the library", error);
+        target = "";
+      }
+      if (!target) {
+        setOpening(false);
+        showError(`无法加入书库：${filePath}`);
+        return false;
+      }
+    }
+    const file = app.vault.getAbstractFileByPath(target);
     if (!file) {
+      setOpening(false);
       showError(`文件不存在：${filePath}`);
       return false;
     }
-    const name = normalized.split("/").pop() || normalized;
     setOpening(true, name);
     try {
       await plugin.openFile(file);
@@ -218,7 +242,6 @@ async function boot() {
     app,
     plugin,
     onOpenBook: (filePath) => void openBook(filePath),
-    onOpenLibrary: () => void showRoute("library"),
     onOpenFileDialog: () => void pickAndOpen(),
   }));
   app.viewFactories.set(NOTE_VIEW, (leaf) => createNoteView(leaf, {
@@ -316,6 +339,17 @@ async function boot() {
     if (luminance !== null) body.colorScheme = luminance > 0.55 ? "light" : "dark";
     else if (!source) body.removeProperty("color-scheme");
   }
+  // The reader toolbar's toggles mirror what is open. The view syncs the AI
+  // sidebar and highlights dock itself; the TOC button is ours (the TOC lives
+  // in a workspace leaf on the left).
+  function syncReaderToolButtons(reader = app.workspace.getLeavesOfType(READER_VIEW)[0]?.view) {
+    reader?._syncToolButtons?.();
+    if (!reader?.tocBtn) return;
+    const open = Boolean(app.workspace.getLeavesOfType(TOC_VIEW)[0]) && app.workspace.leftSplit?.collapsed !== true;
+    reader.tocBtn.toggleClass("qiaomu-reader-ibtn-on", open);
+    reader.tocBtn.setAttribute("aria-expanded", String(open));
+  }
+
   function watchReadingTheme() {
     const reader = app.workspace.getLeavesOfType(READER_VIEW)[0]?.view;
     const element = reader?.contentEl;
@@ -335,7 +369,8 @@ async function boot() {
       titleObserver.observe(titleEl, { childList: true, characterData: true, subtree: true });
     }
     syncReadingTheme();
-    applyBrand();
+    syncWindowTitle();
+    syncReaderToolButtons(reader);
   }
   function syncWindowTitle() {
     const reader = app.workspace.getLeavesOfType(READER_VIEW)[0]?.view;
@@ -346,7 +381,7 @@ async function boot() {
   }
   app.workspace.on("active-leaf-change", watchReadingTheme);
   app.workspace.on("layout-change", watchReadingTheme);
-  applyBrand();
+  syncWindowTitle();
   syncReadingTheme();
 
   function syncChrome() {
@@ -370,10 +405,12 @@ async function boot() {
     const existing = app.workspace.getLeavesOfType(TOC_VIEW)[0];
     if (existing && !app.workspace.leftSplit.collapsed) {
       existing.detach();
+      syncReaderToolButtons(readerView);
       return;
     }
     const leaf = app.workspace.getLeftLeaf();
     await leaf.setViewState({ type: TOC_VIEW, state: { path: readerView?.file?.path || "" } });
+    syncReaderToolButtons(readerView);
   };
 
   bridge.onOpenBook?.((filePath) => {

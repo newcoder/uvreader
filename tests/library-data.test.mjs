@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createLibraryData, IMPORT_MIME_EXT } from "../packages/reader/src/library-data.js";
+import { createLibraryData, existingVaultBookPath, freeBookPath, groupLibChips, IMPORT_MIME_EXT, mergeBookTags, pickLibraryFolder } from "../packages/reader/src/library-data.js";
 
 const normalize = (p) => String(p == null ? "" : p).trim()
   .replace(/\\/g, "/").replace(/\/+/g, "/").replace(/^\/+|\/+$/g, "");
@@ -124,4 +124,65 @@ test("IMPORT_MIME_EXT maps the importable MIME types", () => {
   assert.equal(IMPORT_MIME_EXT.get("application/pdf"), "pdf");
   assert.equal(IMPORT_MIME_EXT.get("application/epub+zip"), "epub");
   assert.equal(IMPORT_MIME_EXT.has("text/plain"), false);
+});
+
+test("mergeBookTags unions existing and added tags without duplicates", () => {
+  assert.deepEqual(mergeBookTags(["小说", "历史"], ["导入"]), ["小说", "历史", "导入"]);
+  assert.deepEqual(mergeBookTags(["导入"], ["导入"]), ["导入"]);
+  assert.deepEqual(mergeBookTags(undefined, ["下载"]), ["下载"]);
+  assert.deepEqual(mergeBookTags([" "], []), []);
+  assert.deepEqual(mergeBookTags(["a"], ["b", "a", "c"]), ["a", "b", "c"]);
+});
+
+test("freeBookPath keeps the extension and suffixes duplicates", () => {
+  const taken = new Set(["Books/a.epub", "Books/a (1).epub", "Books/a (2).epub"]);
+  assert.equal(freeBookPath("Books", "a.epub", (p) => taken.has(p)), "Books/a (3).epub");
+  assert.equal(freeBookPath("Books", "b.epub", () => false), "Books/b.epub");
+  assert.equal(freeBookPath("", "c.pdf", () => false), "c.pdf");
+  // Unsafe characters are replaced instead of escaping the folder.
+  assert.equal(freeBookPath("Books", "../x.epub", () => false), "Books/.._x.epub");
+});
+
+test("pickLibraryFolder prefers the configured folder, else the busiest one", () => {
+  const files = [
+    { extension: "epub", parent: { path: "Books" } },
+    { extension: "epub", parent: { path: "Books" } },
+    { extension: "pdf", parent: { path: "Papers" } },
+    { extension: "md", parent: { path: "Notes" } },
+  ];
+  const wanted = new Set(["epub", "pdf"]);
+  assert.equal(pickLibraryFolder(files, "Shelf", wanted), "Shelf");
+  assert.equal(pickLibraryFolder(files, "", wanted), "Books");
+  assert.equal(pickLibraryFolder([], "", wanted), "");
+});
+
+test("existingVaultBookPath reuses books that already live in the vault", () => {
+  const vault = new Map([["Books/下载/萤窗小语.epub", { path: "Books/下载/萤窗小语.epub", extension: "epub" }]]);
+  const lookup = (p) => vault.get(p) || null;
+  assert.equal(existingVaultBookPath("Books/下载/萤窗小语.epub", lookup), "Books/下载/萤窗小语.epub");
+  assert.equal(existingVaultBookPath("Books\\下载\\萤窗小语.epub", lookup), "Books/下载/萤窗小语.epub", "backslashes are normalized");
+  assert.equal(existingVaultBookPath("D:/Outside/book.epub", lookup), "", "outside paths are not vault books");
+  assert.equal(existingVaultBookPath("", lookup), "");
+  assert.equal(existingVaultBookPath("Books/下载/萤窗小语.epub", null), "");
+  assert.equal(existingVaultBookPath("Books/下载", () => ({ path: "Books/下载", extension: "" })), "", "folders are not books");
+});
+
+test("groupLibChips splits the tree groups and nests subfolders", () => {
+  const chips = [
+    { id: "all", label: "全部", count: 9 },
+    { id: "status:reading", label: "正在阅读", count: 2 },
+    { id: "tag:小说", label: "小说", count: 4 },
+    { id: "tag:历史", label: "历史", count: 2 },
+    { id: "folder:Books", label: "Books", count: 6 },
+    { id: "folder:Books/合集", label: "└ 合集", count: 2, sub: true },
+    { id: "folder:下载", label: "下载", count: 3 },
+  ];
+  const groups = groupLibChips(chips);
+  assert.equal(groups.total, 9);
+  assert.deepEqual(groups.statuses.map((c) => c.id), ["status:reading"]);
+  assert.deepEqual(groups.tags.map((c) => c.id), ["tag:小说", "tag:历史"]);
+  assert.deepEqual(groups.folders.map((f) => f.id), ["folder:Books", "folder:下载"]);
+  assert.deepEqual(groups.folders[0].subs.map((s) => s.id), ["folder:Books/合集"]);
+  assert.deepEqual(groups.folders[1].subs, []);
+  assert.deepEqual(groupLibChips(undefined), { total: 0, statuses: [], tags: [], folders: [] });
 });

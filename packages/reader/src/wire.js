@@ -86,9 +86,10 @@ import { createAiChatView } from "./ai-chat-view.js";
 import { createReadSettingsModal } from "./read-settings-modal.js";
 import { createAiExplainModal } from "./ai-explain-modal.js";
 import { createLibraryModal } from "./library-modal.js";
+import { createTagEditor } from "./tag-editor.js";
 import { createReaderModal } from "./reader-modal.js";
 import { buildTocItems, chapterForBlock, pageForBlock, readerSearchTexts } from "./toc-build.js";
-import { createLibraryData, IMPORT_MIME_EXT } from "./library-data.js";
+import { createLibraryData, freeBookPath, groupLibChips, IMPORT_MIME_EXT, mergeBookTags, pickLibraryFolder } from "./library-data.js";
 import { createPdfDocument } from "./pdf-document.js";
 import { createAiContext } from "./ai-context.js";
 import { createReaderChrome } from "./reader-chrome.js";
@@ -323,6 +324,7 @@ const {
   qiaomuReaderReaderFonts,
   qiaomuReaderFontLabel,
   ensureBundledReaderFont,
+  attachImageToAi: (view, img) => attachImageToAi(view, img),
 });
 
 
@@ -1953,9 +1955,20 @@ function bindAiAttachmentIntake(chat, host, input) {
 // A drag-box screenshot of the reading area. The desktop shell captures the
 // composited frame (so spreads, scroll mode and iframes all work); hosts
 // without that bridge fall back to cropping the rendered PDF page images.
-function screenshotName(now = new Date()) {
+function stampedName(prefix, now = new Date()) {
   const pad = (value) => String(value).padStart(2, "0");
-  return `截图 ${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}.${pad(now.getMinutes())}.${pad(now.getSeconds())}.png`;
+  return `${prefix} ${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}.${pad(now.getMinutes())}.${pad(now.getSeconds())}.png`;
+}
+
+function screenshotName(now = new Date()) {
+  return stampedName("截图", now);
+}
+
+// Book illustrations ride the same attachment pipeline as screenshots; the
+// image's alt text names the file when the book provides one.
+function illustrationName(img) {
+  const alt = String(img?.getAttribute?.("alt") || "").trim().slice(0, 40);
+  return stampedName(alt || qiaomuReaderTranslate("illustration"));
 }
 
 async function capturePdfRegion(view, region) {
@@ -2080,6 +2093,84 @@ async function captureAiScreenshot(chat, options = {}) {
   entry.name = screenshotName();
   await attachAiFiles(chat, [aiAttachmentFile(entry)], "shot");
   return (chat.attachments || []).length > 0;
+}
+
+// ── Book images in the AI chat ──────────────────────────────────────────────
+// Clicking an illustration opens the zoomable viewer; its "附加到 AI" action
+// pulls the image bytes and hands them to the chat, opening the sidebar when
+// it is not on screen yet.
+async function ensureAiChat(view) {
+  const app = view?.app;
+  if (!app) return null;
+  const find = () => app.workspace.getLeavesOfType(AI_CHAT_VIEW_TYPE)[0]?.view || null;
+  const existing = find();
+  if (existing) return existing;
+  try { await view.plugin?.openAiChat?.(readerAiPanelContext(view)); } catch { /* the poll below reports it */ }
+  const deadline = Date.now() + 6000;
+  while (Date.now() < deadline) {
+    const chat = find();
+    if (chat) return chat;
+    await new Promise((resolve) => setTimeout(resolve, 80));
+  }
+  return null;
+}
+
+// The image is already decoded in the page: draw it to a canvas instead of
+// fetching its URL (CSP connect-src does not cover data:/blob:). A data: URL
+// decodes directly as the fallback.
+async function imageBlobFromElement(img) {
+  const doc = img?.ownerDocument;
+  const width = img?.naturalWidth || 0;
+  const height = img?.naturalHeight || 0;
+  if (doc && width && height) {
+    try {
+      const canvas = doc.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext("2d")?.drawImage(img, 0, 0, width, height);
+      const blob = await new Promise((resolve) => {
+        if (typeof canvas.toBlob === "function") canvas.toBlob(resolve, "image/png");
+        else resolve(null);
+      });
+      if (blob) return blob;
+    } catch (error) {
+      console.warn("UV Reader: could not read the image pixels", error);
+    }
+  }
+  const src = img?.currentSrc || img?.src || "";
+  if (src.startsWith("data:")) {
+    const comma = src.indexOf(",");
+    const meta = src.slice(5, comma);
+    const payload = src.slice(comma + 1);
+    const mime = meta.split(";")[0] || "image/png";
+    const bytes = /;base64/i.test(meta)
+      ? Uint8Array.from(atob(payload), (ch) => ch.charCodeAt(0))
+      : new TextEncoder().encode(decodeURIComponent(payload));
+    return new Blob([bytes], { type: mime });
+  }
+  return await (await fetch(src)).blob();
+}
+
+async function attachImageToAi(view, img) {
+  const src = img?.currentSrc || img?.src || "";
+  if (!src) return false;
+  try {
+    const blob = await imageBlobFromElement(img);
+    const ctor = typeof File === "function" ? File : null;
+    if (!ctor) throw new Error("qiaomu-reader-file-unavailable");
+    const file = new ctor([blob], illustrationName(img), { type: blob.type || "image/png" });
+    const chat = await ensureAiChat(view);
+    if (!chat) {
+      new Notice(qiaomuReaderTranslate("could-not-open-the-ai-reading-sidebar"), 6000);
+      return false;
+    }
+    await attachAiFiles(chat, [file], "figure");
+    return true;
+  } catch (error) {
+    console.error("UV Reader: could not attach the book image", error);
+    new Notice(qiaomuReaderTranslate("could-not-attach-the-image"), 6000);
+    return false;
+  }
 }
 
 // Detect whether the configured model accepts image parts or a tools array.
@@ -2448,7 +2539,10 @@ function renderHighlightPanel(p, owner, opts) {
   }
   const close = actions.createEl("button", { attr: { type: "button", "aria-label": qiaomuReaderTranslate("close") } });
   svgIcon(close, "x");
-  close.addEventListener("click", () => owner.hlDockPanel?.close());
+  close.addEventListener("click", () => {
+    owner.hlDockPanel?.close();
+    owner._syncToolButtons?.();
+  });
   if (!list.length) {
     p.createDiv("qbr-panel-empty").setText(qiaomuReaderTranslate("no-highlights-yet-select-text-and-pick-a-color"));
     return;
@@ -3061,6 +3155,13 @@ const ReadingProjectsModal = createReadingProjectsModal({
   ReaderNameModal,
   qiaomuReaderTranslate,
 });
+const TagEditorModal = createTagEditor({
+  Modal,
+  parseBookTags: libraryData.parseBookTags,
+  allBookTags: libraryData.allBookTags,
+  bookTagsOf: libraryData.bookTagsOf,
+  qiaomuReaderTranslate,
+});
 const GoToPageModal = createGoToPageModal({
   Modal,
   qiaomuReaderTranslate,
@@ -3359,7 +3460,11 @@ const LibraryModal = createLibraryModal({
   buildLibChips: libraryData.buildLibChips,
   deleteBookFromVault,
   filterLibBooks: libraryData.filterLibBooks,
+  freeBookPath,
+  groupLibChips,
+  mergeBookTags,
   openOrCreateBookNoteBeside,
+  pickLibraryFolder,
   qiaomuReaderLibTheme,
   qiaomuReaderLocale,
   qiaomuReaderPath,
@@ -3673,6 +3778,13 @@ const QiaomuBookReader = createPlugin({
 // plugin instance.
 QiaomuBookReader.prototype.openReadingProjects = function openReadingProjects(options = {}) {
   new ReadingProjectsModal(this.app, this, options).open();
+};
+
+// The book menus open the tag editor; library cards pass a callback so the
+// tree counts and filters refresh after the tags change.
+QiaomuBookReader.prototype.openTagEditor = function openTagEditor(file, onSaved) {
+  if (!file) return;
+  new TagEditorModal(this.app, this, file, onSaved).open();
 };
 
 // The library's online tab turns a fuzzy request into a book list through the

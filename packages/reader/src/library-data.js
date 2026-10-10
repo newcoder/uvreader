@@ -4,6 +4,97 @@
 
 export const IMPORT_MIME_EXT = new Map([["application/pdf", "pdf"], ["application/epub+zip", "epub"]]);
 
+// ── Library tree / new-book helpers (pure, host-free) ────────────────────────
+
+// Tags of one book; shared by the factory below and by the plugin's import
+// flow, so it lives at module level.
+export function bookTagsOf(settings, bookPath) {
+  const m = (settings && settings.bookTags) || {};
+  const v = m[bookPath];
+  return Array.isArray(v) ? v.filter(Boolean) : [];
+}
+
+// Union of two tag lists, first-seen order, blanks dropped. Auto-tagging merges
+// with whatever the user already set instead of replacing it.
+export function mergeBookTags(existing, added) {
+  const out = [];
+  const seen = new Set();
+  for (const tag of [...(Array.isArray(existing) ? existing : []), ...(Array.isArray(added) ? added : [])]) {
+    const name = String(tag || "").trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    out.push(name);
+  }
+  return out;
+}
+
+// "book.epub" → "book.epub", "book.epub" → "book (2).epub" … `exists` is the
+// caller's vault lookup so the helper stays host-free.
+export function freeBookPath(dir, name, exists) {
+  const clean = String(name || "book").replace(/[\\/:*?"<>|\n\r\t]/g, "_").trim() || "book";
+  const dot = clean.lastIndexOf(".");
+  const base = dot > 0 ? clean.slice(0, dot) : clean;
+  const ext = dot > 0 ? clean.slice(dot) : "";
+  const join = (candidate) => (dir ? `${dir}/${candidate}${ext}` : `${candidate}${ext}`);
+  let candidate = join(base);
+  let index = 1;
+  while (exists(candidate)) candidate = join(`${base} (${index++})`);
+  return candidate;
+}
+
+// The importer only copies books living outside the vault. A path that already
+// resolves to a vault file — recent lists and home cards hand over
+// vault-relative paths — is reused as-is; copying one forked a duplicate book
+// with its own tags and reading record.
+export function existingVaultBookPath(sourcePath, lookup) {
+  const rel = String(sourcePath || "").replace(/\\/g, "/");
+  if (!rel || typeof lookup !== "function") return "";
+  const file = lookup(rel);
+  return file && file.extension ? String(file.path || rel) : "";
+}
+
+// Where new books land: the configured folder, or the folder already holding
+// the most books of the accepted extensions.
+export function pickLibraryFolder(bookFiles, booksFolder, extensions) {
+  const configured = String(booksFolder || "");
+  if (configured) return configured;
+  const wanted = extensions instanceof Set ? extensions : new Set(extensions || []);
+  const counts = new Map();
+  for (const file of Array.isArray(bookFiles) ? bookFiles : []) {
+    if (wanted.size && !wanted.has(String(file?.extension || "").toLowerCase())) continue;
+    const parent = String(file?.parent?.path || "");
+    const dir = parent && parent !== "/" ? parent : "";
+    counts.set(dir, (counts.get(dir) || 0) + 1);
+  }
+  let best = "";
+  let bestCount = -1;
+  for (const [dir, count] of counts) {
+    if (count > bestCount) { best = dir; bestCount = count; }
+  }
+  return best;
+}
+
+// Partitions the flat chip list into the navigation tree groups. Folder chips
+// carry their subfolder chips (`sub: true`) right after the parent.
+export function groupLibChips(chips) {
+  const list = Array.isArray(chips) ? chips : [];
+  const all = list.find((chip) => chip.id === "all");
+  const statuses = list.filter((chip) => String(chip.id || "").startsWith("status:"));
+  const tags = list.filter((chip) => String(chip.id || "").startsWith("tag:"));
+  const folders = [];
+  for (const chip of list) {
+    const id = String(chip.id || "");
+    if (!id.startsWith("folder:")) continue;
+    if (chip.sub) {
+      const parent = folders[folders.length - 1];
+      if (parent && id.startsWith(parent.id + "/")) parent.subs.push(chip);
+      continue;
+    }
+    folders.push({ ...chip, subs: [] });
+  }
+  return { total: all?.count || 0, statuses, tags, folders };
+}
+
 export function createLibraryData({ translate, path }) {
   // Reading-status chips in the fixed order shown by the library header; labels
   // are translated at build time, once the UI language is configured.
@@ -130,12 +221,6 @@ export function createLibraryData({ translate, path }) {
       if (noChip) return true;
       return libChipMatches(chipId, f, booksFolder, getProgress, getTags);
     });
-  }
-
-  function bookTagsOf(settings, bookPath) {
-    const m = (settings && settings.bookTags) || {};
-    const v = m[bookPath];
-    return Array.isArray(v) ? v.filter(Boolean) : [];
   }
 
   function allBookTags(settings) {

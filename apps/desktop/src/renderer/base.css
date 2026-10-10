@@ -178,21 +178,6 @@ body.qbr-reading #app-nav {
   display: none;
 }
 
-.qbr-nav-brand {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-weight: 600;
-  margin-right: 8px;
-}
-
-.qbr-brand-logo {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  display: block;
-}
-
 /* Raster toolbar icons sliced from uvreader_icons.png. They are <svg>
    elements so the reader's existing `svg` sizing rules apply, while the shape
    comes from the PNG's alpha channel as a CSS mask and the colour from
@@ -610,21 +595,6 @@ body.qbr-reading #app-nav {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 20px;
-}
-
-.qbr-home-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 22px;
-  font-weight: 600;
-}
-
-.qbr-home-logo {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  display: block;
 }
 
 .qbr-home-actions {
