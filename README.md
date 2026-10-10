@@ -12,7 +12,7 @@ UV Reader 是中文优先的**独立桌面阅读器**（Electron），支持 EPU
 >
 > **设计原则**：好快省多（Do it well, do it fast, do it lean, then scale it.）
 
-> 状态：v0.3.0 已发布，提供 Windows / macOS / Linux 安装包，见 [Releases](https://github.com/newcoder/uvreader/releases)；也可从源码构建运行。
+> 状态：v0.3.1 已发布，提供 Windows / macOS / Linux 安装包，见 [Releases](https://github.com/newcoder/uvreader/releases)；也可从源码构建运行。
 
 ## 功能
 
@@ -108,7 +108,7 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 >
 > **Design principles**: do it well, do it fast, do it lean, then scale it.
 
-> Status: v0.3.0 is released with Windows / macOS / Linux installers — see [Releases](https://github.com/newcoder/uvreader/releases). You can also build from source.
+> Status: v0.3.1 is released with Windows / macOS / Linux installers — see [Releases](https://github.com/newcoder/uvreader/releases). You can also build from source.
 
 Features: paged/scrolling reading, wheel paging, page jump, single or two columns, five page themes, bundled and custom fonts, three-colour highlights with inline comments, one Markdown reading note per book with backlinks, a searchable left TOC sidebar, fit-to-width reading (PDFs are zoomed to ~90% of the reading area), and optional AI assistance through HTTP providers or local OpenAI-compatible endpoints (Ollama, LM Studio, llama.cpp).
 
