@@ -1369,6 +1369,19 @@ body .view-content.qiaomu-reader-view .qiaomu-reader-pdf-zoom-control {
   transition: width .25s;
 }
 
+/* 外部 CLI 不报进度:不确定态滑动条(如 DocVortex 转换) */
+.qbr-workshop-task-fill.is-indeterminate,
+.qbr-workshop-taskbar-fill.is-indeterminate {
+  width: 35%;
+  animation: qbr-workshop-indeterminate 1.4s ease-in-out infinite;
+}
+
+@keyframes qbr-workshop-indeterminate {
+  0% { margin-left: 0; }
+  50% { margin-left: 65%; }
+  100% { margin-left: 0; }
+}
+
 .qbr-workshop-taskbar-meta {
   color: var(--text-muted);
   font-size: 12px;

@@ -382,8 +382,18 @@ const WORKSHOP_KIND_LABELS = {
   "docvortex-convert": "转换",
 };
 
-function workshopTaskState(task) {
-  if (task.status === "running") return task.total ? `运行中 ${task.done}/${task.total}` : "运行中…";
+function formatElapsed(ms) {
+  const seconds = Math.max(0, Math.round(Number(ms) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, "0")}s`;
+}
+
+function workshopTaskState(task, now = Date.now()) {
+  if (task.status === "running") {
+    if (task.total) return `运行中 ${task.done}/${task.total}`;
+    // 没有总量的任务(DocVortex 等外部 CLI 不报进度)走不确定态,用秒表说明还在跑。
+    return `运行中… ${formatElapsed(now - (Number(task.startedAt) || Number(task.createdAt) || now))}`;
+  }
   if (task.status === "queued") return "排队中";
   if (task.status === "done") return "已完成";
   if (task.status === "cancelled") return "已取消";
@@ -425,6 +435,10 @@ export function createWorkshopView(leaf, options) {
     async onClose() {
       this._unsubscribe?.();
       this._unsubscribe = null;
+      if (this._tick) {
+        window.clearInterval(this._tick);
+        this._tick = null;
+      }
       this.contentEl.empty();
     }
 
@@ -764,6 +778,7 @@ export function createWorkshopView(leaf, options) {
         this._convertFormat.createEl("option", { attr: { value: format.id }, text: format.label });
       }
       optionCard.createDiv({ cls: "qbr-workshop-hint", text: "输出与源文件同目录,用目标扩展名;同名自动加序号。" });
+      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "扫描件由 DocVortex 自带 OCR 识别（首次会下载约 220MB 模型）；数学公式与上下标识别有限。" });
       const detectRow = optionCard.createDiv("qbr-workshop-row");
       const detect = detectRow.createEl("button", { text: "检测 DocVortex" });
       detect.addEventListener("click", () => this.probeDocvortex());
@@ -907,6 +922,7 @@ export function createWorkshopView(leaf, options) {
     // 任务状态由主进程推送:徽标、任务面板与底部任务条一起刷新。
     renderTasks(state) {
       const tasks = Array.isArray(state?.tasks) ? state.tasks : [];
+      this._lastState = state;
       const running = tasks.filter((task) => task.status === "running");
       const queued = tasks.filter((task) => task.status === "queued");
       if (this._taskBadge) this._taskBadge.setText(running.length ? `${running.length} 运行中` : "");
@@ -938,6 +954,7 @@ export function createWorkshopView(leaf, options) {
         else if (probe.status === "done") this._convertStatus.setText(`已就绪：${probe.output || "docvortex"}`);
         else this._convertStatus.setText(`未就绪：${probe.error || "未找到"}`);
       }
+      this.syncTicker(Boolean(running.length || queued.length));
       if (!this._taskBar) return;
       const active = running[0] || queued[0] || null;
       this._taskBar.hidden = !active;
@@ -945,8 +962,28 @@ export function createWorkshopView(leaf, options) {
       const total = Number(active.total) || 0;
       const done = Number(active.done) || 0;
       this._taskBarLabel.setText(`${active.title}${active.label ? " · " + active.label : ""}`);
-      this._taskBarFill.style.width = total ? `${Math.round((done / total) * 100)}%` : "0%";
-      this._taskBarMeta.setText(`${active.status === "running" ? `${done}/${total || "?"}` : "排队中"} · 共 ${running.length + queued.length} 个任务`);
+      if (active.status === "running" && !total) {
+        // 外部 CLI 不报进度:不确定态滑动条 + 秒表,避免看起来像卡住。
+        this._taskBarFill.addClass("is-indeterminate");
+        this._taskBarFill.style.width = "";
+      } else {
+        this._taskBarFill.removeClass("is-indeterminate");
+        this._taskBarFill.style.width = total ? `${Math.round((done / total) * 100)}%` : "0%";
+      }
+      const elapsed = formatElapsed(Date.now() - (Number(active.startedAt) || Number(active.createdAt) || Date.now()));
+      this._taskBarMeta.setText(active.status === "running"
+        ? `${total ? `${done}/${total}` : `已用 ${elapsed}`} · 共 ${running.length + queued.length} 个任务`
+        : `排队中 · 共 ${running.length + queued.length} 个任务`);
+    }
+
+    // 运行中的任务每秒刷新一次:秒表与滑动条动起来。
+    syncTicker(active) {
+      if (active) {
+        if (!this._tick) this._tick = window.setInterval(() => this.renderTasks(this._lastState || { tasks: [] }), 1000);
+      } else if (this._tick) {
+        window.clearInterval(this._tick);
+        this._tick = null;
+      }
     }
 
     renderTaskRow(host, task) {
@@ -958,7 +995,9 @@ export function createWorkshopView(leaf, options) {
       const total = Number(task.total) || 0;
       const done = Number(task.done) || 0;
       const track = row.createDiv("qbr-workshop-task-track");
-      track.createDiv("qbr-workshop-task-fill").style.width = total ? `${Math.round((done / total) * 100)}%` : "0%";
+      const fill = track.createDiv("qbr-workshop-task-fill");
+      if (task.status === "running" && !total) fill.addClass("is-indeterminate");
+      else fill.style.width = total ? `${Math.round((done / total) * 100)}%` : "0%";
       row.createSpan({ cls: `qbr-workshop-task-state is-${task.status}`, text: workshopTaskState(task) });
       const actions = row.createDiv("qbr-workshop-task-actions");
       if (task.status === "running" || task.status === "queued") {

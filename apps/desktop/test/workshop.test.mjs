@@ -47,6 +47,20 @@ test("tasks run serially, report progress and land their output", async () => {
   assert.ok(byId.get(first).finishedAt >= byId.get(first).createdAt);
 });
 
+test("running tasks expose startedAt so the shell can show an elapsed clock", async () => {
+  const { queue } = makeQueue({
+    slow: async () => { await sleep(80); return {}; },
+  });
+  const id = queue.start({ kind: "slow", title: "转换" });
+  await sleep(30);
+  const running = queue.snapshot().tasks.find((task) => task.id === id);
+  assert.equal(running.status, "running");
+  assert.ok(running.startedAt > 0, "startedAt is set when the runner starts");
+  assert.ok(running.startedAt >= running.createdAt);
+  await sleep(90);
+  assert.equal(queue.snapshot().tasks.find((task) => task.id === id).status, "done");
+});
+
 test("a queued task can be cancelled before its runner starts", async () => {
   const ran = [];
   const { queue } = makeQueue({

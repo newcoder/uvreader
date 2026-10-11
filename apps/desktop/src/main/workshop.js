@@ -37,6 +37,7 @@ export function createWorkshopQueue({ file = "", onState = () => {}, log = conso
       output: task.output,
       error: task.error,
       createdAt: task.createdAt,
+      startedAt: task.startedAt,
       finishedAt: task.finishedAt,
     };
   }
@@ -116,6 +117,7 @@ export function createWorkshopQueue({ file = "", onState = () => {}, log = conso
       output: "",
       error: "",
       createdAt: Date.now(),
+      startedAt: 0,
       finishedAt: 0,
       controller: new AbortController(),
     };
@@ -134,6 +136,7 @@ export function createWorkshopQueue({ file = "", onState = () => {}, log = conso
       if (!task || task.status !== "queued") continue;
       running = task;
       task.status = "running";
+      task.startedAt = Date.now();
       emit();
       try {
         const result = await runners.get(task.kind)({
