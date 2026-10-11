@@ -2452,6 +2452,32 @@ async function runWorkshopOcrScenario() {
     const exportPath = path.join(userData, "library", "Books", "扫描件测试.uvtext.pdf");
     if (!fs.existsSync(exportPath)) throw new Error(`expected the .uvtext.pdf next to the source: ${exportPath}`);
     console.log("workshop-ocr: searchable PDF exported —", path.basename(exportPath), fs.statSync(exportPath).size, "bytes");
+
+    // 打开导出的副本搜索只出现在第 2 页的词:未渲染页也必须出现在结果列表里
+    // (DOM 文本层只覆盖渲染过的页;修复后查找用懒加载视图的逐页文本)。
+    const copyFingerprint = fs.readdirSync(path.join(userData, "ocr-cache")).find((name) => name.startsWith("sha1-"));
+    const copyParams = fs.readdirSync(path.join(userData, "ocr-cache", copyFingerprint)).find((name) => name.startsWith("rapid_"));
+    const page2 = JSON.parse(fs.readFileSync(path.join(userData, "ocr-cache", copyFingerprint, copyParams, "page_0002.json"), "utf8"));
+    const phrase = String((page2.lines || []).map((line) => line[0]).find((text) => String(text || "").trim().length >= 6) || "").trim().slice(0, 6);
+    if (!phrase) throw new Error("page 2 produced no searchable line");
+    await page.evaluate(async () => {
+      const file = window.__qbrApp.vault.getAbstractFileByPath("Books/扫描件测试.uvtext.pdf");
+      await window.__qbrPlugin.openFile(file);
+    });
+    await waitFor("exported copy open", () => readerReady(page), 30_000);
+    await page.evaluate(() => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view;
+      view.findBtn?.click();
+    });
+    await page.waitForSelector(".qiaomu-reader-toc-find-input", { timeout: 10_000 });
+    await page.fill(".qiaomu-reader-toc-find-input", phrase);
+    const found = await waitFor("find results cover the unrendered page", () => page.evaluate(() => {
+      const rows = [...document.querySelectorAll(".qiaomu-reader-find-item")];
+      const info = document.querySelector(".qiaomu-reader-find-info")?.textContent || "";
+      return rows.length ? `${rows.length}|${rows[0]?.querySelector(".qiaomu-reader-toc-where")?.textContent || ""}|${info}` : "";
+    }), 30_000);
+    if (!found.includes("第 2 页")) throw new Error(`the page-2 hit is missing from the result list: ${found}`);
+    console.log("workshop-ocr: searchable copy lists the unrendered page —", found);
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(userData, { recursive: true, force: true });

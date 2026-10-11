@@ -6,6 +6,7 @@ import {
   buildTocItems,
   chapterForBlock,
   pageForBlock,
+  pdfSearchPages,
   pdfTextLooksUnreadable,
   readerSearchTexts,
   tocBoldHeadingText,
@@ -134,4 +135,12 @@ test("readerSearchTexts reads block text in document order", () => {
   const win = dom("<p>one</p><h1>two</h1><p>three</p>");
   assert.deepEqual(readerSearchTexts(win.document.body), ["one", "two", "three"]);
   assert.deepEqual(readerSearchTexts(null), []);
+});
+
+test("pdfSearchPages covers every page from the lazy view", () => {
+  // The DOM text layers only exist for rendered pages; the lazy page map has an
+  // entry for every page (empty strings included, so indexes stay aligned).
+  assert.deepEqual(pdfSearchPages({ _pageText: ["第一页", "", "第三页"] }), ["第一页", "", "第三页"]);
+  assert.deepEqual(pdfSearchPages({ _pageText: [] }), []);
+  assert.deepEqual(pdfSearchPages(null), []);
 });

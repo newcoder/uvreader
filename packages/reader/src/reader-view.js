@@ -290,6 +290,13 @@ export function createReaderView({
     if (ready) {
       this._pdfTextReady = null;
       if (!this.pdfDocumentContext) this.pdfDocumentContext = ready.pdfDocumentContext || null;
+      // The text pass just filled page text for the whole document: drop the
+      // search corpus so a later search covers every page, and refresh an open
+      // find panel the way the OCR pass does.
+      this._findCorpus = null;
+      if (this._foundQuery && this._findInput?.value) {
+        this._findInput.dispatchEvent(new Event("input", { bubbles: true }));
+      }
     }
     // Any page without a text layer is worth generating (a scanned book, or the
     // scanned few pages of an otherwise digital one); fully digital files skip

@@ -3,7 +3,7 @@ import { nextSearchIndex, searchBookBlocks, searchableQuery } from "./reader-sea
 import { restoreReadingAnchor } from "./reader-experience.js";
 
 export function createBuildFindPanelFor({
-  Notice, bindComposingSearch, chapterForBlock, clearFoundIn, markFoundIn, pageForBlock, prepareNavigationPanel, qiaomuReaderTranslate, readerIsPdf, readerSearchTexts, rememberReaderJump,
+  Notice, bindComposingSearch, chapterForBlock, clearFoundIn, markFoundIn, pageForBlock, pdfSearchPages, prepareNavigationPanel, qiaomuReaderTranslate, readerIsPdf, readerSearchTexts, rememberReaderJump,
 }) {
   function buildFindPanelFor(view, panel, { close }) {
   view._disposeFindPanel?.();
@@ -48,7 +48,10 @@ export function createBuildFindPanelFor({
       });
       return;
     }
-    const [cur, total] = restoreReadingAnchor(view.pager, { block: hit.block, offset: hit.offset, pct: view.pager.currentPct });
+    // PDFs jump by page number: the block index in the page-text corpus is the
+    // page, and a mixed document may not have a DOM block per page yet.
+    const pdfPage = readerIsPdf(view) && view._pdfLazy ? hit.block + 1 : 0;
+    const [cur, total] = restoreReadingAnchor(view.pager, { block: hit.block, offset: hit.offset, pct: view.pager.currentPct, ...(pdfPage ? { pdfPage } : {}) });
     (view.updateUI || view._updateUI).call(view, cur, total);
     void view.plugin.saveProgress(view.file.path, cur, total, view.pager.currentBlockIndex());
     panel.addClass("qiaomu-reader-find-browsing");
@@ -111,7 +114,15 @@ export function createBuildFindPanelFor({
       })();
       return;
     }
-    if (!view._findCorpus) view._findCorpus = readerSearchTexts(view.pager && view.pager.flow);
+    if (!view._findCorpus) {
+      // PDFs: every page's text lives in the lazy view (the initial text pass
+      // fills digital pages, the OCR pass fills scans). The DOM text layers
+      // only carry text for pages that rendered, so a generated searchable copy
+      // missed every unvisited page while the sidecar-cache text did not.
+      view._findCorpus = readerIsPdf(view) && view._pdfLazy
+        ? pdfSearchPages(view._pdfLazy)
+        : readerSearchTexts(view.pager && view.pager.flow);
+    }
     matches = searchBookBlocks(view._findCorpus, query);
     update();
     if (!matches.length) {
@@ -125,7 +136,7 @@ export function createBuildFindPanelFor({
       for (const seg of [{ text: h.pre }, { cls: "qiaomu-reader-find-hit", text: h.hit }, { text: h.post }]) {
         line.createSpan(seg);
       }
-      const page = pageForBlock(view.pager.flow, h.block);
+      const page = readerIsPdf(view) && view._pdfLazy ? h.block + 1 : pageForBlock(view.pager.flow, h.block);
       const label = readerIsPdf(view) && page ? qiaomuReaderTranslate("page-0", page) : chapterForBlock(view.tocItems || [], h.block);
       if (label) row.createDiv("qiaomu-reader-toc-where").setText(label);
       row.addEventListener("click", () => visit(index));

@@ -88,7 +88,7 @@ import { createAiExplainModal } from "./ai-explain-modal.js";
 import { createLibraryModal } from "./library-modal.js";
 import { createTagEditor } from "./tag-editor.js";
 import { createReaderModal } from "./reader-modal.js";
-import { buildTocItems, chapterForBlock, pageForBlock, readerSearchTexts } from "./toc-build.js";
+import { buildTocItems, chapterForBlock, pageForBlock, pdfSearchPages, readerSearchTexts } from "./toc-build.js";
 import { createLibraryData, freeBookPath, groupLibChips, IMPORT_MIME_EXT, mergeBookTags, pickLibraryFolder } from "./library-data.js";
 import { createPdfDocument } from "./pdf-document.js";
 import { createAiContext } from "./ai-context.js";
@@ -2648,6 +2648,7 @@ const buildFindPanelFor = createBuildFindPanelFor({
   clearFoundIn,
   markFoundIn,
   pageForBlock,
+  pdfSearchPages,
   prepareNavigationPanel,
   qiaomuReaderTranslate,
   readerIsPdf,

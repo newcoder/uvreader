@@ -36,6 +36,16 @@ export function pdfTextLooksUnreadable(items) {
   return singles / tokens.length > 0.7;
 }
 
+// PDF search corpus: one entry per page, taken from the lazy view (the initial
+// text pass fills text pages, the OCR pass fills scans). The DOM text layers
+// only exist for pages that rendered, so searching the DOM missed every
+// unvisited page — a generated searchable copy looked "incomplete" while the
+// sidecar-cache text did not.
+export function pdfSearchPages(lazy) {
+  const pages = lazy?._pageText;
+  return Array.isArray(pages) ? pages.map((text) => String(text || "")) : [];
+}
+
 export function readerSearchTexts(flow) {
   return flow ? [...flow.querySelectorAll(READER_BLOCK_SELECTOR)].map((el) => el.textContent || "") : [];
 }
