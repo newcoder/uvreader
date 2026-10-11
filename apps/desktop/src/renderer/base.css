@@ -272,7 +272,6 @@ body.qbr-reading #app-nav {
   max-width: 45vw;
   border-left: 1px solid var(--background-modifier-border);
   background: var(--background-primary);
-  overflow-y: auto;
 }
 
 .qbr-split[hidden] {
@@ -311,12 +310,6 @@ body.qbr-reading #app-nav {
 .qbr-view {
   position: absolute;
   inset: 0;
-}
-
-.qbr-split-right > .qbr-view {
-  position: relative;
-  inset: auto;
-  min-height: 100%;
 }
 
 .view-content {
@@ -798,12 +791,21 @@ body.qbr-reading .qbr-split-right {
   display: flex;
 }
 
+/* Sidebars never scroll themselves: the fixed reader toolbar covers the top of
+   the window, so a scrollbar on the split would start underneath it and lose
+   its up arrow. The mounted view scrolls instead, below the toolbar padding. */
+.qbr-split-left,
+.qbr-split-right {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .qbr-split-left {
   flex: 0 0 300px;
   max-width: 40vw;
   border-right: 1px solid var(--background-modifier-border);
   background: var(--background-primary);
-  overflow-y: auto;
 }
 
 body.qbr-reading .qbr-split-left {
@@ -818,7 +820,11 @@ body:not(.qbr-reading) .qbr-split-left {
 .qbr-split-right > .qbr-view {
   position: relative;
   inset: auto;
-  min-height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  /* The split keeps the toolbar padding; this view owns the scrollbar so it
+     starts below the fixed toolbar with both arrows visible. */
+  overflow-y: auto;
 }
 
 /* The contents panel shares the reading-page panel padding and header. */
