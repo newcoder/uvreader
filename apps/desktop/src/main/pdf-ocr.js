@@ -23,31 +23,59 @@ function log(...args) {
   try { console.error("[qbr-ocr]", ...args); } catch { /* stderr may be gone */ }
 }
 
+// A pdf_tool checkout run through the configured Python; null when the folder
+// is unset or does not look like a checkout.
+function pdfToolDirCommand(python, dir) {
+  if (!dir) return null;
+  if (!fs.existsSync(path.join(dir, "pdf_tool", "reader", "server.py"))) return null;
+  return { command: python, args: ["-m", "pdf_tool.reader"], cwd: dir };
+}
+
+// The exe setting may hold a bare file name ("pdf_tool_reader.exe"): look it up
+// inside the sidecar folder and next to the app (packaged resources), then as
+// written.
+function resolveSidecarExe(exe, dir) {
+  const bare = !path.isAbsolute(exe) && !exe.includes("/") && !exe.includes("\\");
+  const candidates = [exe];
+  if (bare) {
+    if (dir) candidates.unshift(path.join(dir, exe));
+    if (process.resourcesPath) candidates.push(path.join(process.resourcesPath, exe));
+  }
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) return candidate;
+  }
+  return "";
+}
+
 // Where the sidecar comes from: a packaged executable wins, then a pdf_tool
 // checkout run through the configured Python.
 export function ocrCommand(settings = {}) {
-  const exe = String(settings.ocrSidecarExe || "").trim();
-  if (exe) {
-    if (!fs.existsSync(exe)) return { error: `找不到 OCR 程序：${exe}` };
-    return { command: exe, args: [], cwd: path.dirname(exe) };
-  }
   const python = String(settings.ocrPython || "").trim() || "python";
   const dir = String(settings.ocrSidecarDir || "").trim();
-  if (dir) {
-    if (!fs.existsSync(path.join(dir, "pdf_tool", "reader", "server.py"))) {
-      return { error: `这个目录里没有 pdf_tool：${dir}` };
+  const exe = String(settings.ocrSidecarExe || "").trim();
+  if (exe) {
+    const resolved = resolveSidecarExe(exe, dir);
+    if (resolved) return { command: resolved, args: [], cwd: path.dirname(resolved) };
+    // A stale exe path must not block a working pdf_tool checkout: fall back to
+    // it and say so in the log.
+    const fromDir = pdfToolDirCommand(python, dir);
+    if (fromDir) {
+      log(`sidecar exe not found (${exe}); falling back to the pdf_tool folder ${dir}`);
+      return fromDir;
     }
-    return { command: python, args: ["-m", "pdf_tool.reader"], cwd: dir };
+    return { error: `找不到 OCR 程序：${exe}` };
   }
+  const fromDir = pdfToolDirCommand(python, dir);
+  if (fromDir) return fromDir;
+  if (dir) return { error: `这个目录里没有 pdf_tool：${dir}` };
   // A development checkout can point at the sidecar without touching settings.
   const fromEnv = String(process.env.QBR_OCR_SIDECAR || "").trim();
   if (fromEnv) {
     if (fs.existsSync(fromEnv) && fromEnv.toLowerCase().endsWith(".exe")) {
       return { command: fromEnv, args: [], cwd: path.dirname(fromEnv) };
     }
-    if (fs.existsSync(path.join(fromEnv, "pdf_tool", "reader", "server.py"))) {
-      return { command: python, args: ["-m", "pdf_tool.reader"], cwd: fromEnv };
-    }
+    const envDir = pdfToolDirCommand(python, fromEnv);
+    if (envDir) return envDir;
   }
   return { error: "还没有配置 pdf_tool 目录" };
 }

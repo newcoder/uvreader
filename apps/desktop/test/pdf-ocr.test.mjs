@@ -126,8 +126,17 @@ test("ocrCommand resolves an exe, a pdf_tool checkout, or reports what is missin
   assert.deepEqual(resolved.args, ["-m", "pdf_tool.reader"]);
   assert.equal(resolved.cwd, root);
 
+  // A stale exe path falls back to the working checkout instead of failing.
+  const fallback = ocrCommand({ ocrSidecarDir: root, ocrSidecarExe: path.join(os.tmpdir(), "missing.exe") });
+  assert.equal(fallback.command, "python");
+  assert.equal(fallback.cwd, root);
+
+  // A bare exe name is looked up inside the sidecar folder.
   const exe = path.join(root, "pdf_tool_reader.exe");
   fs.writeFileSync(exe, "");
+  const bare = ocrCommand({ ocrSidecarDir: root, ocrSidecarExe: "pdf_tool_reader.exe" });
+  assert.equal(bare.command, exe);
+  assert.equal(bare.cwd, root);
   assert.deepEqual(ocrCommand({ ocrSidecarExe: exe }).command, exe);
 });
 
