@@ -88,6 +88,19 @@ window.qbrDesktop = {
       });
     },
   },
+  workshop: {
+    list: () => ipcRenderer.invoke("qbr:workshop:list"),
+    start: (request) => ipcRenderer.invoke("qbr:workshop:start", request),
+    cancel: (id) => ipcRenderer.invoke("qbr:workshop:cancel", id),
+    retry: (id) => ipcRenderer.invoke("qbr:workshop:retry", id),
+    clear: () => ipcRenderer.invoke("qbr:workshop:clear"),
+    // Returns an unsubscribe function so a closed view stops listening.
+    onState: (callback) => {
+      const listener = (_event, state) => callback(state);
+      ipcRenderer.on("qbr:workshop:state", listener);
+      return () => ipcRenderer.removeListener("qbr:workshop:state", listener);
+    },
+  },
   ai: {
     stream: (payload, onEvent) => {
       const listener = (_event, message) => {

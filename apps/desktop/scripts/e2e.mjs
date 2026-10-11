@@ -2284,7 +2284,24 @@ async function runHomeScenario() {
 }
 
 async function runWorkshopScenario() {
-  const { app, page, userData } = await launch("");
+  const sidecarDir = process.env.QBR_OCR_SIDECAR || "D:\\projects\\auto_chat";
+  const { app, page, userData } = await launch("", {
+    seed: (dir) => {
+      fs.mkdirSync(path.join(dir, "data"), { recursive: true });
+      fs.writeFileSync(path.join(dir, "data", "data.json"), JSON.stringify({
+        settings: {
+          onboarded: true,
+          language: "zh",
+          bookNotesFolder: "notes",
+          dataFolder: "plugin",
+          lastSeenVersion: appPackage.version,
+          ocrScannedPdf: true,
+          ocrSidecarDir: sidecarDir,
+          ocrPython: process.env.QBR_OCR_PYTHON || "python",
+        },
+      }, null, 2));
+    },
+  });
   try {
     await page.waitForSelector(".qbr-home-view", { timeout: 30_000 });
     await page.click('[data-route="workshop"]');
@@ -2322,6 +2339,36 @@ async function runWorkshopScenario() {
     ));
     if (remembered !== "convert") throw new Error(`the workshop should remember the last tool, saw ${remembered}`);
     console.log("workshop: route remembers the last tool");
+    // The task queue: an environment self-check (OCR sidecar probe) started
+    // through the bridge lands in the tasks panel with its output.
+    const hasSidecar = fs.existsSync(path.join(sidecarDir, "pdf_tool", "reader", "server.py"));
+    if (hasSidecar) {
+      const started = await page.evaluate(() => window.qbrDesktop.workshop.start({
+        kind: "probe",
+        title: "环境自检",
+        detail: "OCR 程序",
+        payload: {
+          settings: {
+            ocrSidecarDir: window.__qbrPlugin.settings.ocrSidecarDir,
+            ocrPython: window.__qbrPlugin.settings.ocrPython,
+          },
+        },
+      }));
+      const finished = await waitFor("workshop probe task", () => page.evaluate(async (id) => {
+        const state = await window.qbrDesktop.workshop.list();
+        const task = state.tasks.find((entry) => entry.id === id);
+        return task && task.status !== "running" && task.status !== "queued" ? task.status : "";
+      }, started), 30_000);
+      if (finished !== "done") throw new Error(`the probe task should finish done, saw ${finished}`);
+      await page.evaluate(() => document.querySelector('.qbr-workshop-rail button[data-tool="tasks"]')?.click());
+      const shown = await waitFor("task listed in the panel", () => page.evaluate(() => {
+        const row = document.querySelector(".qbr-workshop-task");
+        return row ? row.textContent.replace(/\s+/g, " ").trim() : "";
+      }), 10_000);
+      console.log("workshop: task queue probe finished and is listed —", shown.slice(0, 70));
+    } else {
+      console.log("workshop: task queue probe skipped — no pdf_tool sidecar at", sidecarDir);
+    }
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(userData, { recursive: true, force: true });

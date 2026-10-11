@@ -881,6 +881,7 @@ body .view-content.qiaomu-reader-view .qiaomu-reader-pdf-zoom-control {
 }
 
 .qbr-workshop-view {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -1042,4 +1043,164 @@ body .view-content.qiaomu-reader-view .qiaomu-reader-pdf-zoom-control {
   color: var(--text-muted);
   font-size: 13px;
   line-height: 1.6;
+}
+
+/* ── 书坊:任务队列 ─────────────────────────────────────────────────── */
+.qbr-workshop-rail button .badge {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.qbr-workshop-task-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.qbr-workshop-task-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.qbr-workshop-task {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr) 96px 80px auto;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 0;
+  border-top: 1px dashed var(--background-modifier-border);
+  font-size: 13px;
+}
+
+.qbr-workshop-task:first-child {
+  border-top: 0;
+}
+
+.qbr-workshop-task-kind {
+  justify-self: start;
+  padding: 1px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.qbr-workshop-task-name {
+  min-width: 0;
+}
+
+.qbr-workshop-task-name b {
+  font-weight: 600;
+}
+
+.qbr-workshop-task-detail {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.qbr-workshop-task-track {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--background-secondary);
+  overflow: hidden;
+}
+
+.qbr-workshop-task-fill {
+  height: 100%;
+  width: 0;
+  background: var(--interactive-accent);
+  transition: width .25s;
+}
+
+.qbr-workshop-task-state {
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: right;
+}
+
+.qbr-workshop-task-state.is-running {
+  color: var(--text-accent);
+}
+
+.qbr-workshop-task-state.is-done {
+  color: var(--color-green);
+}
+
+.qbr-workshop-task-state.is-failed {
+  color: var(--text-error);
+}
+
+.qbr-workshop-task-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.qbr-workshop-task-btn {
+  padding: 3px 10px;
+  border-radius: 7px;
+  font-size: 12px;
+}
+
+.qbr-workshop-task-error,
+.qbr-workshop-task-output {
+  grid-column: 2 / -1;
+  color: var(--text-faint);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.qbr-workshop-task-error {
+  color: var(--text-error);
+}
+
+.qbr-workshop-taskbar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 44px;
+  padding: 0 18px;
+  border-top: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  font-size: 13px;
+}
+
+.qbr-workshop-taskbar-label {
+  max-width: 40%;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.qbr-workshop-taskbar-track {
+  flex: 1;
+  max-width: 240px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--background-primary);
+  overflow: hidden;
+}
+
+.qbr-workshop-taskbar-fill {
+  height: 100%;
+  width: 0;
+  background: var(--interactive-accent);
+  transition: width .25s;
+}
+
+.qbr-workshop-taskbar-meta {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.qbr-workshop-taskbar-open {
+  margin-left: auto;
 }

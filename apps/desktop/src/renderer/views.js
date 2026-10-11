@@ -1,4 +1,4 @@
-import { ItemView, setIcon } from "obsidian";
+import { ItemView, Notice, setIcon } from "obsidian";
 
 import { iconResolver } from "./icons.js";
 
@@ -371,7 +371,21 @@ const WORKSHOP_TOOLS = [
     lead: "运行中与最近的任务;取消、重试、打开产物。历史不自动续跑。" },
 ];
 
-export function createWorkshopView(leaf, _options) {
+// 任务类型标签与状态文案(队列数据来自主进程)。
+const WORKSHOP_KIND_LABELS = { probe: "自检" };
+
+function workshopTaskState(task) {
+  if (task.status === "running") return task.total ? `运行中 ${task.done}/${task.total}` : "运行中…";
+  if (task.status === "queued") return "排队中";
+  if (task.status === "done") return "已完成";
+  if (task.status === "cancelled") return "已取消";
+  return "失败";
+}
+
+export function createWorkshopView(leaf, options) {
+  const plugin = options?.plugin;
+  const bridge = typeof window !== "undefined" ? window.qbrDesktop?.workshop || null : null;
+
   class WorkshopView extends ItemView {
     getViewType() {
       return "qbr-workshop";
@@ -391,9 +405,17 @@ export function createWorkshopView(leaf, _options) {
       if (!WORKSHOP_TOOLS.some((tool) => tool.id === this._tool)) this._tool = "ocr";
       this._collapsed = localStorage.getItem("qbr-workshop-rail") === "collapsed";
       this.render();
+      if (bridge) {
+        this._unsubscribe = bridge.onState((state) => this.renderTasks(state));
+        void bridge.list().then((state) => this.renderTasks(state)).catch(() => {});
+      } else {
+        this.renderTasks({ tasks: [] });
+      }
     }
 
     async onClose() {
+      this._unsubscribe?.();
+      this._unsubscribe = null;
       this.contentEl.empty();
     }
 
@@ -443,6 +465,7 @@ export function createWorkshopView(leaf, _options) {
         const button = rail.createEl("button", { attr: { type: "button", "data-tool": tool.id } });
         button.insertAdjacentHTML("afterbegin", iconResolver(tool.icon));
         button.createSpan({ text: tool.label });
+        if (tool.id === "tasks") this._taskBadge = button.createSpan({ cls: "badge", text: "" });
         button.addEventListener("click", () => this.selectTool(tool.id));
         this._railButtons.push(button);
       }
@@ -456,17 +479,103 @@ export function createWorkshopView(leaf, _options) {
         heading.createEl("b", { text: tool.title });
         heading.createEl("span", { text: tool.en });
         panel.createDiv({ cls: "lead", text: tool.lead });
-        const card = panel.createDiv("qbr-workshop-card");
-        card.createDiv({
-          cls: "qbr-workshop-soon",
-          text: tool.id === "tasks"
-            ? "还没有任务。任务队列在下一阶段接入。"
-            : "该工具将在后续阶段接入(实施计划 docs/workshop-implementation.md)。",
-        });
+        if (tool.id === "tasks") {
+          const actions = panel.createDiv("qbr-workshop-task-toolbar");
+          const probe = actions.createEl("button", { cls: "mod-cta", text: "运行环境自检" });
+          probe.addEventListener("click", () => this.runSelfCheck());
+          const clear = actions.createEl("button", { text: "清空历史" });
+          clear.addEventListener("click", () => {
+            if (!bridge) return;
+            void bridge.clear().then((state) => this.renderTasks(state)).catch(() => {});
+          });
+          this._taskList = panel.createDiv("qbr-workshop-task-list");
+        } else {
+          const card = panel.createDiv("qbr-workshop-card");
+          card.createDiv({ cls: "qbr-workshop-soon", text: "该工具将在后续阶段接入(实施计划 docs/workshop-implementation.md)。" });
+        }
         this._panels.push(panel);
       }
+
+      const bar = root.createDiv("qbr-workshop-taskbar");
+      bar.hidden = true;
+      this._taskBarLabel = bar.createSpan({ cls: "qbr-workshop-taskbar-label", text: "" });
+      const track = bar.createDiv("qbr-workshop-taskbar-track");
+      this._taskBarFill = track.createDiv("qbr-workshop-taskbar-fill");
+      this._taskBarMeta = bar.createSpan({ cls: "qbr-workshop-taskbar-meta", text: "" });
+      const open = bar.createEl("button", { cls: "qbr-workshop-taskbar-open", text: "查看任务" });
+      open.addEventListener("click", () => this.selectTool("tasks"));
+      this._taskBar = bar;
+
       this.syncTools();
       root.toggleClass("qbr-workshop-rail-collapsed", this._collapsed);
+    }
+
+    // 环境自检:探测 OCR sidecar(pdf_tool),结果进任务队列。
+    runSelfCheck() {
+      if (!bridge) return;
+      const settings = plugin?.settings || {};
+      void bridge.start({
+        kind: "probe",
+        title: "环境自检",
+        detail: "OCR 程序",
+        payload: {
+          settings: {
+            ocrSidecarExe: settings.ocrSidecarExe || "",
+            ocrSidecarDir: settings.ocrSidecarDir || "",
+            ocrPython: settings.ocrPython || "",
+          },
+        },
+      }).catch((error) => new Notice(String(error?.message || error)));
+    }
+
+    // 任务状态由主进程推送:徽标、任务面板与底部任务条一起刷新。
+    renderTasks(state) {
+      const tasks = Array.isArray(state?.tasks) ? state.tasks : [];
+      const running = tasks.filter((task) => task.status === "running");
+      const queued = tasks.filter((task) => task.status === "queued");
+      if (this._taskBadge) this._taskBadge.setText(running.length ? `${running.length} 运行中` : "");
+      if (this._taskList) {
+        this._taskList.empty();
+        if (!tasks.length) this._taskList.createDiv({ cls: "qbr-workshop-soon", text: "还没有任务。" });
+        for (const task of tasks.slice(0, 20)) this.renderTaskRow(this._taskList, task);
+      }
+      if (!this._taskBar) return;
+      const active = running[0] || queued[0] || null;
+      this._taskBar.hidden = !active;
+      if (!active) return;
+      const total = Number(active.total) || 0;
+      const done = Number(active.done) || 0;
+      this._taskBarLabel.setText(`${active.title}${active.label ? " · " + active.label : ""}`);
+      this._taskBarFill.style.width = total ? `${Math.round((done / total) * 100)}%` : "0%";
+      this._taskBarMeta.setText(`${active.status === "running" ? `${done}/${total || "?"}` : "排队中"} · 共 ${running.length + queued.length} 个任务`);
+    }
+
+    renderTaskRow(host, task) {
+      const row = host.createDiv("qbr-workshop-task");
+      row.createSpan({ cls: "qbr-workshop-task-kind", text: WORKSHOP_KIND_LABELS[task.kind] || task.kind });
+      const name = row.createDiv("qbr-workshop-task-name");
+      name.createEl("b", { text: task.title || task.kind });
+      if (task.detail) name.createSpan({ cls: "qbr-workshop-task-detail", text: ` · ${task.detail}` });
+      const total = Number(task.total) || 0;
+      const done = Number(task.done) || 0;
+      const track = row.createDiv("qbr-workshop-task-track");
+      track.createDiv("qbr-workshop-task-fill").style.width = total ? `${Math.round((done / total) * 100)}%` : "0%";
+      row.createSpan({ cls: `qbr-workshop-task-state is-${task.status}`, text: workshopTaskState(task) });
+      const actions = row.createDiv("qbr-workshop-task-actions");
+      if (task.status === "running" || task.status === "queued") {
+        const cancel = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "取消" });
+        cancel.addEventListener("click", () => { void bridge?.cancel?.(task.id).catch(() => {}); });
+      }
+      if (task.status === "failed" || task.status === "cancelled") {
+        const retry = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "重试" });
+        retry.addEventListener("click", () => { void bridge?.retry?.(task.id).catch(() => {}); });
+      }
+      if (task.status === "done" && /[\\/]/.test(String(task.output || ""))) {
+        const open = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "打开产物" });
+        open.addEventListener("click", () => { void window.qbrDesktop?.openPath?.(task.output); });
+      }
+      if (task.error) row.createDiv({ cls: "qbr-workshop-task-error", text: task.error });
+      else if (task.output) row.createDiv({ cls: "qbr-workshop-task-output", text: task.output });
     }
   }
 

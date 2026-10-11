@@ -5,7 +5,8 @@ import { pathToFileURL } from "node:url";
 
 import { BOOK_EXTENSIONS, isBookFile } from "../shared/books.js";
 import { createAiRuntime } from "./ai-runtime.js";
-import { createPdfOcr, resolveOcrOutput } from "./pdf-ocr.js";
+import { createPdfOcr, OCR_PROBE_TIMEOUT, resolveOcrOutput } from "./pdf-ocr.js";
+import { createWorkshopQueue } from "./workshop.js";
 import { createBookDownloads } from "./book-downloads.js";
 import { bookSessionReady, closeBookSession, downloadBookFile, downloadBookFileFromPage, fetchBookPage, forgetBookSession, openBookLogin, searchPdfdrive, sessionFetch } from "./book-session.js";
 
@@ -33,6 +34,23 @@ const secretsPath = path.join(userData, "secrets.json");
 // The sidecar's page cache lives with the app profile: the second open of a
 // book is a cache hit instead of a re-OCR.
 const pdfOcr = createPdfOcr({ cacheRoot: path.join(userData, "ocr-cache") });
+// 书坊任务队列:串行执行,历史落盘(最近 20 条,不自动续跑)。W0-3+ 为各工具
+// 注册 runner;这里先提供「环境自检」(探测 OCR sidecar)。
+const workshop = createWorkshopQueue({
+  file: path.join(userData, "workshop-tasks.json"),
+  onState: (state) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("qbr:workshop:state", state);
+  },
+});
+workshop.register("probe", async ({ payload, report, signal }) => {
+  report({ total: 2, label: "检测 OCR 程序" });
+  const result = await pdfOcr.probe(payload?.settings || {}, OCR_PROBE_TIMEOUT);
+  if (signal.aborted) throw new Error("任务已取消");
+  report({ done: 1, total: 2, label: "检测完成" });
+  if (!result?.ok) throw new Error(String(result?.detail || "OCR 程序不可用"));
+  report({ done: 2, total: 2 });
+  return { output: String(result.detail || "ok") };
+});
 // Online book downloads land in the library so they appear as regular books.
 const bookDownloads = createBookDownloads({
   downloadRoot: path.join(vaultRoot, "Books", "下载"),
@@ -480,6 +498,16 @@ ipcMain.handle("qbr:ocr:session", (_event, payload = {}) => {
   if (action === "page") return pdfOcr.page(payload.sessionId, payload.page, payload.options || {});
   if (action === "close") return pdfOcr.closeSession(payload.sessionId);
   throw new Error(`未知的 OCR 会话操作：${action}`);
+});
+// 书坊任务队列:列表 / 启动 / 取消 / 重试 / 清空历史;状态变化经
+// qbr:workshop:state 推送(队列本身负责串行与历史落盘)。
+ipcMain.handle("qbr:workshop:list", () => workshop.snapshot());
+ipcMain.handle("qbr:workshop:start", (_event, request = {}) => workshop.start(request || {}));
+ipcMain.handle("qbr:workshop:cancel", (_event, id) => workshop.cancel(String(id || "")));
+ipcMain.handle("qbr:workshop:retry", (_event, id) => workshop.retry(String(id || "")));
+ipcMain.handle("qbr:workshop:clear", () => {
+  workshop.clearHistory();
+  return workshop.snapshot();
 });
 
 const gotLock = app.requestSingleInstanceLock();
