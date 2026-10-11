@@ -2514,11 +2514,22 @@ async function runWorkshopOcrScenario() {
 
 async function runWorkshopConvertScenario() {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-e2e-wshop-conv-"));
+  const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-e2e-conv-src-"));
   fs.mkdirSync(path.join(userData, "library", "Books"), { recursive: true });
-  await writeMinimalDocx(path.join(userData, "library", "Books", "转换测试.docx"));
+  const source = path.join(outsideDir, "转换测试.docx");
+  await writeMinimalDocx(source);
   const { app, page } = await launch("", { userData });
   try {
     await page.waitForSelector(".qbr-home-view", { timeout: 30_000 });
+    // 打开本地文件即导入书库:桌面适配器会把绝对路径解析到真实文件系统,
+    // 导入不能因此把它当成库内文件而跳过复制。
+    const imported = await page.evaluate((absolute) => window.__qbrPlugin.importBookToLibrary(absolute), source);
+    if (!imported || /^[a-zA-Z]:\//.test(imported)) {
+      throw new Error(`the outside docx was not imported into the library: ${imported}`);
+    }
+    const libraryCopy = path.join(userData, "library", imported);
+    if (!fs.existsSync(libraryCopy)) throw new Error(`the imported copy is missing: ${libraryCopy}`);
+    console.log("workshop-convert: outside docx imported as", imported);
     await page.click('[data-route="workshop"]');
     await page.waitForSelector(".qbr-workshop-view", { timeout: 15_000 });
     // Skip on machines without docvortex installed.
@@ -2559,14 +2570,15 @@ async function runWorkshopConvertScenario() {
       return task ? `${task.status}|${task.output}|${task.error}` : "";
     }), 120_000);
     if (!converted.startsWith("done")) throw new Error(`the convert task should finish done: ${converted}`);
-    const mdPath = path.join(userData, "library", "Books", "转换测试.md");
-    if (!fs.existsSync(mdPath)) throw new Error(`expected the markdown next to the source: ${mdPath}`);
+    const mdPath = path.join(userData, "library", imported.replace(/\.docx$/i, ".md"));
+    if (!fs.existsSync(mdPath)) throw new Error(`expected the markdown next to the library copy: ${mdPath}`);
     const text = fs.readFileSync(mdPath, "utf8");
     if (!text.includes("书坊转换测试")) throw new Error("the converted markdown lost the text");
     console.log("workshop-convert: docx → markdown landed —", path.basename(mdPath), text.length, "chars");
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(userData, { recursive: true, force: true });
+    fs.rmSync(outsideDir, { recursive: true, force: true });
   }
 }
 

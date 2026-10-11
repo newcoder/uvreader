@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createLibraryData, existingVaultBookPath, freeBookPath, groupLibChips, IMPORT_MIME_EXT, mergeBookTags, pickLibraryFolder } from "../packages/reader/src/library-data.js";
+import { createLibraryData, existingVaultBookPath, freeBookPath, groupLibChips, IMPORT_MIME_EXT, isInsideVaultPath, mergeBookTags, pickLibraryFolder } from "../packages/reader/src/library-data.js";
 
 const normalize = (p) => String(p == null ? "" : p).trim()
   .replace(/\\/g, "/").replace(/\/+/g, "/").replace(/^\/+|\/+$/g, "");
@@ -165,6 +165,17 @@ test("existingVaultBookPath reuses books that already live in the vault", () => 
   assert.equal(existingVaultBookPath("", lookup), "");
   assert.equal(existingVaultBookPath("Books/下载/萤窗小语.epub", null), "");
   assert.equal(existingVaultBookPath("Books/下载", () => ({ path: "Books/下载", extension: "" })), "", "folders are not books");
+});
+
+test("isInsideVaultPath only trusts absolute paths under the vault root", () => {
+  const root = "C:/Users/me/AppData/Roaming/uv-reader/library";
+  assert.equal(isInsideVaultPath("Books/下载/萤窗小语.epub", root), true, "relative paths are vault paths");
+  assert.equal(isInsideVaultPath(`${root}/Books/萤窗小语.epub`, root), true);
+  assert.equal(isInsideVaultPath("C:\\Users\\me\\AppData\\Roaming\\uv-reader\\library\\Books\\萤窗小语.epub", root), true, "backslashes normalize");
+  assert.equal(isInsideVaultPath("c:/users/me/appdata/roaming/uv-reader/library/Books/x.epub", root), true, "drive letter case is ignored");
+  assert.equal(isInsideVaultPath("D:/projects/auto_chat/pdf_tool/test-docs/testpdf2.pdf", root), false, "outside files stay outside");
+  assert.equal(isInsideVaultPath(`${root}-backup/Books/x.epub`, root), false, "a sibling folder with the same prefix is outside");
+  assert.equal(isInsideVaultPath("D:/outside/x.epub", ""), true, "no root means no guard");
 });
 
 test("groupLibChips splits the tree groups and nests subfolders", () => {

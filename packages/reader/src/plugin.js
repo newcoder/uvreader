@@ -21,7 +21,7 @@ import { migrateReaderTheme } from "./reader-themes.js";
 import { normalizeLocationMarks } from "./reading-workflow.js";
 import { normalizeUiLanguage } from "./i18n-languages.js";
 import { watchQuietUi } from "./quiet-ui.js";
-import { bookTagsOf, existingVaultBookPath, freeBookPath, mergeBookTags, pickLibraryFolder } from "./library-data.js";
+import { bookTagsOf, existingVaultBookPath, freeBookPath, isInsideVaultPath, mergeBookTags, pickLibraryFolder } from "./library-data.js";
 
 export function createPlugin({
   MarkdownView, Notice, Plugin, TFile, AI_CHAT_VIEW_TYPE, AiChatView, AiExplainModal, BOOK_EXTENSIONS, BookQuickOpen, DEFAULT, LIB_VIEW_TYPE, LibraryView, MAX_BOOK_COMMANDS, OnboardingModal, ReaderModal, ReaderView, SettingsTab, VIEW_TYPE, WhatsNewModal, aiSetupState, applyDeviceProfile, bookNoteFiles, bookNoteLinkFor, bookNoteTemplatePath, bookNotesFolderPath, captureDeviceProfile, flattenSelectionText, hlMark, isMarkedReadingNote, isUnsafeReadingNote, normalizeAiChatHistory, notesFolderPath, openPluginAiSettings, processTemplateManually, qiaomuReaderPath, qiaomuReaderSetLanguage, qiaomuReaderTranslate, readerAiPanelContext, readerDefaultAiContext, readerHud, readerSupportsAiContext, readerTodayKey, rememberReaderJump, resolveBookNote, sanitizeNoteTitle, selectedReaderTheme, stripGeneratedReadingNoteTitle, syncHighlightsToReadingNote, whatsNewSince, writeBookProperty, writeWhatsNewNote,
@@ -1553,7 +1553,14 @@ export function createPlugin({
     // A book already inside the vault needs no copy: recent lists hand over
     // vault-relative paths, and copying one forked a duplicate book with its
     // own tags and reading record.
-    const inVault = existingVaultBookPath(raw, (candidate) => this.app.vault.getAbstractFileByPath(candidate));
+    const inVault = existingVaultBookPath(raw, (candidate) => (
+      // The desktop vault adapter resolves absolute paths against the real
+      // filesystem, so without this guard every outside book would look like a
+      // vault file and the copy below would be skipped.
+      isInsideVaultPath(candidate, String(this.app.vault.adapter?.getBasePath?.() || ""))
+        ? this.app.vault.getAbstractFileByPath(candidate)
+        : null
+    ));
     if (inVault) return inVault;
     // Opening the same outside file again reuses its copy instead of piling up
     // duplicates in the library.

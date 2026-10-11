@@ -53,6 +53,23 @@ export function existingVaultBookPath(sourcePath, lookup) {
   return file && file.extension ? String(file.path || rel) : "";
 }
 
+// The desktop vault adapter resolves absolute paths against the real
+// filesystem (that is how books outside the library are read), so a plain
+// existence lookup cannot tell an imported book from one that merely lives on
+// disk — every outside book looked "already in the vault" and importers
+// skipped their copy. Obsidian itself never resolves absolute paths, so an
+// absolute candidate only counts as in-vault when it sits under the vault root.
+export function isInsideVaultPath(candidatePath, vaultRoot) {
+  const normalized = String(candidatePath || "").replace(/\\/g, "/");
+  const absolute = /^[a-zA-Z]:\//.test(normalized) || normalized.startsWith("/");
+  if (!absolute) return true;
+  const root = String(vaultRoot || "").replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!root) return true;
+  const candidate = normalized.toLowerCase();
+  const base = root.toLowerCase();
+  return candidate === base || candidate.startsWith(`${base}/`);
+}
+
 // Where new books land: the configured folder, or the folder already holding
 // the most books of the accepted extensions.
 export function pickLibraryFolder(bookFiles, booksFolder, extensions) {
