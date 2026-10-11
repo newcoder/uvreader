@@ -1,6 +1,7 @@
 import { ItemView, Notice, setIcon } from "obsidian";
 
 import { iconResolver } from "./icons.js";
+import { uvtextPath } from "../shared/workshop-names.js";
 
 const BOOK_EXTENSIONS = ["epub", "fb2", "fbz", "mobi", "azw", "azw3", "cbz", "pdf"];
 
@@ -372,7 +373,7 @@ const WORKSHOP_TOOLS = [
 ];
 
 // 任务类型标签与状态文案(队列数据来自主进程)。
-const WORKSHOP_KIND_LABELS = { probe: "自检" };
+const WORKSHOP_KIND_LABELS = { probe: "自检", "ocr-cache": "文字层", "ocr-export": "导出" };
 
 function workshopTaskState(task) {
   if (task.status === "running") return task.total ? `运行中 ${task.done}/${task.total}` : "运行中…";
@@ -383,6 +384,7 @@ function workshopTaskState(task) {
 }
 
 export function createWorkshopView(leaf, options) {
+  const app = options?.app;
   const plugin = options?.plugin;
   const bridge = typeof window !== "undefined" ? window.qbrDesktop?.workshop || null : null;
 
@@ -489,6 +491,8 @@ export function createWorkshopView(leaf, options) {
             void bridge.clear().then((state) => this.renderTasks(state)).catch(() => {});
           });
           this._taskList = panel.createDiv("qbr-workshop-task-list");
+        } else if (tool.id === "ocr") {
+          this.renderOcrPanel(panel);
         } else {
           const card = panel.createDiv("qbr-workshop-card");
           card.createDiv({ cls: "qbr-workshop-soon", text: "该工具将在后续阶段接入(实施计划 docs/workshop-implementation.md)。" });
@@ -528,6 +532,180 @@ export function createWorkshopView(leaf, options) {
       }).catch((error) => new Notice(String(error?.message || error)));
     }
 
+    // ── 文字层工具(W0-3)──────────────────────────────────────────────
+    // 选择书库 PDF 或本地文件(自动导入),批量生成文字层 / 导出 .uvtext.pdf。
+    renderOcrPanel(panel) {
+      this._ocrSelection ||= [];
+      const root = panel.createDiv("qbr-workshop-tool");
+
+      const inputCard = root.createDiv("qbr-workshop-card");
+      inputCard.createEl("h3", { text: "选择文件" });
+      const pickRow = inputCard.createDiv("qbr-workshop-row");
+      const pickVault = pickRow.createEl("button", { text: "选择书库文件…" });
+      pickVault.addEventListener("click", () => this.toggleOcrBookList());
+      const pickLocal = pickRow.createEl("button", { text: "打开本地文件…" });
+      pickLocal.addEventListener("click", () => void this.pickLocalOcrFiles());
+      pickRow.createSpan({ cls: "qbr-workshop-hint", text: "本地文件会自动导入书库" });
+      this._ocrBookList = inputCard.createDiv("qbr-workshop-booklist");
+      this._ocrBookList.hidden = true;
+      this._ocrChips = inputCard.createDiv("qbr-workshop-chips");
+
+      const modeCard = root.createDiv("qbr-workshop-card");
+      modeCard.createEl("h3", { text: "处理方式" });
+      this._ocrModeInputs = {};
+      const modes = [
+        ["cache", "生成文字层", "写入阅读器缓存,打开书即可搜索 / 划线;最快。"],
+        ["export", "导出可搜索 PDF 副本", "另存 <源名>.uvtext.pdf,原页保留,插入不可见文字层。"],
+      ];
+      for (const [value, label, hint] of modes) {
+        const row = modeCard.createEl("label", { cls: "qbr-workshop-opt" });
+        const radio = row.createEl("input", { attr: { type: "radio", name: "qbr-ocr-mode", value } });
+        radio.checked = value === "cache";
+        radio.addEventListener("change", () => this.syncOcrMode());
+        this._ocrModeInputs[value] = radio;
+        const text = row.createDiv("qbr-workshop-opt-text");
+        text.createEl("b", { text: label });
+        text.createDiv({ cls: "qbr-workshop-opt-hint", text: hint });
+      }
+      this._ocrExportRow = modeCard.createDiv("qbr-workshop-row qbr-workshop-saveas");
+      const saveAs = this._ocrExportRow.createEl("button", { text: "另存为…" });
+      saveAs.addEventListener("click", () => void this.pickOcrSaveAs());
+      this._ocrSaveAsLabel = this._ocrExportRow.createSpan({ cls: "qbr-workshop-hint", text: "默认保存到书库(源文件旁)" });
+      this._ocrExportRow.hidden = true;
+
+      const startRow = root.createDiv("qbr-workshop-row");
+      const start = startRow.createEl("button", { cls: "mod-cta", text: "开始处理" });
+      start.addEventListener("click", () => this.startOcrTasks());
+      startRow.createSpan({ cls: "qbr-workshop-hint", text: "批量:可一次选多本,逐个入队。" });
+
+      this._ocrRecent = root.createDiv("qbr-workshop-recent");
+      this.syncOcrMode();
+      this.renderOcrChips();
+    }
+
+    ocrBooks() {
+      return (app?.vault?.getFiles?.() || [])
+        .filter((file) => String(file?.extension || "").toLowerCase() === "pdf")
+        .sort((a, b) => String(a.basename).localeCompare(String(b.basename), "ru"));
+    }
+
+    toggleOcrBookList() {
+      const list = this._ocrBookList;
+      if (!list) return;
+      list.hidden = !list.hidden;
+      this.refreshOcrBookList();
+    }
+
+    refreshOcrBookList() {
+      const list = this._ocrBookList;
+      if (!list || list.hidden) return;
+      list.empty();
+      const books = this.ocrBooks();
+      if (!books.length) {
+        list.createDiv({ cls: "qbr-workshop-hint", text: "书库里还没有 PDF。" });
+        return;
+      }
+      for (const file of books) {
+        const row = list.createEl("label", { cls: "qbr-workshop-book" });
+        const box = row.createEl("input", { attr: { type: "checkbox" } });
+        box.checked = this._ocrSelection.includes(file.path);
+        box.addEventListener("change", () => {
+          if (box.checked) this.addOcrFile(file.path);
+          else this.removeOcrFile(file.path);
+        });
+        row.createSpan({ text: file.basename });
+      }
+    }
+
+    addOcrFile(path) {
+      if (!path || this._ocrSelection.includes(path)) return;
+      this._ocrSelection.push(path);
+      this.renderOcrChips();
+    }
+
+    removeOcrFile(path) {
+      this._ocrSelection = this._ocrSelection.filter((item) => item !== path);
+      this.renderOcrChips();
+      this.refreshOcrBookList();
+    }
+
+    renderOcrChips() {
+      const host = this._ocrChips;
+      if (!host) return;
+      host.empty();
+      if (!this._ocrSelection.length) {
+        host.createSpan({ cls: "qbr-workshop-hint", text: "未选择文件" });
+        return;
+      }
+      for (const path of this._ocrSelection) {
+        const chip = host.createSpan({ cls: "qbr-workshop-chip" });
+        chip.createSpan({ text: path.split("/").pop() || path });
+        const remove = chip.createEl("button", { cls: "qbr-workshop-chip-x", text: "✕" });
+        remove.addEventListener("click", () => this.removeOcrFile(path));
+      }
+    }
+
+    async pickLocalOcrFiles() {
+      if (!bridge?.pickFiles) return;
+      const paths = await bridge.pickFiles().catch(() => []);
+      for (const absolute of paths) {
+        try {
+          const rel = await plugin?.importBookToLibrary?.(absolute);
+          if (rel) this.addOcrFile(rel);
+        } catch (error) {
+          new Notice(`无法加入书库：${absolute}\n${error?.message || error}`);
+        }
+      }
+      this.refreshOcrBookList();
+    }
+
+    syncOcrMode() {
+      const exportMode = Boolean(this._ocrModeInputs?.export?.checked);
+      if (this._ocrExportRow) this._ocrExportRow.hidden = !exportMode;
+    }
+
+    async pickOcrSaveAs() {
+      if (!bridge?.saveAs) return;
+      const first = this._ocrSelection[0] || "book.pdf";
+      const defaultRel = uvtextPath(first);
+      const vaultRoot = String(window.qbrDesktop?.paths?.vaultRoot || "").replace(/\\/g, "/").replace(/\/+$/, "");
+      const chosen = await bridge.saveAs(vaultRoot ? `${vaultRoot}/${defaultRel}` : defaultRel).catch(() => "");
+      if (!chosen) return;
+      this._ocrSaveAs = String(chosen);
+      if (this._ocrSaveAsLabel) this._ocrSaveAsLabel.setText(`另存为：${this._ocrSaveAs}`);
+    }
+
+    startOcrTasks() {
+      if (!bridge) return;
+      const files = [...this._ocrSelection];
+      if (!files.length) {
+        new Notice("请先选择 PDF 文件");
+        return;
+      }
+      const settings = plugin?.settings || {};
+      const payloadSettings = {
+        ocrSidecarExe: settings.ocrSidecarExe || "",
+        ocrSidecarDir: settings.ocrSidecarDir || "",
+        ocrPython: settings.ocrPython || "",
+      };
+      const exportMode = Boolean(this._ocrModeInputs?.export?.checked);
+      for (const rel of files) {
+        const payload = { settings: payloadSettings, source: rel };
+        if (exportMode) {
+          payload.out = files.length === 1 && this._ocrSaveAs
+            ? this._ocrSaveAs
+            : uvtextPath(rel, (candidate) => Boolean(app?.vault?.getAbstractFileByPath?.(candidate)));
+        }
+        void bridge.start({
+          kind: exportMode ? "ocr-export" : "ocr-cache",
+          title: exportMode ? "导出可搜索 PDF" : "生成文字层",
+          detail: rel,
+          payload,
+        }).catch((error) => new Notice(String(error?.message || error)));
+      }
+      this.selectTool("tasks");
+    }
+
     // 任务状态由主进程推送:徽标、任务面板与底部任务条一起刷新。
     renderTasks(state) {
       const tasks = Array.isArray(state?.tasks) ? state.tasks : [];
@@ -538,6 +716,14 @@ export function createWorkshopView(leaf, options) {
         this._taskList.empty();
         if (!tasks.length) this._taskList.createDiv({ cls: "qbr-workshop-soon", text: "还没有任务。" });
         for (const task of tasks.slice(0, 20)) this.renderTaskRow(this._taskList, task);
+      }
+      if (this._ocrRecent) {
+        this._ocrRecent.empty();
+        const recent = tasks.filter((task) => task.kind === "ocr-cache" || task.kind === "ocr-export").slice(0, 3);
+        if (recent.length) {
+          this._ocrRecent.createEl("h3", { text: "最近" });
+          for (const task of recent) this.renderTaskRow(this._ocrRecent, task);
+        }
       }
       if (!this._taskBar) return;
       const active = running[0] || queued[0] || null;

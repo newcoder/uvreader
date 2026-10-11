@@ -2375,6 +2375,89 @@ async function runWorkshopScenario() {
   }
 }
 
+async function runWorkshopOcrScenario() {
+  const sidecarDir = process.env.QBR_OCR_SIDECAR || "D:\\projects\\auto_chat";
+  const scanSource = path.join(sidecarDir, "pdf_tool", "pdfs", "small_ocr.pdf");
+  if (!fs.existsSync(path.join(sidecarDir, "pdf_tool", "reader", "server.py")) || !fs.existsSync(scanSource)) {
+    console.log("workshop-ocr: skipped — no pdf_tool sidecar at", sidecarDir);
+    return;
+  }
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-e2e-wshop-ocr-"));
+  fs.mkdirSync(path.join(userData, "library", "Books"), { recursive: true });
+  fs.copyFileSync(scanSource, path.join(userData, "library", "Books", "扫描件测试.pdf"));
+  const { app, page } = await launch("", {
+    userData,
+    seed: (dir) => {
+      fs.mkdirSync(path.join(dir, "data"), { recursive: true });
+      fs.writeFileSync(path.join(dir, "data", "data.json"), JSON.stringify({
+        settings: {
+          onboarded: true,
+          language: "zh",
+          bookNotesFolder: "notes",
+          dataFolder: "plugin",
+          lastSeenVersion: appPackage.version,
+          ocrScannedPdf: true,
+          ocrSidecarDir: sidecarDir,
+          ocrPython: process.env.QBR_OCR_PYTHON || "python",
+        },
+      }, null, 2));
+    },
+  });
+  try {
+    await page.waitForSelector(".qbr-home-view", { timeout: 30_000 });
+    await page.click('[data-route="workshop"]');
+    await page.waitForSelector(".qbr-workshop-view", { timeout: 15_000 });
+    // 文字层工具是默认面板:选书 → 生成文字层。
+    const picked = await page.evaluate(() => {
+      const pick = [...document.querySelectorAll(".qbr-workshop-panel[data-tool='ocr'] button")]
+        .find((button) => button.textContent.includes("选择书库文件"));
+      pick?.click();
+      const row = [...document.querySelectorAll(".qbr-workshop-book")]
+        .find((entry) => entry.textContent.includes("扫描件测试"));
+      const box = row?.querySelector("input");
+      if (box) { box.checked = true; box.dispatchEvent(new Event("change", { bubbles: true })); }
+      return Boolean(row);
+    });
+    if (!picked) throw new Error("the vault PDF was not listed in the text-layer picker");
+    await page.evaluate(() => {
+      const start = [...document.querySelectorAll(".qbr-workshop-panel[data-tool='ocr'] button")]
+        .find((button) => button.textContent.includes("开始处理"));
+      start?.click();
+    });
+    const cached = await waitFor("text-layer task", () => page.evaluate(async () => {
+      const state = await window.qbrDesktop.workshop.list();
+      const task = state.tasks.find((entry) => entry.kind === "ocr-cache" && entry.status !== "running" && entry.status !== "queued");
+      return task ? `${task.status}|${task.output}` : "";
+    }), 300_000);
+    if (!cached.startsWith("done")) throw new Error(`the text-layer task should finish done: ${cached}`);
+    if (!/2 页文字层已生成/.test(cached)) throw new Error(`unexpected text-layer output: ${cached}`);
+    const pageCache = fs.readdirSync(path.join(userData, "ocr-cache"));
+    const fingerprint = pageCache.find((name) => name.startsWith("sha1-"));
+    if (!fingerprint) throw new Error("the text layer did not land in the reader's OCR cache");
+    console.log("workshop-ocr: text layer generated —", cached.slice(0, 40));
+
+    // 导出可搜索 PDF:默认命名 .uvtext.pdf,落回书库。
+    await page.evaluate(() => {
+      document.querySelector('input[name="qbr-ocr-mode"][value="export"]')?.click();
+      const start = [...document.querySelectorAll(".qbr-workshop-panel[data-tool='ocr'] button")]
+        .find((button) => button.textContent.includes("开始处理"));
+      start?.click();
+    });
+    const exported = await waitFor("searchable export task", () => page.evaluate(async () => {
+      const state = await window.qbrDesktop.workshop.list();
+      const task = state.tasks.find((entry) => entry.kind === "ocr-export" && entry.status !== "running" && entry.status !== "queued");
+      return task ? `${task.status}|${task.output}` : "";
+    }), 300_000);
+    if (!exported.startsWith("done")) throw new Error(`the export task should finish done: ${exported}`);
+    const exportPath = path.join(userData, "library", "Books", "扫描件测试.uvtext.pdf");
+    if (!fs.existsSync(exportPath)) throw new Error(`expected the .uvtext.pdf next to the source: ${exportPath}`);
+    console.log("workshop-ocr: searchable PDF exported —", path.basename(exportPath), fs.statSync(exportPath).size, "bytes");
+  } finally {
+    await app.close().catch(() => {});
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+}
+
 async function writeMinimalEpub(file) {
   const zip = new JSZip();
   zip.file("mimetype", "application/epub+zip", { compression: "STORE" });
@@ -2614,6 +2697,7 @@ async function runPinyinScenario() {
 const scenarios = [
   ["home", runHomeScenario],
   ["workshop", runWorkshopScenario],
+  ["workshop-ocr", runWorkshopOcrScenario],
   ["library", runLibraryTabsScenario],
   ["ebook", runEbookScenario],
   ["restart", runRestartScenario],

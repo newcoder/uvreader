@@ -258,7 +258,9 @@ export function createPdfOcr({ spawnImpl = spawn, cacheRoot = "", startTimeoutMs
 
   // A reading session: one sidecar process that stays warm while a scan is
   // open. `page` fetches (or computes and caches) one page's text layer.
-  function openSession(settings = {}, sourcePath = "", textSourcePath = "") {
+  // The page count comes from `doc.open` so batch callers (workshop) can walk
+  // the whole document; a failure there must not kill the session.
+  async function openSession(settings = {}, sourcePath = "", textSourcePath = "") {
     const target = ocrCommand(settings);
     if (target.error) throw new Error(target.error);
     const source = path.resolve(String(sourcePath || ""));
@@ -277,7 +279,16 @@ export function createPdfOcr({ spawnImpl = spawn, cacheRoot = "", startTimeoutMs
     const session = spawnSession({ ...target, spawnImpl, cacheRoot: cacheDir });
     const sessionId = `s${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
     sessions.set(sessionId, { session, source, textSource });
-    return { sessionId, hybrid: Boolean(textSource) };
+    let pages = 0;
+    let scanned = 0;
+    try {
+      const info = await session.request("doc.open", { path: source }, OCR_START_TIMEOUT);
+      pages = Number(info?.pages) || 0;
+      scanned = Number(info?.scanned_pages) || 0;
+    } catch (error) {
+      log("doc.open failed:", error?.message || error);
+    }
+    return { sessionId, hybrid: Boolean(textSource), pages, scanned };
   }
 
   function page(sessionId, pageNo, options = {}) {

@@ -1045,6 +1045,121 @@ body .view-content.qiaomu-reader-view .qiaomu-reader-pdf-zoom-control {
   line-height: 1.6;
 }
 
+/* ── 书坊:工具面板(文字层等)──────────────────────────────────────── */
+/* 作者样式里的 display 会盖过 UA 的 [hidden]{display:none}(任务条/另存为行),
+   这里统一恢复。 */
+.qbr-workshop-view [hidden] {
+  display: none !important;
+}
+
+.qbr-workshop-tool {
+  display: flex;
+  flex-direction: column;
+}
+
+.qbr-workshop-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.qbr-workshop-row + .qbr-workshop-row {
+  margin-top: 10px;
+}
+
+.qbr-workshop-hint {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.qbr-workshop-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.qbr-workshop-opt:hover {
+  background: var(--background-modifier-hover);
+}
+
+.qbr-workshop-opt input {
+  margin-top: 3px;
+}
+
+.qbr-workshop-opt-text b {
+  font-weight: 600;
+}
+
+.qbr-workshop-opt-hint {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.qbr-workshop-booklist {
+  max-height: 220px;
+  overflow-y: auto;
+  margin-top: 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-primary);
+}
+
+.qbr-workshop-book {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.qbr-workshop-book:hover {
+  background: var(--background-modifier-hover);
+}
+
+.qbr-workshop-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.qbr-workshop-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  background: var(--background-secondary);
+  font-size: 12px;
+}
+
+.qbr-workshop-chip-x {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.qbr-workshop-recent h3 {
+  margin: 16px 0 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.qbr-workshop-saveas {
+  margin-top: 8px;
+}
+
 /* ── 书坊:任务队列 ─────────────────────────────────────────────────── */
 .qbr-workshop-rail button .badge {
   margin-left: auto;

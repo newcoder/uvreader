@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { BOOK_EXTENSIONS, isBookFile } from "../shared/books.js";
 import { createAiRuntime } from "./ai-runtime.js";
 import { createPdfOcr, OCR_PROBE_TIMEOUT, resolveOcrOutput } from "./pdf-ocr.js";
+import { registerOcrRunners } from "./workshop-ocr.js";
 import { createWorkshopQueue } from "./workshop.js";
 import { createBookDownloads } from "./book-downloads.js";
 import { bookSessionReady, closeBookSession, downloadBookFile, downloadBookFileFromPage, fetchBookPage, forgetBookSession, openBookLogin, searchPdfdrive, sessionFetch } from "./book-session.js";
@@ -51,6 +52,8 @@ workshop.register("probe", async ({ payload, report, signal }) => {
   report({ done: 2, total: 2 });
   return { output: String(result.detail || "ok") };
 });
+// 文字层工具:批量生成文字层 / 导出可搜索 PDF(.uvtext.pdf)。
+registerOcrRunners(workshop, { pdfOcr, vaultRoot });
 // Online book downloads land in the library so they appear as regular books.
 const bookDownloads = createBookDownloads({
   downloadRoot: path.join(vaultRoot, "Books", "下载"),
@@ -508,6 +511,33 @@ ipcMain.handle("qbr:workshop:retry", (_event, id) => workshop.retry(String(id ||
 ipcMain.handle("qbr:workshop:clear", () => {
   workshop.clearHistory();
   return workshop.snapshot();
+});
+// 书坊文件对话框:多选本地文件(打开后自动导入书库)/ 另存为(默认路径由渲染层按
+// `.uvtext` 约定给出,可保存到书库外)。
+ipcMain.handle("qbr:workshop:pick-files", async () => {
+  const options = {
+    title: "选择文件",
+    properties: ["openFile", "multiSelections"],
+    filters: [
+      { name: "电子书与文档", extensions: [...BOOK_EXTENSIONS] },
+      { name: "所有文件", extensions: ["*"] },
+    ],
+  };
+  const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+  return result.canceled ? [] : result.filePaths;
+});
+ipcMain.handle("qbr:workshop:save-as", async (_event, payload = {}) => {
+  const defaultPath = String(payload.defaultPath || "");
+  const options = {
+    title: "另存为",
+    defaultPath: defaultPath || undefined,
+    filters: [
+      { name: "可搜索 PDF", extensions: ["pdf"] },
+      { name: "所有文件", extensions: ["*"] },
+    ],
+  };
+  const result = mainWindow ? await dialog.showSaveDialog(mainWindow, options) : await dialog.showSaveDialog(options);
+  return result.canceled || !result.filePath ? "" : result.filePath;
 });
 
 const gotLock = app.requestSingleInstanceLock();
