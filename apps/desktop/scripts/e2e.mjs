@@ -2188,6 +2188,44 @@ async function runLibraryTabsScenario() {
     await sleep(400);
     seen = await state();
     if (seen.local || !seen.online) throw new Error(`the online node should hide the local grid: ${JSON.stringify(seen)}`);
+    // A query typed in the online pane must not filter the local grid, and a
+    // finished download must land in the local tree when switching back.
+    const leaked = await page.evaluate(() => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader-library")[0].view;
+      const input = document.querySelector(".qiaomu-reader-lib-search-input");
+      view._onlineQuery = "zzz-not-a-book";
+      input.value = "zzz-not-a-book";
+      document.querySelector('.qiaomu-reader-lib-node[data-node="all"]')?.click();
+      return { value: input.value, cards: document.querySelectorAll(".qiaomu-reader-lib-card").length };
+    });
+    if (leaked.value !== "" || leaked.cards < 1) {
+      throw new Error(`the online query leaked into the local grid: ${JSON.stringify(leaked)}`);
+    }
+    const download = await page.evaluate(async () => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader-library")[0].view;
+      view._onlineQuery = "";
+      view._runOnlineSearch = async () => {};
+      document.querySelector('.qiaomu-reader-lib-node[data-node="online"]')?.click();
+      const before = document.querySelectorAll(".qiaomu-reader-lib-card").length;
+      window.__qbrPlugin.downloadBook = async () => {
+        const rel = "Books/示例书库/下载测试书.epub";
+        const src = window.__qbrApp.vault.getAbstractFileByPath("Books/示例书库/Alice in Wonderland.epub");
+        const bytes = await window.__qbrApp.vault.readBinary(src);
+        if (!window.__qbrApp.vault.getAbstractFileByPath(rel)) await window.__qbrApp.vault.createBinary(rel, bytes);
+        return { ok: true, path: `${window.qbrDesktop.paths.vaultRoot}/${rel}`, name: "下载测试书.epub" };
+      };
+      await view._startOnlineDownload({ title: "下载测试书", source: "gutenberg" }, { status: null });
+      return { before, stale: Boolean(view._libStale) };
+    });
+    if (!download.stale) throw new Error("a finished download should mark the local pane stale");
+    await page.evaluate(() => document.querySelector('.qiaomu-reader-lib-node[data-node="all"]')?.click());
+    const grown = await waitFor("downloaded book in the local grid", () => page.evaluate((before) => (
+      document.querySelectorAll(".qiaomu-reader-lib-card").length > before
+        ? String(document.querySelectorAll(".qiaomu-reader-lib-card").length)
+        : ""
+    ), download.before), 10_000);
+    console.log("library: online query stays in its pane; a finished download lands in the grid", grown, "cards");
+
     // Back to the local library, then collapse and expand the tree.
     await page.evaluate(() => document.querySelector('.qiaomu-reader-lib-node[data-node="all"]')?.click());
     await sleep(300);

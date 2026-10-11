@@ -73,10 +73,20 @@ export function createLibraryModal({
     if (!isNarrow()) contentEl.toggleClass("qiaomu-reader-lib-nav-collapsed", this.plugin.settings.libNavCollapsed === true);
 
     const { collapse, tree } = this._buildLibSide(side);
+    this._libTree = tree;
+    this._libQuery = "";
+    this._onlineQuery = "";
     collapse.addEventListener("click", toggleNav);
     input.addEventListener("input", () => {
-      if (this._libMode === "online") this._renderOnline(onlineGrid, input.value);
-      else this._redrawLib(input.value);
+      // One query per pane: the online search text and the local filter are
+      // kept apart so switching views never filters the other list.
+      if (this._libMode === "online") {
+        this._onlineQuery = input.value;
+        this._renderOnline(onlineGrid, input.value);
+      } else {
+        this._libQuery = input.value;
+        this._redrawLib(input.value);
+      }
     });
 
     try { await this.plugin.ensureStarterBooks(); }
@@ -197,10 +207,10 @@ export function createLibraryModal({
     const online = nodeId === "online";
     if (!online && !deps.nodeEls.has(nodeId)) nodeId = "all";
     if (!online && this._libStale) {
-      // Downloads finished while the online node was open: fold the fresh
-      // books into the local grid once, on return.
+      // Downloads finished while the online node was open: rescan the vault so
+      // the fresh books (and their 下载 tag) join the tree and the grid.
       this._libStale = false;
-      this._redrawLib("");
+      this._refreshLibTree();
     }
     this._libMode = online ? "online" : "vault";
     if (!online) this._libSelected = nodeId;
@@ -211,12 +221,14 @@ export function createLibraryModal({
     deps.contentEl.removeClass("qiaomu-reader-lib-nav-open");
     if (deps.onlineGrid) deps.onlineGrid.hidden = !online;
     deps.input.placeholder = qiaomuReaderTranslate(online ? "search-online-placeholder" : "search-a-book");
+    const query = online ? (this._onlineQuery || "") : (this._libQuery || "");
+    if (deps.input.value !== query) deps.input.value = query;
     for (const [key, el] of deps.nodeEls) el.toggleClass("qiaomu-reader-lib-node-on", key === nodeId);
     if (online) {
       deps.viewLabel.setText(qiaomuReaderTranslate("search-online"));
-      if (!deps.onlineGrid.childElementCount) this._renderOnline(deps.onlineGrid, deps.input.value || "");
+      if (!deps.onlineGrid.childElementCount) this._renderOnline(deps.onlineGrid, query);
     } else {
-      this._redrawLib(deps.input.value || "");
+      this._redrawLib(query);
     }
     deps.input.focus();
   }
@@ -482,6 +494,9 @@ export function createLibraryModal({
       if (outcome?.ok) {
         const rel = this._vaultRelativePath(outcome.path);
         await this._tagAddedBook(rel, "auto-tag-download");
+        // The new file is in the vault now: the local tree/grid must pick it up
+        // (immediately when it is visible, otherwise on the way back).
+        this._markLibraryStale();
         const tagged = qiaomuReaderTranslate("tagged-0", qiaomuReaderTranslate("auto-tag-download"));
         new Notice(qiaomuReaderTranslate("search-online-downloaded-0", outcome.name || result.title) + " · " + tagged, 8000);
         if (status && status.isConnected) {
@@ -515,6 +530,19 @@ export function createLibraryModal({
     } finally {
       this._onlineDownloads.delete(jobId);
     }
+  }
+  // A downloaded book lands in the vault after the online pane rendered: mark
+  // the local tree/grid stale and refresh right away when it is on screen.
+  _markLibraryStale() {
+    if (!this._libDeps) return;
+    this._libStale = true;
+    if (this._libMode !== "vault") return;
+    this._libStale = false;
+    this._refreshLibTree();
+    this._redrawLib(this._libQuery || "");
+  }
+  _refreshLibTree() {
+    if (this._libTree) this._drawLibTree(this._libTree);
   }
   _applyLibTheme(modalEl) {
     const theme = qiaomuReaderLibTheme(this.plugin.settings);
