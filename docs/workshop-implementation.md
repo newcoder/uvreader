@@ -35,6 +35,7 @@
 | W0-2 | 任务队列:模型/串行执行/取消/重试/历史(20 条)落盘;IPC+preload+任务条 | `main/workshop.js`、`main/index.js`、`preload/index.js`、`views.js` | 启动→进度→完成/取消/重试;重启后历史可查 | 单测(队列/持久化/取消)+ e2e | M ✅ 已完成 |
 | W0-3 | 文字层与可搜索 PDF:批量、`.uvtext.pdf`、另存为、进度 | `main/workshop.js`、`pdf-ocr.js`、`views.js` | 真实扫描件:生成文字层(阅读器可搜索)与导出可搜索 PDF | 单测(命名/参数)+ e2e(真实 sidecar) | M ✅ 已完成 |
 | W0-4 | 文档互转(DocVortex):检测/命令/进度/入库;预设矩阵面板 | `main/docvortex.js`、`views.js`、设置段 | DOCX→MD/HTML、PDF→MD 成功落库 | 单测(命令/检测)+ e2e | M ✅ 已完成 |
+| W0-4b | 公式优先链路:pdf_tool(MinerU)→ Doc JSON → HTML(`math/tex`)→ DocVortex(DOCX 真 OMML / EPUB MathML) | `main/formula-html.js`、`main/workshop-formula.js`、`views.js` | 扫描件公式含上下标落库 | 单测 13 + e2e(opt-in) | M ✅ 已完成 |
 | W0-5 | 命名与产物:后缀约定、冲突编号、另存为对话框、打开/在书库中显示 | `main/workshop.js`、`views.js` | 产物命名符合 §7;另存为到库外可用 | 单测 | S ✅ 已完成 |
 | W0-6 | 收口:i18n、eslint、全量门禁、文档状态、书坊开关 | 全仓 | `npm test`/`test:shim`/`test:desktop`/`check:i18n`/eslint/build/smoke 全绿 | CI | S ✅ 已完成 |
 
@@ -81,6 +82,7 @@ W2-* 依赖 P1 ─────────────────────�
 - **Calibre/DocVortex/pdf_tool 检测**:统一 `resolveTool()`(自定义路径 → 常见位置 → PATH),失败给可操作提示(下载链接/设置入口)。
 - **产物命名**:`<源名>.uvtext.pdf`、`<源名>.uvdoc.md|html|json`、`<源名>.uvdoc.assets/`、转换产物=目标扩展名+冲突编号;一律经 `resolveOcrOutput` 式库内校验(另存为除外,走 `showSaveDialog`)。
 - **安全**:主进程读文件/发邮件;渲染层不碰 SMTP/文件系统;CSP 不变;邮件密码只走 SecretStorage。
+- **公式优先链路**(§8.1):pdf_tool(`pdf_to_doc.py --mode mineru --formats json`,缓存目录按源文件哈希)→ Doc v1 JSON → `formula-html.js` 生成带 `<script type="math/tex">` 的 HTML(图片保持相对路径,和 JSON 同目录写出)→ DocVortex 转 DOCX/EPUB。runner 是 `formula-convert`(标签:MinerU 云端解析 → 生成公式 HTML → DocVortex 转换),`formula-probe` 一次校验 pdf_tool 目录 + MinerU 凭据 + DocVortex;MinerU 产物按源文件缓存复用(云端慢且计费)。
 - **DocVortex 实测(2026-10-11)**:扫描件走它自带的本地 OCR(`~/.docvortex/model/MinerU-4_models_onnx`:PP-DocLayoutV2 版式 + PP-OCRv6 tiny det / small rec,首次约 226MB),与 pdf_tool 的 rapidocr 无关;行内公式按普通文字识别、上下标会被拉平(无公式模型),公式多的文档应走 pdf_tool 内容提取(MinerU,见 P1)。CLI 转换期间不输出任何进度(结束才打印产物路径),任务行与底部任务条用**不确定态滑动条 + 秒表**(`startedAt`)表达「还在跑」。
 
 ## 6. 测试与门禁

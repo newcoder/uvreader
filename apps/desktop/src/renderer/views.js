@@ -380,6 +380,8 @@ const WORKSHOP_KIND_LABELS = {
   "ocr-export": "导出",
   "docvortex-probe": "检测",
   "docvortex-convert": "转换",
+  "formula-probe": "公式检测",
+  "formula-convert": "公式",
 };
 
 function formatElapsed(ms) {
@@ -778,11 +780,24 @@ export function createWorkshopView(leaf, options) {
         this._convertFormat.createEl("option", { attr: { value: format.id }, text: format.label });
       }
       optionCard.createDiv({ cls: "qbr-workshop-hint", text: "输出与源文件同目录,用目标扩展名;同名自动加序号。" });
+      const parseRow = optionCard.createDiv("qbr-workshop-row");
+      parseRow.createSpan({ cls: "qbr-workshop-hint", text: "解析方式" });
+      this._convertParse = parseRow.createEl("select", { cls: "qbr-workshop-select" });
+      this._convertParse.createEl("option", { attr: { value: "local" }, text: "本地解析(DocVortex 自带 OCR)" });
+      this._convertParse.createEl("option", { attr: { value: "mineru" }, text: "公式优先(MinerU 云端,PDF)" });
+      this._convertParse.value = localStorage.getItem("qbr-workshop-parse") === "mineru" ? "mineru" : "local";
+      this._convertParse.addEventListener("change", () => {
+        localStorage.setItem("qbr-workshop-parse", String(this._convertParse.value));
+      });
+      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "公式优先:PDF 先经 MinerU 云端提取(公式转 LaTeX),再交 DocVortex 生成真公式 DOCX / MathML EPUB;需要 MINERU_API_KEY,首次较慢。" });
       optionCard.createDiv({ cls: "qbr-workshop-hint", text: "扫描件由 DocVortex 自带 OCR 识别（首次会下载约 220MB 模型）；数学公式与上下标识别有限。" });
       const detectRow = optionCard.createDiv("qbr-workshop-row");
       const detect = detectRow.createEl("button", { text: "检测 DocVortex" });
       detect.addEventListener("click", () => this.probeDocvortex());
       this._convertStatus = detectRow.createSpan({ cls: "qbr-workshop-hint", text: "未检测" });
+      const detectFormula = detectRow.createEl("button", { text: "检测公式链路" });
+      detectFormula.addEventListener("click", () => this.probeFormulaChain());
+      this._formulaStatus = detectRow.createSpan({ cls: "qbr-workshop-hint", text: "" });
       const pathRow = optionCard.createDiv("qbr-workshop-row");
       pathRow.createSpan({ cls: "qbr-workshop-hint", text: "DocVortex 路径" });
       this._convertPath = pathRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空自动检测(PATH / python -m docvortex)" } });
@@ -897,6 +912,29 @@ export function createWorkshopView(leaf, options) {
       this.selectTool("tasks");
     }
 
+    formulaSettings() {
+      const settings = plugin?.settings || {};
+      return {
+        ...this.docvortexSettings(),
+        ocrSidecarDir: String(settings.ocrSidecarDir || ""),
+        ocrSidecarExe: String(settings.ocrSidecarExe || ""),
+        ocrPython: String(settings.ocrPython || ""),
+        mineruToken: String(settings.mineruToken || ""),
+        mineruModel: String(settings.mineruModel || ""),
+      };
+    }
+
+    probeFormulaChain() {
+      if (!bridge) return;
+      void bridge.start({
+        kind: "formula-probe",
+        title: "检测公式链路",
+        detail: "MinerU + DocVortex",
+        payload: { settings: this.formulaSettings() },
+      }).catch((error) => new Notice(String(error?.message || error)));
+      this.selectTool("tasks");
+    }
+
     startConvertTasks() {
       if (!bridge) return;
       const files = [...this._convertSelection];
@@ -907,13 +945,16 @@ export function createWorkshopView(leaf, options) {
       const format = String(this._convertFormat?.value || "markdown");
       const ext = docvortexFormatExt(format);
       const settings = this.docvortexSettings();
+      const formula = this.formulaSettings();
+      const parseMode = String(this._convertParse?.value || "local");
       for (const rel of files) {
         const out = convertPath(rel, ext, (candidate) => Boolean(app?.vault?.getAbstractFileByPath?.(candidate)));
+        const useFormula = parseMode === "mineru" && /\.pdf$/i.test(rel);
         void bridge.start({
-          kind: "docvortex-convert",
-          title: "文档互转",
+          kind: useFormula ? "formula-convert" : "docvortex-convert",
+          title: useFormula ? "公式文档" : "文档互转",
           detail: rel,
-          payload: { settings, source: rel, format, out },
+          payload: { settings: useFormula ? formula : settings, source: rel, format, out },
         }).catch((error) => new Notice(String(error?.message || error)));
       }
       this.selectTool("tasks");
@@ -941,7 +982,9 @@ export function createWorkshopView(leaf, options) {
       }
       if (this._convertRecent) {
         this._convertRecent.empty();
-        const recent = tasks.filter((task) => task.kind === "docvortex-convert" || task.kind === "docvortex-probe").slice(0, 3);
+        const recent = tasks
+          .filter((task) => task.kind === "docvortex-convert" || task.kind === "docvortex-probe" || task.kind === "formula-convert")
+          .slice(0, 3);
         if (recent.length) {
           this._convertRecent.createEl("h3", { text: "最近" });
           for (const task of recent) this.renderTaskRow(this._convertRecent, task);
@@ -953,6 +996,13 @@ export function createWorkshopView(leaf, options) {
         else if (probe.status === "running" || probe.status === "queued") this._convertStatus.setText("检测中…");
         else if (probe.status === "done") this._convertStatus.setText(`已就绪：${probe.output || "docvortex"}`);
         else this._convertStatus.setText(`未就绪：${probe.error || "未找到"}`);
+      }
+      if (this._formulaStatus) {
+        const probe = tasks.find((task) => task.kind === "formula-probe");
+        if (!probe) this._formulaStatus.setText("");
+        else if (probe.status === "running" || probe.status === "queued") this._formulaStatus.setText("检测中…");
+        else if (probe.status === "done") this._formulaStatus.setText(`公式链路就绪：${probe.output || "MinerU + DocVortex"}`);
+        else this._formulaStatus.setText(`公式链路不可用：${probe.error || "未就绪"}`);
       }
       this.syncTicker(Boolean(running.length || queued.length));
       if (!this._taskBar) return;

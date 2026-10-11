@@ -2582,6 +2582,74 @@ async function runWorkshopConvertScenario() {
   }
 }
 
+// 公式优先链路(pdf_tool MinerU → HTML → DocVortex 真公式)。默认跳过:MinerU 是
+// 计费云服务;设 QBR_E2E_MINERU=1 才真跑。
+async function runWorkshopFormulaScenario() {
+  if (process.env.QBR_E2E_MINERU !== "1") {
+    console.log("workshop-formula: skipped — set QBR_E2E_MINERU=1 to run the MinerU chain");
+    return;
+  }
+  if (!process.env.MINERU_API_KEY && !process.env.MINERU_TOKEN) {
+    console.log("workshop-formula: skipped — no MINERU_API_KEY / MINERU_TOKEN");
+    return;
+  }
+  const sidecarDir = String(process.env.QBR_OCR_SIDECAR || "").trim();
+  const scan = path.join(sidecarDir, "pdf_tool", "test-docs", "testpdf2.pdf");
+  if (!sidecarDir || !fs.existsSync(scan)) {
+    console.log("workshop-formula: skipped — no scanned fixture under", sidecarDir || "(QBR_OCR_SIDECAR unset)");
+    return;
+  }
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-e2e-wshop-formula-"));
+  const { app, page } = await launch("", { userData });
+  try {
+    await page.waitForSelector(".qbr-home-view", { timeout: 30_000 });
+    // 面板上「解析方式」有公式优先选项。
+    await page.click('[data-route="workshop"]');
+    await page.waitForSelector(".qbr-workshop-view", { timeout: 15_000 });
+    await page.evaluate(() => document.querySelector('.qbr-workshop-rail button[data-tool="convert"]')?.click());
+    await page.waitForSelector(".qbr-workshop-panel[data-tool='convert']", { timeout: 10_000 });
+    const hasOption = await page.evaluate(() => [...document.querySelectorAll(".qbr-workshop-panel[data-tool='convert'] select option")]
+      .some((option) => option.textContent.includes("公式优先")));
+    if (!hasOption) throw new Error("the convert panel lost the 公式优先 parse option");
+    // 链路自检:pdf_tool 目录 + MinerU 凭据 + DocVortex。
+    const probe = await page.evaluate((settings) => window.qbrDesktop.workshop.start({
+      kind: "formula-probe", title: "检测公式链路", payload: { settings },
+    }), { ocrSidecarDir: sidecarDir });
+    const probed = await waitFor("formula probe", () => page.evaluate(async (id) => {
+      const state = await window.qbrDesktop.workshop.list();
+      const task = state.tasks.find((entry) => entry.id === id);
+      return task && task.status !== "running" && task.status !== "queued" ? `${task.status}|${task.output}${task.error}` : "";
+    }, probe), 60_000);
+    if (!probed.startsWith("done")) throw new Error(`the formula probe should pass: ${probed}`);
+    console.log("workshop-formula: probe ok —", probed.split("|")[1]);
+    // 本地扫描件 → 导入书库 → 公式优先转 DOCX(只跑前 3 页,省云端额度)。
+    const imported = await page.evaluate((absolute) => window.__qbrPlugin.importBookToLibrary(absolute), scan);
+    if (!imported) throw new Error("the scanned fixture was not imported");
+    const out = imported.replace(/\.pdf$/i, ".公式.docx");
+    const task = await page.evaluate(async ({ source, out, settings }) => window.qbrDesktop.workshop.start({
+      kind: "formula-convert", title: "公式文档", detail: source,
+      payload: { source, out, format: "docx", pages: "1-3", settings },
+    }), { source: imported, out, settings: { ocrSidecarDir: sidecarDir } });
+    const done = await waitFor("formula convert", () => page.evaluate(async (id) => {
+      const state = await window.qbrDesktop.workshop.list();
+      const entry = state.tasks.find((row) => row.id === id);
+      return entry && entry.status !== "running" && entry.status !== "queued" ? `${entry.status}|${entry.output}|${entry.error}` : "";
+    }, task), 600_000);
+    if (!done.startsWith("done")) throw new Error(`the formula conversion should finish done: ${done}`);
+    const docx = path.join(userData, "library", out);
+    if (!fs.existsSync(docx)) throw new Error(`expected the docx in the library: ${docx}`);
+    const zip = await JSZip.loadAsync(fs.readFileSync(docx));
+    const xml = await zip.file("word/document.xml").async("string");
+    const omml = (xml.match(/<m:oMath>/g) || []).length;
+    const subs = (xml.match(/<m:sSub>/g) || []).length;
+    if (omml < 5 || subs < 1) throw new Error(`the docx should carry real OMML equations (oMath=${omml}, sSub=${subs})`);
+    console.log(`workshop-formula: MinerU → DocVortex docx with ${omml} OMML equations and ${subs} subscripts`);
+  } finally {
+    await app.close().catch(() => {});
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+}
+
 async function writeMinimalDocx(file) {
   const zip = new JSZip();
   zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -2845,6 +2913,7 @@ const scenarios = [
   ["workshop", runWorkshopScenario],
   ["workshop-ocr", runWorkshopOcrScenario],
   ["workshop-convert", runWorkshopConvertScenario],
+  ["workshop-formula", runWorkshopFormulaScenario],
   ["library", runLibraryTabsScenario],
   ["ebook", runEbookScenario],
   ["restart", runRestartScenario],
