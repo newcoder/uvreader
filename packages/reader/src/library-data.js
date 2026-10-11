@@ -70,6 +70,23 @@ export function isInsideVaultPath(candidatePath, vaultRoot) {
   return candidate === base || candidate.startsWith(`${base}/`);
 }
 
+// Reading records can outlive the file they point at: before the desktop
+// import fix, opening an outside book recorded its absolute path, and the
+// shim's lenient lookup kept those records looking like vault books (the home
+// page showed a second, "not started" card). Only in-vault paths may take part
+// in vault listings; the records themselves stay on disk.
+export function vaultBookPaths(bookPaths, vaultRoot) {
+  return (Array.isArray(bookPaths) ? bookPaths : [])
+    .filter((path) => path && isInsideVaultPath(path, vaultRoot));
+}
+
+// Same filter for path-keyed maps (progress/highlights/pins).
+export function vaultOnlyRecord(record, vaultRoot) {
+  const out = {};
+  for (const key of vaultBookPaths(Object.keys(record || {}), vaultRoot)) out[key] = record[key];
+  return out;
+}
+
 // Where new books land: the configured folder, or the folder already holding
 // the most books of the accepted extensions.
 export function pickLibraryFolder(bookFiles, booksFolder, extensions) {

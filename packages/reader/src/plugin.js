@@ -21,7 +21,7 @@ import { migrateReaderTheme } from "./reader-themes.js";
 import { normalizeLocationMarks } from "./reading-workflow.js";
 import { normalizeUiLanguage } from "./i18n-languages.js";
 import { watchQuietUi } from "./quiet-ui.js";
-import { bookTagsOf, existingVaultBookPath, freeBookPath, isInsideVaultPath, mergeBookTags, pickLibraryFolder } from "./library-data.js";
+import { bookTagsOf, existingVaultBookPath, freeBookPath, isInsideVaultPath, mergeBookTags, pickLibraryFolder, vaultBookPaths, vaultOnlyRecord } from "./library-data.js";
 
 export function createPlugin({
   MarkdownView, Notice, Plugin, TFile, AI_CHAT_VIEW_TYPE, AiChatView, AiExplainModal, BOOK_EXTENSIONS, BookQuickOpen, DEFAULT, LIB_VIEW_TYPE, LibraryView, MAX_BOOK_COMMANDS, OnboardingModal, ReaderModal, ReaderView, SettingsTab, VIEW_TYPE, WhatsNewModal, aiSetupState, applyDeviceProfile, bookNoteFiles, bookNoteLinkFor, bookNoteTemplatePath, bookNotesFolderPath, captureDeviceProfile, flattenSelectionText, hlMark, isMarkedReadingNote, isUnsafeReadingNote, normalizeAiChatHistory, notesFolderPath, openPluginAiSettings, processTemplateManually, qiaomuReaderPath, qiaomuReaderSetLanguage, qiaomuReaderTranslate, readerAiPanelContext, readerDefaultAiContext, readerHud, readerSupportsAiContext, readerTodayKey, rememberReaderJump, resolveBookNote, sanitizeNoteTitle, selectedReaderTheme, stripGeneratedReadingNoteTitle, syncHighlightsToReadingNote, whatsNewSince, writeBookProperty, writeWhatsNewNote,
@@ -1050,7 +1050,7 @@ export function createPlugin({
         format: file.extension,
       })));
     }
-    const bookPaths = Object.keys(index.books);
+    const bookPaths = vaultBookPaths(Object.keys(index.books), String(this.app.vault.adapter?.getBasePath?.() || ""));
     const values = {};
     await Promise.all(bookPaths.map(async (path) => { values[path] = await store.loadBook(path); }));
     return { bookPaths, values };
@@ -1656,12 +1656,19 @@ export function createPlugin({
   async _loadProgressFromVault() {
     const path5 = this._progressFilePath();
     const value = await this._loadJsonStore(path5, qiaomuReaderTranslate("progress"));
-    if (value !== null) return value;
+    if (value !== null) {
+      // Legacy single-file layout: keep outside records out of the vault maps
+      // (see vaultBookPaths) without touching the file on disk.
+      return vaultOnlyRecord(value, String(this.app.vault.adapter?.getBasePath?.() || ""));
+    }
     // Keep the damaged source blocked and untouched. The local snapshot lets
     // reading resume across a restart while the user resolves sync/history.
     const recovery = await readJsonRecordStore(this.app.vault.adapter, this._progressRecoveryFilePath());
     if (recovery.status === "ok" && recovery.value.sourcePath === path5 && isPlainRecord(recovery.value.progress)) {
-      return mergeReadingProgress(recovery.value.progress, this.progress);
+      return vaultOnlyRecord(
+        mergeReadingProgress(recovery.value.progress, this.progress),
+        String(this.app.vault.adapter?.getBasePath?.() || ""),
+      );
     }
     return null;
   }

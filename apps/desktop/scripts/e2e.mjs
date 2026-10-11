@@ -2277,6 +2277,24 @@ async function runHomeScenario() {
     });
     if (menuBarVisible !== false) throw new Error(`the native menu bar should be hidden, saw ${menuBarVisible}`);
     console.log("home: native menu bar hidden");
+    // 历史遗留的库外阅读记录(导入修复前以绝对路径记录)不得出现在「继续阅读」。
+    const leaked = await page.evaluate(async () => {
+      const plugin = window.__qbrPlugin;
+      await plugin._readingStore().saveBook(
+        "C:/outside/stale.epub",
+        "progress",
+        { pct: 0, percent: 0, lastRead: Date.now() },
+        { title: "stale", format: "epub" },
+      );
+      await plugin._loadBooksLayout();
+      return Object.keys(plugin.progress || {}).filter((key) => key.includes("outside"));
+    });
+    if (leaked.length) throw new Error(`an outside reading record leaked into progress: ${leaked}`);
+    await page.waitForTimeout(1500);
+    const staleCard = await page.evaluate(() => [...document.querySelectorAll(".qbr-home-card")]
+      .some((card) => card.textContent.includes("stale")));
+    if (staleCard) throw new Error("the stale outside record rendered a home card");
+    console.log("home: outside reading records stay out of 继续阅读");
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(userData, { recursive: true, force: true });

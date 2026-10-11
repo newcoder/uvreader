@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createLibraryData, existingVaultBookPath, freeBookPath, groupLibChips, IMPORT_MIME_EXT, isInsideVaultPath, mergeBookTags, pickLibraryFolder } from "../packages/reader/src/library-data.js";
+import { createLibraryData, existingVaultBookPath, freeBookPath, groupLibChips, IMPORT_MIME_EXT, isInsideVaultPath, mergeBookTags, pickLibraryFolder, vaultBookPaths, vaultOnlyRecord } from "../packages/reader/src/library-data.js";
 
 const normalize = (p) => String(p == null ? "" : p).trim()
   .replace(/\\/g, "/").replace(/\/+/g, "/").replace(/^\/+|\/+$/g, "");
@@ -176,6 +176,20 @@ test("isInsideVaultPath only trusts absolute paths under the vault root", () => 
   assert.equal(isInsideVaultPath("D:/projects/auto_chat/pdf_tool/test-docs/testpdf2.pdf", root), false, "outside files stay outside");
   assert.equal(isInsideVaultPath(`${root}-backup/Books/x.epub`, root), false, "a sibling folder with the same prefix is outside");
   assert.equal(isInsideVaultPath("D:/outside/x.epub", ""), true, "no root means no guard");
+});
+
+test("vaultBookPaths and vaultOnlyRecord drop outside reading records", () => {
+  const root = "C:/Users/me/AppData/Roaming/uv/library";
+  const paths = ["Books/a.epub", "C:/Users/rayni/Downloads/x.pdf", `${root}/Books/b.epub`, "D:/projects/assets/starter-books/11.epub"];
+  assert.deepEqual(vaultBookPaths(paths, root), ["Books/a.epub", `${root}/Books/b.epub`]);
+  assert.deepEqual(vaultBookPaths(null, root), []);
+  const record = {
+    "11.epub": { percent: 3 },
+    "D:/projects/uvreader/assets/starter-books/11.epub": { percent: 0 },
+    "C:/Users/rayni/Downloads/dlbook.pdf": { percent: 0 },
+  };
+  assert.deepEqual(vaultOnlyRecord(record, root), { "11.epub": { percent: 3 } });
+  assert.deepEqual(vaultOnlyRecord(null, root), {});
 });
 
 test("groupLibChips splits the tree groups and nests subfolders", () => {

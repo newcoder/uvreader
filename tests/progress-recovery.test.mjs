@@ -3,6 +3,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
 import { cloneJson, createSerialTaskQueue, isPlainRecord, mergeReadingProgress, parseJsonRecord, readJsonRecordStore, writeVerifiedJsonRecord } from "../packages/reader/src/storage.js";
+import { vaultOnlyRecord } from "../packages/reader/src/library-data.js";
 
 const pluginSource = fs.readFileSync(new URL("../packages/reader/src/plugin.js", import.meta.url), "utf8");
 const primary = "reading-progress.json";
@@ -21,7 +22,7 @@ function fixture() {
   };
   const methods = pluginSource.slice(pluginSource.indexOf("  async _loadProgressFromVault()"), pluginSource.indexOf("  async _loadJsonStore("));
   const Host = vm.runInNewContext(`(class {${methods}})`, {
-    cloneJson, isPlainRecord, mergeReadingProgress, readJsonRecordStore, writeVerifiedJsonRecord,
+    cloneJson, isPlainRecord, mergeReadingProgress, readJsonRecordStore, writeVerifiedJsonRecord, vaultOnlyRecord,
     qiaomuReaderTranslate: (text) => text,
   });
   const host = new Host();
