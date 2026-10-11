@@ -1,5 +1,7 @@
 import { ItemView, setIcon } from "obsidian";
 
+import { iconResolver } from "./icons.js";
+
 const BOOK_EXTENSIONS = ["epub", "fb2", "fbz", "mobi", "azw", "azw3", "cbz", "pdf"];
 
 function percentOf(plugin, path) {
@@ -349,4 +351,124 @@ export function createSettingsView(leaf, options) {
   }
 
   return new SettingsView(leaf);
+}
+
+// 书坊(Workshop):文档处理 / 格式转换 / 电子书制作。本阶段(W0-1)提供页面
+// 骨架——左栏工具分组 + 右栏面板 + 路由记忆;各工具在后续阶段接入,见
+// docs/workshop-implementation.md。
+const WORKSHOP_TOOLS = [
+  { id: "ocr", group: "处理", label: "文字层", title: "文字层与可搜索 PDF", en: "Text Layer", icon: "text-select",
+    lead: "把扫描 PDF 变成可搜索、可划线的文本;不改原件,阅读器直接可用。" },
+  { id: "extract", group: "处理", label: "内容提取", title: "内容提取(PDF → Doc)", en: "Extract", icon: "file-text",
+    lead: "完整提取文字、图片、表格、代码、公式,输出 Markdown / HTML / JSON,供转换或重新排版。" },
+  { id: "convert", group: "处理", label: "格式转换", title: "格式转换", en: "Convert", icon: "arrow-right",
+    lead: "文档互转:Office / ODF / HTML / EPUB / OFD → Markdown / HTML / DOCX / PDF / EPUB。" },
+  { id: "book", group: "处理", label: "电子书制作", title: "新建电子书", en: "Make a Book", icon: "book-open",
+    lead: "从提取结果、Markdown 或图片制作 EPUB:元数据、章节、封面、样式,可实时预览。" },
+  { id: "kindle", group: "发送", label: "发送到 Kindle", title: "发送到 Kindle", en: "Send to Kindle", icon: "external-link",
+    lead: "把 EPUB / PDF / DOCX 直接发到你的 Kindle 邮箱;EPUB 原生支持,不需要转 AZW3。" },
+  { id: "tasks", group: "队列", label: "任务", title: "任务", en: "Tasks", icon: "history",
+    lead: "运行中与最近的任务;取消、重试、打开产物。历史不自动续跑。" },
+];
+
+export function createWorkshopView(leaf, _options) {
+  class WorkshopView extends ItemView {
+    getViewType() {
+      return "qbr-workshop";
+    }
+
+    getDisplayText() {
+      return "书坊";
+    }
+
+    getIcon() {
+      return "workshop";
+    }
+
+    async onOpen() {
+      this.contentEl.addClass("qbr-workshop-view");
+      this._tool = localStorage.getItem("qbr-workshop-tool") || "ocr";
+      if (!WORKSHOP_TOOLS.some((tool) => tool.id === this._tool)) this._tool = "ocr";
+      this._collapsed = localStorage.getItem("qbr-workshop-rail") === "collapsed";
+      this.render();
+    }
+
+    async onClose() {
+      this.contentEl.empty();
+    }
+
+    selectTool(id) {
+      if (!WORKSHOP_TOOLS.some((tool) => tool.id === id)) return;
+      this._tool = id;
+      localStorage.setItem("qbr-workshop-tool", id);
+      this.syncTools();
+    }
+
+    toggleRail() {
+      this._collapsed = !this._collapsed;
+      localStorage.setItem("qbr-workshop-rail", this._collapsed ? "collapsed" : "open");
+      this.contentEl.toggleClass("qbr-workshop-rail-collapsed", this._collapsed);
+    }
+
+    syncTools() {
+      for (const button of this._railButtons || []) {
+        button.classList.toggle("is-active", button.dataset.tool === this._tool);
+      }
+      for (const panel of this._panels || []) {
+        panel.hidden = panel.dataset.tool !== this._tool;
+      }
+    }
+
+    render() {
+      const root = this.contentEl;
+      root.empty();
+      const head = root.createDiv("qbr-workshop-head");
+      const title = head.createDiv("qbr-workshop-title");
+      title.createEl("b", { text: "书坊" });
+      title.createEl("span", { text: "So Fun" });
+      const toggle = head.createEl("button", { cls: "qbr-workshop-toggle", attr: { type: "button", "aria-label": "收起工具栏" } });
+      toggle.insertAdjacentHTML("afterbegin", iconResolver("navigator"));
+      toggle.addEventListener("click", () => this.toggleRail());
+      head.createDiv({ cls: "qbr-workshop-lead", text: "文档处理 · 格式转换 · 电子书制作;产物默认回到书库。" });
+
+      const body = root.createDiv("qbr-workshop-body");
+      const rail = body.createDiv("qbr-workshop-rail");
+      this._railButtons = [];
+      let group = "";
+      for (const tool of WORKSHOP_TOOLS) {
+        if (tool.group !== group) {
+          group = tool.group;
+          rail.createDiv({ cls: "group", text: group });
+        }
+        const button = rail.createEl("button", { attr: { type: "button", "data-tool": tool.id } });
+        button.insertAdjacentHTML("afterbegin", iconResolver(tool.icon));
+        button.createSpan({ text: tool.label });
+        button.addEventListener("click", () => this.selectTool(tool.id));
+        this._railButtons.push(button);
+      }
+
+      const work = body.createDiv("qbr-workshop-work");
+      this._panels = [];
+      for (const tool of WORKSHOP_TOOLS) {
+        const panel = work.createDiv("qbr-workshop-panel");
+        panel.dataset.tool = tool.id;
+        const heading = panel.createEl("h2");
+        heading.createEl("b", { text: tool.title });
+        heading.createEl("span", { text: tool.en });
+        panel.createDiv({ cls: "lead", text: tool.lead });
+        const card = panel.createDiv("qbr-workshop-card");
+        card.createDiv({
+          cls: "qbr-workshop-soon",
+          text: tool.id === "tasks"
+            ? "还没有任务。任务队列在下一阶段接入。"
+            : "该工具将在后续阶段接入(实施计划 docs/workshop-implementation.md)。",
+        });
+        this._panels.push(panel);
+      }
+      this.syncTools();
+      root.toggleClass("qbr-workshop-rail-collapsed", this._collapsed);
+    }
+  }
+
+  return new WorkshopView(leaf);
 }

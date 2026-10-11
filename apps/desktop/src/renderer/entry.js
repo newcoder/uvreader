@@ -8,7 +8,7 @@ import { isBookFile } from "../shared/books.js";
 import { iconResolver, rasterIconMarkup } from "./icons.js";
 import { renderMathIn } from "./math.js";
 import { isBlockedHref, sanitizeHtml } from "./sanitize.js";
-import { createHomeView, createNoteView, createSettingsView, createTocView } from "./views.js";
+import { createHomeView, createNoteView, createSettingsView, createTocView, createWorkshopView } from "./views.js";
 
 const bridge = window.qbrDesktop || { paths: {} };
 const READER_VIEW = "qiaomu-reader";
@@ -17,6 +17,7 @@ const HOME_VIEW = "qbr-home";
 const NOTE_VIEW = "qbr-note";
 const TOC_VIEW = "qbr-toc";
 const SETTINGS_VIEW = "qbr-settings";
+const WORKSHOP_VIEW = "qbr-workshop";
 
 function renderMarkdown(markdown) {
   return sanitizeHtml(document, marked.parse(String(markdown || "")));
@@ -251,6 +252,7 @@ async function boot() {
   }));
   app.viewFactories.set(SETTINGS_VIEW, (leaf) => createSettingsView(leaf, { plugin }));
   app.viewFactories.set(TOC_VIEW, (leaf) => createTocView(leaf, { app }));
+  app.viewFactories.set(WORKSHOP_VIEW, (leaf) => createWorkshopView(leaf, { app, plugin }));
 
   async function showOwnView(type) {
     const existing = app.workspace.getLeavesOfType(type);
@@ -275,13 +277,19 @@ async function boot() {
       await showOwnView(SETTINGS_VIEW);
       return;
     }
+    if (route === "workshop") {
+      await showOwnView(WORKSHOP_VIEW);
+      return;
+    }
     await showOwnView(HOME_VIEW);
   }
 
   const navButtons = [...document.querySelectorAll("[data-route]")];
   for (const button of navButtons) {
-    // The sheet's Home and Library glyphs label the two route buttons.
-    const markup = rasterIconMarkup({ home: "home", library: "library" }[button.dataset.route] || "");
+    // The three page glyphs are the shell's inline icons: an open book with a
+    // sparkle for 悦空间, three books for 书库 and a book with a wand for 书坊
+    // (see docs/workshop.md §2.1); settings keeps the sliders glyph.
+    const markup = iconResolver({ home: "reading-space", library: "books", workshop: "workshop", settings: "sliders" }[button.dataset.route] || "");
     if (markup) button.insertAdjacentHTML("afterbegin", markup);
     button.addEventListener("click", () => void showRoute(button.dataset.route));
   }
@@ -389,7 +397,8 @@ async function boot() {
     document.body.classList.toggle("qbr-reading", type === READER_VIEW);
     const route = type === LIBRARY_VIEW ? "library"
       : type === SETTINGS_VIEW ? "settings"
-        : type === HOME_VIEW ? "home" : "";
+        : type === WORKSHOP_VIEW ? "workshop"
+          : type === HOME_VIEW ? "home" : "";
     for (const button of navButtons) button.classList.toggle("is-active", button.dataset.route === route);
   }
   app.workspace.on("active-leaf-change", syncChrome);

@@ -55,6 +55,10 @@ const ICONS = {
   "arrow-up": '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
   "arrow-down": '<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>',
   "bookmark-plus": '<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h7"/><path d="M16 3h5"/><path d="M18.5.5v5"/>',
+  // 书坊三页导航图标(设计见 docs/workshop.md §2.1 / docs/page-logos.html)。
+  "reading-space": '<path d="M12 8.6C10.4 7.2 8.3 6.4 6.1 6.4H4.2v11.2h1.9c2.2 0 4.3.8 5.9 2.1 1.6-1.3 3.7-2.1 5.9-2.1h1.9V6.4h-1.9c-2.2 0-4.3.8-5.9 2.2Z"/><path d="M12 8.6v11.1"/><path d="M18.9 2.2l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" fill="currentColor" stroke="none"/>',
+  books: '<rect x="4.3" y="4.6" width="3.3" height="14.8" rx="0.8"/><rect x="9.3" y="4.6" width="3.3" height="14.8" rx="0.8"/><path d="M15.1 5.5l3.2.85-3.75 14.2-3.2-.85z"/>',
+  workshop: '<path d="M11 10.2C9.6 9 7.8 8.3 5.9 8.3H4.2v9.4h1.7c1.9 0 3.7.7 5.1 1.9 1.4-1.2 3.2-1.9 5.1-1.9h1.7V8.3h-1.7c-1.9 0-3.7.7-5.1 1.9Z"/><path d="M11 10.2v9.3"/><path d="M13.4 20.2l5.6-5.6"/><path d="M20.9 9.1l.65 1.65 1.65.65-1.65.65-.65 1.65-.65-1.65-1.65-.65 1.65-.65z" fill="currentColor" stroke="none"/>',
 };
 
 const FALLBACK = ICONS["book-open"];

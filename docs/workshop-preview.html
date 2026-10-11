@@ -1,0 +1,588 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>书坊 · 交互预览</title>
+<style>
+  :root {
+    --bg: #f8f6f0;
+    --text: #24231f;
+    --ui: #efebe2;
+    --border: #dcd5c8;
+    --accent: #4f6758;
+    --muted: #746f66;
+    --hover: color-mix(in srgb, var(--text) 6%, transparent);
+    --accent-soft: color-mix(in srgb, var(--accent) 13%, transparent);
+    --ok: #3f7d4e;
+    --err: #b4533a;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: #e7e3d9; color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    display: flex; flex-direction: column; align-items: center; padding: 20px;
+  }
+  .caption { width: min(1180px, 100%); color: #6b665c; font-size: 12px; margin-bottom: 8px; display: flex; gap: 10px; align-items: baseline; }
+  .caption b { font-size: 13px; color: #3d3a34; }
+  .app {
+    position: relative; width: min(1180px, 100%); height: min(760px, calc(100vh - 90px));
+    display: flex; flex-direction: column; overflow: hidden;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 18px 50px rgba(60, 50, 30, .18);
+  }
+
+  /* ── 顶部导航 ─────────────────────────────────────────── */
+  .topnav { flex: none; height: 44px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border-bottom: 1px solid var(--border); background: var(--ui); }
+  .topnav .brand { font-weight: 700; font-size: 13px; margin-right: 10px; }
+  .topnav button { border: 1px solid transparent; background: transparent; color: var(--muted); padding: 5px 12px; border-radius: 8px; cursor: pointer; font: inherit; display: inline-flex; align-items: center; gap: 6px; }
+  .topnav button svg { width: 17px; height: 17px; }
+  .topnav button:hover { background: var(--hover); color: var(--text); }
+  .topnav button.active { background: var(--bg); border-color: var(--border); color: var(--text); font-weight: 600; }
+  .topnav .spacer { flex: 1; }
+
+  .body { flex: 1; display: flex; min-height: 0; }
+
+  /* ── 左栏 ─────────────────────────────────────────────── */
+  .rail { width: 196px; flex: none; border-right: 1px solid var(--border); background: var(--ui); padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; }
+  .rail .group { margin-top: 10px; font-size: 11px; color: var(--muted); padding: 0 8px; letter-spacing: .04em; }
+  .rail button {
+    text-align: left; border: 0; background: transparent; color: var(--text); padding: 8px 10px; border-radius: 8px;
+    cursor: pointer; font: inherit; display: flex; align-items: center; gap: 8px;
+  }
+  .rail button:hover { background: var(--hover); }
+  .rail button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .rail .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); opacity: .55; }
+  .rail .badge { margin-left: auto; font-size: 11px; color: var(--muted); }
+
+  /* ── 工作区 ───────────────────────────────────────────── */
+  .work { flex: 1; min-width: 0; overflow: auto; padding: 22px 28px 80px; position: relative; }
+  .page-title { display: flex; align-items: baseline; gap: 8px; margin: 0 0 16px; }
+  .page-title b { font-size: 20px; }
+  .page-title span { color: var(--muted); font-size: 11px; letter-spacing: .09em; text-transform: uppercase; }
+  .panel h1 { font-size: 19px; margin: 0 0 4px; }
+  .panel .lead { color: var(--muted); margin: 0 0 18px; font-size: 13px; }
+  .card { border: 1px solid var(--border); background: #fff; border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; }
+  .card h3 { margin: 0 0 10px; font-size: 13px; color: var(--muted); font-weight: 600; }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .row + .row { margin-top: 12px; }
+  .grow { flex: 1; min-width: 0; }
+  .muted { color: var(--muted); font-size: 12px; }
+  .btn { border: 1px solid var(--border); background: var(--ui); color: var(--text); padding: 7px 14px; border-radius: 8px; cursor: pointer; font: inherit; }
+  .btn:hover { background: var(--hover); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.ghost { background: transparent; }
+  .btn.small { padding: 4px 10px; font-size: 12px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); background: var(--ui); border-radius: 999px; padding: 4px 10px; font-size: 12px; }
+  .chip b { font-weight: 600; }
+  .chip .x { cursor: pointer; color: var(--muted); }
+  .drop { border: 1.5px dashed var(--border); border-radius: 12px; padding: 18px; text-align: center; color: var(--muted); background: #fffdf8; }
+  .drop b { color: var(--text); }
+  label.opt { display: flex; align-items: flex-start; gap: 8px; padding: 7px 8px; border-radius: 8px; cursor: pointer; }
+  label.opt:hover { background: var(--hover); }
+  label.opt input { margin-top: 3px; }
+  label.opt .sub { display: block; color: var(--muted); font-size: 12px; }
+  details.more { margin-top: 4px; }
+  details.more summary { cursor: pointer; color: var(--muted); font-size: 12px; padding: 4px 0; }
+  details.more .card { margin-top: 8px; }
+  .recent { border-top: 1px dashed var(--border); margin-top: 16px; padding-top: 12px; }
+  .recent h3 { margin: 0 0 8px; font-size: 13px; color: var(--muted); }
+  .recent .item { display: flex; align-items: center; gap: 10px; padding: 7px 0; font-size: 13px; }
+  .recent .item .name { font-weight: 600; }
+  .recent .item .grow { color: var(--muted); font-size: 12px; }
+
+  /* ── 转换矩阵 ─────────────────────────────────────────── */
+  .matrix { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .preset { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; background: #fff; cursor: pointer; }
+  .preset:hover { border-color: var(--accent); }
+  .preset.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; background: var(--accent-soft); }
+  .preset b { display: block; margin-bottom: 3px; }
+  .preset span { color: var(--muted); font-size: 12px; }
+
+  /* ── 向导 ─────────────────────────────────────────────── */
+  .steps { display: flex; gap: 6px; margin-bottom: 16px; }
+  .steps button { flex: 1; border: 1px solid var(--border); background: #fff; padding: 8px 6px; border-radius: 9px; cursor: pointer; color: var(--muted); font: inherit; font-size: 12px; }
+  .steps button.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+  .steps button.done { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); }
+  .wizard { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 14px; align-items: start; }
+  .wizard-preview { border: 1px solid var(--border); border-radius: 12px; background: #fff; padding: 12px; position: sticky; top: 0; }
+  .wizard-preview h3 { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+  .device { border: 1px solid var(--border); border-radius: 10px; padding: 16px; background: var(--paper, #fbf9f4); color: var(--ink, #24231f); font-family: var(--pv-font, Georgia, serif); font-size: var(--pv-size, 14px); line-height: var(--pv-lh, 1.7); transition: background .15s; }
+  .device h4 { margin: 0 0 8px; font-size: calc(var(--pv-size, 14px) * 1.18); }
+  .device p { margin: 0 0 8px; text-indent: var(--pv-indent, 2em); }
+  .device.theme-warm { --paper: #f6efe3; }
+  .device.theme-celadon { --paper: #eef3ee; }
+  .device.theme-night { --paper: #1f2226; --ink: #d8d5cf; }
+  .cover-preview { width: 152px; height: 216px; margin: 4px auto 10px; border-radius: 6px; background: linear-gradient(160deg, #4f6758, #2f3d35); color: #fff; display: flex; flex-direction: column; justify-content: center; gap: 8px; padding: 18px; text-align: center; box-shadow: 0 8px 20px rgba(40,35,25,.25); }
+  .cover-preview b { font-size: 17px; line-height: 1.35; }
+  .cover-preview span { font-size: 11px; opacity: .82; letter-spacing: .08em; }
+  .pv-toc { font-size: 12.5px; }
+  .pv-toc div { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; border-bottom: 1px dashed var(--border); }
+  .pv-toc span { color: var(--muted); font-size: 11px; }
+  .pv-doc { border: 1px solid var(--border); border-radius: 10px; background: #fffdf8; padding: 12px 14px; font-size: 13px; line-height: 1.7; }
+  .pv-doc b { display: block; margin-bottom: 6px; }
+  .pv-doc p { margin: 0 0 8px; }
+  .pv-doc code { background: var(--ui); border-radius: 4px; padding: 0 4px; font-size: 12px; }
+  .pv-table { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; margin: 8px 0; font-size: 12px; }
+  .pv-table span { background: var(--ui); padding: 4px 6px; border-radius: 4px; }
+  .pv-img { color: var(--muted); font-size: 12px; font-family: monospace; }
+  .pv-controls { display: grid; gap: 8px; margin-top: 12px; }
+  .pv-controls label { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  .pv-controls select { flex: 1; border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; background: #fff; font: inherit; }
+  .pv-controls input[type="range"] { flex: 1; }
+  .field { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .field label { width: 74px; color: var(--muted); font-size: 13px; }
+  .field input, .field select { flex: 1; border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; font: inherit; background: #fff; }
+  .cover { width: 84px; height: 120px; border: 1px dashed var(--border); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 11px; background: #fffdf8; }
+  .chapters { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .chapters .ch { display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 13px; border-top: 1px solid var(--border); background: #fff; }
+  .chapters .ch:first-child { border-top: 0; }
+  .chapters .ch .num { color: var(--muted); width: 20px; }
+  .chapters .ch .words { margin-left: auto; color: var(--muted); font-size: 12px; }
+
+  /* ── 任务 ─────────────────────────────────────────────── */
+  .task { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px dashed var(--border); font-size: 13px; }
+  .task:first-child { border-top: 0; }
+  .task .kind { font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
+  .task .state { width: 62px; text-align: right; font-size: 12px; }
+  .task .state.run { color: var(--accent); }
+  .task .state.done { color: var(--ok); }
+  .task .state.failed { color: var(--err); }
+  .bar { flex: 1; height: 5px; border-radius: 3px; background: var(--ui); overflow: hidden; min-width: 80px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s; }
+
+  /* ── 底部任务条 ───────────────────────────────────────── */
+  .taskbar {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 44px; display: flex; align-items: center; gap: 12px;
+    padding: 0 18px; border-top: 1px solid var(--border); background: var(--ui); font-size: 13px;
+  }
+  .taskbar .grow { color: var(--muted); font-size: 12px; }
+  .taskbar .bar { max-width: 220px; }
+</style>
+</head>
+<body>
+  <div class="caption"><b>书坊 · 交互预览</b><span>左栏切换工具;「开始处理」会把任务加入队列并模拟进度;任务可取消/重试。</span></div>
+  <div class="app">
+    <div class="topnav">
+      <span class="brand">UV Reader</span>
+      <button>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8.6C10.4 7.2 8.3 6.4 6.1 6.4H4.2v11.2h1.9c2.2 0 4.3.8 5.9 2.1 1.6-1.3 3.7-2.1 5.9-2.1h1.9V6.4h-1.9c-2.2 0-4.3.8-5.9 2.2Z"/><path d="M12 8.6v11.1"/><path d="M18.9 2.2l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" fill="currentColor" stroke="none"/></svg>
+        悦空间
+      </button>
+      <button>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4.3" y="4.6" width="3.3" height="14.8" rx="0.8"/><rect x="9.3" y="4.6" width="3.3" height="14.8" rx="0.8"/><path d="M15.1 5.5l3.2.85-3.75 14.2-3.2-.85z"/></svg>
+        书库
+      </button>
+      <button class="active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 10.2C9.6 9 7.8 8.3 5.9 8.3H4.2v9.4h1.7c1.9 0 3.7.7 5.1 1.9 1.4-1.2 3.2-1.9 5.1-1.9h1.7V8.3h-1.7c-1.9 0-3.7.7-5.1 1.9Z"/><path d="M11 10.2v9.3"/><path d="M13.4 20.2l5.6-5.6"/><path d="M20.9 9.1l.65 1.65 1.65.65-1.65.65-.65 1.65-.65-1.65-1.65-.65 1.65-.65z" fill="currentColor" stroke="none"/></svg>
+        书坊
+      </button>
+      <span class="spacer"></span>
+      <button>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10M18 7h2M4 12h4M12 12h8M4 17h12M20 17h0"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="17" r="2"/></svg>
+        设置
+      </button>
+    </div>
+    <div class="body">
+      <aside class="rail" id="rail">
+        <div class="group">处理</div>
+        <button data-panel="ocr" class="active"><span class="dot"></span>文字层</button>
+        <button data-panel="extract"><span class="dot"></span>内容提取</button>
+        <button data-panel="convert"><span class="dot"></span>格式转换</button>
+        <button data-panel="book"><span class="dot"></span>电子书制作</button>
+        <div class="group">发送</div>
+        <button data-panel="kindle"><span class="dot"></span>发送到 Kindle</button>
+        <div class="group">队列</div>
+        <button data-panel="tasks"><span class="dot"></span>任务 <span class="badge" id="railBadge"></span></button>
+      </aside>
+
+      <main class="work">
+        <div class="page-title"><b>书坊</b><span>So Fun</span></div>
+        <!-- 文字层 -->
+        <section class="panel" id="panel-ocr">
+          <h1>文字层与可搜索 PDF</h1>
+          <p class="lead">把扫描 PDF 变成可搜索、可划线的文本;不改原件,阅读器直接可用。</p>
+          <div class="card">
+            <h3>选择文件</h3>
+            <div class="drop">把 PDF 拖到这里,或 <b>选择书库文件…</b> / <b>打开本地文件…</b></div>
+            <div class="row" id="ocrFiles" style="margin-top:10px"></div>
+          </div>
+          <div class="card">
+            <h3>处理方式</h3>
+            <label class="opt"><input type="radio" name="ocrMode" value="cache" checked><span>生成文字层<span class="sub">写入阅读器缓存,打开书即可搜索/划线;最快。</span></span></label>
+            <label class="opt"><input type="radio" name="ocrMode" value="export"><span>导出可搜索 PDF 副本<span class="sub">另存 &lt;源名&gt;.uvtext.pdf,原页保留,插入不可见文字层。</span></span></label>
+            <details class="more">
+              <summary>更多选项</summary>
+              <div class="card">
+                <div class="field"><label>OCR 精度</label><select><option>200 dpi(默认)</option><option>300 dpi(更准更慢)</option></select></div>
+                <div class="field"><label>输出位置</label><input value="书库(可另存为…)" /></div>
+                <label class="opt"><input type="checkbox"><span>混合模式:用 MinerU 文字源提升质量<span class="sub">需要联网与 MinerU 密钥。</span></span></label>
+              </div>
+            </details>
+            <div class="row" style="margin-top:14px"><button class="btn primary" id="ocrStart">开始处理</button><span class="muted">批量:可一次选多本,逐个入队。</span></div>
+          </div>
+          <div class="recent"><h3>最近</h3><div id="ocrRecent"><span class="muted">还没有记录。</span></div></div>
+        </section>
+
+        <!-- 内容提取 -->
+        <section class="panel" id="panel-extract" hidden>
+          <h1>内容提取(PDF → Doc)</h1>
+          <p class="lead">完整提取文字、图片、表格、代码、公式,输出 Markdown / HTML / JSON,供转换或重新排版。</p>
+          <div class="card">
+            <h3>输入</h3>
+            <div class="row"><button class="btn" data-pick="extract">选择书库文件…</button><button class="btn ghost" data-pick="extract">打开本地文件…</button><span class="muted">支持 PDF / DOCX / 图片</span></div>
+            <div class="row" id="extractFiles" style="margin-top:10px"></div>
+          </div>
+          <div class="card">
+            <h3>提取模式</h3>
+            <label class="opt"><input type="radio" name="exMode" checked><span>自动<span class="sub">有文字层走文本,扫描件走视觉;推荐。</span></span></label>
+            <label class="opt"><input type="radio" name="exMode"><span>文本(便宜、快)<span class="sub">本地抽文本 + 模型整理;公式保留 LaTeX。</span></span></label>
+            <label class="opt"><input type="radio" name="exMode"><span>扫描视觉(逐页读图)<span class="sub">公式/表格/图片更准,消耗 AI 额度。</span></span></label>
+            <label class="opt"><input type="radio" name="exMode"><span>MinerU 云端(高级)<span class="sub">公式/表格最强;需要 MinerU 密钥。</span></span></label>
+          </div>
+          <div class="card">
+            <h3>输出</h3>
+            <label class="opt"><input type="checkbox" checked><span>Markdown(<b>&lt;源名&gt;.uvdoc.md</b> + <b>.uvdoc.assets/</b> 图片资产)</span></label>
+            <label class="opt"><input type="checkbox"><span>HTML(<b>&lt;源名&gt;.uvdoc.html</b>)</span></label>
+            <label class="opt"><input type="checkbox"><span>JSON(Doc v1,<b>&lt;源名&gt;.uvdoc.json</b> + <b>.uvdoc.audit.json</b> 体检报告)</span></label>
+            <label class="opt"><input type="checkbox"><span>AI 清理(修 OCR 错字 / 合并断行 / 补漏标题)<span class="sub">可选、可撤销;使用已配置的 AI。</span></span></label>
+            <div class="row" style="margin-top:12px"><button class="btn primary" id="exStart">开始提取</button><span class="muted">结束显示体检报告:缺页 / 空块 / 图片重复 / 失败页。</span></div>
+          </div>
+          <div class="card">
+            <h3>结果预览</h3>
+            <div class="pv-doc">
+              <b>第一章 力学基础</b>
+              <p>力是物体之间的相互作用,量纲为 <code>M·L/T²</code>。公式保留 LaTeX:<code>$\Delta E = W_f$</code>。</p>
+              <div class="pv-table"><span>题号</span><span>分值</span><span>答案</span><span>1</span><span>3</span><span>A</span></div>
+              <div class="pv-img">![插图1](报告.uvdoc.assets/IMG_001_p03.jpg)</div>
+            </div>
+            <div class="row" style="margin-top:10px"><button class="btn small">Markdown</button><button class="btn small ghost">HTML</button><button class="btn small ghost">JSON 结构树</button><span class="muted">体检报告:ok · 0 缺页 · 0 图片重复</span></div>
+          </div>
+          <div class="recent"><h3>最近</h3><div id="extractRecent"><span class="muted">还没有记录。</span></div></div>
+        </section>
+
+        <!-- 格式转换 -->
+        <section class="panel" id="panel-convert" hidden>
+          <h1>格式转换</h1>
+          <p class="lead">预设组合:提取 + 渲染一步到位。默认值可用,高级选项折叠。</p>
+          <div class="card">
+            <h3>选择预设</h3>
+            <div class="matrix">
+              <div class="preset active" data-preset="clean"><b>PDF → 干净电子书</b><span>提取 + 制作:去页眉页脚/水印,按标题分章,封面/元数据 → EPUB</span></div>
+              <div class="preset" data-preset="convert"><b>文档互转(DocVortex)</b><span>DOCX/PPT/ODT/HTML/EPUB/MHTML/OFD → md / html / docx / pdf</span></div>
+              <div class="preset" data-preset="md"><b>PDF → Markdown</b><span>pdf_tool 高保真提取正文/图片/表格/代码/公式</span></div>
+              <div class="preset" data-preset="mdepub"><b>Markdown / HTML → EPUB</b><span>从写作稿制作电子书(元数据/分章/样式)</span></div>
+              <div class="preset" data-preset="kindle"><b>EPUB → AZW3 / MOBI</b><span>Kindle 主流格式;Calibre ebook-convert</span></div>
+              <div class="preset" data-preset="img"><b>图片 → PDF / CBZ</b><span>照片成书、漫画打包,阅读器直接打开</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <h3>输入</h3>
+            <div class="row"><button class="btn" data-pick="convert">选择文件…</button><span class="muted" id="convertHint">当前预设:PDF → 干净电子书(EPUB)</span></div>
+            <div class="row" id="convertFiles" style="margin-top:10px"></div>
+          </div>
+          <div class="card">
+            <h3>选项</h3>
+            <label class="opt"><input type="checkbox" checked><span>去页眉页脚 / 水印<span class="sub">pdf_tool 的通用处理,扫描件与文本件共用。</span></span></label>
+            <label class="opt"><input type="checkbox" checked><span>按标题自动分章<span class="sub">可在「电子书制作」向导里调整。</span></span></label>
+            <label class="opt"><input type="checkbox" checked><span>生成后加入书库(可另存为…)<span class="sub">转换产物用目标扩展名;冲突时自动加序号。</span></span></label>
+            <div class="row" style="margin-top:12px"><button class="btn primary" id="cvStart">开始转换</button></div>
+          </div>
+          <div class="recent"><h3>最近</h3><div id="convertRecent"><span class="muted">还没有记录。</span></div></div>
+        </section>
+
+        <!-- 电子书制作 -->
+        <section class="panel" id="panel-book" hidden>
+          <h1>新建电子书</h1>
+          <p class="lead">从提取结果、Markdown 或图片制作 EPUB:元数据、章节、样式一步步来。</p>
+          <div class="steps" id="bookSteps">
+            <button data-step="1" class="active">1 内容源</button>
+            <button data-step="2">2 元数据与封面</button>
+            <button data-step="3">3 章节</button>
+            <button data-step="4">4 样式</button>
+            <button data-step="5">5 生成</button>
+          </div>
+          <div class="wizard">
+            <div class="card" id="bookStepBody"></div>
+            <aside class="wizard-preview" id="bookPreview"></aside>
+          </div>
+        </section>
+
+        <!-- 发送到 Kindle -->
+        <section class="panel" id="panel-kindle" hidden>
+          <h1>发送到 Kindle</h1>
+          <p class="lead">把 EPUB / PDF / DOCX 直接发到你的 Kindle 邮箱;EPUB 原生支持,不需要转 AZW3。</p>
+          <div class="card">
+            <h3>选择文件</h3>
+            <div class="row"><button class="btn" data-pick="kindle">选择书库文件…</button><button class="btn ghost" data-pick="kindle">打开本地文件…</button><span class="muted">支持 PDF / DOCX / TXT / RTF / HTML / 图片 / EPUB</span></div>
+            <div class="row" id="kindleFiles" style="margin-top:10px"></div>
+          </div>
+          <div class="card">
+            <h3>发送设置</h3>
+            <div class="field"><label>Kindle 地址</label><input placeholder="xxx@kindle.com(多个用逗号分隔)" value="rayni_reader@kindle.com" /></div>
+            <div class="row"><span class="muted">发件邮箱:rayni@qq.com · SMTP smtp.qq.com:465 · 已配置</span><button class="btn small ghost">去设置…</button></div>
+            <div class="row" style="margin-top:12px"><button class="btn primary" id="kindleSend">发送</button><span class="muted">单封 ≤25 个附件、总计 ≤50 MB(超出自动打包 ZIP)。</span></div>
+          </div>
+          <div class="card">
+            <h3>首次使用(Amazon 侧)</h3>
+            <div class="muted">① 在「管理我的内容和设备 → 首选项 → 个人文档设置」找到 Send to Kindle 邮箱;<br>
+              ② 把发件邮箱加入「已批准的个人文档电子邮件列表」(最多 15 个);<br>
+              ③ 收到 Amazon 确认邮件后,书会出现在 Kindle 图书馆。</div>
+          </div>
+          <div class="recent"><h3>最近发送</h3><div id="kindleRecent"><span class="muted">还没有记录。</span></div></div>
+        </section>
+
+        <!-- 任务 -->
+        <section class="panel" id="panel-tasks" hidden>
+          <h1>任务</h1>
+          <p class="lead">运行中与最近的任务;取消、重试、打开产物。历史不自动续跑。</p>
+          <div class="card" id="taskList"><span class="muted">还没有任务。</span></div>
+        </section>
+      </main>
+    </div>
+
+    <div class="taskbar" id="taskbar" hidden>
+      <span id="taskbarLabel">正在处理…</span>
+      <div class="bar"><i id="taskbarFill"></i></div>
+      <span class="grow" id="taskbarMeta"></span>
+      <button class="btn small" id="taskbarOpen">查看任务</button>
+    </div>
+  </div>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const SAMPLE_FILES = ["扫描件测试.pdf", "testpdf2.pdf", "论文.pdf", "exam1.jpg", "讲义.docx"];
+
+const state = { panel: "ocr", files: { ocr: [], extract: [], convert: [], kindle: [] }, preset: "clean", step: 1, tasks: [], nextId: 1,
+  style: { font: "Georgia, 'Songti SC', serif", size: 14, lh: 17, theme: "", indent: true } };
+const PRESETS = {
+  clean: { hint: "当前预设:PDF → 干净电子书(提取 + 制作,EPUB)", kind: "转换", label: "PDF → EPUB" },
+  convert: { hint: "当前预设:文档互转(DocVortex)", kind: "转换", label: "文档互转" },
+  md: { hint: "当前预设:PDF → Markdown(pdf_tool)", kind: "转换", label: "PDF → Markdown" },
+  mdepub: { hint: "当前预设:Markdown / HTML → EPUB", kind: "转换", label: "Markdown → EPUB" },
+  kindle: { hint: "当前预设:EPUB → AZW3 / MOBI(Calibre)", kind: "转换", label: "EPUB → AZW3" },
+  img: { hint: "当前预设:图片 → PDF / CBZ", kind: "转换", label: "图片 → PDF" },
+};
+
+function switchPanel(id) {
+  state.panel = id;
+  $$(".rail button").forEach((b) => b.classList.toggle("active", b.dataset.panel === id));
+  $$(".panel").forEach((p) => { p.hidden = p.id !== `panel-${id}`; });
+}
+$$(".rail button").forEach((b) => b.addEventListener("click", () => switchPanel(b.dataset.panel)));
+
+function pickFile(area) {
+  const used = state.files[area].length;
+  const name = SAMPLE_FILES[used % SAMPLE_FILES.length];
+  if (!state.files[area].includes(name)) state.files[area].push(name);
+  renderFiles(area);
+}
+function renderFiles(area) {
+  const host = $(`#${area}Files`);
+  host.innerHTML = "";
+  for (const name of state.files[area]) {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    chip.innerHTML = `<b>${name}</b><span class="x">✕</span>`;
+    chip.querySelector(".x").addEventListener("click", () => {
+      state.files[area] = state.files[area].filter((n) => n !== name);
+      renderFiles(area);
+    });
+    host.append(chip);
+  }
+}
+$$("[data-pick]").forEach((b) => b.addEventListener("click", () => pickFile(b.dataset.pick)));
+$("#ocrStart").addEventListener("click", () => {
+  if (!state.files.ocr.length) pickFile("ocr");
+  const mode = $('input[name="ocrMode"]:checked').value;
+  addTask(mode === "export" ? "导出可搜索 PDF" : "生成文字层", "文字层", state.files.ocr[0], mode === "export" ? 160 : 90);
+});
+$("#exStart").addEventListener("click", () => {
+  if (!state.files.extract.length) pickFile("extract");
+  addTask("内容提取", "提取", state.files.extract[0], 220);
+});
+$("#cvStart").addEventListener("click", () => {
+  if (!state.files.convert.length) pickFile("convert");
+  addTask(PRESETS[state.preset].label, "转换", state.files.convert[0], 240);
+});
+$("#kindleSend").addEventListener("click", () => {
+  if (!state.files.kindle.length) pickFile("kindle");
+  addTask("发送到 Kindle", "发送", state.files.kindle[0], 140);
+});
+$$(".preset").forEach((card) => card.addEventListener("click", () => {
+  state.preset = card.dataset.preset;
+  $$(".preset").forEach((c) => c.classList.toggle("active", c === card));
+  $("#convertHint").textContent = PRESETS[state.preset].hint;
+}));
+
+/* ── 任务队列 ─────────────────────────────────────────── */
+function addTask(title, kind, file, totalMs) {
+  const task = { id: state.nextId++, title, kind, file, progress: 0, status: "running", timer: null, totalMs };
+  task.timer = setInterval(() => {
+    task.progress = Math.min(100, task.progress + 100 / (totalMs / 120));
+    if (task.progress >= 100) { task.progress = 100; task.status = "done"; clearInterval(task.timer); }
+    renderTasks();
+  }, 120);
+  state.tasks.unshift(task);
+  renderTasks();
+  return task;
+}
+function stopTask(task) { clearInterval(task.timer); task.status = "cancelled"; renderTasks(); }
+function retryTask(task) { task.status = "running"; task.progress = 0; task.timer = setInterval(() => {
+  task.progress = Math.min(100, task.progress + 100 / (task.totalMs / 120));
+  if (task.progress >= 100) { task.progress = 100; task.status = "done"; clearInterval(task.timer); }
+  renderTasks();
+}, 120); renderTasks(); }
+function stateText(task) {
+  return { running: `运行中 ${Math.round(task.progress)}%`, done: "已完成", failed: "失败", cancelled: "已取消" }[task.status];
+}
+function renderTasks() {
+  const list = $("#taskList");
+  if (!state.tasks.length) { list.innerHTML = '<span class="muted">还没有任务。</span>'; }
+  else {
+    list.innerHTML = "";
+    for (const task of state.tasks.slice(0, 12)) {
+      const row = document.createElement("div");
+      row.className = "task";
+      row.innerHTML = `
+        <span class="kind">${task.kind}</span>
+        <span class="name"><b>${task.file}</b><span class="muted"> · ${task.title}</span></span>
+        <div class="bar"><i style="width:${task.progress}%"></i></div>
+        <span class="state ${task.status}">${stateText(task)}</span>
+        ${task.status === "running" ? '<button class="btn small" data-stop>取消</button>' : ""}
+        ${task.status === "done" ? '<button class="btn small" data-open>打开产物</button>' : ""}
+        ${task.status === "failed" || task.status === "cancelled" ? '<button class="btn small" data-retry>重试</button>' : ""}`;
+      row.querySelector("[data-stop]")?.addEventListener("click", () => stopTask(task));
+      row.querySelector("[data-retry]")?.addEventListener("click", () => retryTask(task));
+      row.querySelector("[data-open]")?.addEventListener("click", () => alert(`(预览)打开产物:书库/书坊/${task.file}`));
+      list.append(row);
+    }
+  }
+  const running = state.tasks.filter((t) => t.status === "running");
+  $("#railBadge").textContent = running.length ? `${running.length} 运行中` : "";
+  const bar = $("#taskbar");
+  if (!running.length) { bar.hidden = true; }
+  else {
+    bar.hidden = false;
+    const first = running[0];
+    $("#taskbarLabel").textContent = `${first.title} · ${first.file}`;
+    $("#taskbarFill").style.width = `${first.progress}%`;
+    $("#taskbarMeta").textContent = `${stateText(first)} · 共 ${running.length} 个任务`;
+  }
+  for (const task of state.tasks) {
+    if (task.status !== "done" || task.recentShown) continue;
+    task.recentShown = true;
+    const area = task.kind === "文字层" ? "ocr" : task.kind === "提取" ? "extract" : task.kind === "发送" ? "kindle" : "convert";
+    const host = $(`#${area}Recent`);
+    if (host.querySelector(".muted")) host.innerHTML = "";
+    const item = document.createElement("div");
+    item.className = "item";
+    item.innerHTML = `<span class="name">${task.file}</span><span class="grow">${task.title} · 完成</span>
+      <button class="btn small">打开</button><button class="btn small ghost">在书库中显示</button>`;
+    host.prepend(item);
+  }
+}
+$("#taskbarOpen").addEventListener("click", () => switchPanel("tasks"));
+
+/* ── 向导 ─────────────────────────────────────────────── */
+const BOOK_STEPS = {
+  1: () => `
+    <h3>内容源</h3>
+    <label class="opt"><input type="radio" name="bkSrc" checked><span>书库里的书(先自动提取)<span class="sub">扫描件会先走文字层/视觉提取。</span></span></label>
+    <label class="opt"><input type="radio" name="bkSrc"><span>已提取的 Doc / Markdown<span class="sub">书坊最近产物里选择。</span></span></label>
+    <label class="opt"><input type="radio" name="bkSrc"><span>图片文件夹<span class="sub">照片成书,多张 = 多页。</span></span></label>
+    <div class="row" style="margin-top:12px"><button class="btn" data-pick="book">选择内容…</button><span class="muted" id="bookPick">未选择</span></div>`,
+  2: () => `
+    <h3>元数据与封面</h3>
+    <div class="field"><label>书名</label><input id="bkTitle" value="萤窗小语(重排版)" /></div>
+    <div class="field"><label>作者</label><input id="bkAuthor" value="刘墉" /></div>
+    <div class="field"><label>语言</label><select><option>中文(简体)</option><option>中文(繁體)</option><option>English</option></select></div>
+    <div class="field"><label>丛书</label><input placeholder="可选" /></div>
+    <div class="row"><button class="btn small">指定封面图片…</button><button class="btn small ghost">自动(首图/首页)</button><button class="btn small ghost">模板生成</button><button class="btn small">AI 封面文案</button></div>
+    <div class="row" style="margin-top:8px"><button class="btn small ghost">AI 推断元数据</button><span class="muted">从正文补全书名/作者/语言(可撤销)。</span></div>`,
+  3: () => `
+    <h3>章节(按标题自动分章)</h3>
+    <div class="chapters">
+      <div class="ch"><span class="num">1</span>第一章 重逢<span class="words">1,240 字</span><button class="btn small ghost">拆分</button></div>
+      <div class="ch"><span class="num">2</span>第二章 风雨<span class="words">980 字</span><button class="btn small ghost">拆分</button></div>
+      <div class="ch"><span class="num">3</span>第三章 新生<span class="words">1,510 字</span><button class="btn small ghost">拆分</button></div>
+    </div>
+    <div class="row" style="margin-top:10px"><button class="btn small">AI 建议分章</button><span class="muted">标题缺失时由 AI 推断章节边界,一键应用、可撤销。</span></div>`,
+  4: () => `
+    <h3>样式</h3>
+    <div class="field"><label>字体</label><select id="pvFont"><option value="Georgia, 'Songti SC', serif">宋体 / 衬线(默认)</option><option value="'PingFang SC', 'Microsoft YaHei', sans-serif">黑体 / 无衬线</option><option value="KaiTi, 'Kaiti SC', serif">楷体</option></select></div>
+    <div class="field"><label>字号</label><input type="range" id="pvSize" min="12" max="20" value="14" /></div>
+    <div class="field"><label>行距</label><input type="range" id="pvLh" min="13" max="22" value="17" /></div>
+    <div class="field"><label>主题</label><select id="pvTheme"><option value="">纸白</option><option value="theme-warm">暖纸</option><option value="theme-celadon">青瓷</option><option value="theme-night">夜间</option></select></div>
+    <label class="opt"><input type="checkbox" id="pvIndent" checked><span>段首缩进两字</span></label>
+    <div class="muted">右侧样张实时更新;生成时把同一套 CSS 写进 EPUB,预览不落盘。</div>`,
+  5: () => `
+    <h3>生成</h3>
+    <label class="opt"><input type="checkbox" checked><span>生成 EPUB(主输出格式)</span></label>
+    <label class="opt"><input type="checkbox"><span>同时导出 Markdown / HTML</span></label>
+    <label class="opt"><input type="checkbox" checked><span>生成后加入书库(可另存为…)</span></label>
+    <label class="opt"><input type="checkbox"><span>生成后发送到 Kindle<span class="sub">EPUB 直发,不需要转 AZW3。</span></span></label>
+    <label class="opt"><input type="checkbox"><span>同时转 AZW3 / MOBI<span class="sub">用 Calibre ebook-convert(本机已安装);USB 拷贝/离线场景。</span></span></label>
+    <div class="row" style="margin-top:12px"><button class="btn primary" id="bookBuild">生成电子书</button><span class="muted">生成后可直接开始阅读。</span></div>`,
+};
+const BOOK_PREVIEW = {
+  1: () => `<h3>预览</h3><div class="muted">选择内容后,这里显示提取结果与章节结构。</div>`,
+  2: () => {
+    const title = ($("#bkTitle")?.value || "书名").trim();
+    const author = ($("#bkAuthor")?.value || "作者").trim();
+    return `<h3>封面预览</h3><div class="cover-preview"><b>${title}</b><span>${author}</span></div>
+      <div class="muted">模板输出 1600×2400;也可指定图片或用书内首图。</div>`;
+  },
+  3: () => `<h3>目录预览(nav / NCX)</h3><div class="pv-toc">
+      <div><span>第一章 重逢</span><span>1</span></div>
+      <div><span>第二章 风雨</span><span>2</span></div>
+      <div><span>第三章 新生</span><span>3</span></div>
+    </div><div class="muted" style="margin-top:8px">章节可改名/合并/拆分/排序。</div>`,
+  4: () => `<h3>章节样张</h3>
+    <div class="device ${state.style.theme}" style="--pv-font:${state.style.font};--pv-size:${state.style.size}px;--pv-lh:${state.style.lh / 10};--pv-indent:${state.style.indent ? "2em" : "0"}">
+      <h4>第二章 风雨</h4>
+      <p>对于风雨,逃避它,你只有被卷入洪流;迎向它,你却可能获得新生。</p>
+      <p>那天的雨很大,屋檐下的水线像一串珠子。他把书合上,又打开,书页间落下一张旧车票。</p>
+    </div>
+    <div class="muted" style="margin-top:8px">实现时用 iframe 渲染同一套 CSS;可切换手机/平板/桌面宽度与明暗。</div>`,
+  5: () => `<h3>将生成</h3><div class="pv-toc">
+      <div><span>EPUB</span><span>萤窗小语.epub</span></div>
+      <div><span>AZW3(可选)</span><span>萤窗小语.azw3</span></div>
+      <div><span>发送到 Kindle</span><span>可选</span></div>
+    </div>`,
+};
+function renderBookPreview() { $("#bookPreview").innerHTML = BOOK_PREVIEW[state.step](); }
+function renderBookStep() {
+  $("#bookStepBody").innerHTML = BOOK_STEPS[state.step]();
+  renderBookPreview();
+  $$("#bookSteps button").forEach((b) => {
+    const n = Number(b.dataset.step);
+    b.classList.toggle("active", n === state.step);
+    b.classList.toggle("done", n < state.step);
+  });
+  $$("#bookStepBody [data-pick]").forEach((b) => b.addEventListener("click", () => { $("#bookPick").textContent = "已选择:萤窗小语.epub"; }));
+  $("#bookBuild")?.addEventListener("click", () => { addTask("制作 EPUB", "制作", "萤窗小语(重排版)", 260); switchPanel("tasks"); });
+  const font = $("#pvFont"), size = $("#pvSize"), lh = $("#pvLh"), theme = $("#pvTheme"), indent = $("#pvIndent");
+  if (font) {
+    font.addEventListener("change", () => { state.style.font = font.value; renderBookPreview(); });
+    size.addEventListener("input", () => { state.style.size = Number(size.value); renderBookPreview(); });
+    lh.addEventListener("input", () => { state.style.lh = Number(lh.value); renderBookPreview(); });
+    theme.addEventListener("change", () => { state.style.theme = theme.value; renderBookPreview(); });
+    indent.addEventListener("change", () => { state.style.indent = indent.checked; renderBookPreview(); });
+  }
+  $("#bkTitle")?.addEventListener("input", renderBookPreview);
+  $("#bkAuthor")?.addEventListener("input", renderBookPreview);
+}
+$$("#bookSteps button").forEach((b) => b.addEventListener("click", () => { state.step = Number(b.dataset.step); renderBookStep(); }));
+renderBookStep();
+
+/* 预置两条任务,让队列一眼可见 */
+addTask("生成文字层", "文字层", "扫描件测试.pdf", 90);
+renderTasks();
+</script>
+</body>
+</html>

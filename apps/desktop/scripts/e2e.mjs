@@ -2245,6 +2245,51 @@ async function runHomeScenario() {
   }
 }
 
+async function runWorkshopScenario() {
+  const { app, page, userData } = await launch("");
+  try {
+    await page.waitForSelector(".qbr-home-view", { timeout: 30_000 });
+    await page.click('[data-route="workshop"]');
+    await page.waitForSelector(".qbr-workshop-view", { timeout: 15_000 });
+    const rail = await page.evaluate(() => {
+      const buttons = [...document.querySelectorAll(".qbr-workshop-rail button")];
+      return {
+        count: buttons.length,
+        labels: buttons.map((b) => b.textContent.trim()),
+        active: buttons.filter((b) => b.classList.contains("is-active")).map((b) => b.dataset.tool),
+      };
+    });
+    if (rail.count < 6) throw new Error(`the workshop rail should list every tool: ${JSON.stringify(rail)}`);
+    if (!rail.labels.includes("文字层") || !rail.labels.includes("发送到 Kindle")) {
+      throw new Error(`unexpected workshop rail: ${JSON.stringify(rail.labels)}`);
+    }
+    // Switching tools shows exactly one panel.
+    const convert = await page.evaluate(() => {
+      const button = [...document.querySelectorAll(".qbr-workshop-rail button")].find((b) => b.dataset.tool === "convert");
+      button?.click();
+      const visible = [...document.querySelectorAll(".qbr-workshop-panel")].filter((panel) => !panel.hidden);
+      return { visible: visible.map((panel) => panel.dataset.tool), title: visible[0]?.querySelector("h2 b")?.textContent || "" };
+    });
+    if (convert.visible.length !== 1 || convert.visible[0] !== "convert" || convert.title !== "格式转换") {
+      throw new Error(`the convert panel did not open alone: ${JSON.stringify(convert)}`);
+    }
+    console.log("workshop: page opens with", rail.count, "tools; panel switching ok");
+    // The nav route returns home and the workshop remembers the last tool.
+    await page.click('[data-route="home"]');
+    await page.waitForSelector(".qbr-home-view", { timeout: 10_000 });
+    await page.click('[data-route="workshop"]');
+    await page.waitForSelector(".qbr-workshop-view", { timeout: 10_000 });
+    const remembered = await page.evaluate(() => (
+      document.querySelector(".qbr-workshop-rail button.is-active")?.dataset.tool || ""
+    ));
+    if (remembered !== "convert") throw new Error(`the workshop should remember the last tool, saw ${remembered}`);
+    console.log("workshop: route remembers the last tool");
+  } finally {
+    await app.close().catch(() => {});
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+}
+
 async function writeMinimalEpub(file) {
   const zip = new JSZip();
   zip.file("mimetype", "application/epub+zip", { compression: "STORE" });
@@ -2483,6 +2528,7 @@ async function runPinyinScenario() {
 
 const scenarios = [
   ["home", runHomeScenario],
+  ["workshop", runWorkshopScenario],
   ["library", runLibraryTabsScenario],
   ["ebook", runEbookScenario],
   ["restart", runRestartScenario],
