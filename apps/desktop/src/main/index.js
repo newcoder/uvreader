@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 
 import { BOOK_EXTENSIONS, isBookFile } from "../shared/books.js";
 import { createAiRuntime } from "./ai-runtime.js";
+import { createDocvortex, registerDocvortexRunners } from "./docvortex.js";
 import { createPdfOcr, OCR_PROBE_TIMEOUT, resolveOcrOutput } from "./pdf-ocr.js";
 import { registerOcrRunners } from "./workshop-ocr.js";
 import { createWorkshopQueue } from "./workshop.js";
@@ -54,6 +55,9 @@ workshop.register("probe", async ({ payload, report, signal }) => {
 });
 // 文字层工具:批量生成文字层 / 导出可搜索 PDF(.uvtext.pdf)。
 registerOcrRunners(workshop, { pdfOcr, vaultRoot });
+// 文档互转(DocVortex):检测 + 转换。
+const docvortex = createDocvortex();
+registerDocvortexRunners(workshop, { docvortex, vaultRoot });
 // Online book downloads land in the library so they appear as regular books.
 const bookDownloads = createBookDownloads({
   downloadRoot: path.join(vaultRoot, "Books", "下载"),

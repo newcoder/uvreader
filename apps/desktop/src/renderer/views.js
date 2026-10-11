@@ -1,7 +1,8 @@
 import { ItemView, Notice, setIcon } from "obsidian";
 
 import { iconResolver } from "./icons.js";
-import { uvtextPath } from "../shared/workshop-names.js";
+import { DOCVORTEX_FORMATS, DOCVORTEX_INPUTS, docvortexFormatExt } from "../shared/workshop-formats.js";
+import { convertPath, uvtextPath } from "../shared/workshop-names.js";
 
 const BOOK_EXTENSIONS = ["epub", "fb2", "fbz", "mobi", "azw", "azw3", "cbz", "pdf"];
 
@@ -373,7 +374,13 @@ const WORKSHOP_TOOLS = [
 ];
 
 // 任务类型标签与状态文案(队列数据来自主进程)。
-const WORKSHOP_KIND_LABELS = { probe: "自检", "ocr-cache": "文字层", "ocr-export": "导出" };
+const WORKSHOP_KIND_LABELS = {
+  probe: "自检",
+  "ocr-cache": "文字层",
+  "ocr-export": "导出",
+  "docvortex-probe": "检测",
+  "docvortex-convert": "转换",
+};
 
 function workshopTaskState(task) {
   if (task.status === "running") return task.total ? `运行中 ${task.done}/${task.total}` : "运行中…";
@@ -493,6 +500,8 @@ export function createWorkshopView(leaf, options) {
           this._taskList = panel.createDiv("qbr-workshop-task-list");
         } else if (tool.id === "ocr") {
           this.renderOcrPanel(panel);
+        } else if (tool.id === "convert") {
+          this.renderConvertPanel(panel);
         } else {
           const card = panel.createDiv("qbr-workshop-card");
           card.createDiv({ cls: "qbr-workshop-soon", text: "该工具将在后续阶段接入(实施计划 docs/workshop-implementation.md)。" });
@@ -706,6 +715,195 @@ export function createWorkshopView(leaf, options) {
       this.selectTool("tasks");
     }
 
+    // ── 格式转换(DocVortex,W0-4)──────────────────────────────────────
+    renderConvertPanel(panel) {
+      this._convertSelection ||= [];
+      const root = panel.createDiv("qbr-workshop-tool");
+
+      const presetCard = root.createDiv("qbr-workshop-card");
+      presetCard.createEl("h3", { text: "选择预设" });
+      const matrix = presetCard.createDiv("qbr-workshop-matrix");
+      const presets = [
+        { id: "convert", label: "文档互转(DocVortex)", hint: "DOCX/PPT/ODT/HTML/EPUB/MHTML/OFD → md / html / docx / pdf / epub / json", ready: true },
+        { id: "clean", label: "PDF → 干净电子书", hint: "提取 + 制作:去页眉页脚/水印,按标题分章 → EPUB", ready: false },
+        { id: "pdfmd", label: "PDF → Markdown", hint: "pdf_tool 高保真提取(内容提取工具)", ready: false },
+        { id: "mdepub", label: "Markdown / HTML → EPUB", hint: "电子书制作向导", ready: false },
+        { id: "kindle", label: "EPUB → AZW3 / MOBI", hint: "Calibre,Kindle 主流格式", ready: false },
+        { id: "img", label: "图片 → PDF / CBZ", hint: "照片成书、漫画打包", ready: false },
+      ];
+      this._convertPreset = "convert";
+      for (const preset of presets) {
+        const card = matrix.createDiv("qbr-workshop-preset" + (preset.ready ? " is-ready" : " is-planned"));
+        card.createEl("b", { text: preset.label });
+        card.createDiv({ cls: "qbr-workshop-opt-hint", text: preset.hint });
+        if (!preset.ready) card.createSpan({ cls: "qbr-workshop-preset-tag", text: "后续阶段" });
+        card.addEventListener("click", () => {
+          if (preset.ready) { this._convertPreset = preset.id; return; }
+          new Notice(`${preset.label} 将在后续阶段接入(见 docs/workshop-implementation.md)`);
+        });
+      }
+
+      const inputCard = root.createDiv("qbr-workshop-card");
+      inputCard.createEl("h3", { text: "选择文件" });
+      const pickRow = inputCard.createDiv("qbr-workshop-row");
+      const pickVault = pickRow.createEl("button", { text: "选择书库文件…" });
+      pickVault.addEventListener("click", () => this.toggleConvertBookList());
+      const pickLocal = pickRow.createEl("button", { text: "打开本地文件…" });
+      pickLocal.addEventListener("click", () => void this.pickLocalConvertFiles());
+      pickRow.createSpan({ cls: "qbr-workshop-hint", text: "本地文件会自动导入书库" });
+      this._convertBookList = inputCard.createDiv("qbr-workshop-booklist");
+      this._convertBookList.hidden = true;
+      this._convertChips = inputCard.createDiv("qbr-workshop-chips");
+
+      const optionCard = root.createDiv("qbr-workshop-card");
+      optionCard.createEl("h3", { text: "转换设置" });
+      const formatRow = optionCard.createDiv("qbr-workshop-row");
+      formatRow.createSpan({ cls: "qbr-workshop-hint", text: "目标格式" });
+      this._convertFormat = formatRow.createEl("select", { cls: "qbr-workshop-select" });
+      for (const format of DOCVORTEX_FORMATS) {
+        this._convertFormat.createEl("option", { attr: { value: format.id }, text: format.label });
+      }
+      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "输出与源文件同目录,用目标扩展名;同名自动加序号。" });
+      const detectRow = optionCard.createDiv("qbr-workshop-row");
+      const detect = detectRow.createEl("button", { text: "检测 DocVortex" });
+      detect.addEventListener("click", () => this.probeDocvortex());
+      this._convertStatus = detectRow.createSpan({ cls: "qbr-workshop-hint", text: "未检测" });
+      const pathRow = optionCard.createDiv("qbr-workshop-row");
+      pathRow.createSpan({ cls: "qbr-workshop-hint", text: "DocVortex 路径" });
+      this._convertPath = pathRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空自动检测(PATH / python -m docvortex)" } });
+      this._convertPath.value = String(plugin?.settings?.docvortexPath || "");
+      this._convertPath.addEventListener("change", () => {
+        if (!plugin?.settings) return;
+        plugin.settings.docvortexPath = this._convertPath.value.trim();
+        void plugin.saveAll?.();
+      });
+
+      const startRow = root.createDiv("qbr-workshop-row");
+      const start = startRow.createEl("button", { cls: "mod-cta", text: "开始转换" });
+      start.addEventListener("click", () => this.startConvertTasks());
+      startRow.createSpan({ cls: "qbr-workshop-hint", text: "批量:可一次选多本,逐个入队。" });
+
+      this._convertRecent = root.createDiv("qbr-workshop-recent");
+      this.renderConvertChips();
+    }
+
+    convertBooks() {
+      return (app?.vault?.getFiles?.() || [])
+        .filter((file) => DOCVORTEX_INPUTS.includes(String(file?.extension || "").toLowerCase()))
+        .sort((a, b) => String(a.basename).localeCompare(String(b.basename), "ru"));
+    }
+
+    toggleConvertBookList() {
+      const list = this._convertBookList;
+      if (!list) return;
+      list.hidden = !list.hidden;
+      this.refreshConvertBookList();
+    }
+
+    refreshConvertBookList() {
+      const list = this._convertBookList;
+      if (!list || list.hidden) return;
+      list.empty();
+      const books = this.convertBooks();
+      if (!books.length) {
+        list.createDiv({ cls: "qbr-workshop-hint", text: "书库里还没有可转换的文档。" });
+        return;
+      }
+      for (const file of books) {
+        const row = list.createEl("label", { cls: "qbr-workshop-book" });
+        const box = row.createEl("input", { attr: { type: "checkbox" } });
+        box.checked = this._convertSelection.includes(file.path);
+        box.addEventListener("change", () => {
+          if (box.checked) this.addConvertFile(file.path);
+          else this.removeConvertFile(file.path);
+        });
+        row.createSpan({ text: `${file.basename} · ${String(file.extension || "").toUpperCase()}` });
+      }
+    }
+
+    addConvertFile(path) {
+      if (!path || this._convertSelection.includes(path)) return;
+      this._convertSelection.push(path);
+      this.renderConvertChips();
+    }
+
+    removeConvertFile(path) {
+      this._convertSelection = this._convertSelection.filter((item) => item !== path);
+      this.renderConvertChips();
+      this.refreshConvertBookList();
+    }
+
+    renderConvertChips() {
+      const host = this._convertChips;
+      if (!host) return;
+      host.empty();
+      if (!this._convertSelection.length) {
+        host.createSpan({ cls: "qbr-workshop-hint", text: "未选择文件" });
+        return;
+      }
+      for (const path of this._convertSelection) {
+        const chip = host.createSpan({ cls: "qbr-workshop-chip" });
+        chip.createSpan({ text: path.split("/").pop() || path });
+        const remove = chip.createEl("button", { cls: "qbr-workshop-chip-x", text: "✕" });
+        remove.addEventListener("click", () => this.removeConvertFile(path));
+      }
+    }
+
+    async pickLocalConvertFiles() {
+      if (!bridge?.pickFiles) return;
+      const paths = await bridge.pickFiles().catch(() => []);
+      for (const absolute of paths) {
+        try {
+          const rel = await plugin?.importBookToLibrary?.(absolute);
+          if (rel) this.addConvertFile(rel);
+        } catch (error) {
+          new Notice(`无法加入书库：${absolute}\n${error?.message || error}`);
+        }
+      }
+      this.refreshConvertBookList();
+    }
+
+    docvortexSettings() {
+      const settings = plugin?.settings || {};
+      return {
+        docvortexPath: String(settings.docvortexPath || ""),
+        docvortexPython: String(settings.docvortexPython || settings.ocrPython || ""),
+      };
+    }
+
+    probeDocvortex() {
+      if (!bridge) return;
+      void bridge.start({
+        kind: "docvortex-probe",
+        title: "检测 DocVortex",
+        detail: "文档互转",
+        payload: { settings: this.docvortexSettings() },
+      }).catch((error) => new Notice(String(error?.message || error)));
+      this.selectTool("tasks");
+    }
+
+    startConvertTasks() {
+      if (!bridge) return;
+      const files = [...this._convertSelection];
+      if (!files.length) {
+        new Notice("请先选择文件");
+        return;
+      }
+      const format = String(this._convertFormat?.value || "markdown");
+      const ext = docvortexFormatExt(format);
+      const settings = this.docvortexSettings();
+      for (const rel of files) {
+        const out = convertPath(rel, ext, (candidate) => Boolean(app?.vault?.getAbstractFileByPath?.(candidate)));
+        void bridge.start({
+          kind: "docvortex-convert",
+          title: "文档互转",
+          detail: rel,
+          payload: { settings, source: rel, format, out },
+        }).catch((error) => new Notice(String(error?.message || error)));
+      }
+      this.selectTool("tasks");
+    }
+
     // 任务状态由主进程推送:徽标、任务面板与底部任务条一起刷新。
     renderTasks(state) {
       const tasks = Array.isArray(state?.tasks) ? state.tasks : [];
@@ -724,6 +922,21 @@ export function createWorkshopView(leaf, options) {
           this._ocrRecent.createEl("h3", { text: "最近" });
           for (const task of recent) this.renderTaskRow(this._ocrRecent, task);
         }
+      }
+      if (this._convertRecent) {
+        this._convertRecent.empty();
+        const recent = tasks.filter((task) => task.kind === "docvortex-convert" || task.kind === "docvortex-probe").slice(0, 3);
+        if (recent.length) {
+          this._convertRecent.createEl("h3", { text: "最近" });
+          for (const task of recent) this.renderTaskRow(this._convertRecent, task);
+        }
+      }
+      if (this._convertStatus) {
+        const probe = tasks.find((task) => task.kind === "docvortex-probe");
+        if (!probe) this._convertStatus.setText("未检测");
+        else if (probe.status === "running" || probe.status === "queued") this._convertStatus.setText("检测中…");
+        else if (probe.status === "done") this._convertStatus.setText(`已就绪：${probe.output || "docvortex"}`);
+        else this._convertStatus.setText(`未就绪：${probe.error || "未找到"}`);
       }
       if (!this._taskBar) return;
       const active = running[0] || queued[0] || null;

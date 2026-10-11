@@ -16,3 +16,19 @@ export function uvtextPath(sourcePath, exists = () => false) {
   while (exists(candidate)) candidate = join(`${base} (${index++})${UVTEXT_SUFFIX}${ext}`);
   return candidate;
 }
+
+// 文档互转产物:目标扩展名(报告.docx → 报告.md),冲突自动加序号。
+export function convertPath(sourcePath, ext, exists = () => false) {
+  const targetExt = String(ext || "out").replace(/^\./, "") || "out";
+  const normalized = String(sourcePath || "").replace(/\\/g, "/");
+  const slash = normalized.lastIndexOf("/");
+  const dir = slash >= 0 ? normalized.slice(0, slash) : "";
+  const name = normalized.slice(slash + 1) || "book";
+  const dot = name.lastIndexOf(".");
+  const base = dot > 0 ? name.slice(0, dot) : name;
+  const join = (candidate) => (dir ? `${dir}/${candidate}` : candidate);
+  let candidate = join(`${base}.${targetExt}`);
+  let index = 1;
+  while (exists(candidate)) candidate = join(`${base} (${index++}).${targetExt}`);
+  return candidate;
+}

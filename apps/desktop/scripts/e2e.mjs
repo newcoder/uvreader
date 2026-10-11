@@ -2484,6 +2484,86 @@ async function runWorkshopOcrScenario() {
   }
 }
 
+async function runWorkshopConvertScenario() {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-e2e-wshop-conv-"));
+  fs.mkdirSync(path.join(userData, "library", "Books"), { recursive: true });
+  await writeMinimalDocx(path.join(userData, "library", "Books", "转换测试.docx"));
+  const { app, page } = await launch("", { userData });
+  try {
+    await page.waitForSelector(".qbr-home-view", { timeout: 30_000 });
+    await page.click('[data-route="workshop"]');
+    await page.waitForSelector(".qbr-workshop-view", { timeout: 15_000 });
+    // Skip on machines without docvortex installed.
+    const probe = await page.evaluate(() => window.qbrDesktop.workshop.start({
+      kind: "docvortex-probe", title: "检测 DocVortex", payload: { settings: {} },
+    }));
+    const probed = await waitFor("docvortex probe", () => page.evaluate(async (id) => {
+      const state = await window.qbrDesktop.workshop.list();
+      const task = state.tasks.find((entry) => entry.id === id);
+      return task && task.status !== "running" && task.status !== "queued" ? `${task.status}|${task.output}${task.error}` : "";
+    }, probe), 20_000);
+    if (!probed.startsWith("done")) {
+      console.log("workshop-convert: skipped — docvortex unavailable:", probed.slice(0, 90));
+      return;
+    }
+    await page.evaluate(() => document.querySelector('.qbr-workshop-rail button[data-tool="convert"]')?.click());
+    await page.waitForSelector(".qbr-workshop-panel[data-tool='convert']", { timeout: 10_000 });
+    const picked = await page.evaluate(() => {
+      const pick = [...document.querySelectorAll(".qbr-workshop-panel[data-tool='convert'] button")]
+        .find((button) => button.textContent.includes("选择书库文件"));
+      pick?.click();
+      const row = [...document.querySelectorAll(".qbr-workshop-book")].find((entry) => entry.textContent.includes("转换测试"));
+      const box = row?.querySelector("input");
+      if (box) { box.checked = true; box.dispatchEvent(new Event("change", { bubbles: true })); }
+      return Boolean(row);
+    });
+    if (!picked) throw new Error("the docx was not listed in the convert picker");
+    await page.evaluate(() => {
+      const select = document.querySelector(".qbr-workshop-panel[data-tool='convert'] select");
+      if (select) select.value = "markdown";
+      const start = [...document.querySelectorAll(".qbr-workshop-panel[data-tool='convert'] button")]
+        .find((button) => button.textContent.includes("开始转换"));
+      start?.click();
+    });
+    const converted = await waitFor("convert task", () => page.evaluate(async () => {
+      const state = await window.qbrDesktop.workshop.list();
+      const task = state.tasks.find((entry) => entry.kind === "docvortex-convert" && entry.status !== "running" && entry.status !== "queued");
+      return task ? `${task.status}|${task.output}|${task.error}` : "";
+    }), 120_000);
+    if (!converted.startsWith("done")) throw new Error(`the convert task should finish done: ${converted}`);
+    const mdPath = path.join(userData, "library", "Books", "转换测试.md");
+    if (!fs.existsSync(mdPath)) throw new Error(`expected the markdown next to the source: ${mdPath}`);
+    const text = fs.readFileSync(mdPath, "utf8");
+    if (!text.includes("书坊转换测试")) throw new Error("the converted markdown lost the text");
+    console.log("workshop-convert: docx → markdown landed —", path.basename(mdPath), text.length, "chars");
+  } finally {
+    await app.close().catch(() => {});
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+}
+
+async function writeMinimalDocx(file) {
+  const zip = new JSZip();
+  zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`);
+  zip.file("_rels/.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`);
+  zip.file("word/document.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p><w:r><w:t>书坊转换测试：这是一段用来验证 DOCX 到 Markdown 的文字。</w:t></w:r></w:p>
+    <w:p><w:r><w:t>第二段文字，用来确认换行与段落。</w:t></w:r></w:p>
+  </w:body>
+</w:document>`);
+  fs.writeFileSync(file, await zip.generateAsync({ type: "nodebuffer" }));
+}
+
 async function writeMinimalEpub(file) {
   const zip = new JSZip();
   zip.file("mimetype", "application/epub+zip", { compression: "STORE" });
@@ -2724,6 +2804,7 @@ const scenarios = [
   ["home", runHomeScenario],
   ["workshop", runWorkshopScenario],
   ["workshop-ocr", runWorkshopOcrScenario],
+  ["workshop-convert", runWorkshopConvertScenario],
   ["library", runLibraryTabsScenario],
   ["ebook", runEbookScenario],
   ["restart", runRestartScenario],

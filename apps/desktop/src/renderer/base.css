@@ -1160,6 +1160,64 @@ body .view-content.qiaomu-reader-view .qiaomu-reader-pdf-zoom-control {
   margin-top: 8px;
 }
 
+/* 格式转换:预设矩阵与输入控件 */
+.qbr-workshop-matrix {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.qbr-workshop-preset {
+  position: relative;
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-primary);
+}
+
+.qbr-workshop-preset.is-ready {
+  cursor: pointer;
+  border-color: color-mix(in srgb, var(--interactive-accent) 55%, var(--background-modifier-border));
+}
+
+.qbr-workshop-preset.is-ready:hover {
+  background: var(--background-modifier-hover);
+}
+
+.qbr-workshop-preset.is-planned {
+  opacity: .6;
+}
+
+.qbr-workshop-preset b {
+  display: block;
+  margin-bottom: 3px;
+}
+
+.qbr-workshop-preset-tag {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.qbr-workshop-select,
+.qbr-workshop-input {
+  min-width: 180px;
+  padding: 5px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font: inherit;
+  font-size: 13px;
+}
+
+.qbr-workshop-input {
+  flex: 1;
+  min-width: 260px;
+}
+
 /* ── 书坊:任务队列 ─────────────────────────────────────────────────── */
 .qbr-workshop-rail button .badge {
   margin-left: auto;
