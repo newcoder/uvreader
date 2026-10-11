@@ -82,7 +82,7 @@ W2-* 依赖 P1 ─────────────────────�
 - **Calibre/DocVortex/pdf_tool 检测**:统一 `resolveTool()`(自定义路径 → 常见位置 → PATH),失败给可操作提示(下载链接/设置入口)。
 - **产物命名**:`<源名>.uvtext.pdf`、`<源名>.uvdoc.md|html|json`、`<源名>.uvdoc.assets/`、转换产物=目标扩展名+冲突编号;一律经 `resolveOcrOutput` 式库内校验(另存为除外,走 `showSaveDialog`)。
 - **安全**:主进程读文件/发邮件;渲染层不碰 SMTP/文件系统;CSP 不变;邮件密码只走 SecretStorage。
-- **公式优先链路**(§8.1):pdf_tool(`pdf_to_doc.py --mode mineru --formats json`,缓存目录按源文件哈希)→ Doc v1 JSON → `formula-html.js` 生成带 `<script type="math/tex">` 的 HTML(图片保持相对路径,和 JSON 同目录写出)→ DocVortex 转 DOCX/EPUB。runner 是 `formula-convert`(标签:MinerU 云端解析 → 生成公式 HTML → DocVortex 转换),`formula-probe` 一次校验 pdf_tool 目录 + MinerU 凭据 + DocVortex;MinerU 产物按源文件缓存复用(云端慢且计费)。
+- **公式优先链路**(§8.1):pdf_tool(`pdf_to_doc.py --mode mineru --formats json`,缓存目录按源文件哈希)→ Doc v1 JSON → `formula-html.js` 生成带 `<script type="math/tex">` 的 HTML(图片保持相对路径,和 JSON 同目录写出)→ DocVortex 转 DOCX/EPUB。runner 是 `formula-convert`(标签:MinerU 云端解析 → 生成公式 HTML → DocVortex 转换),`formula-probe` 一次校验 pdf_tool 目录 + MinerU 凭据 + DocVortex;MinerU 产物按源文件缓存复用(云端慢且计费)。凭据解析顺序:面板「MinerU 凭据」→ 进程环境 → **Windows 注册表**(`HKCU\Environment`、HKLM 的 Session Manager 环境,免重启;环境变量设好后应用未重启也能用),再经子进程环境交给 pdf_tool;凭据缺失时把 traceback 翻译成可操作提示。
 - **DocVortex 实测(2026-10-11)**:扫描件走它自带的本地 OCR(`~/.docvortex/model/MinerU-4_models_onnx`:PP-DocLayoutV2 版式 + PP-OCRv6 tiny det / small rec,首次约 226MB),与 pdf_tool 的 rapidocr 无关;行内公式按普通文字识别、上下标会被拉平(无公式模型),公式多的文档应走 pdf_tool 内容提取(MinerU,见 P1)。CLI 转换期间不输出任何进度(结束才打印产物路径),任务行与底部任务条用**不确定态滑动条 + 秒表**(`startedAt`)表达「还在跑」。
 
 ## 6. 测试与门禁

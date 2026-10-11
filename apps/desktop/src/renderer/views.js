@@ -788,8 +788,21 @@ export function createWorkshopView(leaf, options) {
       this._convertParse.value = localStorage.getItem("qbr-workshop-parse") === "mineru" ? "mineru" : "local";
       this._convertParse.addEventListener("change", () => {
         localStorage.setItem("qbr-workshop-parse", String(this._convertParse.value));
+        this.syncConvertTokenRow();
       });
-      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "公式优先:PDF 先经 MinerU 云端提取(公式转 LaTeX),再交 DocVortex 生成真公式 DOCX / MathML EPUB;需要 MINERU_API_KEY,首次较慢。" });
+      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "公式优先:PDF 先经 MinerU 云端提取(公式转 LaTeX),再交 DocVortex 生成真公式 DOCX / MathML EPUB;需要 MinerU 凭据(下面填写或环境变量),首次较慢。" });
+      this._convertTokenRow = optionCard.createDiv("qbr-workshop-row");
+      this._convertTokenRow.createSpan({ cls: "qbr-workshop-hint", text: "MinerU 凭据" });
+      this._convertToken = this._convertTokenRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空用环境变量 MINERU_API_KEY" } });
+      this._convertToken.value = String(plugin?.settings?.mineruToken || "");
+      this._convertToken.addEventListener("change", () => {
+        if (!plugin?.settings) return;
+        plugin.settings.mineruToken = this._convertToken.value.trim();
+        void plugin.saveAll?.();
+        new Notice("MinerU 凭据已保存；新任务生效。");
+      });
+      this._convertTokenRow.createSpan({ cls: "qbr-workshop-hint", text: "填一次长期生效；用环境变量的话，设完需重启应用。" });
+      this.syncConvertTokenRow();
       optionCard.createDiv({ cls: "qbr-workshop-hint", text: "扫描件由 DocVortex 自带 OCR 识别（首次会下载约 220MB 模型）；数学公式与上下标识别有限。" });
       const detectRow = optionCard.createDiv("qbr-workshop-row");
       const detect = detectRow.createEl("button", { text: "检测 DocVortex" });
@@ -922,6 +935,12 @@ export function createWorkshopView(leaf, options) {
         mineruToken: String(settings.mineruToken || ""),
         mineruModel: String(settings.mineruModel || ""),
       };
+    }
+
+    // 凭据输入只在公式优先时露出(渐进披露)。
+    syncConvertTokenRow() {
+      if (!this._convertTokenRow) return;
+      this._convertTokenRow.hidden = String(this._convertParse?.value || "local") !== "mineru";
     }
 
     probeFormulaChain() {

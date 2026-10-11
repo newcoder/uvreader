@@ -9,9 +9,11 @@ import { createWorkshopQueue } from "../src/main/workshop.js";
 import {
   createFormulaChain,
   formulaCacheDir,
+  friendlyPdfToolError,
   pdfToolArgs,
   pdfToolScriptCommand,
   registerFormulaRunners,
+  resolveMineruToken,
 } from "../src/main/workshop-formula.js";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -58,13 +60,30 @@ test("pdfToolScriptCommand needs a checkout with the converter entry", () => {
   assert.equal(target.script, path.join(dir, "pdf_tool", "pdf_to_doc.py"));
 });
 
-test("pdfToolArgs requests the MinerU JSON doc and forwards credentials", () => {
+test("pdfToolArgs requests the MinerU JSON doc; credentials travel in the environment", () => {
   const base = pdfToolArgs("D:/pt/pdf_tool/pdf_to_doc.py", { source: "D:/v/a.pdf", outDir: "D:/work" });
   assert.deepEqual(base.slice(0, 7), ["D:/pt/pdf_tool/pdf_to_doc.py", "--pdf", "D:/v/a.pdf", "--mode", "mineru", "--formats", "json"]);
   assert.ok(base.includes("--out-dir") && base.includes("D:/work"));
-  assert.ok(!base.includes("--mineru-token"));
-  const full = pdfToolArgs("s", { source: "a", outDir: "w", token: "tk", model: "pipeline", pages: "1-3" });
-  assert.deepEqual(full.slice(full.indexOf("--pages")), ["--pages", "1-3", "--mineru-token", "tk", "--mineru-model", "pipeline"]);
+  assert.ok(!base.some((arg) => String(arg).includes("mineru-token")), "the token never reaches the command line");
+  const full = pdfToolArgs("s", { source: "a", outDir: "w", model: "pipeline", pages: "1-3" });
+  assert.deepEqual(full.slice(full.indexOf("--pages")), ["--pages", "1-3", "--mineru-model", "pipeline"]);
+});
+
+test("resolveMineruToken prefers settings, then the process env, then the registry", () => {
+  assert.equal(
+    resolveMineruToken({ mineruToken: " from-settings " }, { env: { MINERU_API_KEY: "env" }, readEnv: () => "reg" }),
+    "from-settings",
+  );
+  assert.equal(resolveMineruToken({}, { env: { MINERU_TOKEN: "env-token" }, readEnv: () => "reg" }), "env-token");
+  assert.equal(resolveMineruToken({}, { env: {}, readEnv: (name) => (name === "MINERU_API_KEY" ? "reg-key" : "") }), "reg-key");
+  assert.equal(resolveMineruToken({}, { env: {}, readEnv: () => "" }), "");
+});
+
+test("friendlyPdfToolError turns the missing-credential traceback into an action", () => {
+  const message = friendlyPdfToolError("Traceback (most recent call last):\n  File \"pipeline.py\", line 153\nValueError: mode=mineru 需要 mineru_token");
+  assert.match(message, /MinerU 凭据/);
+  assert.match(message, /重启应用/);
+  assert.equal(friendlyPdfToolError("解析超时（30s）\n  "), "解析超时（30s）");
 });
 
 test("formulaCacheDir is stable, page-aware and filesystem-safe", () => {
@@ -99,7 +118,8 @@ test("prepare runs pdf_tool, reads the Doc JSON and writes the formula HTML", as
   assert.match(html, /<script type="math\/tex; mode=display">x = \\frac\{a\}\{b\}<\/script>/);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].options.cwd, dir);
-  assert.ok(calls[0].args.includes("--mineru-token"));
+  assert.equal(calls[0].options.env.MINERU_API_KEY, "tk", "the credential travels in the child environment");
+  assert.ok(!calls[0].args.includes("--mineru-token"));
 });
 
 test("prepare surfaces a failing pdf_tool exit and cancels cleanly", async () => {
@@ -129,10 +149,17 @@ test("prepare surfaces a failing pdf_tool exit and cancels cleanly", async () =>
   assert.equal(hanging.calls[0].killed, true);
 });
 
-function makeQueue(chain, docvortex) {
+function makeQueue(chain, docvortex, options = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-formula-queue-"));
   const queue = createWorkshopQueue({ file: path.join(dir, "tasks.json"), onState: () => {}, log: { warn() {} } });
-  registerFormulaRunners(queue, { chain, docvortex, vaultRoot: "D:/vault", cacheRoot: path.join(dir, "cache"), log: () => {} });
+  registerFormulaRunners(queue, {
+    chain,
+    docvortex,
+    vaultRoot: "D:/vault",
+    cacheRoot: path.join(dir, "cache"),
+    readEnv: options.readEnv || (() => ""),
+    log: () => {},
+  });
   return { queue, dir };
 }
 
