@@ -93,6 +93,7 @@
 - **输出(7 种)**:Markdown、HTML、LaTeX、DOCX、EPUB、PDF、结构化 JSON。
 - **用法**:`docvortex convert <源> --format <目标> -o <产物>`;`--parse-mode auto|txt|ocr`(PDF)、`--pages`、`--pdf-layout`;一次解析可多格式导出(Bundle)。
 - **预设**:PDF→Markdown、DOCX→Markdown/EPUB、EPUB→Markdown、HTML→DOCX 等;选项折叠,默认值可用。
+- **公式优先(可选,见 §8.1)**:扫描件公式多时,先经 pdf_tool(MinerU)提取 LaTeX,再转 HTML(`<script type="math/tex">`)交 DocVortex 生成 DOCX/EPUB —— 输出为真 OMML/MathML 公式。
 
 ### 5.4 电子书制作(向导 + 实时预览,主输出 EPUB)
 
@@ -171,6 +172,17 @@
 | pandoc | GPL-2 | md→epub3 等 | 未安装,暂不采用 |
 
 DocVortex 实测备注:输出 EPUB 结构合法(mimetype/container/OPF/nav + 图片资产),但**元数据默认 `DocVortex Document`、正文为单文件、DOCX 的标题/表格结构映射较弱**;因此 EPUB 制作走 Calibre(元数据/分章/封面可控),DocVortex 主攻格式互转。
+
+### 8.1 公式链路实测(MinerU → DocVortex,2026-10-11)
+
+**结论**:pdf_tool 的公式质量来自 **MinerU**(`--source mineru/hybrid`;本地 rapidocr 无公式模型),其 LaTeX 已含上下标与分式;DocVortex 的公式**渲染**管线完整(LaTeX→MathML→OMML 写 DOCX、EPUB 输出 MathML、PDF 用 ziamath 画矢量),缺的只是**扫描件的公式识别**。两者可用 HTML 桥接,**不需要改 DocVortex**。
+
+- pdf_tool 侧证据:`output/testpdf2/mineru/full.md`(扫描件)含 `$v = v_{0} + at$`、`$\frac{U_1}{U_2} = \frac{n_1}{n_2}$`、`$2\mathrm{m}/{\mathrm{s}}^{2}$`、`$\frac{mv_0^2\sin^2\theta}{qE}$`;`render/viewer.py` 把 `X_p`/`x^2` 渲染为 `<sub>/<sup>`;双层 PDF 的文字层用 `latex_to_text` 转 Unicode(只为可搜索)。
+- DocVortex 侧:扫描件 OCR 路径把 `display_formula` 当**截图**保留、行内公式走 PP-OCRv6 纯文本(上下标被拉平);原生 PDF 路径有公式检测(按字形几何,`analyzers/native/pdf/formulas.py` + `inline/scripts.py`);HTML/XHTML 输入识别 MathML、`<script type="math/tex">`、`data-tex` 等(`content/markup/formula.py`);DOCX 输出为真 OMML 公式(`render/_internal/docx/math.py`)。注意 0.5.16 的 Markdown/txt 输入**实际不支持**(`Unsupported native input format: txt`)。
+- **实测桥**(`%TEMP%\dv-math-html`):LaTeX 包在 `<script type="math/tex">`(行内)/`<script type="math/tex; mode=display">`(行间)的 HTML → `docvortex convert --format docx`:7×`m:oMath`、3×`m:sSub`、2×`m:sSup`、2×`m:f`;`--format epub` 输出 MathML(`msub`)。MathML(经 latex2mathml,docvortex 自带依赖)同样可行。
+- **实施 A(不改 DocVortex,推荐先做)**:书坊「内容提取」/「文档互转」增加**公式优先**链路 = pdf_tool(MinerU / vision)→ blocks → HTML(公式包 `<script type="math/tex">`)→ DocVortex → DOCX/EPUB/PDF。改动点:pdf_tool `render/md.py` 的 `render_html_blocks` 补 `equation` 分支与行内 `$...$` 包装(小改);书坊面板加预设/选项;依赖 `MINERU_API_KEY`(与内容提取共用)。
+- **实施 B(上游/分支,终局)**:给 DocVortex 的 OCR 路径加**公式识别模型**(PP-FormulaNet / UniMERNet ONNX,与现有 PP-DocLayoutV2 / PP-OCRv6 同族),把 `display_formula` 截图与行内公式区域变成 LaTeX;顺带支持外部文本源(MinerU layout.json / vision 结果)与 Markdown 输入。需要改第三方包(提 PR 或维护分支)。
+- 不采用:把 pdf_tool 的 hybrid 双层 PDF 再喂给 DocVortex —— 文字层公式已转 Unicode、字形几何是合成的,原生路径还原不出上下标结构。
 
 ## 9. 文案与 i18n
 
