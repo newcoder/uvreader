@@ -277,7 +277,7 @@ async function boot() {
       await showOwnView(SETTINGS_VIEW);
       return;
     }
-    if (route === "workshop") {
+    if (route === "workshop" && plugin.settings?.workshopEnabled !== false) {
       await showOwnView(WORKSHOP_VIEW);
       return;
     }
@@ -395,6 +395,9 @@ async function boot() {
   function syncChrome() {
     const type = app.workspace.activeLeaf?.view?.getViewType?.() || "";
     document.body.classList.toggle("qbr-reading", type === READER_VIEW);
+    // 书坊入口可整体关闭(灰度/回退);默认开启。
+    const workshopNav = navButtons.find((button) => button.dataset.route === "workshop");
+    if (workshopNav) workshopNav.hidden = plugin.settings?.workshopEnabled === false;
     const route = type === LIBRARY_VIEW ? "library"
       : type === SETTINGS_VIEW ? "settings"
         : type === WORKSHOP_VIEW ? "workshop"
@@ -403,6 +406,7 @@ async function boot() {
   }
   app.workspace.on("active-leaf-change", syncChrome);
   app.workspace.on("layout-change", syncChrome);
+  syncChrome();
 
   app.qbrDesktopOpenNote = async (note) => {
     const leaf = app.workspace.getRightLeaf(false);

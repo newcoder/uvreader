@@ -2369,6 +2369,23 @@ async function runWorkshopScenario() {
     } else {
       console.log("workshop: task queue probe skipped — no pdf_tool sidecar at", sidecarDir);
     }
+    // 书坊入口开关:关闭后导航隐藏,恢复后重新出现。
+    const navToggle = await page.evaluate(async () => {
+      const plugin = window.__qbrPlugin;
+      const button = () => [...document.querySelectorAll("[data-route]")].find((entry) => entry.dataset.route === "workshop");
+      plugin.settings.workshopEnabled = false;
+      window.__qbrApp.workspace.trigger("layout-change");
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      const hidden = Boolean(button()?.hidden);
+      plugin.settings.workshopEnabled = true;
+      window.__qbrApp.workspace.trigger("layout-change");
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      return { hidden, shown: !button()?.hidden };
+    });
+    if (!navToggle.hidden || !navToggle.shown) {
+      throw new Error(`the workshop switch did not hide/show the nav entry: ${JSON.stringify(navToggle)}`);
+    }
+    console.log("workshop: the workshop switch hides and restores the nav entry");
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(userData, { recursive: true, force: true });
@@ -2478,6 +2495,17 @@ async function runWorkshopOcrScenario() {
     }), 30_000);
     if (!found.includes("第 2 页")) throw new Error(`the page-2 hit is missing from the result list: ${found}`);
     console.log("workshop-ocr: searchable copy lists the unrendered page —", found);
+
+    // 任务行的产物操作:打开产物 + 在文件夹中显示。
+    await page.evaluate(() => document.querySelector('.qbr-workshop-rail button[data-tool="tasks"]')?.click());
+    const rowActions = await waitFor("task row actions", () => page.evaluate(() => {
+      const row = [...document.querySelectorAll(".qbr-workshop-task")].find((entry) => entry.textContent.includes("导出"));
+      return row ? [...row.querySelectorAll(".qbr-workshop-task-btn")].map((button) => button.textContent).join(",") : "";
+    }), 10_000);
+    if (!rowActions.includes("打开产物") || !rowActions.includes("在文件夹中显示")) {
+      throw new Error(`task row actions missing: ${rowActions}`);
+    }
+    console.log("workshop-ocr: task row offers 打开产物 / 在文件夹中显示");
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(userData, { recursive: true, force: true });

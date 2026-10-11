@@ -972,6 +972,8 @@ export function createWorkshopView(leaf, options) {
       if (task.status === "done" && /[\\/]/.test(String(task.output || ""))) {
         const open = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "打开产物" });
         open.addEventListener("click", () => { void window.qbrDesktop?.openPath?.(task.output); });
+        const reveal = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "在文件夹中显示" });
+        reveal.addEventListener("click", () => { void window.qbrDesktop?.showItemInFolder?.(task.output); });
       }
       if (task.error) row.createDiv({ cls: "qbr-workshop-task-error", text: task.error });
       else if (task.output) row.createDiv({ cls: "qbr-workshop-task-output", text: task.output });
