@@ -67,7 +67,16 @@ test("splitMarkdownChapters follows 1–3 level headings and keeps fences intact
 test("adoptPdfToolOutputs renames pdf_tool products and rewrites asset links", () => {
   const dir = tempDir();
   const stem = "报告";
-  fs.writeFileSync(path.join(dir, `${stem}_doc.md`), `![图](mineru/images/a.jpg)\n\n正文`);
+  fs.writeFileSync(path.join(dir, `${stem}_doc.md`), [
+    "![图](mineru/images/a.jpg)",
+    "",
+    "正文",
+    "",
+    "```",
+    "这是一段被提取工具误判成代码块的正文段落。它足够长,而且以句号结尾,应该被拆回普通段落继续排版。",
+    "```",
+    "",
+  ].join("\n"));
   fs.writeFileSync(path.join(dir, `${stem}_doc.html`), `<img src="mineru/images/a.jpg">`);
   fs.writeFileSync(path.join(dir, `${stem}_doc.json`), JSON.stringify({ blocks: [{ image: { src: "mineru/images/a.jpg" } }] }));
   fs.writeFileSync(path.join(dir, `${stem}_audit.json`), JSON.stringify({ ok: true, issues: [] }));
@@ -82,6 +91,8 @@ test("adoptPdfToolOutputs renames pdf_tool products and rewrites asset links", (
   assert.ok(fs.existsSync(path.join(dir, `${stem}.assets`, "images", "a.jpg")));
   assert.ok(!fs.existsSync(path.join(dir, "mineru")), "the mineru folder is adopted as <name>.assets");
   assert.match(fs.readFileSync(files.md, "utf8"), /!\[图\]\(报告\.assets\/images\/a\.jpg\)/);
+  assert.ok(!fs.readFileSync(files.md, "utf8").includes("```"), "prose fences are unwrapped in the markdown product");
+  assert.match(fs.readFileSync(files.md, "utf8"), /被提取工具误判成代码块的正文段落/);
   assert.match(fs.readFileSync(files.json, "utf8"), /报告\.assets\/images\/a\.jpg/);
 
   // 再次提取:同名产物加序号,不覆盖。

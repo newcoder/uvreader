@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { blocksFromDoc, blocksToHtml, blockToHtml, escapeHtml, stripMathDelimiters, wrapInlineMath } from "../src/main/formula-html.js";
+import { blocksFromDoc, blocksToHtml, blockToHtml, escapeHtml, joinProseLines, stripMathDelimiters, wrapInlineMath } from "../src/main/formula-html.js";
 
 test("escapeHtml neutralizes markup", () => {
   assert.equal(escapeHtml('<b>"a" & b</b>'), "&lt;b&gt;&quot;a&quot; &amp; b&lt;/b&gt;");
@@ -48,6 +48,34 @@ test("blockToHtml renders headings, formulas, tables, images and code", () => {
   assert.equal(blockToHtml({ type: "code", content: "a < b" }), "<pre><code>a &lt; b</code></pre>");
   assert.equal(blockToHtml({ type: "text", text: "  " }), "");
   assert.match(blockToHtml({ type: "question", number: "1", stem: "求 $x$", options: ["A. 1"], answer: "$x=1$" }), /答案：<script type="math\/tex">x=1<\/script>/);
+});
+
+test("a prose paragraph mislabelled as code becomes a paragraph with its formulas", () => {
+  // 两栏论文实测(1.DUL+paper.pdf 第 3 页):MinerU 把这段正文标成了 code 块。
+  const block = {
+    type: "code",
+    content: "30 s to promote the adhesion between SU-8 and silica. Then SU-8 2005 (Kayaku Advanced Materials, Inc.) was spin-coated at the speed of 4000 rpm for 1 min. The thickness of the SU-8 layer was measured to be 2.1 μm. After soft baking at $6 5 ~ ^ { \\circ } \\mathrm { C }$ for 5 min and $9 5 ^ { \\circ } \\mathrm { C }$ for\n10 min, optical exposure was conducted under the light intensity of 61.\n91 $\\mathrm { n W } / \\mathrm { c m } ^ { 2 }$ to inscribe the designed patterns into the $\\operatorname { S U } - 8$ . Then the samples were post-baked at $6 5 ~ ^ { \\circ } \\mathrm { C }$ for\n15 min and $9 5 ~ ^ { \\circ } \\mathrm { C }$ for\n30 min.",
+  };
+  const html = blockToHtml(block);
+  assert.match(html, /^<p>30 s to promote the adhesion/);
+  assert.ok(!html.includes("<pre>"), "the paragraph is not a code block any more");
+  assert.match(html, /After soft baking at <script type="math\/tex">6 5 ~ \^ \{ \\circ \} \\mathrm \{ C \}<\/script> for 5 min/);
+  assert.match(html, /light intensity of 61\.91 <script/, "hard-broken numbers are glued back");
+  assert.match(html, /and <script type="math\/tex">9 5 ~ \^ \{ \\circ \} \\mathrm \{ C \}<\/script> for 30 min\.<\/p>$/);
+});
+
+test("joinProseLines joins PDF hard breaks but keeps broken numbers together", () => {
+  assert.equal(joinProseLines("for\n10 min"), "for 10 min");
+  assert.equal(joinProseLines("of 61.\n91 nW"), "of 61.91 nW");
+  assert.equal(joinProseLines("  a  \n\n b  "), "a b");
+  assert.equal(joinProseLines("单行"), "单行");
+});
+
+test("real code and LaTeX blocks stay code", () => {
+  assert.equal(blockToHtml({ type: "code", content: "def simulate(cfg):\n    return cfg" }), "<pre><code>def simulate(cfg):\n    return cfg</code></pre>");
+  assert.equal(blockToHtml({ type: "code", content: "\\begin{aligned}\nE &= mc^2\n\\end{aligned}" }), "<pre><code>\\begin{aligned}\nE &amp;= mc^2\n\\end{aligned}</code></pre>");
+  assert.equal(blockToHtml({ type: "code", content: "npm test -- --watch" }), "<pre><code>npm test -- --watch</code></pre>");
+  assert.equal(blockToHtml({ type: "code", content: "for (let i = 0; i < 10; i++) {\n  sum += i;\n}" }), "<pre><code>for (let i = 0; i &lt; 10; i++) {\n  sum += i;\n}</code></pre>");
 });
 
 test("blocksToHtml walks a Doc v1 payload and keeps relative image sources", () => {

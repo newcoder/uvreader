@@ -4,6 +4,8 @@
 // `<script type="math/tex; mode=display">`(行间),经 latex2mathml → mathml2omml
 // 写进 DOCX 真公式、EPUB 输出 MathML(见 docs/workshop.md §8.1)。本模块只做
 // 纯文本变换,便于单测;图片保持相对路径,和 Doc JSON 同目录写出即可被解析。
+import { looksLikeProseBlock } from "../shared/markdown-fix.js";
+
 export function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -44,6 +46,33 @@ export function wrapInlineMath(value) {
   }
   out += escapeHtml(raw.slice(last));
   return out;
+}
+
+// PDF 的硬换行并回一段:「for\n10 min」→ 空格;「61.\n91」这种被断开的数字直接粘回。
+export function joinProseLines(value) {
+  const lines = String(value ?? "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  let out = "";
+  for (const line of lines) {
+    if (!out) {
+      out = line;
+      continue;
+    }
+    const glued = /[\d.]$/.test(out) && /^\d/.test(line);
+    out += (glued ? "" : " ") + line;
+  }
+  return out;
+}
+
+// MinerU 偶尔把正文段落判成 code 块:内容像正文时按段落渲染(里面的公式照常转换),
+// 真代码保持 <pre><code>。
+export function codeBlockHtml(block) {
+  const content = String(block?.content ?? block?.code ?? "");
+  if (looksLikeProseBlock(content)) return `<p>${wrapInlineMath(joinProseLines(content))}</p>`;
+  return `<pre><code>${escapeHtml(content)}</code></pre>`;
 }
 
 function cellText(cell) {
@@ -103,7 +132,7 @@ export function blockToHtml(block) {
     const image = imageHtml(block.image, block.alt || "");
     return image ? `<figure>${image}</figure>` : "";
   }
-  if (type === "code") return `<pre><code>${escapeHtml(block.content ?? block.code ?? "")}</code></pre>`;
+  if (type === "code") return codeBlockHtml(block);
   if (type === "question") return questionHtml(block);
   const text = block?.text ?? block?.content ?? "";
   return String(text).trim() ? `<p>${wrapInlineMath(text)}</p>` : "";

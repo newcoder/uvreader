@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { isProseFence, unwrapProseFences } from "../src/shared/markdown-fix.js";
+import { isProseFence, looksLikeProseBlock, unwrapProseFences } from "../src/shared/markdown-fix.js";
+
+test("prose without formulas is still rescued, formulas inside it are not counted as code", () => {
+  // 1.DUL+paper.pdf 第 5 页:另一段被误判成 code 的正文(没有公式)。
+  const body = "75 μm and 100 μm, respectively. The measured transmission spectra of the bend waveguides with the radii of 75 μm, 100 μm, 125 μm, 150 μm, and 175 μm are given in Fig. 5(c). The transmission spectra were normalized with respect to a straight waveguide with similar length so as to exclude the effects.";
+  assert.equal(looksLikeProseBlock(body), true);
+  assert.ok(!unwrapProseFences(["```", body, "```"].join("\n")).includes("```"));
+  const withMath = "After soft baking at $6 5 ~ ^ { \\circ } \\mathrm { C }$ for 5 min the thickness was measured to be 2.1 µm and the sample was hard-baked afterwards.";
+  assert.equal(looksLikeProseBlock(withMath), true, "LaTeX inside $…$ does not look like code");
+  assert.equal(looksLikeProseBlock("\\frac{a}{b} &= c \\\\ d"), false, "unwrapped LaTeX stays code");
+  assert.equal(looksLikeProseBlock("function x() { return 1; }"), false);
+  assert.equal(looksLikeProseBlock("npm test -- --watch"), false, "short snippets stay code");
+});
 
 test("a fenced prose paragraph with formulas is unwrapped", () => {
   const markdown = [

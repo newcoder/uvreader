@@ -52,7 +52,9 @@ export function adoptPdfToolOutputs(outDir, name, { renameAssets = true } = {}) 
     if (key === "md" || key === "html" || key === "json") {
       try {
         const text = fs.readFileSync(to, "utf8");
-        const fixed = replaceAll(text, "mineru/", assetPrefix);
+        let fixed = replaceAll(text, "mineru/", assetPrefix);
+        // 提取工具偶尔把正文段落判成代码块(md 里是无语言围栏):按段落还原,便于阅读与再排版。
+        if (key === "md") fixed = unwrapProseFences(fixed);
         if (fixed !== text) fs.writeFileSync(to, fixed, "utf8");
       } catch { /* leave as-is */ }
     }

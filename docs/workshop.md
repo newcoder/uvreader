@@ -97,6 +97,7 @@
 - **预设(只留本工具的两张卡)**:文档互转(DocVortex)、图片 → PDF;**所有电子书产物(EPUB/MOBI/AZW3/CBZ)归「电子书制作」**;提取类预设归「内容提取」。
 - **分工(2026-10-12 定调,详见实施计划)**:按保守程度分四层——**文字层**(最保守,原文件不变)> **格式转换**(内容+版式基本不变)> **内容提取**(只要内容、可丢版式;**JSON/结构化与 schema 模板在此**)> **电子书制作**(内容 + 新加的样式/版式/字体/封面/目录,支持 **txt** 输入)。本工具只做保持内容与版式的转换(DocVortex 矩阵 + Calibre 的 EPUB→AZW3/MOBI + 图片→PDF/CBZ),**目标格式不含 JSON**;预设卡片点按后路由/预填到对应工具,不重复实现。
 - **公式优先(可选,见 §8.1)**:扫描件公式多时,先经 pdf_tool(MinerU)提取 LaTeX,再转 HTML(`<script type="math/tex">`)交 DocVortex 生成 DOCX/EPUB —— 输出为真 OMML/MathML 公式。
+- **正文误判还原(2026-10-12,两栏论文实测)**:pdf_tool / MinerU 偶尔把**正文段落判成代码块**——`1.DUL+paper.pdf`(7 页 79 块)里有 2 个 `code` 块其实是正文,转换出的 HTML 因此把段落显示成 `<pre>`(两个 `<pre class="language-latex">`,里面还留着未转换的 `$…$`)。`formula-html.js` 的 `codeBlockHtml()` 现在按**内容**判断:去掉 `$…$` 后没有代码 / LaTeX 特征、有句子与足够词数就按段落渲染——硬换行并回一段(`for\n10 min` → `for 10 min`)、被断开的数字粘回(`61.\n91` → `61.91`)、段内公式照常转 `<script type="math/tex">`;真代码块保持 `<pre><code>`。内容提取的 `.md` 产物同样把这类无语言围栏拆回段落(`adoptPdfToolOutputs` → `unwrapProseFences`)。实测同一份论文:HTML 里 `data-block-type="code"` 2 → 0、段落 37 → 39、公式 73 → 89,标题 / 图片 / 字数不变。
 
 ### 5.4 电子书制作(向导 + 实时预览,主输出 EPUB)
 

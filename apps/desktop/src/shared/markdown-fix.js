@@ -1,16 +1,29 @@
-// 提取工具(MinerU 等)偶尔会把正文段落包进没有语言标记的围栏,导致段落变成代码块、
-// 里面的 $…$ 公式也不渲染。这里把这类「假代码块」拆回段落;真代码块原样保留。
+// 提取工具(MinerU 等)偶尔把正文段落判成代码块(JSON type=code / md 里是无语言围栏),
+// 段落因此显示成代码、里面的 $…$ 公式也不渲染。这里统一判定「这段文本其实是正文」。
 
-// 像代码的特征(命中就不拆)。
+// 像代码的特征(命中就不算正文)。
 const CODE_HINT_RE = /(?:^\s{4,}\S|=>|\b(?:function|const|let|var|import|export|class|def|return|print|console\.|#include|public\s|private\s)\b|[{};]\s*$|\bself\b|\bdef\b)/m;
+const CODE_CHAR_RE = /[{}[\]()<>;=]/g;
 
-// 判定:无语言标记 + 不是代码 + 像正文(含 $…$ 公式,或以句末标点收句)。
+// 判定:够长 + 去掉公式后没有代码 / LaTeX 特征 + 有句子和足够多的词。
+export function looksLikeProseBlock(text) {
+  const value = String(text || "").trim();
+  if (value.length < 40) return false;
+  // 先把 $…$ 公式摘掉:LaTeX 的花括号、反斜杠不是「代码」证据。
+  const prose = value.replace(/\$\$[\s\S]+?\$\$|\$[^$\n]+?\$/g, " ").replace(/\s+/g, " ").trim();
+  if (prose.length < 20) return false;
+  if (CODE_HINT_RE.test(prose)) return false;
+  if (/\\[a-zA-Z]{2,}/.test(prose)) return false;
+  if ((prose.match(CODE_CHAR_RE) || []).length / prose.length > 0.02) return false;
+  const sentences = (prose.match(/[.!?。;](?:\s+|$)/g) || []).length;
+  const cjk = (prose.match(/[\u4e00-\u9fff]/g) || []).length;
+  const words = (prose.match(/\s+/g) || []).length + Math.floor(cjk / 2);
+  return sentences >= 1 && words >= 8;
+}
+
+// 无语言标记的围栏 + 内容像正文 → 「假代码块」,拆回段落;真代码块保留。
 export function isProseFence(info, body) {
-  if (String(info || "").trim()) return false;
-  const text = String(body || "").trim();
-  if (text.length < 40) return false;
-  if (CODE_HINT_RE.test(text)) return false;
-  return /\$[^$\n]+\$/.test(text) || /[。.!?;:、,，]\s*(?:\n|$)/.test(text);
+  return !String(info || "").trim() && looksLikeProseBlock(body);
 }
 
 export function unwrapProseFences(markdown) {
