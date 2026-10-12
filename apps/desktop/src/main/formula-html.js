@@ -67,12 +67,21 @@ export function joinProseLines(value) {
   return out;
 }
 
-// MinerU 偶尔把正文段落判成 code 块:内容像正文时按段落渲染(里面的公式照常转换),
-// 真代码保持 <pre><code>。
+// 块自带的 caption:MinerU 偶尔把段落的前半段塞进 code 块的 caption(两栏论文实测),
+// 图片块则是图注——两者都要带上,否则内容会缺。
+export function blockCaption(block) {
+  return String(block?.caption || "").trim();
+}
+
+// MinerU 偶尔把正文段落判成 code 块:内容(含 caption)像正文时按段落渲染(里面的公式
+// 照常转换),真代码保持 <pre><code>(有 caption 时先出一段说明)。
 export function codeBlockHtml(block) {
   const content = String(block?.content ?? block?.code ?? "");
-  if (looksLikeProseBlock(content)) return `<p>${wrapInlineMath(joinProseLines(content))}</p>`;
-  return `<pre><code>${escapeHtml(content)}</code></pre>`;
+  const caption = blockCaption(block);
+  const combined = caption ? [caption, content].filter(Boolean).join("\n") : content;
+  if (looksLikeProseBlock(combined)) return `<p>${wrapInlineMath(joinProseLines(combined))}</p>`;
+  const pre = `<pre><code>${escapeHtml(content)}</code></pre>`;
+  return caption ? `<p>${wrapInlineMath(joinProseLines(caption))}</p>\n${pre}` : pre;
 }
 
 function cellText(cell) {
@@ -130,7 +139,9 @@ export function blockToHtml(block) {
   if (type === "table") return tableHtml(block);
   if (type === "image") {
     const image = imageHtml(block.image, block.alt || "");
-    return image ? `<figure>${image}</figure>` : "";
+    if (!image) return "";
+    const caption = blockCaption(block);
+    return `<figure>${image}${caption ? `<figcaption>${wrapInlineMath(joinProseLines(caption))}</figcaption>` : ""}</figure>`;
   }
   if (type === "code") return codeBlockHtml(block);
   if (type === "question") return questionHtml(block);

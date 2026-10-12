@@ -5,7 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { adoptPdfToolOutputs, extractMarkdown, extractionKind, registerExtractRunners, splitMarkdownChapters } from "../src/main/extract-doc.js";
+import { adoptPdfToolOutputs, extractMarkdown, extractionKind, patchMarkdownCaptions, registerExtractRunners, splitMarkdownChapters } from "../src/main/extract-doc.js";
+import { unwrapProseFences } from "../src/shared/markdown-fix.js";
 import { createWorkshopQueue } from "../src/main/workshop.js";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -219,6 +220,30 @@ test("extractMarkdown routes images through a temporary PDF for OCR", async () =
   assert.equal(calls.length, 1);
   assert.equal(requests[0].parseMode, "ocr");
   assert.match(requests[0].source, /\.pdf$/);
+});
+
+test("patchMarkdownCaptions puts a dropped code-block caption back before its fence", () => {
+  const markdown = [
+    "前面的段落。",
+    "",
+    "```",
+    "30 s to promote the adhesion between SU-8 and silica. Then the wafer was spin-coated at 4000 rpm for 1 min.",
+    "```",
+    "",
+  ].join("\n");
+  const blocks = [{
+    type: "code",
+    caption: "In the experiments, the silicon wafer was capped with a 4-μm thick SiO2 layer. Before spin coating, Omnicoat was spun on the wafer at the speed of",
+    content: "30 s to promote the adhesion between SU-8 and silica. Then the wafer was spin-coated at 4000 rpm for 1 min.",
+  }];
+  const patched = patchMarkdownCaptions(markdown, blocks);
+  assert.match(patched, /Omnicoat was spun on the wafer at the speed of\n30 s to promote/);
+  const cleaned = unwrapProseFences(patched);
+  assert.ok(!cleaned.includes("```"), "the fake fence is unwrapped after patching");
+  assert.match(cleaned, /In the experiments, the silicon wafer was capped/);
+  assert.equal(patchMarkdownCaptions(patched, blocks), patched, "an md that already carries the caption is untouched");
+  assert.equal(patchMarkdownCaptions(markdown, []), markdown);
+  assert.equal(patchMarkdownCaptions(markdown, [{ type: "text", caption: "x", content: "y" }]), markdown, "only code blocks are patched");
 });
 
 test("the extract probe reports pdf_tool, credentials and DocVortex", async () => {

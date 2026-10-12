@@ -8,6 +8,7 @@ import path from "node:path";
 
 import { EXTRACT_MODES, IMAGE_INPUTS, extractionKind } from "../shared/extract-formats.js";
 import { splitMarkdownChapters, unwrapProseFences } from "../shared/markdown-fix.js";
+import { blocksFromDoc } from "./formula-html.js";
 import { pdfToolArgs, pdfToolScriptCommand } from "./workshop-formula.js";
 
 export { EXTRACT_MODES, IMAGE_INPUTS, extractionKind };
@@ -26,10 +27,35 @@ function uniquePath(target, exists = (candidate) => fs.existsSync(candidate)) {
   return `${base} (${index})${ext}`;
 }
 
+// MinerU 的 markdown / html 写作器会丢掉 code 块的 caption(实测是正文前半段):
+// 用同目录的 Doc JSON 把 caption 补回对应围栏内,再交给 unwrapProseFences 拆回完整段落。
+export function patchMarkdownCaptions(markdown, blocks) {
+  let out = String(markdown || "");
+  for (const block of Array.isArray(blocks) ? blocks : []) {
+    if (String(block?.type || "") !== "code") continue;
+    const caption = String(block.caption || "").trim();
+    const content = String(block.content ?? block.code ?? "").trim();
+    if (!caption || content.length < 20) continue;
+    const anchor = content.split("\n")[0].trim().slice(0, 40);
+    if (anchor.length < 20) continue;
+    if (out.includes(caption)) continue;
+    const index = out.indexOf(anchor);
+    if (index < 0) continue;
+    out = `${out.slice(0, index)}${caption}\n${out.slice(index)}`;
+  }
+  return out;
+}
+
 // pdf_tool 的产物(<stem>_doc.md / .html / .json / _audit.json + mineru/ 资产)
 // → §7 约定(<源名>.md / .html / .json / .audit.json / <源名>.assets/)。
 export function adoptPdfToolOutputs(outDir, name, { renameAssets = true } = {}) {
   const files = {};
+  // caption 补全用的块列表(pdf_tool 的 Doc JSON,读不到就算了)。
+  let blocks = [];
+  try {
+    const docPath = path.join(outDir, `${name}_doc.json`);
+    if (fs.existsSync(docPath)) blocks = blocksFromDoc(JSON.parse(fs.readFileSync(docPath, "utf8")));
+  } catch { blocks = []; }
   const moves = [
     ["_doc.md", "md"],
     ["_doc.html", "html"],
@@ -53,8 +79,12 @@ export function adoptPdfToolOutputs(outDir, name, { renameAssets = true } = {}) 
       try {
         const text = fs.readFileSync(to, "utf8");
         let fixed = replaceAll(text, "mineru/", assetPrefix);
-        // 提取工具偶尔把正文段落判成代码块(md 里是无语言围栏):按段落还原,便于阅读与再排版。
-        if (key === "md") fixed = unwrapProseFences(fixed);
+        // 提取工具偶尔把正文段落判成代码块(md 里是无语言围栏),caption 还会被写作器丢掉:
+        // 先按 Doc JSON 补回 caption,再把「假代码块」拆回段落,便于阅读与再排版。
+        if (key === "md") {
+          fixed = patchMarkdownCaptions(fixed, blocks);
+          fixed = unwrapProseFences(fixed);
+        }
         if (fixed !== text) fs.writeFileSync(to, fixed, "utf8");
       } catch { /* leave as-is */ }
     }

@@ -78,6 +78,32 @@ test("real code and LaTeX blocks stay code", () => {
   assert.equal(blockToHtml({ type: "code", content: "for (let i = 0; i < 10; i++) {\n  sum += i;\n}" }), "<pre><code>for (let i = 0; i &lt; 10; i++) {\n  sum += i;\n}</code></pre>");
 });
 
+test("a code block whose caption holds the paragraph lead-in keeps both halves", () => {
+  // 1.DUL+paper.pdf 实测:MinerU 把正文前半段放进了 caption,只读 content 就会缺一段。
+  const html = blockToHtml({
+    type: "code",
+    caption: "In the experiments, the silicon wafer capped with a 4-μm thick $\\mathrm { S i O _ { 2 } }$ layer was used as the substrate. Before spin coating of SU-8, an adhesion promoter Omnicoat was spun on the wafer at the speed of",
+    content: "30 s to promote the adhesion between SU-8 and silica. Then SU-8 2005 was spin-coated at the speed of 4000 rpm for 1 min.",
+  });
+  assert.match(html, /^<p>In the experiments/);
+  assert.match(html, /at the speed of 30 s to promote the adhesion/, "caption and content are joined into one paragraph");
+  assert.match(html, /<script type="math\/tex">\\mathrm \{ S i O _ \{ 2 \} \}<\/script>/);
+  assert.ok(!html.includes("<pre>"), "the rescued paragraph is not a code block");
+});
+
+test("a real code block keeps its caption as a paragraph above the code", () => {
+  const html = blockToHtml({ type: "code", caption: "算法 1 伪代码。", content: "def run(cfg):\n    return cfg" });
+  assert.match(html, /^<p>算法 1 伪代码。<\/p>\n<pre><code>def run\(cfg\):\n    return cfg<\/code><\/pre>$/);
+});
+
+test("image captions become figcaption", () => {
+  assert.equal(
+    blockToHtml({ type: "image", image: { src: "mineru/images/a.jpg", alt: "图" }, caption: "图 1. $x^2$ 的示意图" }),
+    '<figure><img src="mineru/images/a.jpg" alt="图"><figcaption>图 1. <script type="math/tex">x^2</script> 的示意图</figcaption></figure>',
+  );
+  assert.equal(blockToHtml({ type: "image", image: { src: "a.jpg" } }), '<figure><img src="a.jpg" alt=""></figure>');
+});
+
 test("blocksToHtml walks a Doc v1 payload and keeps relative image sources", () => {
   const doc = {
     schema_version: 1,
