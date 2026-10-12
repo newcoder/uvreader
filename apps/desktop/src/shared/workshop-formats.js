@@ -30,3 +30,19 @@ export function docvortexFormatExt(target) {
   const found = DOCVORTEX_FORMATS.find((format) => format.id === String(target || ""));
   return found ? found.ext : String(target || "out").replace(/^\./, "");
 }
+
+// 电子书产物统一归「电子书制作」:互转目标 + 图片打包目标。
+export const EBOOK_TARGETS = [
+  { id: "azw3", label: "AZW3(Kindle 主流)", ext: "azw3" },
+  { id: "mobi", label: "MOBI(旧 Kindle)", ext: "mobi" },
+];
+
+export const IMAGE_BOOK_TARGETS = [
+  { id: "cbz", label: "CBZ(漫画 / 相册)", ext: "cbz" },
+  { id: "epub", label: "EPUB(先打包再转)", ext: "epub" },
+];
+
+export function ebookTargetExt(target, list = EBOOK_TARGETS) {
+  const found = list.find((entry) => entry.id === String(target || ""));
+  return found ? found.ext : String(target || "out").replace(/^\./, "");
+}

@@ -2756,6 +2756,97 @@ async function writeMinimalDocx(file) {
   fs.writeFileSync(file, await zip.generateAsync({ type: "nodebuffer" }));
 }
 
+// 电子书制作:图片 → CBZ(纯打包)+ EPUB → AZW3 / 图片 → EPUB(Calibre,缺失则跳过)。
+async function runWorkshopBookScenario() {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-e2e-wshop-book-"));
+  const imageDir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-e2e-book-images-"));
+  fs.mkdirSync(path.join(userData, "library", "Books"), { recursive: true });
+  await writeMinimalEpub(path.join(userData, "library", "Books", "拼音测试书.epub"));
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+  for (const name of ["1.png", "2.png", "10.png"]) fs.writeFileSync(path.join(imageDir, name), png);
+  const { app, page } = await launch("", { userData });
+  try {
+    await page.waitForSelector(".qbr-home-view", { timeout: 30_000 });
+    await page.click('[data-route="workshop"]');
+    await page.waitForSelector(".qbr-workshop-view", { timeout: 15_000 });
+    await page.evaluate(() => document.querySelector('.qbr-workshop-rail button[data-tool="book"]')?.click());
+    await page.waitForSelector(".qbr-workshop-panel[data-tool='book']", { timeout: 10_000 });
+    const panel = await page.evaluate(() => {
+      const root = document.querySelector(".qbr-workshop-panel[data-tool='book']");
+      return {
+        ready: [...root.querySelectorAll(".qbr-workshop-preset.is-ready b")].map((b) => b.textContent),
+        selects: [...root.querySelectorAll("select")].map((s) => [...s.options].map((o) => o.value).join(",")),
+      };
+    });
+    if (!panel.ready.some((label) => label.includes("EPUB → AZW3 / MOBI")) || !panel.ready.some((label) => label.includes("图片 → CBZ"))) {
+      throw new Error(`the book panel should mark both ready presets: ${JSON.stringify(panel.ready)}`);
+    }
+    if (!panel.selects.some((values) => values.includes("azw3")) || !panel.selects.some((values) => values.includes("cbz"))) {
+      throw new Error(`the book panel lost its target selects: ${JSON.stringify(panel.selects)}`);
+    }
+    console.log("workshop-book: panel offers", panel.ready.join(" / "));
+    // 图片 → CBZ(不需要 Calibre)。
+    const images = ["1.png", "2.png", "10.png"].map((name) => path.join(imageDir, name).replace(/\\/g, "/"));
+    const cbzTask = await page.evaluate((payload) => window.qbrDesktop.workshop.start({
+      kind: "images-cbz", title: "图片 → CBZ", payload,
+    }), { images, format: "cbz" });
+    const cbzDone = await waitFor("images-cbz", () => page.evaluate(async (id) => {
+      const state = await window.qbrDesktop.workshop.list();
+      const task = state.tasks.find((entry) => entry.id === id);
+      return task && task.status !== "running" && task.status !== "queued" ? `${task.status}|${task.output}${task.error}` : "";
+    }, cbzTask), 120_000);
+    if (!cbzDone.startsWith("done")) throw new Error(`packing images should finish done: ${cbzDone}`);
+    const cbzPath = path.join(path.dirname(imageDir), `${path.basename(imageDir)}.cbz`);
+    if (!fs.existsSync(cbzPath)) throw new Error(`expected the cbz next to the image folder: ${cbzPath}`);
+    const zip = await JSZip.loadAsync(fs.readFileSync(cbzPath));
+    const entries = Object.keys(zip.files);
+    if (entries.length !== 3 || entries[0] !== "1.png" || entries[2] !== "10.png") {
+      throw new Error(`the cbz should keep the natural order: ${entries.join(",")}`);
+    }
+    console.log("workshop-book: images packed —", path.basename(cbzPath), entries.join(","));
+    // Calibre:EPUB → AZW3 与 图片 → EPUB。
+    const probe = await page.evaluate(() => window.qbrDesktop.workshop.start({ kind: "calibre-probe", title: "检测 Calibre", payload: {} }));
+    const probed = await waitFor("calibre probe", () => page.evaluate(async (id) => {
+      const state = await window.qbrDesktop.workshop.list();
+      const task = state.tasks.find((entry) => entry.id === id);
+      return task && task.status !== "running" && task.status !== "queued" ? `${task.status}|${task.output}${task.error}` : "";
+    }, probe), 30_000);
+    if (!probed.startsWith("done")) {
+      console.log("workshop-book: Calibre conversions skipped —", probed.slice(0, 90));
+      return;
+    }
+    const convertTask = await page.evaluate(() => window.qbrDesktop.workshop.start({
+      kind: "ebook-convert", title: "转为 AZW3",
+      payload: { source: "Books/拼音测试书.epub", format: "azw3", out: "Books/拼音测试书.azw3" },
+    }));
+    const converted = await waitFor("ebook-convert", () => page.evaluate(async (id) => {
+      const state = await window.qbrDesktop.workshop.list();
+      const task = state.tasks.find((entry) => entry.id === id);
+      return task && task.status !== "running" && task.status !== "queued" ? `${task.status}|${task.output}${task.error}` : "";
+    }, convertTask), 300_000);
+    if (!converted.startsWith("done")) throw new Error(`epub → azw3 should finish done: ${converted}`);
+    const azw3 = path.join(userData, "library", "Books", "拼音测试书.azw3");
+    if (!fs.existsSync(azw3) || fs.statSync(azw3).size < 1000) throw new Error(`the azw3 looks wrong: ${azw3}`);
+    console.log("workshop-book: epub → azw3", fs.statSync(azw3).size, "bytes");
+    const epubTask = await page.evaluate((payload) => window.qbrDesktop.workshop.start({
+      kind: "images-cbz", title: "图片 → EPUB", payload,
+    }), { images, format: "epub" });
+    const epubDone = await waitFor("images-epub", () => page.evaluate(async (id) => {
+      const state = await window.qbrDesktop.workshop.list();
+      const task = state.tasks.find((entry) => entry.id === id);
+      return task && task.status !== "running" && task.status !== "queued" ? `${task.status}|${task.output}${task.error}` : "";
+    }, epubTask), 300_000);
+    if (!epubDone.startsWith("done")) throw new Error(`images → epub should finish done: ${epubDone}`);
+    const epubOut = epubDone.split("|")[1];
+    if (!fs.existsSync(epubOut) || fs.statSync(epubOut).size < 1000) throw new Error(`the images epub looks wrong: ${epubOut}`);
+    console.log("workshop-book: images → epub", fs.statSync(epubOut).size, "bytes");
+  } finally {
+    await app.close().catch(() => {});
+    fs.rmSync(userData, { recursive: true, force: true });
+    fs.rmSync(imageDir, { recursive: true, force: true });
+  }
+}
+
 async function writeMinimalEpub(file) {
   const zip = new JSZip();
   zip.file("mimetype", "application/epub+zip", { compression: "STORE" });
@@ -2998,6 +3089,7 @@ const scenarios = [
   ["workshop-ocr", runWorkshopOcrScenario],
   ["workshop-convert", runWorkshopConvertScenario],
   ["workshop-formula", runWorkshopFormulaScenario],
+  ["workshop-book", runWorkshopBookScenario],
   ["library", runLibraryTabsScenario],
   ["ebook", runEbookScenario],
   ["restart", runRestartScenario],

@@ -6,8 +6,10 @@ import { pathToFileURL } from "node:url";
 import { BOOK_EXTENSIONS, isBookFile } from "../shared/books.js";
 import { WORKSHOP_PICK_EXTENSIONS } from "../shared/workshop-formats.js";
 import { createAiRuntime } from "./ai-runtime.js";
+import { createCalibre } from "./calibre.js";
 import { createDocvortex, registerDocvortexRunners } from "./docvortex.js";
 import { createFormulaChain, registerFormulaRunners } from "./workshop-formula.js";
+import { registerBookRunners } from "./workshop-book.js";
 import { createPdfOcr, OCR_PROBE_TIMEOUT, resolveOcrOutput } from "./pdf-ocr.js";
 import { registerOcrRunners } from "./workshop-ocr.js";
 import { createWorkshopQueue } from "./workshop.js";
@@ -68,6 +70,9 @@ registerFormulaRunners(workshop, {
   vaultRoot,
   cacheRoot: path.join(userData, "formula-cache"),
 });
+// 电子书制作:Calibre 互转(EPUB→AZW3/MOBI)+ 图片打包(CBZ/EPUB)。
+const calibre = createCalibre();
+registerBookRunners(workshop, { calibre, vaultRoot });
 // Online book downloads land in the library so they appear as regular books.
 const bookDownloads = createBookDownloads({
   downloadRoot: path.join(vaultRoot, "Books", "下载"),

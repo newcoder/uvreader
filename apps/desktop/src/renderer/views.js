@@ -1,7 +1,7 @@
 import { ItemView, Notice, setIcon } from "obsidian";
 
 import { iconResolver } from "./icons.js";
-import { DOCVORTEX_FORMATS, DOCVORTEX_INPUTS, docvortexFormatExt } from "../shared/workshop-formats.js";
+import { DOCVORTEX_FORMATS, DOCVORTEX_INPUTS, EBOOK_TARGETS, IMAGE_BOOK_TARGETS, docvortexFormatExt } from "../shared/workshop-formats.js";
 import { convertPath, uvtextPath } from "../shared/workshop-names.js";
 
 const BOOK_EXTENSIONS = ["epub", "fb2", "fbz", "mobi", "azw", "azw3", "cbz", "pdf"];
@@ -382,6 +382,9 @@ const WORKSHOP_KIND_LABELS = {
   "docvortex-convert": "转换",
   "formula-probe": "公式检测",
   "formula-convert": "公式",
+  "calibre-probe": "检测",
+  "ebook-convert": "互转",
+  "images-cbz": "打包",
 };
 
 function formatElapsed(ms) {
@@ -733,21 +736,234 @@ export function createWorkshopView(leaf, options) {
       card.createDiv({ cls: "qbr-workshop-soon", text: "内容提取将在后续阶段接入(实施计划 docs/workshop-implementation.md 的 W1-0)。" });
     }
 
-    // ── 电子书制作(向导,W1-2/W1-3)──────────────────────────────────
+    // ── 电子书制作(W1-2/W1-3 向导;已接:Calibre 互转 + 图片打包)────────
     renderBookPanel(panel) {
+      this._bookSelection ||= [];
+      this._bookImages ||= [];
       const root = panel.createDiv("qbr-workshop-tool");
+
       const presetCard = root.createDiv("qbr-workshop-card");
       presetCard.createEl("h3", { text: "选择预设" });
       this.renderPresetMatrix(presetCard, [
+        { id: "kindle", label: "EPUB → AZW3 / MOBI", hint: "换 Kindle 主流格式:Calibre,版式不变", ready: true },
+        { id: "img-cbz", label: "图片 → CBZ / EPUB", hint: "漫画 / 相册打包成书", ready: true },
         { id: "pdf-clean", label: "PDF → 干净电子书", hint: "内部自动提取 + 重排:去页眉页脚/水印、按标题分章,再加样式与封面", ready: false },
         { id: "md-html-epub", label: "Markdown / HTML → EPUB", hint: "提供内容 + 样式/封面/目录;Markdown 由向导内部转 HTML", ready: false },
         { id: "txt-epub", label: "txt → EPUB", hint: "纯文本按标题 / 空行分章成书", ready: false },
         { id: "office-epub", label: "Office / OFD → EPUB", hint: "内部自动转换(DocVortex),中间环节无感", ready: false },
-        { id: "kindle", label: "EPUB → AZW3 / MOBI", hint: "换 Kindle 主流格式:Calibre,版式不变", ready: false },
-        { id: "img-cbz", label: "图片 → CBZ / EPUB", hint: "漫画 / 相册打包成书", ready: false },
       ]);
-      const card = root.createDiv("qbr-workshop-card");
-      card.createDiv({ cls: "qbr-workshop-soon", text: "电子书制作向导将在后续阶段接入(实施计划 docs/workshop-implementation.md 的 W1-2/W1-3)。" });
+
+      const convertCard = root.createDiv("qbr-workshop-card");
+      convertCard.createEl("h3", { text: "电子书互转(EPUB → AZW3 / MOBI)" });
+      const pickRow = convertCard.createDiv("qbr-workshop-row");
+      const pickVault = pickRow.createEl("button", { text: "选择书库文件…" });
+      pickVault.addEventListener("click", () => this.toggleBookList());
+      const pickLocal = pickRow.createEl("button", { text: "打开本地文件…" });
+      pickLocal.addEventListener("click", () => void this.pickLocalBookFiles());
+      pickRow.createSpan({ cls: "qbr-workshop-hint", text: "输入 EPUB/MOBI/AZW3/FB2/CBZ;本地文件就地处理" });
+      this._bookList = convertCard.createDiv("qbr-workshop-booklist");
+      this._bookList.hidden = true;
+      this._bookChips = convertCard.createDiv("qbr-workshop-chips");
+      const targetRow = convertCard.createDiv("qbr-workshop-row");
+      targetRow.createSpan({ cls: "qbr-workshop-hint", text: "目标格式" });
+      this._bookFormat = targetRow.createEl("select", { cls: "qbr-workshop-select" });
+      for (const target of EBOOK_TARGETS) {
+        this._bookFormat.createEl("option", { attr: { value: target.id }, text: target.label });
+      }
+      const startRow = convertCard.createDiv("qbr-workshop-row");
+      const start = startRow.createEl("button", { cls: "mod-cta", text: "开始转换" });
+      start.addEventListener("click", () => this.startBookTasks());
+      startRow.createSpan({ cls: "qbr-workshop-hint", text: "产物落在源文件旁" });
+
+      const imageCard = root.createDiv("qbr-workshop-card");
+      imageCard.createEl("h3", { text: "图片 → CBZ / EPUB" });
+      const imgRow = imageCard.createDiv("qbr-workshop-row");
+      const pickImages = imgRow.createEl("button", { text: "选择图片…" });
+      pickImages.addEventListener("click", () => void this.pickBookImages());
+      imgRow.createSpan({ cls: "qbr-workshop-hint", text: "可多选;按文件名自然排序(1 < 2 < 10)" });
+      this._bookImageChips = imageCard.createDiv("qbr-workshop-chips");
+      const imgTargetRow = imageCard.createDiv("qbr-workshop-row");
+      imgTargetRow.createSpan({ cls: "qbr-workshop-hint", text: "打包为" });
+      this._bookImageFormat = imgTargetRow.createEl("select", { cls: "qbr-workshop-select" });
+      for (const target of IMAGE_BOOK_TARGETS) {
+        this._bookImageFormat.createEl("option", { attr: { value: target.id }, text: target.label });
+      }
+      imageCard.createDiv({ cls: "qbr-workshop-hint", text: "输出:图片所在目录旁 `<目录名>.cbz`(冲突加序号);EPUB 由 CBZ 经 Calibre 转换。" });
+      const imgStartRow = imageCard.createDiv("qbr-workshop-row");
+      const imgStart = imgStartRow.createEl("button", { cls: "mod-cta", text: "开始打包" });
+      imgStart.addEventListener("click", () => this.startImageTasks());
+      imgStartRow.createSpan({ cls: "qbr-workshop-hint", text: "Calibre 只在输出 EPUB 时需要" });
+
+      const detectCard = root.createDiv("qbr-workshop-card");
+      const detectRow = detectCard.createDiv("qbr-workshop-row");
+      const detect = detectRow.createEl("button", { text: "检测 Calibre" });
+      detect.addEventListener("click", () => this.probeCalibre());
+      this._bookStatus = detectRow.createSpan({ cls: "qbr-workshop-hint", text: "未检测" });
+      const pathRow = detectCard.createDiv("qbr-workshop-row");
+      pathRow.createSpan({ cls: "qbr-workshop-hint", text: "Calibre 路径" });
+      this._bookPath = pathRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空自动检测(常见位置 / PATH)" } });
+      this._bookPath.value = String(plugin?.settings?.calibrePath || "");
+      this._bookPath.addEventListener("change", () => {
+        if (!plugin?.settings) return;
+        plugin.settings.calibrePath = this._bookPath.value.trim();
+        void plugin.saveAll?.();
+      });
+
+      this._bookRecent = root.createDiv("qbr-workshop-recent");
+      this.renderBookChips();
+      this.renderBookImageChips();
+    }
+
+    bookFiles() {
+      const wanted = ["epub", "mobi", "azw", "azw3", "fb2", "fbz", "cbz"];
+      return (app?.vault?.getFiles?.() || [])
+        .filter((file) => wanted.includes(String(file?.extension || "").toLowerCase()))
+        .sort((a, b) => String(a.basename).localeCompare(String(b.basename), "ru"));
+    }
+
+    toggleBookList() {
+      const list = this._bookList;
+      if (!list) return;
+      list.hidden = !list.hidden;
+      this.refreshBookList();
+    }
+
+    refreshBookList() {
+      const list = this._bookList;
+      if (!list || list.hidden) return;
+      list.empty();
+      const books = this.bookFiles();
+      if (!books.length) {
+        list.createDiv({ cls: "qbr-workshop-hint", text: "书库里还没有电子书。" });
+        return;
+      }
+      for (const file of books) {
+        const row = list.createEl("label", { cls: "qbr-workshop-book" });
+        const box = row.createEl("input", { attr: { type: "checkbox" } });
+        box.checked = this._bookSelection.includes(file.path);
+        box.addEventListener("change", () => {
+          if (box.checked) this.addBookFile(file.path);
+          else this.removeBookFile(file.path);
+        });
+        row.createSpan({ text: `${file.basename} · ${String(file.extension || "").toUpperCase()}` });
+      }
+    }
+
+    addBookFile(path) {
+      if (!path || this._bookSelection.includes(path)) return;
+      this._bookSelection.push(path);
+      this.renderBookChips();
+    }
+
+    removeBookFile(path) {
+      this._bookSelection = this._bookSelection.filter((item) => item !== path);
+      this.renderBookChips();
+      this.refreshBookList();
+    }
+
+    renderBookChips() {
+      const host = this._bookChips;
+      if (!host) return;
+      host.empty();
+      if (!this._bookSelection.length) {
+        host.createSpan({ cls: "qbr-workshop-hint", text: "未选择文件" });
+        return;
+      }
+      for (const path of this._bookSelection) {
+        const chip = host.createSpan({ cls: "qbr-workshop-chip" });
+        chip.createSpan({ text: path.split("/").pop() || path });
+        const remove = chip.createEl("button", { cls: "qbr-workshop-chip-x", text: "✕" });
+        remove.addEventListener("click", () => this.removeBookFile(path));
+      }
+    }
+
+    async pickLocalBookFiles() {
+      if (!bridge?.pickFiles) return;
+      const paths = await bridge.pickFiles().catch(() => []);
+      for (const picked of paths) this.addBookFile(String(picked).replace(/\\/g, "/"));
+      this.refreshBookList();
+    }
+
+    bookSettings() {
+      const settings = plugin?.settings || {};
+      return { calibrePath: String(settings.calibrePath || "") };
+    }
+
+    probeCalibre() {
+      if (!bridge) return;
+      void bridge.start({
+        kind: "calibre-probe",
+        title: "检测 Calibre",
+        detail: "ebook-convert",
+        payload: { settings: this.bookSettings() },
+      }).catch((error) => new Notice(String(error?.message || error)));
+      this.selectTool("tasks");
+    }
+
+    startBookTasks() {
+      if (!bridge) return;
+      const files = [...this._bookSelection];
+      if (!files.length) {
+        new Notice("请先选择电子书文件");
+        return;
+      }
+      const format = String(this._bookFormat?.value || "azw3");
+      const target = EBOOK_TARGETS.find((entry) => entry.id === format) || EBOOK_TARGETS[0];
+      const settings = this.bookSettings();
+      for (const rel of files) {
+        const out = convertPath(rel, target.ext, (candidate) => Boolean(app?.vault?.getAbstractFileByPath?.(candidate)));
+        void bridge.start({
+          kind: "ebook-convert",
+          title: `转为 ${target.label}`,
+          detail: rel,
+          payload: { settings, source: rel, format, out },
+        }).catch((error) => new Notice(String(error?.message || error)));
+      }
+      this.selectTool("tasks");
+    }
+
+    async pickBookImages() {
+      if (!bridge?.pickFiles) return;
+      const paths = await bridge.pickFiles().catch(() => []);
+      for (const picked of paths) {
+        const normalized = String(picked).replace(/\\/g, "/");
+        if (!this._bookImages.includes(normalized)) this._bookImages.push(normalized);
+      }
+      this.renderBookImageChips();
+    }
+
+    renderBookImageChips() {
+      const host = this._bookImageChips;
+      if (!host) return;
+      host.empty();
+      if (!this._bookImages.length) {
+        host.createSpan({ cls: "qbr-workshop-hint", text: "未选择图片" });
+        return;
+      }
+      const chip = host.createSpan({ cls: "qbr-workshop-chip" });
+      chip.createSpan({ text: `${this._bookImages.length} 张图片` });
+      const clear = chip.createEl("button", { cls: "qbr-workshop-chip-x", text: "✕" });
+      clear.addEventListener("click", () => {
+        this._bookImages = [];
+        this.renderBookImageChips();
+      });
+    }
+
+    startImageTasks() {
+      if (!bridge) return;
+      const images = [...this._bookImages];
+      if (!images.length) {
+        new Notice("请先选择图片");
+        return;
+      }
+      const format = String(this._bookImageFormat?.value || "cbz");
+      void bridge.start({
+        kind: "images-cbz",
+        title: format === "epub" ? "图片 → EPUB" : "图片 → CBZ",
+        detail: `${images.length} 张图片`,
+        payload: { settings: this.bookSettings(), images, format },
+      }).catch((error) => new Notice(String(error?.message || error)));
+      this.selectTool("tasks");
     }
 
     // ── 格式转换(DocVortex,W0-4)──────────────────────────────────────
@@ -1020,6 +1236,21 @@ export function createWorkshopView(leaf, options) {
         else if (probe.status === "running" || probe.status === "queued") this._formulaStatus.setText("检测中…");
         else if (probe.status === "done") this._formulaStatus.setText(`公式链路就绪：${probe.output || "MinerU + DocVortex"}`);
         else this._formulaStatus.setText(`公式链路不可用：${probe.error || "未就绪"}`);
+      }
+      if (this._bookStatus) {
+        const probe = tasks.find((task) => task.kind === "calibre-probe");
+        if (!probe) this._bookStatus.setText("未检测");
+        else if (probe.status === "running" || probe.status === "queued") this._bookStatus.setText("检测中…");
+        else if (probe.status === "done") this._bookStatus.setText(`已就绪：${probe.output || "ebook-convert"}`);
+        else this._bookStatus.setText(`未就绪：${probe.error || "未找到"}`);
+      }
+      if (this._bookRecent) {
+        this._bookRecent.empty();
+        const recent = tasks.filter((task) => task.kind === "ebook-convert" || task.kind === "images-cbz").slice(0, 3);
+        if (recent.length) {
+          this._bookRecent.createEl("h3", { text: "最近" });
+          for (const task of recent) this.renderTaskRow(this._bookRecent, task);
+        }
       }
       this.syncTicker(Boolean(running.length || queued.length));
       if (!this._taskBar) return;
