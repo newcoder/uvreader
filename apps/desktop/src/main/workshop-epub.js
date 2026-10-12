@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { buildEpub, BOOK_STYLE_DEFAULTS } from "./epub-build.js";
-import { textToChapters } from "./text-book.js";
+import { markdownToHtml, textToChapters, textToHtml } from "./text-book.js";
 import { collectChars, createFontSubsetter, ensureFont, ensureFontLicense, findPairing, FONT_FAMILIES } from "./workshop-fonts.js";
 import { pairingStacks } from "../shared/book-fonts.js";
 import { convertPath } from "../shared/workshop-names.js";
@@ -153,7 +153,20 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
 
     report({ label: "读取内容" });
     const text = fs.readFileSync(source, "utf8");
-    const chapters = textToChapters(text, { markdown, title });
+    // 面板里编辑过的目录优先(改名/合并/拆分/排序);否则按标题自动分章。
+    const provided = Array.isArray(payload?.chapters) ? payload.chapters : [];
+    const chapters = provided.length
+      ? provided
+        .map((chapter, index) => {
+          const body = String(chapter?.text || "");
+          return {
+            title: String(chapter?.title || `第 ${index + 1} 章`).slice(0, 120),
+            text: body,
+            html: markdown ? markdownToHtml(body) : textToHtml(body),
+          };
+        })
+        .filter((chapter) => chapter.text.trim())
+      : textToChapters(text, { markdown, title });
     if (!chapters.length) throw new Error("没有可写的内容");
     if (signal.aborted) throw new Error("任务已取消");
     log("book build", source, "→", out, `${chapters.length} 章`);

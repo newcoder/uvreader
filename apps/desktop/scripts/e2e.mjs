@@ -2815,7 +2815,7 @@ async function runWorkshopEpubScenario() {
     }
     console.log("workshop-epub: txt → epub", fs.statSync(out).size, "bytes");
     // 面板向导:选择书稿 → 实时预览 → 生成 EPUB(UI 路径)。
-    fs.writeFileSync(path.join(userData, "library", "Books", "示例文稿.txt"), "第一章 面板\n\n面板生成的正文。\n", "utf8");
+    fs.writeFileSync(path.join(userData, "library", "Books", "示例文稿.txt"), "第一章 面板\n\n面板生成的正文。\n\n第二章 继续\n\n第二章的正文。\n", "utf8");
     await page.click('[data-route="workshop"]');
     await page.waitForSelector(".qbr-workshop-view", { timeout: 15_000 });
     await page.evaluate(() => document.querySelector('.qbr-workshop-rail button[data-tool="book"]')?.click());
@@ -2841,6 +2841,22 @@ async function runWorkshopEpubScenario() {
       return text.includes("面板生成的正文") ? text.slice(0, 14) : "";
     }), 15_000);
     console.log("workshop-epub: wizard preview shows", JSON.stringify(preview));
+    // 封面预览 + 目录编辑(两章,改名第一章)。
+    await waitFor("cover preview", () => page.evaluate(() => {
+      const doc = document.querySelector(".qbr-workshop-cover-preview .qbr-workshop-cover-frame")?.contentDocument;
+      const text = doc?.body?.innerText || "";
+      return text.includes("示例文稿") && text.includes("UV READER") ? text.slice(0, 12) : "";
+    }), 15_000);
+    const detected = await page.evaluate(() => [...document.querySelectorAll(".qbr-workshop-chapter .qbr-workshop-input")].map((input) => input.value));
+    if (detected.length !== 2 || !detected[0].includes("面板")) {
+      throw new Error(`expected two detected chapters, saw ${JSON.stringify(detected)}`);
+    }
+    await page.evaluate(() => {
+      const input = document.querySelector(".qbr-workshop-chapter .qbr-workshop-input");
+      input.value = "改名后的第一章";
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    console.log("workshop-epub: cover preview ok,", detected.length, "chapters detected and renamed");
     const before = await page.evaluate(async () => {
       const state = await window.qbrDesktop.workshop.list();
       return state.tasks.filter((task) => task.kind === "book-build").length;
@@ -2863,6 +2879,8 @@ async function runWorkshopEpubScenario() {
     const wizardZip = await JSZip.loadAsync(fs.readFileSync(wizardOut));
     const wizardCover = await wizardZip.file("OEBPS/images/cover.jpg")?.async("nodebuffer");
     if (!wizardCover?.length) throw new Error("the wizard should render the default template cover");
+    const wizardNav = await wizardZip.file("OEBPS/nav.xhtml").async("string");
+    if (!wizardNav.includes("改名后的第一章")) throw new Error("the edited chapter title should reach the epub nav");
     console.log("workshop-epub: wizard built", path.basename(wizardOut), fs.statSync(wizardOut).size, "bytes");
     // 最后用阅读器打开生成物(阅读模式会隐藏导航,放到场景末尾)。
     await page.evaluate(async () => {

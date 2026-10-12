@@ -4,6 +4,9 @@ import { iconResolver } from "./icons.js";
 import { DOCVORTEX_FORMATS, DOCVORTEX_INPUTS, EBOOK_TARGETS, IMAGE_BOOK_TARGETS, docvortexFormatExt } from "../shared/workshop-formats.js";
 import { BOOK_STYLE_DEFAULTS, BOOK_THEMES, COVER_PALETTES, renderBookCss } from "../shared/book-styles.js";
 import { FONT_PAIRINGS, findPairing, pairingStacks } from "../shared/book-fonts.js";
+import { coverHtml } from "../shared/cover-template.js";
+import { chapterStats, mergeChapters, moveChapter, renameChapter, splitChapter } from "../shared/book-chapters.js";
+import { splitTextChapters } from "../main/text-book.js";
 import { convertPath, uvtextPath } from "../shared/workshop-names.js";
 
 const BOOK_EXTENSIONS = ["epub", "fb2", "fbz", "mobi", "azw", "azw3", "cbz", "pdf"];
@@ -845,8 +848,13 @@ export function createWorkshopView(leaf, options) {
       this._bookCoverPick = coverRow2.createEl("button", { text: "选择图片…" });
       this._bookCoverPick.addEventListener("click", () => void this.pickCoverImage());
       this._bookCoverLabel = coverRow2.createSpan({ cls: "qbr-workshop-hint", text: "" });
-      this._bookCoverMode.addEventListener("change", () => this.syncBookCoverRow());
+      this._bookCoverMode.addEventListener("change", () => { this.syncBookCoverRow(); this.onBookStyleChange(); });
       this.syncBookCoverRow();
+      this._bookCoverPreview = wizardCard.createDiv("qbr-workshop-cover-preview");
+      const coverBox = this._bookCoverPreview.createDiv("qbr-workshop-cover-box");
+      this._bookCoverFrame = coverBox.createEl("iframe", { cls: "qbr-workshop-cover-frame" });
+
+      this._bookChaptersHost = wizardCard.createDiv("qbr-workshop-chapters");
 
       const advanced = wizardCard.createEl("details", { cls: "qbr-workshop-advanced" });      advanced.createEl("summary", { text: "高级排版" });
       this.bookSlider(advanced, "首行缩进", "indent", { min: 0, max: 4, step: 0.5, suffix: "em" });
@@ -1166,6 +1174,8 @@ export function createWorkshopView(leaf, options) {
       if (typeof saved.subtitle === "string") this._bookSubtitle.value = saved.subtitle;
       this.syncBookCoverRow();
       void this.renderBookPreview();
+      this.renderBookCoverPreview();
+      void this.renderBookChapters();
     }
 
     onBookStyleChange() {
@@ -1174,7 +1184,90 @@ export function createWorkshopView(leaf, options) {
       }
       try { localStorage.setItem("qbr-workshop-book-style", JSON.stringify(this.bookStyleState())); } catch { /* ignore */ }
       clearTimeout(this._bookPreviewTimer);
-      this._bookPreviewTimer = setTimeout(() => void this.renderBookPreview(), 150);
+      this._bookPreviewTimer = setTimeout(() => {
+        void this.renderBookPreview();
+        this.renderBookCoverPreview();
+      }, 150);
+    }
+
+    // 模板封面预览:1600×2400 缩放成缩略图(系统近似字体)。
+    renderBookCoverPreview() {
+      const frame = this._bookCoverFrame;
+      if (!frame) return;
+      const state = this.bookStyleState();
+      if (state.coverMode !== "template" && state.coverMode !== "auto") {
+        if (this._bookCoverPreview) this._bookCoverPreview.hidden = true;
+        return;
+      }
+      if (this._bookCoverPreview) this._bookCoverPreview.hidden = false;
+      const stacks = pairingStacks(findPairing(state.pairing));
+      const fallbackTitle = String(this._bookSources?.[0] || "").split("/").pop()?.replace(/\.[^.]+$/, "") || "未命名";
+      const html = coverHtml({
+        title: state.title || fallbackTitle,
+        author: state.author,
+        subtitle: state.subtitle,
+        palette: state.coverPalette,
+        headingFamily: stacks.heading,
+        bodyFamily: stacks.body,
+      });
+      const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+      const previous = this._bookCoverUrl;
+      this._bookCoverUrl = url;
+      frame.src = url;
+      if (previous) setTimeout(() => URL.revokeObjectURL(previous), 5000);
+    }
+
+    // 目录编辑:书库书稿可改名/合并/拆分/排序;本地文件在生成时自动识别。
+    async renderBookChapters() {
+      const host = this._bookChaptersHost;
+      if (!host) return;
+      host.empty();
+      const rel = this._bookSources?.[0];
+      const file = rel ? app?.vault?.getAbstractFileByPath?.(rel) : null;
+      if (!file) {
+        this._bookChapters = [];
+        if (rel) host.createDiv({ cls: "qbr-workshop-hint", text: "本地文件的目录在生成时自动识别(此处不可编辑)" });
+        return;
+      }
+      const text = await app.vault.read(file).catch(() => "");
+      this._bookChapters = splitTextChapters(text).map((chapter) => ({ title: chapter.title, text: chapter.body }));
+      if (!this._bookChapters.length) return;
+      const stats = chapterStats(this._bookChapters);
+      host.createDiv({ cls: "qbr-workshop-hint", text: `目录:${stats.chapters} 章 · 约 ${Math.max(1, Math.round(stats.chars / 1000))}k 字(可改名 / 合并 / 拆分 / 排序)` });
+      this._bookChapters.forEach((chapter, index) => {
+        const row = host.createDiv("qbr-workshop-chapter");
+        row.createSpan({ cls: "qbr-workshop-chapter-no", text: String(index + 1) });
+        const input = row.createEl("input", { cls: "qbr-workshop-input", attr: { value: chapter.title } });
+        input.value = chapter.title;
+        input.addEventListener("change", () => {
+          this._bookChapters = renameChapter(this._bookChapters, index, input.value);
+        });
+        row.createSpan({ cls: "qbr-workshop-hint", text: `${chapter.text.length} 字` });
+        const actions = row.createDiv("qbr-workshop-chapter-actions");
+        const up = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "↑" });
+        up.disabled = index === 0;
+        up.addEventListener("click", () => {
+          this._bookChapters = moveChapter(this._bookChapters, index, -1);
+          void this.renderBookChapters();
+        });
+        const down = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "↓" });
+        down.disabled = index === this._bookChapters.length - 1;
+        down.addEventListener("click", () => {
+          this._bookChapters = moveChapter(this._bookChapters, index, 1);
+          void this.renderBookChapters();
+        });
+        const merge = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "合并" });
+        merge.disabled = index === this._bookChapters.length - 1;
+        merge.addEventListener("click", () => {
+          this._bookChapters = mergeChapters(this._bookChapters, index);
+          void this.renderBookChapters();
+        });
+        const split = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "拆分" });
+        split.addEventListener("click", () => {
+          this._bookChapters = splitChapter(this._bookChapters, index);
+          void this.renderBookChapters();
+        });
+      });
     }
 
     async renderBookPreview() {
@@ -1236,12 +1329,16 @@ export function createWorkshopView(leaf, options) {
       if (path && !this._bookSources.includes(path)) this._bookSources.push(path);
       this.renderBookSourceChips();
       void this.renderBookPreview();
+      this.renderBookCoverPreview();
+      void this.renderBookChapters();
     }
 
     removeBookSource(path) {
       this._bookSources = (this._bookSources || []).filter((item) => item !== path);
       this.renderBookSourceChips();
       void this.renderBookPreview();
+      this.renderBookCoverPreview();
+      void this.renderBookChapters();
       this.refreshBookSourceList();
     }
 
@@ -1308,6 +1405,9 @@ export function createWorkshopView(leaf, options) {
             subtitle: state.subtitle,
             palette: state.coverPalette,
           },
+          chapters: (this._bookChapters || []).length
+            ? (this._bookChapters || []).map((chapter) => ({ title: chapter.title, text: chapter.text }))
+            : undefined,
         },
       }).catch((error) => new Notice(String(error?.message || error)));
       this.selectTool("tasks");

@@ -1265,6 +1265,58 @@ body .view-content.qiaomu-reader-view .qiaomu-reader-pdf-zoom-control {
   width: 100%;
 }
 
+/* 封面预览与目录编辑 */
+.qbr-workshop-cover-preview {
+  margin-top: 10px;
+  display: flex;
+}
+
+.qbr-workshop-cover-box {
+  width: 176px;
+  height: 264px;
+  overflow: hidden;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.qbr-workshop-cover-frame {
+  width: 1600px;
+  height: 2400px;
+  border: 0;
+  transform: scale(0.11);
+  transform-origin: top left;
+}
+
+.qbr-workshop-chapters {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.qbr-workshop-chapter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.qbr-workshop-chapter-no {
+  min-width: 22px;
+  color: var(--text-faint);
+  font-size: 12px;
+  text-align: right;
+}
+
+.qbr-workshop-chapter .qbr-workshop-input {
+  min-width: 120px;
+}
+
+.qbr-workshop-chapter-actions {
+  display: flex;
+  gap: 4px;
+}
+
 /* ── 书坊:任务队列 ─────────────────────────────────────────────────── */
 .qbr-workshop-rail button .badge {
   margin-left: auto;

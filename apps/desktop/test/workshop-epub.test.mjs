@@ -115,6 +115,35 @@ test("the book-build runner turns a txt into a readable EPUB", async () => {
   assert.match(task.detail, /EPUB · 2 章/);
 });
 
+test("the book-build runner honours chapters edited in the panel", async () => {
+  const vault = tempDir("qbr-epub-vault3-");
+  const source = path.join(vault, "原稿.txt");
+  fs.writeFileSync(source, "第一章 原\n\n原文。\n", "utf8");
+  const { queue } = makeQueue(tempDir("qbr-epub-cache3-"), null);
+  const id = queue.start({
+    kind: "book-build",
+    title: "生成电子书",
+    payload: {
+      source,
+      settings: {},
+      chapters: [
+        { title: "改过的标题", text: "改过的正文。" },
+        { title: "第二篇", text: "另一段。" },
+      ],
+    },
+  });
+  await sleep(80);
+  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  assert.equal(task.status, "done");
+  const zip = await JSZip.loadAsync(fs.readFileSync(task.output));
+  const nav = await zip.file("OEBPS/nav.xhtml").async("string");
+  assert.match(nav, /改过的标题/);
+  assert.match(nav, /第二篇/);
+  assert.ok(!nav.includes("第一章 原"), "the edited list replaces the auto-detected chapters");
+  const first = await zip.file("OEBPS/chapter-001.xhtml").async("string");
+  assert.match(first, /<p>改过的正文。<\/p>/);
+});
+
 test("the book-build runner embeds subsetted fonts", async () => {
   const vault = tempDir("qbr-epub-vault2-");
   const source = path.join(vault, "有字体.md");
