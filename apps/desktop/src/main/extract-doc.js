@@ -8,7 +8,9 @@ import path from "node:path";
 
 import { EXTRACT_MODES, IMAGE_INPUTS, extractionKind } from "../shared/extract-formats.js";
 import { splitMarkdownChapters, unwrapProseFences } from "../shared/markdown-fix.js";
-import { blocksFromDoc } from "./formula-html.js";
+import { blocksFromDoc, blocksToMarkdown } from "./formula-html.js";
+import { mergeBlocksWithTextLayer } from "./text-merge.js";
+import { createTextLayerReader } from "./text-layer.js";
 import { pdfToolArgs, pdfToolScriptCommand } from "./workshop-formula.js";
 
 export { EXTRACT_MODES, IMAGE_INPUTS, extractionKind };
@@ -154,8 +156,27 @@ export function imageToPdf(source, outPath, { python = "python", signal, log = (
   });
 }
 
+// pdf_tool 的 Doc JSON + PDF 文字层 → 互补后的 Markdown(正文逐字、公式 LaTeX)。
+// 拿不到文字层(扫描件 / 没装 PyMuPDF)或定位失败时返回 "",调用方保留 MinerU 产物。
+export async function mergePdfMarkdown({ docPath, source, python = "python", workDir = "", signal, textLayer = null, assetPrefix = "", log = () => {} } = {}) {
+  if (!textLayer || !docPath || !fs.existsSync(docPath)) return "";
+  try {
+    const blocks = blocksFromDoc(JSON.parse(fs.readFileSync(docPath, "utf8")));
+    const layer = await textLayer.read(source, { python, workDir, signal });
+    if (!layer.ok) {
+      log("text layer skipped", layer.error);
+      return "";
+    }
+    const markdown = blocksToMarkdown(mergeBlocksWithTextLayer(blocks, layer.pages, { log }));
+    return assetPrefix ? markdown.split("mineru/").join(assetPrefix) : markdown;
+  } catch (error) {
+    log("merged markdown failed", String(error?.message || error));
+    return "";
+  }
+}
+
 // 供向导调用:把任意来源转成 Markdown(中间产物放缓存目录,用户无感)。
-export async function extractMarkdown(source, { kind, settings = {}, docvortex, workDir, signal, log = () => {}, spawnImpl = spawn } = {}) {
+export async function extractMarkdown(source, { kind, settings = {}, docvortex, workDir, signal, log = () => {}, spawnImpl = spawn, textLayer = null } = {}) {
   const resolvedKind = kind || extractionKind(source);
   // 提取产物里的「假代码块」(MinerU 把正文段落包进围栏)按段落还原,公式才会渲染。
   const readMarkdown = (file) => {
@@ -187,6 +208,21 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
     if (!result.ok) return { ok: false, error: result.error };
     const files = adoptPdfToolOutputs(workDir, stem, { renameAssets: false });
     if (!files.md) return { ok: false, error: "提取完成但没有找到 Markdown 产物" };
+    // 文字层互补:正文逐字取 PDF 文字层(补 MinerU 丢的字),公式仍是 LaTeX。
+    const merged = await mergePdfMarkdown({
+      docPath: files.json,
+      source,
+      python: docvortexPython(settings),
+      workDir,
+      signal,
+      textLayer,
+      log,
+    });
+    if (merged) {
+      const mergedPath = path.join(workDir, "merged.md");
+      fs.writeFileSync(mergedPath, merged, "utf8");
+      return { ok: true, markdown: merged, path: mergedPath };
+    }
     return { ok: true, markdown: readMarkdown(files.md), path: files.md };
   }
   if (!docvortex) return { ok: false, error: "DocVortex 不可用" };
@@ -207,7 +243,7 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
   return { ok: true, markdown: readMarkdown(out), path: out };
 }
 
-export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", spawnImpl = spawn, log = (...args) => console.log(...args) } = {}) {
+export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", spawnImpl = spawn, textLayer = createTextLayerReader(), log = (...args) => console.log(...args) } = {}) {
   const absolute = (raw) => {
     const value = String(raw || "");
     return path.isAbsolute(value) ? value : path.join(vaultRoot, value);
@@ -258,6 +294,20 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", sp
     if (!result.ok) throw new Error(String(result.error || "提取失败"));
     const files = adoptPdfToolOutputs(outDir, stem);
     if (!files.md) throw new Error("提取完成但没有找到 Markdown 产物");
+    // 文字层互补:正文逐字取 PDF 文字层(补 MinerU 丢的字),公式仍是 LaTeX;失败保留 MinerU 的 md。
+    report({ label: "文字层校正" });
+    const merged = await mergePdfMarkdown({
+      docPath: files.json,
+      source,
+      python: docvortexPython(settings),
+      workDir: outDir,
+      signal,
+      textLayer,
+      log,
+      assetPrefix: `${stem}.assets/`,
+    });
+    if (signal.aborted) throw new Error("任务已取消");
+    if (merged) fs.writeFileSync(files.md, merged, "utf8");
     return { output: files.md, detail: `Markdown · ${Math.round(fs.statSync(files.md).size / 1024)} KB`, outputs: files };
   });
 

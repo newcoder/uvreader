@@ -9,6 +9,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { blocksFromDoc, blocksToHtml } from "./formula-html.js";
+import { mergeBlocksWithTextLayer } from "./text-merge.js";
+import { createTextLayerReader } from "./text-layer.js";
 import { docvortexFormatExt } from "../shared/workshop-formats.js";
 import { convertPath } from "../shared/workshop-names.js";
 
@@ -91,7 +93,7 @@ export function formulaCacheDir(root, source, pages = "") {
   return path.join(String(root || ""), `${stem}-${key}`);
 }
 
-export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000, readEnv = readWindowsEnv, log = (...args) => console.log(...args) } = {}) {
+export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000, readEnv = readWindowsEnv, textLayer = createTextLayerReader(), log = (...args) => console.log(...args) } = {}) {
   function runCommand(command, args, { cwd, env, signal } = {}) {
     return new Promise((resolve) => {
       let child;
@@ -154,12 +156,21 @@ export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000,
     const docPath = path.join(workDir, `${stemOf(source)}_doc.json`);
     if (!fs.existsSync(docPath)) return { ok: false, error: "pdf_tool 没有生成 Doc JSON" };
     report?.({ label: "生成公式 HTML" });
-    let html;
+    let blocks;
     try {
-      html = blocksToHtml(blocksFromDoc(JSON.parse(fs.readFileSync(docPath, "utf8"))), { title: stemOf(source) });
+      blocks = blocksFromDoc(JSON.parse(fs.readFileSync(docPath, "utf8")));
     } catch (error) {
       return { ok: false, error: `Doc JSON 解析失败：${error?.message || error}` };
     }
+    // 文字层互补:正文逐字取 PDF 文字层(补 MinerU 丢的字/符号),公式保留 MinerU 的 LaTeX。
+    if (textLayer) {
+      report?.({ label: "文字层校正" });
+      const layer = await textLayer.read(source, { python: String(settings.ocrPython || "").trim() || "python", workDir, signal });
+      if (layer.ok) blocks = mergeBlocksWithTextLayer(blocks, layer.pages, { log });
+      else log("text layer skipped", layer.error);
+    }
+    if (signal?.aborted) return { ok: false, cancelled: true, error: "任务已取消" };
+    const html = blocksToHtml(blocks, { title: stemOf(source) });
     const htmlPath = path.join(workDir, "bridge.html");
     fs.writeFileSync(htmlPath, html, "utf8");
     return { ok: true, htmlPath, docPath, log: parsed.log };

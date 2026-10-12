@@ -102,10 +102,18 @@ test("adoptPdfToolOutputs renames pdf_tool products and rewrites asset links", (
   assert.match(path.basename(again.md), /^报告 \(\d+\)\.md$/);
 });
 
-function makeQueue(docvortex, spawnImpl) {
+function makeQueue(docvortex, spawnImpl, extra = {}) {
   const dir = tempDir("qbr-extract-queue-");
   const queue = createWorkshopQueue({ file: path.join(dir, "tasks.json"), onState: () => {}, log: { warn() {} } });
-  registerExtractRunners(queue, { docvortex, vaultRoot: "D:/vault", spawnImpl, log: () => {} });
+  registerExtractRunners(queue, {
+    docvortex,
+    vaultRoot: "D:/vault",
+    spawnImpl,
+    log: () => {},
+    // 单测里不跑真实 PyMuPDF;需要合并路径的用例自己传 textLayer。
+    textLayer: { read: async () => ({ ok: false, error: "no text layer in tests" }) },
+    ...extra,
+  });
   return { queue, dir };
 }
 
@@ -244,6 +252,49 @@ test("patchMarkdownCaptions puts a dropped code-block caption back before its fe
   assert.equal(patchMarkdownCaptions(patched, blocks), patched, "an md that already carries the caption is untouched");
   assert.equal(patchMarkdownCaptions(markdown, []), markdown);
   assert.equal(patchMarkdownCaptions(markdown, [{ type: "text", caption: "x", content: "y" }]), markdown, "only code blocks are patched");
+});
+
+test("the pdf runner writes the merged markdown when the text layer is available", async () => {
+  const vault = tempDir("qbr-extract-vault-merge-");
+  fs.mkdirSync(path.join(vault, "pdf_tool"), { recursive: true });
+  fs.writeFileSync(path.join(vault, "pdf_tool", "pdf_to_doc.py"), "# stub\n");
+  const source = path.join(vault, "论文.pdf");
+  fs.writeFileSync(source, "%PDF-1.4");
+  const { spawnImpl } = fakeSpawn((call, child) => {
+    const outDir = call.args[call.args.indexOf("--out-dir") + 1];
+    const doc = {
+      schema_version: 1,
+      pages: [{
+        page: 1,
+        blocks: [
+          { type: "text", text: "The wafer was cleaned first.", id: "b1", page: 1 },
+          { type: "code", caption: "In the experiments, the wafer was spun at the speed of", content: "30 s to promote adhesion.", id: "b2", page: 1 },
+          { type: "image", image: { src: "mineru/images/a.jpg" }, id: "b3", page: 1 },
+        ],
+      }],
+    };
+    fs.writeFileSync(path.join(outDir, "论文_doc.json"), JSON.stringify(doc));
+    fs.writeFileSync(path.join(outDir, "论文_doc.md"), "MinerU 的 Markdown（少了前半句）");
+    fs.mkdirSync(path.join(outDir, "mineru", "images"), { recursive: true });
+    fs.writeFileSync(path.join(outDir, "mineru", "images", "a.jpg"), "img");
+    child.emit("close", 0);
+  });
+  const { queue } = makeQueue({ probe: async () => ({ ok: true }), convert: async () => ({ ok: true }) }, spawnImpl, {
+    textLayer: {
+      read: async () => ({
+        ok: true,
+        pages: ["The wafer was cleaned first. In the experiments, the wafer was spun at the speed of 3000 rpm for 30 s to promote adhesion."],
+      }),
+    },
+  });
+  const id = queue.start({ kind: "extract-pdf", title: "内容提取", payload: { source, mode: "mineru", settings: { ocrSidecarDir: vault } } });
+  await sleep(80);
+  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  assert.equal(task.status, "done", task.error);
+  const md = fs.readFileSync(path.join(vault, "论文.md"), "utf8");
+  assert.match(md, /In the experiments, the wafer was spun at the speed of 3000 rpm for 30 s to promote adhesion/, "正文取文字层并补回丢字");
+  assert.match(md, /!\[.*\]\(论文\.assets\/images\/a\.jpg\)/, "图片引用改写到 <源名>.assets/");
+  assert.ok(!md.includes("少了前半句"), "不再使用 MinerU 那份缺字的 Markdown");
 });
 
 test("the extract probe reports pdf_tool, credentials and DocVortex", async () => {

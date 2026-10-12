@@ -8,6 +8,7 @@ import { buildEpub, BOOK_STYLE_DEFAULTS, collectBookImages } from "./epub-build.
 import { markdownToHtml, textToChapters, textToHtml } from "./text-book.js";
 import { extractMarkdown, extractionKind, splitMarkdownChapters } from "./extract-doc.js";
 import { collectLatex, createMathRenderer, shareFormulaHtml } from "./math-render.js";
+import { createTextLayerReader } from "./text-layer.js";
 import { unwrapProseFences } from "../shared/markdown-fix.js";
 import { collectChars, createFontSubsetter, ensureFont, ensureFontLicense, findPairing, FONT_FAMILIES } from "./workshop-fonts.js";
 import { pairingStacks } from "../shared/book-fonts.js";
@@ -126,7 +127,7 @@ export async function resolveCover({ payload = {}, title = "", author = "", mark
   return { data: rendered.data, mediaType: rendered.mediaType || "image/jpeg", fileName: "cover.jpg" };
 }
 
-export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", subsetter = createFontSubsetter(), coverRenderer = null, readImage = null, docvortex = null, mathRenderer = createMathRenderer(), spawnImpl = spawn, log = (...args) => console.log(...args) } = {}) {
+export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", subsetter = createFontSubsetter(), coverRenderer = null, readImage = null, docvortex = null, mathRenderer = createMathRenderer(), textLayer = createTextLayerReader(), spawnImpl = spawn, log = (...args) => console.log(...args) } = {}) {
   const absolute = (raw) => {
     const value = String(raw || "");
     return path.isAbsolute(value) ? value : path.join(vaultRoot, value);
@@ -192,6 +193,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
         signal,
         log,
         spawnImpl,
+        textLayer,
       });
       if (signal.aborted) throw new Error("任务已取消");
       if (!extracted.ok) throw new Error(String(extracted.error || "内容提取失败"));

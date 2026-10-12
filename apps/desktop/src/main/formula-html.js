@@ -149,12 +149,14 @@ export function blockToHtml(block) {
   return String(text).trim() ? `<p>${wrapInlineMath(text)}</p>` : "";
 }
 
-// Doc v1 → 扁平块(按页顺序)。
+// Doc v1 → 扁平块(按页顺序;补上 1 基页码,文字层互补与补 caption 都要用)。
 export function blocksFromDoc(doc) {
   const out = [];
-  for (const page of Array.isArray(doc?.pages) ? doc.pages : []) {
-    for (const block of Array.isArray(page?.blocks) ? page.blocks : []) {
-      if (block && typeof block === "object") out.push(block);
+  const pages = Array.isArray(doc?.pages) ? doc.pages : [];
+  for (let index = 0; index < pages.length; index += 1) {
+    const blocks = Array.isArray(pages[index]?.blocks) ? pages[index].blocks : [];
+    for (const block of blocks) {
+      if (block && typeof block === "object") out.push({ ...block, page: Number(block.page) || index + 1 });
     }
   }
   return out;
@@ -175,4 +177,47 @@ ${body.join("\n")}
 </body>
 </html>
 `;
+}
+
+// Doc v1 块 → Markdown(与 blocksToHtml 同一套语义:公式留 LaTeX、图片保持相对路径,
+// 被判成 code 的正文按段落还原)。
+export function blockToMarkdown(block) {
+  const type = String(block?.type || "text");
+  if (type === "heading") {
+    const level = Math.min(Math.max(Number(block.level) || 2, 1), 6);
+    const text = String(block.text || "").trim();
+    return text ? `${"#".repeat(level)} ${text}` : "";
+  }
+  if (type === "equation") {
+    const latex = stripMathDelimiters(block.text ?? block.latex ?? "");
+    return latex ? `$$${latex}$$` : "";
+  }
+  if (type === "table") {
+    const table = block.table && typeof block.table === "object" ? block.table : block;
+    const headers = Array.isArray(table.headers) ? table.headers : [];
+    const rows = Array.isArray(table.rows) ? table.rows : [];
+    const lines = [];
+    if (headers.length) lines.push(`| ${headers.map((cell) => cellText(cell)).join(" | ")} |`, `| ${headers.map(() => "---").join(" | ")} |`);
+    for (const row of rows) lines.push(`| ${(Array.isArray(row) ? row : []).map((cell) => cellText(cell)).join(" | ")} |`);
+    return lines.join("\n");
+  }
+  if (type === "image") {
+    const src = String(block.image?.src || "");
+    return src ? `![${String(block.image?.alt || block.alt || "")}](${src})` : "";
+  }
+  if (type === "code") {
+    const content = String(block?.content ?? block?.code ?? "");
+    const caption = blockCaption(block);
+    const combined = caption ? [caption, content].filter(Boolean).join("\n") : content;
+    return looksLikeProseBlock(combined) ? joinProseLines(combined) : `\`\`\`\n${content}\n\`\`\``;
+  }
+  const text = block?.text ?? block?.content ?? "";
+  return String(text).trim();
+}
+
+export function blocksToMarkdown(blocks) {
+  return (Array.isArray(blocks) ? blocks : [])
+    .map((block) => blockToMarkdown(block))
+    .filter((chunk) => chunk.trim())
+    .join("\n\n");
 }
