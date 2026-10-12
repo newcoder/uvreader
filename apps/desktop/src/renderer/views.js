@@ -570,7 +570,7 @@ export function createWorkshopView(leaf, options) {
       pickVault.addEventListener("click", () => this.toggleOcrBookList());
       const pickLocal = pickRow.createEl("button", { text: "打开本地文件…" });
       pickLocal.addEventListener("click", () => void this.pickLocalOcrFiles());
-      pickRow.createSpan({ cls: "qbr-workshop-hint", text: "本地文件会自动导入书库" });
+      pickRow.createSpan({ cls: "qbr-workshop-hint", text: "本地文件就地处理,产物落在源文件旁" });
       this._ocrBookList = inputCard.createDiv("qbr-workshop-booklist");
       this._ocrBookList.hidden = true;
       this._ocrChips = inputCard.createDiv("qbr-workshop-chips");
@@ -666,14 +666,8 @@ export function createWorkshopView(leaf, options) {
     async pickLocalOcrFiles() {
       if (!bridge?.pickFiles) return;
       const paths = await bridge.pickFiles().catch(() => []);
-      for (const absolute of paths) {
-        try {
-          const rel = await plugin?.importBookToLibrary?.(absolute);
-          if (rel) this.addOcrFile(rel);
-        } catch (error) {
-          new Notice(`无法加入书库：${absolute}\n${error?.message || error}`);
-        }
-      }
+      // 就地处理:不导入书库,产物落在源文件旁。
+      for (const picked of paths) this.addOcrFile(String(picked).replace(/\\/g, "/"));
       this.refreshOcrBookList();
     }
 
@@ -740,7 +734,7 @@ export function createWorkshopView(leaf, options) {
       pickVault.addEventListener("click", () => this.toggleConvertBookList());
       const pickLocal = pickRow.createEl("button", { text: "打开本地文件…" });
       pickLocal.addEventListener("click", () => void this.pickLocalConvertFiles());
-      pickRow.createSpan({ cls: "qbr-workshop-hint", text: "本地文件会自动导入书库" });
+      pickRow.createSpan({ cls: "qbr-workshop-hint", text: "本地文件就地处理,产物落在源文件旁" });
       this._convertBookList = inputCard.createDiv("qbr-workshop-booklist");
       this._convertBookList.hidden = true;
       this._convertChips = inputCard.createDiv("qbr-workshop-chips");
@@ -869,14 +863,8 @@ export function createWorkshopView(leaf, options) {
     async pickLocalConvertFiles() {
       if (!bridge?.pickFiles) return;
       const paths = await bridge.pickFiles().catch(() => []);
-      for (const absolute of paths) {
-        try {
-          const rel = await plugin?.importBookToLibrary?.(absolute);
-          if (rel) this.addConvertFile(rel);
-        } catch (error) {
-          new Notice(`无法加入书库：${absolute}\n${error?.message || error}`);
-        }
-      }
+      // 就地处理:不导入书库,产物落在源文件旁。
+      for (const picked of paths) this.addConvertFile(String(picked).replace(/\\/g, "/"));
       this.refreshConvertBookList();
     }
 

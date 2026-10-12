@@ -2418,8 +2418,10 @@ async function runWorkshopOcrScenario() {
     return;
   }
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-e2e-wshop-ocr-"));
+  const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-e2e-ocr-outside-"));
   fs.mkdirSync(path.join(userData, "library", "Books"), { recursive: true });
   fs.copyFileSync(scanSource, path.join(userData, "library", "Books", "扫描件测试.pdf"));
+  fs.copyFileSync(scanSource, path.join(outsideDir, "扫描件测试.pdf"));
   const { app, page } = await launch("", {
     userData,
     seed: (dir) => {
@@ -2512,6 +2514,30 @@ async function runWorkshopOcrScenario() {
     if (!fs.existsSync(exportPath)) throw new Error("the overwritten export is missing");
     console.log("workshop-ocr: re-export overwrites the same .uvtext.pdf");
 
+    // 库外文件就地导出:产物落在源文件旁,不导入书库。
+    const outsideSource = path.join(outsideDir, "扫描件测试.pdf").replace(/\\/g, "/");
+    const outsideOut = path.join(outsideDir, "扫描件测试.uvtext.pdf").replace(/\\/g, "/");
+    const outsideTask = await page.evaluate(async ({ source, out, settings }) => window.qbrDesktop.workshop.start({
+      kind: "ocr-export", title: "导出可搜索 PDF", detail: source,
+      payload: { settings, source, out },
+    }), {
+      source: outsideSource,
+      out: outsideOut,
+      settings: { ocrSidecarDir: sidecarDir, ocrPython: process.env.QBR_OCR_PYTHON || "python" },
+    });
+    const outsideDone = await waitFor("outside export", () => page.evaluate(async (id) => {
+      const state = await window.qbrDesktop.workshop.list();
+      const task = state.tasks.find((entry) => entry.id === id);
+      return task && task.status !== "running" && task.status !== "queued" ? `${task.status}|${task.output}${task.error}` : "";
+    }, outsideTask), 300_000);
+    if (!outsideDone.startsWith("done")) throw new Error(`the in-place export should finish done: ${outsideDone}`);
+    if (!fs.existsSync(outsideOut)) throw new Error(`expected the .uvtext.pdf next to the outside source: ${outsideOut}`);
+    const strays = await page.evaluate(() => window.__qbrApp.vault.getFiles()
+      .filter((file) => file.basename.startsWith("扫描件测试") && !file.path.startsWith("Books/"))
+      .map((file) => file.path));
+    if (strays.length) throw new Error(`the outside scan was imported into the library: ${strays}`);
+    console.log("workshop-ocr: outside scan exported in place —", path.basename(outsideOut));
+
     // 打开导出的副本搜索只出现在第 2 页的词:未渲染页也必须出现在结果列表里
     // (DOM 文本层只覆盖渲染过的页;修复后查找用懒加载视图的逐页文本)。
     const copyFingerprint = fs.readdirSync(path.join(userData, "ocr-cache")).find((name) => name.startsWith("sha1-"));
@@ -2551,6 +2577,7 @@ async function runWorkshopOcrScenario() {
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(userData, { recursive: true, force: true });
+    fs.rmSync(outsideDir, { recursive: true, force: true });
   }
 }
 
@@ -2558,20 +2585,12 @@ async function runWorkshopConvertScenario() {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-e2e-wshop-conv-"));
   const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-e2e-conv-src-"));
   fs.mkdirSync(path.join(userData, "library", "Books"), { recursive: true });
-  const source = path.join(outsideDir, "转换测试.docx");
-  await writeMinimalDocx(source);
+  await writeMinimalDocx(path.join(userData, "library", "Books", "转换测试.docx"));
+  const outsideSource = path.join(outsideDir, "转换测试.docx");
+  await writeMinimalDocx(outsideSource);
   const { app, page } = await launch("", { userData });
   try {
     await page.waitForSelector(".qbr-home-view", { timeout: 30_000 });
-    // 打开本地文件即导入书库:桌面适配器会把绝对路径解析到真实文件系统,
-    // 导入不能因此把它当成库内文件而跳过复制。
-    const imported = await page.evaluate((absolute) => window.__qbrPlugin.importBookToLibrary(absolute), source);
-    if (!imported || /^[a-zA-Z]:\//.test(imported)) {
-      throw new Error(`the outside docx was not imported into the library: ${imported}`);
-    }
-    const libraryCopy = path.join(userData, "library", imported);
-    if (!fs.existsSync(libraryCopy)) throw new Error(`the imported copy is missing: ${libraryCopy}`);
-    console.log("workshop-convert: outside docx imported as", imported);
     await page.click('[data-route="workshop"]');
     await page.waitForSelector(".qbr-workshop-view", { timeout: 15_000 });
     // Skip on machines without docvortex installed.
@@ -2612,11 +2631,29 @@ async function runWorkshopConvertScenario() {
       return task ? `${task.status}|${task.output}|${task.error}` : "";
     }), 120_000);
     if (!converted.startsWith("done")) throw new Error(`the convert task should finish done: ${converted}`);
-    const mdPath = path.join(userData, "library", imported.replace(/\.docx$/i, ".md"));
+    const mdPath = path.join(userData, "library", "Books", "转换测试.md");
     if (!fs.existsSync(mdPath)) throw new Error(`expected the markdown next to the library copy: ${mdPath}`);
     const text = fs.readFileSync(mdPath, "utf8");
     if (!text.includes("书坊转换测试")) throw new Error("the converted markdown lost the text");
     console.log("workshop-convert: docx → markdown landed —", path.basename(mdPath), text.length, "chars");
+    // 本地文件就地处理:直接以绝对路径入队(不导入书库),产物落在源文件旁。
+    const outsideOut = path.join(outsideDir, "转换测试.md");
+    const outsideTask = await page.evaluate(async ({ source, out }) => window.qbrDesktop.workshop.start({
+      kind: "docvortex-convert", title: "文档互转", detail: source,
+      payload: { settings: {}, source, out, format: "markdown" },
+    }), { source: outsideSource.replace(/\\/g, "/"), out: outsideOut.replace(/\\/g, "/") });
+    const outsideDone = await waitFor("in-place convert", () => page.evaluate(async (id) => {
+      const state = await window.qbrDesktop.workshop.list();
+      const task = state.tasks.find((entry) => entry.id === id);
+      return task && task.status !== "running" && task.status !== "queued" ? `${task.status}|${task.output}` : "";
+    }, outsideTask), 120_000);
+    if (!outsideDone.startsWith("done")) throw new Error(`the in-place conversion should finish done: ${outsideDone}`);
+    if (!fs.existsSync(outsideOut)) throw new Error(`expected the markdown next to the outside source: ${outsideOut}`);
+    const strays = await page.evaluate(() => window.__qbrApp.vault.getFiles()
+      .filter((file) => file.basename.startsWith("转换测试") && !file.path.startsWith("Books/"))
+      .map((file) => file.path));
+    if (strays.length) throw new Error(`the outside docx was imported into the library: ${strays}`);
+    console.log("workshop-convert: outside docx processed in place —", path.basename(outsideOut));
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(userData, { recursive: true, force: true });

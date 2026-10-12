@@ -49,6 +49,7 @@
 - 修复公式链路「找不到 MinerU 凭据」（用户现场：机器级环境变量在应用启动后才设，进程看不到）：凭据解析改为**面板「MinerU 凭据」→ 进程环境 → Windows 注册表**（`HKCU\Environment` + HKLM Session Manager 环境，`reg query`，免重启），并经子进程环境（而非命令行）传给 pdf_tool；「转换设置」新增 MinerU 凭据输入（只在公式优先时露出，持久化到设置），`formula-probe`/失败提示都给出可操作文案（traceback 翻译成「填写凭据或设环境变量后重启」）。单测补 `resolveMineruToken`/`friendlyPdfToolError`/环境传递（desktop 98 项）；真机验证：应用进程**没有**环境变量时，probe 通过、3 页链路 → DOCX 47 OMML/10 下标（注册表兜底生效）。
 - 公式方案定调：**采用 A**（MinerU → DocVortex，质量优先），**B 方案记录备忘**在 `docs/docvortex-formula-upstream.md`（把公式识别做进 DocVortex 的 OCR 路径：实施钩子/优势/代价/中间路线 B′/触发条件/复现资料），等离线或隐私需求出现时再启动。**A-local（本地 MinerU）交 pdf_tool 实现**：需求文档 `pdf_tool/docs/reader-request-mineru-local-2026-10-11.md`（`--mineru-source auto|cloud|local`、档位 basic/standard/advanced、输出契约不变、验收与 8GB 硬件参考）；书坊侧等 pdf_tool 就绪后加「公式优先(MinerU 本地)」并透传参数，其余不动。
 - 文字层导出简化（用户反馈）：去掉「另存为…」按钮（未生成完也能点、且没必要），导出固定在**源文件旁** `<源名>.uvtext.pdf`、**同名直接覆盖**（可重复导出，不再自动加序号）；同步移除 `qbr:workshop:save-as` IPC/preload 与 `uvtextPath` 的冲突编号参数；E2E `workshop-ocr` 增加「重复导出不产生 (1) 副本」断言。
+- 书坊「本地文件」流程调整（用户反馈）：本地文件**就地处理、不再导入书库**（原文件留在原处），产物一律落在**源文件旁**（文字层 `.uvtext.pdf` 同名覆盖；互转/公式链路产物在源文件旁）；面板提示改为「本地文件就地处理,产物落在源文件旁」。E2E `workshop-ocr` / `workshop-convert` 各增「库外文件就地处理」断言（产物在源文件旁、书库无副本）。
 - 渲染层收紧（安全）：主窗口加 `will-navigate`/`setWindowOpenHandler` 守卫（外链交给系统浏览器，`window.open` 一律拒绝）；Markdown 清洗升级为 `renderer/sanitize.js`（标签与 URL 协议白名单，notes/AI 输出统一入口，另配点击兜底）；CSP 去掉 `script-src` 的内联脚本许可；来源窗口（登录/页加载/下载）只允许 http(s) 加载；下载格式白名单与大小上限；OCR 请求加超时。剩余：`contextIsolation`/`sandbox` 翻转（需把 shim 的 fs 端口改为 IPC）与 `webSecurity` 关闭项清理。
 
 ## 1. 目标与范围
