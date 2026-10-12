@@ -69,7 +69,7 @@
 | --- | --- | --- | --- |
 | 文档互转(DocVortex) | DocVortex 20 入 / 7 出(含 →EPUB/DOCX/MD/HTML/PDF/LaTeX/JSON) | ✅ 已实现 | 格式转换(保留) |
 | PDF → Markdown | ① DocVortex 本地解析(快;扫描件走自带 OCR)② pdf_tool 提取(text/vision/mineru,保真,公式 LaTeX) | ① 可立即点亮 ② 未实现 | ① 格式转换(加提示分流)② **内容提取**(W1-0) |
-| Markdown / HTML → EPUB | ① DocVortex 纯转换(无封面/样式/目录控制)② 电子书制作向导(样式/封面/目录/元数据) | ① 可立即点亮 ② P1(W1-2/W1-3) | ① 格式转换(加提示分流)② 电子书制作 |
+| Markdown / HTML → EPUB | ① DocVortex 纯转换(**HTML ✓ 今天可用;Markdown 不行——DocVortex 0.5.16 不接受 md**,需先转 HTML)② 电子书制作向导(样式/封面/目录/元数据,自带 md→HTML) | ① HTML 可立即点亮 ② P1(W1-2/W1-3) | ① 格式转换(加提示分流)② 电子书制作 |
 | EPUB → AZW3 / MOBI | Calibre `ebook-convert`(本机 9.15 已装) | 可立即点亮 | 格式转换(W1-1/W1-5 提前) |
 | PDF → 干净电子书 | pdf_tool 提取 + 电子书向导(去页眉页脚/水印、分章、样式、封面) | P1 | 内容提取 + 电子书制作(卡片只做路由/预填) |
 | 图片 → PDF / CBZ | CBZ=ZIP(JSZip 已有);PDF 走 pdf_tool 渲染(`blocks_to_pdf`,图片块→PDF) | P1(W1-5) | 格式转换 |
@@ -78,7 +78,7 @@
 
 **预设卡片行为**:点击预设 → **路由到对应工具并预填**(例如「PDF → 干净电子书」跳「内容提取」并选 MinerU,完成后提示去「电子书制作」);不在转换面板重复实现其它板块的功能。转换面板里的「解析方式(本地/公式优先)」保留,作为纯转换的解析选项。
 
-**建议顺序**:① EPUB → AZW3/MOBI(Calibre,半天)② Markdown/HTML → EPUB、PDF → Markdown 两个纯转换预设(点亮 + 提示分流,半天)③ W1-0 内容提取(1–2 天,复用公式链路 runner 模式)④ 电子书向导(W1-2/W1-3)⑤ 图片 → PDF/CBZ(W1-5)。
+**建议顺序**:① EPUB → AZW3/MOBI(Calibre,半天)② HTML → EPUB、PDF → Markdown 两个纯转换预设(点亮 + 提示分流,半天;Markdown → EPUB 需先转 HTML,随向导 W1-2 一起做)③ W1-0 内容提取(1–2 天,复用公式链路 runner 模式)④ 电子书向导(W1-2/W1-3)⑤ 图片 → PDF/CBZ(W1-5)。
 
 ## 4. 依赖与顺序
 
