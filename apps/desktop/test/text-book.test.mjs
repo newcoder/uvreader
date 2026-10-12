@@ -74,6 +74,32 @@ test("markdownToHtml handles headings, lists, quotes, code and inline markup", (
   assert.match(html, /<hr\/>/);
 });
 
+test("markdownToHtml renders math through the renderMath callback and keeps LaTeX otherwise", () => {
+  const math = (latex, display) => `<math data-display="${display}">${latex}</math>`;
+  const html = markdownToHtml([
+    "# 公式章",
+    "",
+    "行内 $E = mc^2$ 与 \\(x_1\\)。",
+    "",
+    "$$",
+    "a^2 + b^2 = c^2",
+    "$$",
+    "",
+    "\\[y^2\\]",
+  ].join("\n"), { renderMath: math });
+  assert.match(html, /行内 <math data-display="false">E = mc\^2<\/math> 与 <math data-display="false">x_1<\/math>。/);
+  assert.match(html, /<math data-display="true">a\^2 \+ b\^2 = c\^2<\/math>/);
+  assert.ok(!/<p><math data-display="true">/.test(html), "a paragraph that is only a display formula is not wrapped in <p>");
+  assert.match(html, /<math data-display="true">y\^2<\/math>/);
+  const plain = markdownToHtml("行内 $E = mc^2$。");
+  assert.match(plain, /<p>行内 \$E = mc\^2\$。<\/p>/, "without renderMath the LaTeX stays readable");
+});
+
+test("markdownToHtml falls back to the escaped LaTeX when a formula fails to render", () => {
+  const html = markdownToHtml("结果是 $\\frac{1}{2}$ 的。", { renderMath: () => "" });
+  assert.match(html, /结果是 \$\\frac\{1\}\{2\}\$ 的。/);
+});
+
 test("textToChapters maps both plain text and markdown inputs", () => {
   const plain = textToChapters("第一章 一\n\n正文。\n\n第二章 二\n\n更多。");
   assert.equal(plain.length, 2);

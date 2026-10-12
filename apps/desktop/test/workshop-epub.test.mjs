@@ -98,10 +98,10 @@ test("prepareFonts downloads a pairing and skips fonts that fail", async () => {
   assert.deepEqual(skipped, [], "no network means no embedded fonts, not a failure");
 });
 
-function makeQueue(cacheRoot, subsetter) {
+function makeQueue(cacheRoot, subsetter, extra = {}) {
   const dir = tempDir("qbr-epub-queue-");
   const queue = createWorkshopQueue({ file: path.join(dir, "tasks.json"), onState: () => {}, log: { warn() {} } });
-  registerEpubRunners(queue, { vaultRoot: "D:/vault", cacheRoot, subsetter, log: () => {} });
+  registerEpubRunners(queue, { vaultRoot: "D:/vault", cacheRoot, subsetter, log: () => {}, ...extra });
   return { queue, dir };
 }
 
@@ -243,4 +243,53 @@ test("the book-build runner embeds subsetted fonts", async () => {
   assert.equal(fontFiles.length, 1);
   assert.match(await zip.file(fontFiles[0]).async("string"), /has-chars/);
   assert.match(task.detail, /1 款字体/);
+});
+
+test("the book-build runner embeds local images and renders formulas as MathML", async () => {
+  const vault = tempDir("qbr-epub-vault6-");
+  const imageDir = path.join(vault, "mineru", "images");
+  fs.mkdirSync(imageDir, { recursive: true });
+  fs.writeFileSync(path.join(imageDir, "fig1.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 13]));
+  const source = path.join(vault, "论文.md");
+  fs.writeFileSync(source, [
+    "# 第一章 结果",
+    "",
+    "![图一](mineru/images/fig1.png)",
+    "",
+    "行内 $E = mc^2$ 与行间:",
+    "",
+    "$$",
+    "a^2 + b^2 = c^2",
+    "$$",
+    "",
+    "![缺图](mineru/images/missing.png)",
+  ].join("\n"), "utf8");
+  const batches = [];
+  const mathRenderer = {
+    renderMap: async (latexes) => {
+      batches.push(latexes);
+      return {
+        ok: true,
+        map: Object.fromEntries(latexes.map((latex) => [latex, `<math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mi>${latex.length}</mi></math>`])),
+      };
+    },
+  };
+  const { queue } = makeQueue(tempDir("qbr-epub-cache6-"), null, { mathRenderer });
+  const id = queue.start({ kind: "book-build", title: "生成电子书", payload: { source, settings: {} } });
+  await sleep(80);
+  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  assert.equal(task.status, "done", task.error);
+  assert.deepEqual([...batches[0]].sort(), ["E = mc^2", "a^2 + b^2 = c^2"].sort(), "both formulas go out in one batch");
+  const zip = await JSZip.loadAsync(fs.readFileSync(task.output));
+  const image = await zip.file("OEBPS/images/image-1.png")?.async("nodebuffer");
+  assert.ok(image?.length, "the referenced image is embedded");
+  const opf = await zip.file("OEBPS/content.opf").async("string");
+  assert.match(opf, /href="images\/image-1\.png" media-type="image\/png"/);
+  const chapter = await zip.file("OEBPS/chapter-001.xhtml").async("string");
+  assert.match(chapter, /<img src="images\/image-1\.png" alt="图一"\/>/);
+  assert.match(chapter, /<math /, "the inline formula becomes MathML");
+  assert.match(chapter, /display="block"/, "the display formula is marked as block");
+  assert.ok(!chapter.includes("missing.png"), "missing images are dropped instead of breaking");
+  assert.match(task.detail, /1 图/);
+  assert.match(task.detail, /2 公式/);
 });

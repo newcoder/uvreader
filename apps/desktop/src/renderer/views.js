@@ -6,8 +6,9 @@ import { BOOK_STYLE_DEFAULTS, BOOK_THEMES, COVER_PALETTES, renderBookCss } from 
 import { FONT_PAIRINGS, findPairing, pairingStacks } from "../shared/book-fonts.js";
 import { coverHtml } from "../shared/cover-template.js";
 import { chapterStats, mergeChapters, moveChapter, renameChapter, splitChapter } from "../shared/book-chapters.js";
-import { splitTextChapters } from "../main/text-book.js";
+import { markdownToHtml, splitTextChapters } from "../main/text-book.js";
 import { EXTRACT_MODES, IMAGE_INPUTS, extractionKind } from "../shared/extract-formats.js";
+import { splitMarkdownChapters, unwrapProseFences } from "../shared/markdown-fix.js";
 import { convertPath, uvtextPath } from "../shared/workshop-names.js";
 
 const BOOK_EXTENSIONS = ["epub", "fb2", "fbz", "mobi", "azw", "azw3", "cbz", "pdf"];
@@ -408,7 +409,7 @@ const WORKSHOP_TOOLS = [
   { id: "extract", group: "处理", label: "内容提取", title: "内容提取(PDF → Doc)", en: "Extract", icon: "file-text",
     lead: "只取内容、可丢版式:PDF / DOCX / 图片 → Markdown / HTML / 结构化 JSON(题库等 schema 模板)。" },
   { id: "book", group: "处理", label: "电子书制作", title: "新建电子书", en: "Make a Book", icon: "book-open",
-    lead: "从提取结果、Markdown 或图片制作 EPUB:元数据、章节、封面、样式,可实时预览。" },
+    lead: "从 PDF / Office / txt / Markdown / 图片制作 EPUB:自动提取与分章,配样式、封面、目录,边调边看预览。" },
   { id: "kindle", group: "发送", label: "发送到 Kindle", title: "发送到 Kindle", en: "Send to Kindle", icon: "external-link",
     lead: "把 EPUB / PDF / DOCX 直接发到你的 Kindle 邮箱;EPUB 原生支持,不需要转 AZW3。" },
   { id: "tasks", group: "队列", label: "任务", title: "任务", en: "Tasks", icon: "history",
@@ -968,58 +969,40 @@ export function createWorkshopView(leaf, options) {
       this._bookImages ||= [];
       const root = panel.createDiv("qbr-workshop-tool");
 
-      const presetCard = root.createDiv("qbr-workshop-card");
-      presetCard.createEl("h3", { text: "选择预设" });
-      this.renderPresetMatrix(presetCard, [
-        { id: "kindle", label: "EPUB → AZW3 / MOBI", hint: "换 Kindle 主流格式:Calibre,版式不变", ready: true },
-        { id: "img-cbz", label: "图片 → CBZ / EPUB", hint: "漫画 / 相册打包成书", ready: true },
-        { id: "pdf-clean", label: "PDF → 干净电子书", hint: "内部自动提取 + 重排:去页眉页脚/水印、按标题分章,再加样式与封面", ready: false },
-        { id: "md-html-epub", label: "Markdown / HTML → EPUB", hint: "Markdown 已可用;HTML 随后续阶段", ready: true },
-        { id: "txt-epub", label: "txt → EPUB", hint: "纯文本按标题 / 空行分章成书", ready: true },
-        { id: "office-epub", label: "Office / OFD → EPUB", hint: "内部自动转换(DocVortex),中间环节无感", ready: false },
-      ]);
-
-      // 快速成书(txt / Markdown → EPUB):样式与预览共用同一份 CSS。
+      // 主流程只有一条:向导(① 内容 → ② 目录 → ③ 书名与封面 → ④ 排版 → 生成),
+      // 右侧全程预览;换格式 / 图片打包等次要动作收进「更多工具」。
       const wizardCard = root.createDiv("qbr-workshop-card");
-      wizardCard.createEl("h3", { text: "快速成书(txt / Markdown → EPUB)" });
-      // 左:样式与设置;右:预览(正文 + 封面),并排方便边调边看。
+      wizardCard.createEl("h3", { text: "电子书向导" });
+      wizardCard.createDiv({ cls: "qbr-workshop-hint", text: "输入 txt / Markdown 直接分章;PDF / Office / OFD / HTML / EPUB / 图片在生成时自动提取,无需先跑内容提取。" });
       const wizardGrid = wizardCard.createDiv("qbr-workshop-wizard");
       const controls = wizardGrid.createDiv("qbr-workshop-wizard-controls");
       const previewCol = wizardGrid.createDiv("qbr-workshop-wizard-preview");
-      const sourceRow = controls.createDiv("qbr-workshop-row");
+
+      // ① 内容
+      const sourceStep = this.bookStep(controls, "1", "内容", "书稿来源");
+      const sourceRow = sourceStep.createDiv("qbr-workshop-row");
       const pickSource = sourceRow.createEl("button", { text: "选择书稿…" });
       pickSource.addEventListener("click", () => this.toggleBookSourceList());
       const pickSourceLocal = sourceRow.createEl("button", { text: "打开本地文件…" });
       pickSourceLocal.addEventListener("click", () => void this.pickLocalBookSources());
-      sourceRow.createSpan({ cls: "qbr-workshop-hint", text: "txt / Markdown / PDF / Office / OFD / 图片;非文本源生成时自动提取" });
-      this._bookSourceList = controls.createDiv("qbr-workshop-booklist");
+      sourceRow.createSpan({ cls: "qbr-workshop-hint", text: "本地文件就地处理,产物落在源文件旁" });
+      this._bookSourceList = sourceStep.createDiv("qbr-workshop-booklist");
       this._bookSourceList.hidden = true;
-      this._bookSourceChips = controls.createDiv("qbr-workshop-chips");
+      this._bookSourceChips = sourceStep.createDiv("qbr-workshop-chips");
 
-      const metaRow = controls.createDiv("qbr-workshop-row");
+      // ② 目录(自动分章,可编辑)
+      const chapterStep = this.bookStep(controls, "2", "目录", "自动分章");
+      this._bookChaptersHost = chapterStep.createDiv("qbr-workshop-chapters");
+
+      // ③ 书名与封面
+      const metaStep = this.bookStep(controls, "3", "书名与封面", "写进扉页、目录与封面");
+      const metaRow = metaStep.createDiv("qbr-workshop-row");
       metaRow.createSpan({ cls: "qbr-workshop-hint", text: "书名" });
       this._bookTitle = metaRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空用文件名" } });
       metaRow.createSpan({ cls: "qbr-workshop-hint", text: "作者" });
       this._bookAuthor = metaRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "可选" } });
 
-      const layoutRow = controls.createDiv("qbr-workshop-row");
-      layoutRow.createSpan({ cls: "qbr-workshop-hint", text: "字体搭配" });
-      this._bookPairing = layoutRow.createEl("select", { cls: "qbr-workshop-select" });
-      for (const pairing of FONT_PAIRINGS) {
-        this._bookPairing.createEl("option", { attr: { value: pairing.id }, text: pairing.label });
-      }
-      this._bookControls = {};
-      this.bookSlider(controls, "字号", "fontSize", { min: 12, max: 28, step: 1, suffix: "px" });
-      this.bookSlider(controls, "行距", "lineHeight", { min: 1.2, max: 2.4, step: 0.05, suffix: "" });
-      this.bookSlider(controls, "边距", "margin", { min: 0, max: 12, step: 1, suffix: "%" });
-      const themeRow = controls.createDiv("qbr-workshop-row");
-      themeRow.createSpan({ cls: "qbr-workshop-hint", text: "主题" });
-      this._bookTheme = themeRow.createEl("select", { cls: "qbr-workshop-select" });
-      for (const [id, theme] of Object.entries(BOOK_THEMES)) {
-        this._bookTheme.createEl("option", { attr: { value: id }, text: theme.label });
-      }
-
-      const coverRow = controls.createDiv("qbr-workshop-row");
+      const coverRow = metaStep.createDiv("qbr-workshop-row");
       coverRow.createSpan({ cls: "qbr-workshop-hint", text: "封面" });
       this._bookCoverMode = coverRow.createEl("select", { cls: "qbr-workshop-select" });
       for (const [value, label] of [["template", "模板生成"], ["none", "不要封面"], ["auto", "自动(书内首图,否则模板)"], ["image", "指定图片…"]]) {
@@ -1029,7 +1012,7 @@ export function createWorkshopView(leaf, options) {
       for (const [id, palette] of Object.entries(COVER_PALETTES)) {
         this._bookCoverPalette.createEl("option", { attr: { value: id }, text: palette.label });
       }
-      const coverRow2 = controls.createDiv("qbr-workshop-row");
+      const coverRow2 = metaStep.createDiv("qbr-workshop-row");
       coverRow2.createSpan({ cls: "qbr-workshop-hint", text: "副标题" });
       this._bookSubtitle = coverRow2.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "可选" } });
       this._bookCoverImage = "";
@@ -1038,9 +1021,28 @@ export function createWorkshopView(leaf, options) {
       this._bookCoverLabel = coverRow2.createSpan({ cls: "qbr-workshop-hint", text: "" });
       this._bookCoverMode.addEventListener("change", () => { this.syncBookCoverRow(); this.onBookStyleChange(); });
       this.syncBookCoverRow();
-      this._bookChaptersHost = wizardCard.createDiv("qbr-workshop-chapters");
 
-      const advanced = controls.createEl("details", { cls: "qbr-workshop-advanced" });      advanced.createEl("summary", { text: "高级排版" });
+      // ④ 排版样式(右侧预览即时更新)
+      const styleStep = this.bookStep(controls, "4", "排版样式", "生成时嵌入所选字体子集");
+      const layoutRow = styleStep.createDiv("qbr-workshop-row");
+      layoutRow.createSpan({ cls: "qbr-workshop-hint", text: "字体搭配" });
+      this._bookPairing = layoutRow.createEl("select", { cls: "qbr-workshop-select" });
+      for (const pairing of FONT_PAIRINGS) {
+        this._bookPairing.createEl("option", { attr: { value: pairing.id }, text: pairing.label });
+      }
+      this._bookControls = {};
+      this.bookSlider(styleStep, "字号", "fontSize", { min: 12, max: 28, step: 1, suffix: "px" });
+      this.bookSlider(styleStep, "行距", "lineHeight", { min: 1.2, max: 2.4, step: 0.05, suffix: "" });
+      this.bookSlider(styleStep, "边距", "margin", { min: 0, max: 12, step: 1, suffix: "%" });
+      const themeRow = styleStep.createDiv("qbr-workshop-row");
+      themeRow.createSpan({ cls: "qbr-workshop-hint", text: "主题" });
+      this._bookTheme = themeRow.createEl("select", { cls: "qbr-workshop-select" });
+      for (const [id, theme] of Object.entries(BOOK_THEMES)) {
+        this._bookTheme.createEl("option", { attr: { value: id }, text: theme.label });
+      }
+
+      const advanced = styleStep.createEl("details", { cls: "qbr-workshop-advanced" });
+      advanced.createEl("summary", { text: "高级排版(缩进 / 段距 / 对齐)" });
       this.bookSlider(advanced, "首行缩进", "indent", { min: 0, max: 4, step: 0.5, suffix: "em" });
       this.bookSlider(advanced, "段间距", "spacing", { min: 0, max: 2, step: 0.25, suffix: "em" });
       const alignRow = advanced.createDiv("qbr-workshop-row");
@@ -1054,71 +1056,74 @@ export function createWorkshopView(leaf, options) {
       this._bookHeadingAlign.createEl("option", { attr: { value: "left" }, text: "左对齐" });
       this._bookHeadingAlign.createEl("option", { attr: { value: "center" }, text: "居中" });
 
-      const buildRow = controls.createDiv("qbr-workshop-row");
+      const buildRow = controls.createDiv("qbr-workshop-row qbr-workshop-build");
       const build = buildRow.createEl("button", { cls: "mod-cta", text: "生成 EPUB" });
       build.addEventListener("click", () => this.startBookBuild());
-      buildRow.createSpan({ cls: "qbr-workshop-hint", text: "产物落在源文件旁" });
+      buildRow.createSpan({ cls: "qbr-workshop-hint", text: "进度在「任务」里查看" });
 
-      // 预览列:宽度切换 + 正文样张 + 封面缩略图。
-      const previewRow = previewCol.createDiv("qbr-workshop-row");
-      const phoneBtn = previewRow.createEl("button", { text: "手机宽度" });
+      // 预览列:正文样张 + 封面缩略图(随样式即时更新)。
+      const previewHead = previewCol.createDiv("qbr-workshop-row");
+      previewHead.createEl("b", { text: "预览" });
+      const phoneBtn = previewHead.createEl("button", { text: "手机宽度" });
       phoneBtn.addEventListener("click", () => this.setBookPreviewWidth("phone"));
-      const wideBtn = previewRow.createEl("button", { text: "桌面宽度" });
+      const wideBtn = previewHead.createEl("button", { text: "桌面宽度" });
       wideBtn.addEventListener("click", () => this.setBookPreviewWidth("wide"));
-      previewRow.createSpan({ cls: "qbr-workshop-hint", text: "预览用系统近似字体;生成时嵌入所选字体子集" });
+      this._bookPreviewNote = previewCol.createDiv({ cls: "qbr-workshop-hint", text: "预览:未选择书稿,显示示例文字" });
       this._bookPreview = previewCol.createDiv("qbr-workshop-preview");
       this._bookPreviewFrame = this._bookPreview.createEl("iframe", { cls: "qbr-workshop-preview-frame" });
       this._bookCoverPreview = previewCol.createDiv("qbr-workshop-cover-preview");
       const coverBox = this._bookCoverPreview.createDiv("qbr-workshop-cover-box");
       this._bookCoverFrame = coverBox.createEl("iframe", { cls: "qbr-workshop-cover-frame" });
 
-      const convertCard = root.createDiv("qbr-workshop-card");
-      convertCard.createEl("h3", { text: "电子书互转(EPUB → AZW3 / MOBI)" });
-      const pickRow = convertCard.createDiv("qbr-workshop-row");
+      // 更多工具:换 Kindle 格式、图片打包;Calibre 路径这类维护项收进折叠。
+      const toolsCard = root.createDiv("qbr-workshop-card");
+      toolsCard.createEl("h3", { text: "更多工具" });
+
+      const convertBlock = this.bookToolBlock(toolsCard, "EPUB → AZW3 / MOBI", "换成 Kindle 主流格式(Calibre,版式不变)");
+      const pickRow = convertBlock.createDiv("qbr-workshop-row");
       const pickVault = pickRow.createEl("button", { text: "选择书库文件…" });
       pickVault.addEventListener("click", () => this.toggleBookList());
       const pickLocal = pickRow.createEl("button", { text: "打开本地文件…" });
       pickLocal.addEventListener("click", () => void this.pickLocalBookFiles());
       pickRow.createSpan({ cls: "qbr-workshop-hint", text: "输入 EPUB/MOBI/AZW3/FB2/CBZ;本地文件就地处理" });
-      this._bookList = convertCard.createDiv("qbr-workshop-booklist");
+      this._bookList = convertBlock.createDiv("qbr-workshop-booklist");
       this._bookList.hidden = true;
-      this._bookChips = convertCard.createDiv("qbr-workshop-chips");
-      const targetRow = convertCard.createDiv("qbr-workshop-row");
+      this._bookChips = convertBlock.createDiv("qbr-workshop-chips");
+      const targetRow = convertBlock.createDiv("qbr-workshop-row");
       targetRow.createSpan({ cls: "qbr-workshop-hint", text: "目标格式" });
       this._bookFormat = targetRow.createEl("select", { cls: "qbr-workshop-select" });
       for (const target of EBOOK_TARGETS) {
         this._bookFormat.createEl("option", { attr: { value: target.id }, text: target.label });
       }
-      const startRow = convertCard.createDiv("qbr-workshop-row");
+      const startRow = convertBlock.createDiv("qbr-workshop-row");
       const start = startRow.createEl("button", { cls: "mod-cta", text: "开始转换" });
       start.addEventListener("click", () => this.startBookTasks());
       startRow.createSpan({ cls: "qbr-workshop-hint", text: "产物落在源文件旁" });
 
-      const imageCard = root.createDiv("qbr-workshop-card");
-      imageCard.createEl("h3", { text: "图片 → CBZ / EPUB" });
-      const imgRow = imageCard.createDiv("qbr-workshop-row");
+      const imageBlock = this.bookToolBlock(toolsCard, "图片 → CBZ / EPUB", "漫画 / 相册打包成书;EPUB 由 CBZ 经 Calibre 转换");
+      const imgRow = imageBlock.createDiv("qbr-workshop-row");
       const pickImages = imgRow.createEl("button", { text: "选择图片…" });
       pickImages.addEventListener("click", () => void this.pickBookImages());
       imgRow.createSpan({ cls: "qbr-workshop-hint", text: "可多选;按文件名自然排序(1 < 2 < 10)" });
-      this._bookImageChips = imageCard.createDiv("qbr-workshop-chips");
-      const imgTargetRow = imageCard.createDiv("qbr-workshop-row");
+      this._bookImageChips = imageBlock.createDiv("qbr-workshop-chips");
+      const imgTargetRow = imageBlock.createDiv("qbr-workshop-row");
       imgTargetRow.createSpan({ cls: "qbr-workshop-hint", text: "打包为" });
       this._bookImageFormat = imgTargetRow.createEl("select", { cls: "qbr-workshop-select" });
       for (const target of IMAGE_BOOK_TARGETS) {
         this._bookImageFormat.createEl("option", { attr: { value: target.id }, text: target.label });
       }
-      imageCard.createDiv({ cls: "qbr-workshop-hint", text: "输出:图片所在目录旁 `<目录名>.cbz`(冲突加序号);EPUB 由 CBZ 经 Calibre 转换。" });
-      const imgStartRow = imageCard.createDiv("qbr-workshop-row");
+      const imgStartRow = imageBlock.createDiv("qbr-workshop-row");
       const imgStart = imgStartRow.createEl("button", { cls: "mod-cta", text: "开始打包" });
       imgStart.addEventListener("click", () => this.startImageTasks());
-      imgStartRow.createSpan({ cls: "qbr-workshop-hint", text: "Calibre 只在输出 EPUB 时需要" });
+      imgStartRow.createSpan({ cls: "qbr-workshop-hint", text: "输出:图片目录旁「目录名.cbz」;只有输出 EPUB 时才需要 Calibre" });
 
-      const detectCard = root.createDiv("qbr-workshop-card");
-      const detectRow = detectCard.createDiv("qbr-workshop-row");
+      const calibre = toolsCard.createEl("details", { cls: "qbr-workshop-advanced" });
+      calibre.createEl("summary", { text: "Calibre 设置(换 AZW3 / MOBI、图片转 EPUB 时用)" });
+      const detectRow = calibre.createDiv("qbr-workshop-row");
       const detect = detectRow.createEl("button", { text: "检测 Calibre" });
       detect.addEventListener("click", () => this.probeCalibre());
       this._bookStatus = detectRow.createSpan({ cls: "qbr-workshop-hint", text: "未检测" });
-      const pathRow = detectCard.createDiv("qbr-workshop-row");
+      const pathRow = calibre.createDiv("qbr-workshop-row");
       pathRow.createSpan({ cls: "qbr-workshop-hint", text: "Calibre 路径" });
       this._bookPath = pathRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空自动检测(常见位置 / PATH)" } });
       this._bookPath.value = String(plugin?.settings?.calibrePath || "");
@@ -1133,6 +1138,24 @@ export function createWorkshopView(leaf, options) {
       this.renderBookImageChips();
       this.renderBookSourceChips();
       this.applyBookStyleState();
+    }
+
+    // 向导里的步骤:编号 + 标题 + 一句说明,返回放控件的主体。
+    bookStep(host, index, title, hint) {
+      const step = host.createDiv("qbr-workshop-step");
+      const head = step.createDiv("qbr-workshop-step-head");
+      head.createSpan({ cls: "qbr-workshop-step-no", text: index });
+      head.createEl("b", { text: title });
+      if (hint) head.createSpan({ cls: "qbr-workshop-hint", text: hint });
+      return step.createDiv("qbr-workshop-step-body");
+    }
+
+    // 「更多工具」里的一块次要工具。
+    bookToolBlock(host, title, hint) {
+      const block = host.createDiv("qbr-workshop-subtool");
+      block.createEl("b", { text: title });
+      if (hint) block.createDiv({ cls: "qbr-workshop-hint", text: hint });
+      return block;
     }
 
     bookFiles() {
@@ -1424,7 +1447,12 @@ export function createWorkshopView(leaf, options) {
         return;
       }
       const text = await app.vault.read(file).catch(() => "");
-      this._bookChapters = splitTextChapters(text).map((chapter) => ({ title: chapter.title, text: chapter.body }));
+      const isMarkdown = /\.(md|markdown)$/i.test(rel);
+      const cleaned = isMarkdown ? unwrapProseFences(text) : text;
+      const found = isMarkdown ? splitMarkdownChapters(cleaned) : [];
+      this._bookChapters = found.length >= 2
+        ? found.map((chapter, index) => ({ title: chapter.title || `第 ${index + 1} 章`, text: chapter.text }))
+        : splitTextChapters(cleaned).map((chapter) => ({ title: chapter.title, text: chapter.body }));
       if (!this._bookChapters.length) return;
       const stats = chapterStats(this._bookChapters);
       host.createDiv({ cls: "qbr-workshop-hint", text: `目录:${stats.chapters} 章 · 约 ${Math.max(1, Math.round(stats.chars / 1000))}k 字(可改名 / 合并 / 拆分 / 排序)` });
@@ -1464,17 +1492,38 @@ export function createWorkshopView(leaf, options) {
       });
     }
 
+    // 预览:文本源直接读;非文本源优先读同目录的「内容提取」产物 <源名>.md;
+    // 都没有时退回示例文字。二进制文件绝不当文本读,避免乱码。
     async renderBookPreview() {
       const frame = this._bookPreviewFrame;
       if (!frame) return;
       const state = this.bookStyleState();
       const stacks = pairingStacks(findPairing(state.pairing));
       const css = renderBookCss({ ...state, bodyFont: stacks.body, headingFont: stacks.heading, latinFont: stacks.latin });
-      let text = "";
-      const rel = this._bookSources?.[0];
-      const file = rel ? app?.vault?.getAbstractFileByPath?.(rel) : null;
-      if (file) text = await app.vault.read(file).catch(() => "");
-      const html = `<!doctype html><html lang="zh"><head><meta charset="utf-8"><style>${css}</style></head><body>${bookSampleHtml(text || bookSampleText())}</body></html>`;
+      const rel = String(this._bookSources?.[0] || "");
+      const isMarkdown = /\.(md|markdown)$/i.test(rel);
+      const isPlain = /\.txt$/i.test(rel);
+      const readVault = async (file) => (file ? app.vault.read(file).catch(() => "") : "");
+      let note = "预览:未选择书稿,显示示例文字";
+      let body = bookSampleHtml(bookSampleText());
+      if (isMarkdown || isPlain) {
+        const text = await readVault(rel ? app?.vault?.getAbstractFileByPath?.(rel) : null);
+        note = isMarkdown ? "预览:书稿开头(Markdown 已渲染)" : "预览:书稿开头";
+        body = text.trim()
+          ? (isMarkdown ? markdownToHtml(unwrapProseFences(text).slice(0, 6000)) : bookSampleHtml(text))
+          : bookSampleHtml("");
+      } else if (rel) {
+        const sibling = rel.replace(/\.[^./\\]+$/, ".md");
+        const extracted = await readVault(app?.vault?.getAbstractFileByPath?.(sibling));
+        if (extracted.trim()) {
+          note = `预览:同目录已提取的 ${sibling.split("/").pop()}`;
+          body = markdownToHtml(unwrapProseFences(extracted).slice(0, 6000));
+        } else {
+          note = "预览:生成时自动提取内容,这里先显示示例文字";
+        }
+      }
+      if (this._bookPreviewNote) this._bookPreviewNote.setText(note);
+      const html = `<!doctype html><html lang="zh"><head><meta charset="utf-8"><style>${css}</style></head><body>${body}</body></html>`;
       const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
       const previous = this._bookPreviewUrl;
       this._bookPreviewUrl = url;
@@ -1502,7 +1551,7 @@ export function createWorkshopView(leaf, options) {
       list.empty();
       const sources = this.bookSourceFiles();
       if (!sources.length) {
-        list.createDiv({ cls: "qbr-workshop-hint", text: "书库里还没有 txt / Markdown 书稿。" });
+        list.createDiv({ cls: "qbr-workshop-hint", text: "书库里还没有可成书的文件(txt / Markdown / PDF / Office / 图片…)。" });
         return;
       }
       this._bookSources ||= [];
@@ -1570,7 +1619,7 @@ export function createWorkshopView(leaf, options) {
       if (!bridge) return;
       const rel = this._bookSources?.[0];
       if (!rel) {
-        new Notice("请先选择 txt / Markdown 书稿");
+        new Notice("请先选择书稿(PDF / Office / txt / Markdown / 图片均可)");
         return;
       }
       const state = this.bookStyleState();

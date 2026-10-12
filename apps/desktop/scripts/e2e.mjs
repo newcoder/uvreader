@@ -2832,6 +2832,36 @@ async function runWorkshopExtractScenario() {
     }, count), 180_000);
     if (!epubDone.startsWith("done")) throw new Error(`the wizard build from docx should finish done: ${epubDone}`);
     console.log("workshop-extract: wizard built from docx —", path.basename(epubDone.split("|")[1]));
+    // 图片提取:先合成单页 PDF,再走 DocVortex OCR(此前报 Unsupported native input format)。
+    const pngBase64 = await page.evaluate(() => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 960;
+      canvas.height = 240;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#000000";
+      ctx.font = "72px sans-serif";
+      ctx.fillText("OCR TEST 2026", 48, 140);
+      return canvas.toDataURL("image/png").split(",")[1];
+    });
+    fs.writeFileSync(path.join(userData, "library", "Books", "扫描页.png"), Buffer.from(pngBase64, "base64"));
+    const imageTask = await page.evaluate(() => window.qbrDesktop.workshop.start({
+      kind: "extract-docvortex",
+      title: "内容提取",
+      payload: { source: "Books/扫描页.png", settings: { ocrPython: process.env.QBR_OCR_PYTHON || "python" } },
+    }));
+    const imageDone = await waitFor("image extract", () => page.evaluate(async (id) => {
+      const state = await window.qbrDesktop.workshop.list();
+      const entry = state.tasks.find((row) => row.id === id);
+      return entry && entry.status !== "running" && entry.status !== "queued" ? `${entry.status}|${entry.output}|${entry.error}` : "";
+    }, imageTask), 300_000);
+    if (!imageDone.startsWith("done")) throw new Error(`the image extraction should finish done: ${imageDone}`);
+    const scanMd = path.join(userData, "library", "Books", "扫描页.md");
+    if (!fs.existsSync(scanMd)) throw new Error("expected 扫描页.md next to the image");
+    const scanText = fs.readFileSync(scanMd, "utf8");
+    if (!/OCR|2026/i.test(scanText)) throw new Error(`the OCR markdown should keep the recognised text: ${JSON.stringify(scanText.slice(0, 80))}`);
+    console.log("workshop-extract: image → temp PDF → OCR:", JSON.stringify(scanText.trim().slice(0, 24)));
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(userData, { recursive: true, force: true });
@@ -2896,12 +2926,63 @@ async function runWorkshopEpubScenario() {
       console.log("workshop-epub: font", ttf.length ? "subset" : "full (fontTools/brotli unavailable)", Math.round(bytes / 1024) + "KB with its license");
     }
     console.log("workshop-epub: txt → epub", fs.statSync(out).size, "bytes");
+    // 成品质量:Markdown 里的本地图片收进 EPUB,LaTeX 公式转 MathML(真实 latex2mathml)。
+    const figBytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+    fs.mkdirSync(path.join(userData, "library", "Books", "mineru", "images"), { recursive: true });
+    fs.writeFileSync(path.join(userData, "library", "Books", "mineru", "images", "fig1.png"), figBytes);
+    fs.writeFileSync(path.join(userData, "library", "Books", "论文.md"), [
+      "# 第一章 结果",
+      "",
+      "![图一](mineru/images/fig1.png)",
+      "",
+      "行内公式 $E = mc^2$ 与 \\frac{1}{2} 无关。",
+      "",
+      "$$",
+      "a^2 + b^2 = c^2",
+      "$$",
+    ].join("\n"), "utf8");
+    const paperTask = await page.evaluate((request) => window.qbrDesktop.workshop.start({
+      kind: "book-build", title: "生成电子书", payload: request,
+    }), { source: "Books/论文.md", settings: { ocrPython: process.env.QBR_OCR_PYTHON || "python" }, title: "论文", cover: { mode: "none" } });
+    const paperDone = await waitFor("paper book-build", () => page.evaluate(async (id) => {
+      const state = await window.qbrDesktop.workshop.list();
+      const entry = state.tasks.find((row) => row.id === id);
+      return entry && entry.status !== "running" && entry.status !== "queued" ? `${entry.status}|${entry.output}|${entry.error}` : "";
+    }, paperTask), 300_000);
+    if (!paperDone.startsWith("done")) throw new Error(`the markdown build should finish done: ${paperDone}`);
+    const paperZip = await JSZip.loadAsync(fs.readFileSync(paperDone.split("|")[1]));
+    const paperImage = await paperZip.file("OEBPS/images/image-1.png")?.async("nodebuffer");
+    if (paperImage?.length !== figBytes.length) throw new Error("the markdown image should be embedded into the epub");
+    const paperOpf = await paperZip.file("OEBPS/content.opf").async("string");
+    if (!paperOpf.includes('href="images/image-1.png" media-type="image/png"')) throw new Error("the embedded image is missing from the opf");
+    const paperChapter = await paperZip.file("OEBPS/chapter-001.xhtml").async("string");
+    if (!paperChapter.includes('src="images/image-1.png"')) throw new Error("the chapter should reference the embedded image");
+    if (!paperChapter.includes("<math") || !paperChapter.includes("display=\"block\"")) {
+      throw new Error(`the formulas should become MathML (is latex2mathml installed?): ${paperChapter.slice(0, 200)}`);
+    }
+    const paperNav = await paperZip.file("OEBPS/nav.xhtml").async("string");
+    if (!paperNav.includes("第一章 结果")) throw new Error("the markdown chapters should reach the nav");
+    console.log("workshop-epub: md + image + MathML →", fs.statSync(paperDone.split("|")[1]).size, "bytes");
     // 面板向导:选择书稿 → 实时预览 → 生成 EPUB(UI 路径)。
     fs.writeFileSync(path.join(userData, "library", "Books", "示例文稿.txt"), "第一章 面板\n\n面板生成的正文。\n\n第二章 继续\n\n第二章的正文。\n", "utf8");
     await page.click('[data-route="workshop"]');
     await page.waitForSelector(".qbr-workshop-view", { timeout: 15_000 });
     await page.evaluate(() => document.querySelector('.qbr-workshop-rail button[data-tool="book"]')?.click());
     await page.waitForSelector(".qbr-workshop-panel[data-tool='book']", { timeout: 10_000 });
+    const structure = await page.evaluate(() => {
+      const panel = document.querySelector(".qbr-workshop-panel[data-tool='book']");
+      return {
+        steps: [...panel.querySelectorAll(".qbr-workshop-step-head b")].map((node) => node.textContent),
+        tools: [...panel.querySelectorAll(".qbr-workshop-subtool b")].map((node) => node.textContent),
+        cards: panel.querySelectorAll(".qbr-workshop-card").length,
+      };
+    });
+    if (structure.steps.join(",") !== "内容,目录,书名与封面,排版样式") throw new Error(`unexpected wizard steps: ${JSON.stringify(structure)}`);
+    if (!structure.tools.some((tool) => tool.includes("AZW3")) || !structure.tools.some((tool) => tool.includes("CBZ"))) {
+      throw new Error(`the secondary tools should live under 更多工具: ${JSON.stringify(structure.tools)}`);
+    }
+    if (structure.cards !== 2) throw new Error(`the panel should be one wizard card plus 更多工具, saw ${structure.cards}`);
+    console.log("workshop-epub: steps", structure.steps.join(" → "), "· tools", structure.tools.length);
     const wizardPicked = await page.evaluate(() => {
       const panel = document.querySelector(".qbr-workshop-panel[data-tool='book']");
       const pick = [...panel.querySelectorAll("button")].find((button) => button.textContent.includes("选择书稿"));
@@ -2980,6 +3061,47 @@ async function runWorkshopEpubScenario() {
     const wizardNav = await wizardZip.file("OEBPS/nav.xhtml").async("string");
     if (!wizardNav.includes("改名后的第一章")) throw new Error("the edited chapter title should reach the epub nav");
     console.log("workshop-epub: wizard built", path.basename(wizardOut), fs.statSync(wizardOut).size, "bytes");
+    // 预览:非文本源读同目录已提取的 Markdown,不再把二进制当文本读(乱码修复)。
+    const scanPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+    fs.writeFileSync(path.join(userData, "library", "Books", "扫描页.png"), scanPng);
+    fs.writeFileSync(path.join(userData, "library", "Books", "扫描页.md"), "# 扫描页\n\n识别出来的正文,用于预览。\n", "utf8");
+    await page.evaluate(() => document.querySelector('.qbr-workshop-rail button[data-tool="book"]')?.click());
+    await page.waitForSelector(".qbr-workshop-panel[data-tool='book']", { timeout: 10_000 });
+    await page.evaluate(() => {
+      const panel = document.querySelector(".qbr-workshop-panel[data-tool='book']");
+      panel.querySelector(".qbr-workshop-chip .qbr-workshop-chip-x")?.click();
+      const list = panel.querySelector(".qbr-workshop-booklist");
+      if (list?.hidden) {
+        const pick = [...panel.querySelectorAll("button")].find((button) => button.textContent.includes("选择书稿"));
+        pick?.click();
+      }
+    });
+    const scanned = await page.evaluate(() => {
+      const panel = document.querySelector(".qbr-workshop-panel[data-tool='book']");
+      const list = panel.querySelector(".qbr-workshop-booklist");
+      const rows = [...list.querySelectorAll(".qbr-workshop-book")];
+      const row = rows.find((entry) => entry.textContent.includes("扫描页") && entry.textContent.includes("PNG"));
+      const box = row?.querySelector("input");
+      if (box) { box.checked = true; box.dispatchEvent(new Event("change", { bubbles: true })); }
+      return {
+        found: Boolean(row),
+        rows: rows.map((entry) => entry.textContent.slice(0, 22)),
+        listHidden: Boolean(list.hidden),
+        chips: [...panel.querySelectorAll(".qbr-workshop-chip")].map((entry) => entry.textContent.slice(0, 16)),
+      };
+    });
+    if (!scanned.found) throw new Error(`the panel should list the scanned png once it exists: ${JSON.stringify(scanned)}`);
+    const scannedPreview = await waitFor("scanned preview", () => page.evaluate(() => {
+      const doc = document.querySelector(".qbr-workshop-preview-frame")?.contentDocument;
+      const text = doc?.body?.innerText || "";
+      return text.includes("识别出来的正文") ? text.slice(0, 14) : "";
+    }), 15_000);
+    const scannedNote = await page.evaluate(() => {
+      const note = document.querySelector(".qbr-workshop-panel[data-tool='book'] .qbr-workshop-wizard-preview .qbr-workshop-hint");
+      return note?.textContent || "";
+    });
+    if (!scannedNote.includes("同目录已提取")) throw new Error(`the preview should say it reads the extracted markdown: ${scannedNote}`);
+    console.log("workshop-epub: non-text preview shows", JSON.stringify(scannedPreview), "·", scannedNote.slice(0, 20));
     // 最后用阅读器打开生成物(阅读模式会隐藏导航,放到场景末尾)。
     await page.evaluate(async () => {
       const file = window.__qbrApp.vault.getAbstractFileByPath("Books/测试小说.epub");
@@ -3011,17 +3133,17 @@ async function runWorkshopBookScenario() {
     const panel = await page.evaluate(() => {
       const root = document.querySelector(".qbr-workshop-panel[data-tool='book']");
       return {
-        ready: [...root.querySelectorAll(".qbr-workshop-preset.is-ready b")].map((b) => b.textContent),
+        tools: [...root.querySelectorAll(".qbr-workshop-subtool b")].map((node) => node.textContent),
         selects: [...root.querySelectorAll("select")].map((s) => [...s.options].map((o) => o.value).join(",")),
       };
     });
-    if (!panel.ready.some((label) => label.includes("EPUB → AZW3 / MOBI")) || !panel.ready.some((label) => label.includes("图片 → CBZ"))) {
-      throw new Error(`the book panel should mark both ready presets: ${JSON.stringify(panel.ready)}`);
+    if (!panel.tools.some((label) => label.includes("EPUB → AZW3 / MOBI")) || !panel.tools.some((label) => label.includes("图片 → CBZ"))) {
+      throw new Error(`the book panel should offer the Kindle and CBZ tools: ${JSON.stringify(panel.tools)}`);
     }
     if (!panel.selects.some((values) => values.includes("azw3")) || !panel.selects.some((values) => values.includes("cbz"))) {
       throw new Error(`the book panel lost its target selects: ${JSON.stringify(panel.selects)}`);
     }
-    console.log("workshop-book: panel offers", panel.ready.join(" / "));
+    console.log("workshop-book: panel offers", panel.tools.join(" / "));
     // 图片 → CBZ(不需要 Calibre)。
     const images = ["1.png", "2.png", "10.png"].map((name) => path.join(imageDir, name).replace(/\\/g, "/"));
     const cbzTask = await page.evaluate((payload) => window.qbrDesktop.workshop.start({

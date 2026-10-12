@@ -4,9 +4,11 @@ import fs from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 
-import { buildEpub, BOOK_STYLE_DEFAULTS } from "./epub-build.js";
+import { buildEpub, BOOK_STYLE_DEFAULTS, collectBookImages } from "./epub-build.js";
 import { markdownToHtml, textToChapters, textToHtml } from "./text-book.js";
 import { extractMarkdown, extractionKind, splitMarkdownChapters } from "./extract-doc.js";
+import { collectLatex, createMathRenderer, shareFormulaHtml } from "./math-render.js";
+import { unwrapProseFences } from "../shared/markdown-fix.js";
 import { collectChars, createFontSubsetter, ensureFont, ensureFontLicense, findPairing, FONT_FAMILIES } from "./workshop-fonts.js";
 import { pairingStacks } from "../shared/book-fonts.js";
 import { convertPath } from "../shared/workshop-names.js";
@@ -124,7 +126,7 @@ export async function resolveCover({ payload = {}, title = "", author = "", mark
   return { data: rendered.data, mediaType: rendered.mediaType || "image/jpeg", fileName: "cover.jpg" };
 }
 
-export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", subsetter = createFontSubsetter(), coverRenderer = null, readImage = null, docvortex = null, spawnImpl = spawn, log = (...args) => console.log(...args) } = {}) {
+export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", subsetter = createFontSubsetter(), coverRenderer = null, readImage = null, docvortex = null, mathRenderer = createMathRenderer(), spawnImpl = spawn, log = (...args) => console.log(...args) } = {}) {
   const absolute = (raw) => {
     const value = String(raw || "");
     return path.isAbsolute(value) ? value : path.join(vaultRoot, value);
@@ -158,30 +160,35 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     // 面板里编辑过的目录优先(改名/合并/拆分/排序);文本源按标题自动分章;
     // PDF / Office / OFD / 图片先内部提取(中间产物放缓存目录,用户无感)。
     const provided = Array.isArray(payload?.chapters) ? payload.chapters : [];
+    const workRoot = path.join(cacheRoot, "work", `${path.basename(source).replace(/[^\w.-]+/g, "_").slice(0, 40)}-${Date.now().toString(36)}`);
     let text = "";
-    let chapters;
+    let baseDir = path.dirname(source);
+    let rawChapters;
     if (provided.length) {
-      chapters = provided
-        .map((chapter, index) => {
-          const body = String(chapter?.text || "");
-          return {
-            title: String(chapter?.title || `第 ${index + 1} 章`).slice(0, 120),
-            text: body,
-            html: markdown ? markdownToHtml(body) : textToHtml(body),
-          };
-        })
+      rawChapters = provided
+        .map((chapter, index) => ({
+          title: String(chapter?.title || `第 ${index + 1} 章`).slice(0, 120),
+          text: String(chapter?.text || ""),
+          markdown: Boolean(markdown),
+        }))
         .filter((chapter) => chapter.text.trim());
     } else if (isText) {
       text = fs.readFileSync(source, "utf8");
-      chapters = textToChapters(text, { markdown, title });
+      // 提取工具写出的 .md 里可能有「假代码块」(正文被包进围栏),先还原成段落。
+      if (markdown) text = unwrapProseFences(text);
+      // Markdown 有标题层级时按标题分章(与 PDF/Office 提取路径一致),否则按章节行 / 长度分。
+      const found = markdown ? splitMarkdownChapters(text) : [];
+      rawChapters = (found.length >= 2
+        ? found.map((chapter, index) => ({ title: chapter.title || `第 ${index + 1} 章`, text: chapter.text }))
+        : textToChapters(text, { markdown, title }).map((chapter) => ({ title: chapter.title, text: chapter.text })))
+        .map((chapter) => ({ ...chapter, markdown: Boolean(markdown) }));
     } else {
       report({ label: "提取内容" });
-      const workDir = path.join(cacheRoot, "extract", `${path.basename(source).replace(/[^\w.-]+/g, "_").slice(0, 40)}-${Date.now().toString(36)}`);
       const extracted = await extractMarkdown(source, {
         kind: extractionKind(source),
         settings,
         docvortex,
-        workDir,
+        workDir: path.join(workRoot, "extract"),
         signal,
         log,
         spawnImpl,
@@ -189,16 +196,35 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       if (signal.aborted) throw new Error("任务已取消");
       if (!extracted.ok) throw new Error(String(extracted.error || "内容提取失败"));
       text = extracted.markdown;
+      baseDir = path.dirname(extracted.path || source);
       const found = splitMarkdownChapters(text);
-      chapters = found.length
-        ? found.map((chapter, index) => ({
-          title: chapter.title || `第 ${index + 1} 章`,
-          text: chapter.text,
-          html: markdownToHtml(chapter.text),
-        }))
-        : textToChapters(text, { markdown: true, title });
+      rawChapters = (found.length
+        ? found.map((chapter, index) => ({ title: chapter.title || `第 ${index + 1} 章`, text: chapter.text }))
+        : textToChapters(text, { markdown: true, title }).map((chapter) => ({ title: chapter.title, text: chapter.text })))
+        .map((chapter) => ({ ...chapter, markdown: true }));
     }
-    if (!chapters.length) throw new Error("没有可写的内容");
+    if (!rawChapters.length) throw new Error("没有可写的内容");
+
+    // 公式(LaTeX → MathML)与图片(收进 EPUB):预览与成品都靠这两步。
+    const latexes = collectLatex(rawChapters.map((chapter) => chapter.text).join("\n"));
+    let mathMap = null;
+    if (latexes.length && mathRenderer) {
+      report({ label: `渲染公式（${latexes.length}）` });
+      const rendered = await mathRenderer.renderMap(latexes, {
+        python: String(settings.ocrPython || "").trim() || "python",
+        workDir: path.join(workRoot, "math"),
+      });
+      if (rendered.ok) mathMap = rendered.map;
+      else log("math render skipped", rendered.error);
+      if (signal.aborted) throw new Error("任务已取消");
+    }
+    const renderMath = mathMap ? (latex, display) => shareFormulaHtml(mathMap[latex], display) : null;
+    const chaptersWithHtml = rawChapters.map((chapter) => ({
+      title: chapter.title,
+      text: chapter.text,
+      html: chapter.markdown ? markdownToHtml(chapter.text, { renderMath }) : textToHtml(chapter.text),
+    }));
+    const { chapters, images } = collectBookImages(chaptersWithHtml, { baseDir, log });
     if (signal.aborted) throw new Error("任务已取消");
     log("book build", source, "→", out, `${chapters.length} 章`);
 
@@ -226,8 +252,8 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       payload,
       title,
       author: String(payload?.author || "").trim(),
-      markdownText: markdown ? text : "",
-      sourceDir: path.dirname(source),
+      markdownText: text || rawChapters.map((chapter) => chapter.text).join("\n"),
+      sourceDir: baseDir,
       pairing,
       cacheDir: path.join(cacheRoot, "library"),
       coverRenderer,
@@ -248,13 +274,15 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       styles,
       chapters,
       fonts,
+      images,
       cover,
       colophon: String(payload?.colophon || "由 UV Reader 书坊生成"),
     }, out);
     if (signal.aborted) throw new Error("任务已取消");
+    const formulaCount = mathMap ? Object.values(mathMap).filter(Boolean).length : 0;
     return {
       output: out,
-      detail: `EPUB · ${result.chapters} 章 · ${Math.round(result.bytes / 1024)} KB${fonts.length ? ` · ${fonts.length} 款字体` : ""}`,
+      detail: `EPUB · ${result.chapters} 章 · ${Math.round(result.bytes / 1024)} KB${fonts.length ? ` · ${fonts.length} 款字体` : ""}${images.length ? ` · ${images.length} 图` : ""}${formulaCount ? ` · ${formulaCount} 公式` : ""}`,
     };
   });
 }

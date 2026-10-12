@@ -20,8 +20,11 @@ export function docvortexCandidates(settings = {}) {
   return list;
 }
 
-export function convertArgs(source, target, out) {
-  return ["convert", String(source), "--format", String(target || "markdown"), "--output", String(out), "--overwrite"];
+export function convertArgs(source, target, out, { parseMode = "" } = {}) {
+  const args = ["convert", String(source), "--format", String(target || "markdown"), "--output", String(out), "--overwrite"];
+  const mode = String(parseMode || "").trim();
+  if (mode) args.push("--parse-mode", mode);
+  return args;
 }
 
 function tail(text, limit = 300) {
@@ -101,11 +104,11 @@ export function createDocvortex({ spawnImpl = spawn, timeoutMs = 10 * 60_000, pr
     });
   }
 
-  async function convert(settings, { source, format, out, signal } = {}) {
+  async function convert(settings, { source, format, out, signal, parseMode = "" } = {}) {
     const resolved = await probe(settings);
     if (!resolved.ok) return { ok: false, error: resolved.detail };
     if (!fs.existsSync(source)) return { ok: false, error: `源文件不存在：${source}` };
-    const result = await run(resolved, convertArgs(source, format, out), { signal });
+    const result = await run(resolved, convertArgs(source, format, out, { parseMode }), { signal });
     if (!result.ok) return result;
     if (!fs.existsSync(out)) return { ok: false, error: "转换完成但没有生成文件" };
     return { ok: true, out };

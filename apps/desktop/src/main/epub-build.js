@@ -9,6 +9,41 @@ import { BOOK_STYLE_DEFAULTS, BOOK_THEMES, normalizeBookStyles, renderBookCss } 
 
 export { BOOK_STYLE_DEFAULTS, BOOK_THEMES, normalizeBookStyles, renderBookCss };
 
+export const IMAGE_MEDIA_TYPES = Object.freeze({
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".svg": "image/svg+xml",
+});
+
+// 章节 HTML 里的本地图片 → 收进 EPUB(相对 baseDir 解析),src 改成 images/<文件名>。
+// 缺失或不支持的格式直接去掉该 <img>,避免成品里出现破图。
+export function collectBookImages(chapters, { baseDir = "", log = () => {} } = {}) {
+  const images = [];
+  const byPath = new Map();
+  const rewriteHtml = (html) => String(html || "").replace(/<img\b([^>]*?)\bsrc="([^"]+)"([^>]*?)>/gi, (whole, before, src, after) => {
+    if (/^(https?:|data:|blob:)/i.test(src)) return whole;
+    const resolved = path.isAbsolute(src) ? src : path.join(baseDir, String(src).replace(/[\\/]+/g, path.sep));
+    const ext = path.extname(resolved).toLowerCase();
+    const mediaType = IMAGE_MEDIA_TYPES[ext];
+    if (!mediaType || !fs.existsSync(resolved)) {
+      log("book image skipped", src);
+      return "";
+    }
+    let entry = byPath.get(resolved);
+    if (!entry) {
+      const fileName = `image-${byPath.size + 1}${ext === ".jpeg" ? ".jpg" : ext}`;
+      entry = { fileName, mediaType, data: fs.readFileSync(resolved) };
+      byPath.set(resolved, entry);
+      images.push(entry);
+    }
+    return `<img${before}src="images/${entry.fileName}"${after}>`;
+  });
+  const rewritten = (Array.isArray(chapters) ? chapters : []).map((chapter) => ({ ...chapter, html: rewriteHtml(chapter.html) }));
+  return { chapters: rewritten, images };
+}
+
 function escapeXml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")

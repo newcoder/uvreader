@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { adoptPdfToolOutputs, extractionKind, registerExtractRunners, splitMarkdownChapters } from "../src/main/extract-doc.js";
+import { adoptPdfToolOutputs, extractMarkdown, extractionKind, registerExtractRunners, splitMarkdownChapters } from "../src/main/extract-doc.js";
 import { createWorkshopQueue } from "../src/main/workshop.js";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -152,13 +152,19 @@ test("the docvortex runner writes markdown, html and json next to the source", a
   assert.ok(fs.existsSync(path.join(vault, "讲义.json")));
 });
 
-test("the docvortex runner keeps markdown while skipping optional formats", async () => {
+test("the docvortex runner turns images into a temporary PDF and asks for OCR", async () => {
   const vault = tempDir("qbr-extract-vault3-");
   const source = path.join(vault, "照片.png");
   fs.writeFileSync(source, "png-bytes");
+  const { spawnImpl, calls } = fakeSpawn((call, child) => {
+    fs.writeFileSync(call.args[call.args.length - 1], "%PDF-1.4 fake");
+    child.emit("close", 0);
+  });
+  const requests = [];
   const docvortex = {
     probe: async () => ({ ok: true }),
     convert: async (_settings, request) => {
+      requests.push(request);
       if (request.format === "markdown") {
         fs.writeFileSync(request.out, "图片里的文字");
         return { ok: true, out: request.out };
@@ -166,13 +172,42 @@ test("the docvortex runner keeps markdown while skipping optional formats", asyn
       return { ok: false, error: "not supported" };
     },
   };
-  const { queue } = makeQueue(docvortex);
+  const { queue } = makeQueue(docvortex, spawnImpl);
   const id = queue.start({ kind: "extract-docvortex", title: "内容提取", payload: { source, settings: {} } });
-  await sleep(60);
+  await sleep(80);
   const task = queue.snapshot().tasks.find((entry) => entry.id === id);
   assert.equal(task.status, "done", task.error);
   assert.ok(fs.existsSync(path.join(vault, "照片.md")));
   assert.ok(!fs.existsSync(path.join(vault, "照片.html")));
+  assert.equal(calls.length, 1, "the image is converted to PDF exactly once");
+  assert.ok(String(calls[0].args[1]).includes("PIL"), "the Pillow helper runs");
+  assert.equal(requests[0].parseMode, "ocr");
+  assert.match(requests[0].source, /\.pdf$/, "DocVortex receives a PDF, not the image");
+  assert.ok(!fs.existsSync(requests[0].source), "the temporary PDF is cleaned up");
+});
+
+test("extractMarkdown routes images through a temporary PDF for OCR", async () => {
+  const dir = tempDir("qbr-extract-md-");
+  const source = path.join(dir, "扫描.jpg");
+  fs.writeFileSync(source, "jpg-bytes");
+  const { spawnImpl, calls } = fakeSpawn((call, child) => {
+    fs.writeFileSync(call.args[call.args.length - 1], "%PDF-1.4 fake");
+    child.emit("close", 0);
+  });
+  const requests = [];
+  const docvortex = {
+    convert: async (_settings, request) => {
+      requests.push(request);
+      fs.writeFileSync(request.out, "OCR 文本");
+      return { ok: true, out: request.out };
+    },
+  };
+  const result = await extractMarkdown(source, { kind: "image", docvortex, workDir: path.join(dir, "work"), spawnImpl, log: () => {} });
+  assert.equal(result.ok, true, result.error);
+  assert.equal(result.markdown, "OCR 文本");
+  assert.equal(calls.length, 1);
+  assert.equal(requests[0].parseMode, "ocr");
+  assert.match(requests[0].source, /\.pdf$/);
 });
 
 test("the extract probe reports pdf_tool, credentials and DocVortex", async () => {

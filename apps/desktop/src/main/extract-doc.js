@@ -3,37 +3,15 @@
 // 产物按 §7 命名规则落在源文件旁: `<源名>.md` / `.html` / `.json` / `.audit.json` / `<源名>.assets/`。
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 import { EXTRACT_MODES, IMAGE_INPUTS, extractionKind } from "../shared/extract-formats.js";
+import { splitMarkdownChapters, unwrapProseFences } from "../shared/markdown-fix.js";
 import { pdfToolArgs, pdfToolScriptCommand } from "./workshop-formula.js";
 
 export { EXTRACT_MODES, IMAGE_INPUTS, extractionKind };
-
-// 提取出的 Markdown → 章节:按 1–3 级标题分;标题缺失时交给调用方按长度分块。
-export function splitMarkdownChapters(markdown) {
-  const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
-  const chapters = [];
-  let current = { title: "", lines: [] };
-  let inFence = false;
-  const push = () => {
-    const text = current.lines.join("\n").trim();
-    if (text) chapters.push({ title: current.title, text });
-    current = { title: "", lines: [] };
-  };
-  for (const line of lines) {
-    if (/^```/.test(line.trim())) inFence = !inFence;
-    const heading = !inFence && line.match(/^(#{1,3})\s+(.+?)\s*$/);
-    if (heading) {
-      push();
-      current.title = heading[2].replace(/[#*`]/g, "").trim().slice(0, 80);
-      continue;
-    }
-    current.lines.push(line);
-  }
-  push();
-  return chapters;
-}
+export { splitMarkdownChapters, unwrapProseFences } from "../shared/markdown-fix.js";
 
 function replaceAll(text, from, to) {
   return String(text).split(from).join(to);
@@ -121,9 +99,39 @@ export function runExtractCommand(command, args, { cwd, env, signal, timeoutMs =
   });
 }
 
+// 图片 → 单页 PDF:DocVortex 的 convert 只收文档(PDF),图片先经 Pillow 合成 PDF 再走它的 OCR。
+export const IMAGE_TO_PDF_SCRIPT = `import sys
+from PIL import Image
+im = Image.open(sys.argv[1])
+if im.mode != "RGB":
+    im = im.convert("RGB")
+im.save(sys.argv[2], "PDF")
+`;
+
+// 跑 DocVortex 的 Python(Pillow 随 DocVortex 一起装)。
+export function docvortexPython(settings = {}) {
+  return String(settings.docvortexPython || settings.ocrPython || "").trim() || "python";
+}
+
+export function imageToPdf(source, outPath, { python = "python", signal, log = () => {}, spawnImpl = spawn } = {}) {
+  return runExtractCommand(python, ["-c", IMAGE_TO_PDF_SCRIPT, source, outPath], {
+    signal,
+    log,
+    timeoutMs: 60_000,
+    spawnImpl,
+  });
+}
+
 // 供向导调用:把任意来源转成 Markdown(中间产物放缓存目录,用户无感)。
 export async function extractMarkdown(source, { kind, settings = {}, docvortex, workDir, signal, log = () => {}, spawnImpl = spawn } = {}) {
   const resolvedKind = kind || extractionKind(source);
+  // 提取产物里的「假代码块」(MinerU 把正文段落包进围栏)按段落还原,公式才会渲染。
+  const readMarkdown = (file) => {
+    const raw = fs.readFileSync(file, "utf8");
+    const cleaned = unwrapProseFences(raw);
+    if (cleaned !== raw) log("prose fences unwrapped", path.basename(file));
+    return cleaned;
+  };
   if (resolvedKind === "pdf") {
     const target = pdfToolScriptCommand(settings);
     if (target.error) return { ok: false, error: target.error };
@@ -147,14 +155,24 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
     if (!result.ok) return { ok: false, error: result.error };
     const files = adoptPdfToolOutputs(workDir, stem, { renameAssets: false });
     if (!files.md) return { ok: false, error: "提取完成但没有找到 Markdown 产物" };
-    return { ok: true, markdown: fs.readFileSync(files.md, "utf8"), path: files.md };
+    return { ok: true, markdown: readMarkdown(files.md), path: files.md };
   }
   if (!docvortex) return { ok: false, error: "DocVortex 不可用" };
   fs.mkdirSync(workDir, { recursive: true });
+  // 图片:先合成单页 PDF 再让 DocVortex 走 OCR(auto 分类不认图片,且它的 convert 只收文档)。
+  if (resolvedKind === "image") {
+    const pdf = path.join(workDir, "image.pdf");
+    const made = await imageToPdf(source, pdf, { python: docvortexPython(settings), signal, log, spawnImpl });
+    if (!made.ok) return { ok: false, error: `图片转 PDF 失败：${made.error}（需要 Pillow：pip install pillow）` };
+    const out = path.join(workDir, "content.md");
+    const result = await docvortex.convert(settings, { source: pdf, format: "markdown", out, parseMode: "ocr", signal });
+    if (!result.ok) return { ok: false, error: result.error };
+    return { ok: true, markdown: readMarkdown(out), path: out };
+  }
   const out = path.join(workDir, "content.md");
   const result = await docvortex.convert(settings, { source, format: "markdown", out, signal });
   if (!result.ok) return { ok: false, error: result.error };
-  return { ok: true, markdown: fs.readFileSync(out, "utf8"), path: out };
+  return { ok: true, markdown: readMarkdown(out), path: out };
 }
 
 export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", spawnImpl = spawn, log = (...args) => console.log(...args) } = {}) {
@@ -218,18 +236,36 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", sp
     if (!fs.existsSync(source)) throw new Error(`源文件不存在：${source}`);
     const dir = path.dirname(source);
     const stem = path.basename(source).replace(/\.[^.]+$/, "");
+    // 图片:DocVortex 的 convert 只收文档,先把图片合成单页 PDF(临时文件,跑完删掉)再走它的 OCR。
+    let input = source;
+    let tempPdf = "";
+    let parseMode = "";
+    if (extractionKind(source) === "image") {
+      report({ label: "图片转 PDF" });
+      tempPdf = path.join(os.tmpdir(), `uvreader-image-${Date.now().toString(36)}.pdf`);
+      const made = await imageToPdf(source, tempPdf, { python: docvortexPython(settings), signal, log, spawnImpl });
+      if (!made.ok) throw new Error(`图片转 PDF 失败：${made.error}（需要 Pillow：pip install pillow）`);
+      input = tempPdf;
+      parseMode = "ocr";
+    }
     const outputs = {};
-    for (const [format, key] of [["markdown", "md"], ["html", "html"], ["structured_content", "json"]]) {
-      report({ label: `提取 ${format}` });
-      const out = uniquePath(path.join(dir, `${stem}.${key}`));
-      const result = await docvortex.convert(settings, { source, format, out, signal });
-      if (signal.aborted) throw new Error("任务已取消");
-      if (!result.ok) {
-        if (key === "md") throw new Error(String(result.error || "提取失败"));
-        log("extract format skipped", format, result.error);
-        continue;
+    try {
+      for (const [format, key] of [["markdown", "md"], ["html", "html"], ["structured_content", "json"]]) {
+        report({ label: `提取 ${format}` });
+        const out = uniquePath(path.join(dir, `${stem}.${key}`));
+        const result = await docvortex.convert(settings, { source: input, format, out, parseMode, signal });
+        if (signal.aborted) throw new Error("任务已取消");
+        if (!result.ok) {
+          if (key === "md") throw new Error(String(result.error || "提取失败"));
+          log("extract format skipped", format, result.error);
+          continue;
+        }
+        outputs[key] = out;
       }
-      outputs[key] = out;
+    } finally {
+      if (tempPdf) {
+        try { fs.rmSync(tempPdf, { force: true }); } catch { /* 临时文件,忽略 */ }
+      }
     }
     if (!outputs.md) throw new Error("提取完成但没有找到 Markdown 产物");
     return { output: outputs.md, detail: `Markdown · ${Math.round(fs.statSync(outputs.md).size / 1024)} KB`, outputs };
