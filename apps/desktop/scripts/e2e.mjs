@@ -2805,6 +2805,54 @@ async function runWorkshopEpubScenario() {
       console.log("workshop-epub: font", ttf.length ? "subset" : "full (fontTools/brotli unavailable)", Math.round(bytes / 1024) + "KB with its license");
     }
     console.log("workshop-epub: txt → epub", fs.statSync(out).size, "bytes");
+    // 面板向导:选择书稿 → 实时预览 → 生成 EPUB(UI 路径)。
+    fs.writeFileSync(path.join(userData, "library", "Books", "示例文稿.txt"), "第一章 面板\n\n面板生成的正文。\n", "utf8");
+    await page.click('[data-route="workshop"]');
+    await page.waitForSelector(".qbr-workshop-view", { timeout: 15_000 });
+    await page.evaluate(() => document.querySelector('.qbr-workshop-rail button[data-tool="book"]')?.click());
+    await page.waitForSelector(".qbr-workshop-panel[data-tool='book']", { timeout: 10_000 });
+    const wizardPicked = await page.evaluate(() => {
+      const panel = document.querySelector(".qbr-workshop-panel[data-tool='book']");
+      const pick = [...panel.querySelectorAll("button")].find((button) => button.textContent.includes("选择书稿"));
+      pick?.click();
+      const row = [...document.querySelectorAll(".qbr-workshop-book")].find((entry) => entry.textContent.includes("示例文稿"));
+      const box = row?.querySelector("input");
+      if (box) { box.checked = true; box.dispatchEvent(new Event("change", { bubbles: true })); }
+      return Boolean(row);
+    });
+    if (!wizardPicked) throw new Error("the wizard did not list the txt manuscript");
+    const ranges = await page.evaluate(() => [...document.querySelectorAll(".qbr-workshop-panel[data-tool='book'] input[type='range']")]
+      .map((input) => `${input.min}-${input.max}:${input.value}`));
+    if (ranges[0] !== "12-28:17" || ranges[1] !== "1.2-2.4:1.75" || ranges[2] !== "0-12:5") {
+      throw new Error(`the wizard sliders should start at the defaults: ${ranges.join(", ")}`);
+    }
+    const preview = await waitFor("wizard preview", () => page.evaluate(() => {
+      const doc = document.querySelector(".qbr-workshop-preview-frame")?.contentDocument;
+      const text = doc?.body?.innerText || "";
+      return text.includes("面板生成的正文") ? text.slice(0, 14) : "";
+    }), 15_000);
+    console.log("workshop-epub: wizard preview shows", JSON.stringify(preview));
+    const before = await page.evaluate(async () => {
+      const state = await window.qbrDesktop.workshop.list();
+      return state.tasks.filter((task) => task.kind === "book-build").length;
+    });
+    await page.evaluate(() => {
+      const panel = document.querySelector(".qbr-workshop-panel[data-tool='book']");
+      const button = [...panel.querySelectorAll("button")].find((entry) => entry.textContent.includes("生成 EPUB"));
+      button?.click();
+    });
+    const uiDone = await waitFor("wizard build", () => page.evaluate(async (count) => {
+      const state = await window.qbrDesktop.workshop.list();
+      const tasks = state.tasks.filter((task) => task.kind === "book-build");
+      if (tasks.length <= count) return "";
+      const newest = tasks[0];
+      return newest.status !== "running" && newest.status !== "queued" ? `${newest.status}|${newest.output}` : "";
+    }, before), 300_000);
+    if (!uiDone.startsWith("done")) throw new Error(`the wizard build should finish done: ${uiDone}`);
+    const wizardOut = uiDone.split("|")[1];
+    if (!fs.existsSync(wizardOut)) throw new Error(`expected the wizard epub: ${wizardOut}`);
+    console.log("workshop-epub: wizard built", path.basename(wizardOut), fs.statSync(wizardOut).size, "bytes");
+    // 最后用阅读器打开生成物(阅读模式会隐藏导航,放到场景末尾)。
     await page.evaluate(async () => {
       const file = window.__qbrApp.vault.getAbstractFileByPath("Books/测试小说.epub");
       await window.__qbrPlugin.openFile(file);

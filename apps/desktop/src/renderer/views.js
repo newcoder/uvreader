@@ -2,6 +2,8 @@ import { ItemView, Notice, setIcon } from "obsidian";
 
 import { iconResolver } from "./icons.js";
 import { DOCVORTEX_FORMATS, DOCVORTEX_INPUTS, EBOOK_TARGETS, IMAGE_BOOK_TARGETS, docvortexFormatExt } from "../shared/workshop-formats.js";
+import { BOOK_STYLE_DEFAULTS, BOOK_THEMES, renderBookCss } from "../shared/book-styles.js";
+import { FONT_PAIRINGS, findPairing, pairingStacks } from "../shared/book-fonts.js";
 import { convertPath, uvtextPath } from "../shared/workshop-names.js";
 
 const BOOK_EXTENSIONS = ["epub", "fb2", "fbz", "mobi", "azw", "azw3", "cbz", "pdf"];
@@ -14,6 +16,42 @@ function percentOf(plugin, path) {
 
 function formatOf(file) {
   return String(file?.extension || "").toUpperCase();
+}
+
+// 快速成书的示例文字(选中书稿后用它开头的内容做样张)。
+function bookSampleText() {
+  return [
+    "第一章 起风了",
+    "这是一段示例文字，用来看字号、行距、边距和缩进的效果。单栏流式排版交给阅读器分页，宽度自适应设备，不写死版心。",
+    "第二段用来观察段间距与两端对齐。中文标点也一起看看：“引号”、（括号）、——破折号。",
+  ].join("\n\n");
+}
+
+function bookSampleHtml(text) {
+  const blocks = String(text || "").replace(/\r\n?/g, "\n").split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .slice(0, 6);
+  const out = [];
+  blocks.forEach((block, index) => {
+    const first = block.split("\n")[0].trim();
+    const rest = block.split("\n").slice(1).map((line) => line.trim()).filter(Boolean).join("");
+    if (index === 0 && first.length <= 30) {
+      out.push(`<h1>${escapeHtmlText(first)}</h1>`);
+      if (rest) out.push(`<p>${escapeHtmlText(rest)}</p>`);
+      return;
+    }
+    out.push(`<p>${escapeHtmlText([first, rest].filter(Boolean).join(""))}</p>`);
+  });
+  if (!out.length) out.push("<h1>第一章</h1><p>这里显示书稿的排版样张。</p>");
+  return out.join("\n");
+}
+
+function escapeHtmlText(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 export function createHomeView(leaf, options) {
@@ -385,6 +423,7 @@ const WORKSHOP_KIND_LABELS = {
   "calibre-probe": "检测",
   "ebook-convert": "互转",
   "images-cbz": "打包",
+  "book-build": "成书",
 };
 
 function formatElapsed(ms) {
@@ -748,10 +787,74 @@ export function createWorkshopView(leaf, options) {
         { id: "kindle", label: "EPUB → AZW3 / MOBI", hint: "换 Kindle 主流格式:Calibre,版式不变", ready: true },
         { id: "img-cbz", label: "图片 → CBZ / EPUB", hint: "漫画 / 相册打包成书", ready: true },
         { id: "pdf-clean", label: "PDF → 干净电子书", hint: "内部自动提取 + 重排:去页眉页脚/水印、按标题分章,再加样式与封面", ready: false },
-        { id: "md-html-epub", label: "Markdown / HTML → EPUB", hint: "提供内容 + 样式/封面/目录;Markdown 由向导内部转 HTML", ready: false },
-        { id: "txt-epub", label: "txt → EPUB", hint: "纯文本按标题 / 空行分章成书", ready: false },
+        { id: "md-html-epub", label: "Markdown / HTML → EPUB", hint: "Markdown 已可用;HTML 随后续阶段", ready: true },
+        { id: "txt-epub", label: "txt → EPUB", hint: "纯文本按标题 / 空行分章成书", ready: true },
         { id: "office-epub", label: "Office / OFD → EPUB", hint: "内部自动转换(DocVortex),中间环节无感", ready: false },
       ]);
+
+      // 快速成书(txt / Markdown → EPUB):样式与预览共用同一份 CSS。
+      const wizardCard = root.createDiv("qbr-workshop-card");
+      wizardCard.createEl("h3", { text: "快速成书(txt / Markdown → EPUB)" });
+      const sourceRow = wizardCard.createDiv("qbr-workshop-row");
+      const pickSource = sourceRow.createEl("button", { text: "选择书稿…" });
+      pickSource.addEventListener("click", () => this.toggleBookSourceList());
+      const pickSourceLocal = sourceRow.createEl("button", { text: "打开本地文件…" });
+      pickSourceLocal.addEventListener("click", () => void this.pickLocalBookSources());
+      sourceRow.createSpan({ cls: "qbr-workshop-hint", text: "txt / Markdown;PDF、Office、图片随后续阶段接入" });
+      this._bookSourceList = wizardCard.createDiv("qbr-workshop-booklist");
+      this._bookSourceList.hidden = true;
+      this._bookSourceChips = wizardCard.createDiv("qbr-workshop-chips");
+
+      const metaRow = wizardCard.createDiv("qbr-workshop-row");
+      metaRow.createSpan({ cls: "qbr-workshop-hint", text: "书名" });
+      this._bookTitle = metaRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空用文件名" } });
+      metaRow.createSpan({ cls: "qbr-workshop-hint", text: "作者" });
+      this._bookAuthor = metaRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "可选" } });
+
+      const layoutRow = wizardCard.createDiv("qbr-workshop-row");
+      layoutRow.createSpan({ cls: "qbr-workshop-hint", text: "字体搭配" });
+      this._bookPairing = layoutRow.createEl("select", { cls: "qbr-workshop-select" });
+      for (const pairing of FONT_PAIRINGS) {
+        this._bookPairing.createEl("option", { attr: { value: pairing.id }, text: pairing.label });
+      }
+      this._bookControls = {};
+      this.bookSlider(wizardCard, "字号", "fontSize", { min: 12, max: 28, step: 1, suffix: "px" });
+      this.bookSlider(wizardCard, "行距", "lineHeight", { min: 1.2, max: 2.4, step: 0.05, suffix: "" });
+      this.bookSlider(wizardCard, "边距", "margin", { min: 0, max: 12, step: 1, suffix: "%" });
+      const themeRow = wizardCard.createDiv("qbr-workshop-row");
+      themeRow.createSpan({ cls: "qbr-workshop-hint", text: "主题" });
+      this._bookTheme = themeRow.createEl("select", { cls: "qbr-workshop-select" });
+      for (const [id, theme] of Object.entries(BOOK_THEMES)) {
+        this._bookTheme.createEl("option", { attr: { value: id }, text: theme.label });
+      }
+
+      const advanced = wizardCard.createEl("details", { cls: "qbr-workshop-advanced" });
+      advanced.createEl("summary", { text: "高级排版" });
+      this.bookSlider(advanced, "首行缩进", "indent", { min: 0, max: 4, step: 0.5, suffix: "em" });
+      this.bookSlider(advanced, "段间距", "spacing", { min: 0, max: 2, step: 0.25, suffix: "em" });
+      const alignRow = advanced.createDiv("qbr-workshop-row");
+      alignRow.createSpan({ cls: "qbr-workshop-hint", text: "对齐" });
+      this._bookAlign = alignRow.createEl("select", { cls: "qbr-workshop-select" });
+      this._bookAlign.createEl("option", { attr: { value: "justify" }, text: "两端对齐" });
+      this._bookAlign.createEl("option", { attr: { value: "left" }, text: "左对齐" });
+      const headingRow = advanced.createDiv("qbr-workshop-row");
+      headingRow.createSpan({ cls: "qbr-workshop-hint", text: "标题" });
+      this._bookHeadingAlign = headingRow.createEl("select", { cls: "qbr-workshop-select" });
+      this._bookHeadingAlign.createEl("option", { attr: { value: "left" }, text: "左对齐" });
+      this._bookHeadingAlign.createEl("option", { attr: { value: "center" }, text: "居中" });
+
+      const previewRow = wizardCard.createDiv("qbr-workshop-row");
+      const phoneBtn = previewRow.createEl("button", { text: "手机宽度" });
+      phoneBtn.addEventListener("click", () => this.setBookPreviewWidth("phone"));
+      const wideBtn = previewRow.createEl("button", { text: "桌面宽度" });
+      wideBtn.addEventListener("click", () => this.setBookPreviewWidth("wide"));
+      previewRow.createSpan({ cls: "qbr-workshop-hint", text: "预览用系统近似字体;生成时嵌入所选字体子集" });
+      this._bookPreview = wizardCard.createDiv("qbr-workshop-preview");
+      this._bookPreviewFrame = this._bookPreview.createEl("iframe", { cls: "qbr-workshop-preview-frame" });
+      const buildRow = wizardCard.createDiv("qbr-workshop-row");
+      const build = buildRow.createEl("button", { cls: "mod-cta", text: "生成 EPUB" });
+      build.addEventListener("click", () => this.startBookBuild());
+      buildRow.createSpan({ cls: "qbr-workshop-hint", text: "产物落在源文件旁" });
 
       const convertCard = root.createDiv("qbr-workshop-card");
       convertCard.createEl("h3", { text: "电子书互转(EPUB → AZW3 / MOBI)" });
@@ -812,6 +915,8 @@ export function createWorkshopView(leaf, options) {
       this._bookRecent = root.createDiv("qbr-workshop-recent");
       this.renderBookChips();
       this.renderBookImageChips();
+      this.renderBookSourceChips();
+      this.applyBookStyleState();
     }
 
     bookFiles() {
@@ -962,6 +1067,195 @@ export function createWorkshopView(leaf, options) {
         title: format === "epub" ? "图片 → EPUB" : "图片 → CBZ",
         detail: `${images.length} 张图片`,
         payload: { settings: this.bookSettings(), images, format },
+      }).catch((error) => new Notice(String(error?.message || error)));
+      this.selectTool("tasks");
+    }
+
+    // ── 快速成书:书稿选择、样式控件、实时预览、生成 ──────────────────
+    bookSlider(host, label, key, { min, max, step, suffix = "" } = {}) {
+      const row = host.createDiv("qbr-workshop-row");
+      row.createSpan({ cls: "qbr-workshop-hint", text: label });
+      const initial = Number.isFinite(Number(BOOK_STYLE_DEFAULTS[key])) ? Number(BOOK_STYLE_DEFAULTS[key]) : Number(min) || 0;
+      const input = row.createEl("input", {
+        cls: "qbr-workshop-range",
+        attr: { type: "range", min: String(min), max: String(max), step: String(step), value: String(initial) },
+      });
+      input.value = String(initial);
+      const value = row.createSpan({ cls: "qbr-workshop-range-value", text: `${initial}${suffix}` });
+      this._bookControls[key] = { input, value, suffix };
+      input.addEventListener("input", () => this.onBookStyleChange());
+      return input;
+    }
+
+    setBookPreviewWidth(mode) {
+      if (this._bookPreview) this._bookPreview.toggleClass("is-wide", mode === "wide");
+    }
+
+    bookStyleState() {
+      const state = { pairing: String(this._bookPairing?.value || FONT_PAIRINGS[0].id) };
+      for (const [key, control] of Object.entries(this._bookControls || {})) {
+        state[key] = Number(control.input.value);
+      }
+      state.theme = String(this._bookTheme?.value || "follow");
+      state.align = String(this._bookAlign?.value || "justify");
+      state.headingAlign = String(this._bookHeadingAlign?.value || "left");
+      state.title = String(this._bookTitle?.value || "");
+      state.author = String(this._bookAuthor?.value || "");
+      return state;
+    }
+
+    applyBookStyleState() {
+      let saved = {};
+      try { saved = JSON.parse(localStorage.getItem("qbr-workshop-book-style") || "{}"); } catch { saved = {}; }
+      if (saved.pairing && this._bookPairing) this._bookPairing.value = String(saved.pairing);
+      for (const [key, control] of Object.entries(this._bookControls || {})) {
+        const fallback = Number.isFinite(Number(BOOK_STYLE_DEFAULTS[key])) ? Number(BOOK_STYLE_DEFAULTS[key]) : control.input.value;
+        control.input.value = String(Number.isFinite(Number(saved[key])) ? Number(saved[key]) : fallback);
+        control.value.setText(`${control.input.value}${control.suffix}`);
+      }
+      if (saved.theme) this._bookTheme.value = String(saved.theme);
+      if (saved.align) this._bookAlign.value = String(saved.align);
+      if (saved.headingAlign) this._bookHeadingAlign.value = String(saved.headingAlign);
+      if (typeof saved.title === "string") this._bookTitle.value = saved.title;
+      if (typeof saved.author === "string") this._bookAuthor.value = saved.author;
+      void this.renderBookPreview();
+    }
+
+    onBookStyleChange() {
+      for (const control of Object.values(this._bookControls || {})) {
+        control.value.setText(`${control.input.value}${control.suffix}`);
+      }
+      try { localStorage.setItem("qbr-workshop-book-style", JSON.stringify(this.bookStyleState())); } catch { /* ignore */ }
+      clearTimeout(this._bookPreviewTimer);
+      this._bookPreviewTimer = setTimeout(() => void this.renderBookPreview(), 150);
+    }
+
+    async renderBookPreview() {
+      const frame = this._bookPreviewFrame;
+      if (!frame) return;
+      const state = this.bookStyleState();
+      const stacks = pairingStacks(findPairing(state.pairing));
+      const css = renderBookCss({ ...state, bodyFont: stacks.body, headingFont: stacks.heading, latinFont: stacks.latin });
+      let text = "";
+      const rel = this._bookSources?.[0];
+      const file = rel ? app?.vault?.getAbstractFileByPath?.(rel) : null;
+      if (file) text = await app.vault.read(file).catch(() => "");
+      const html = `<!doctype html><html lang="zh"><head><meta charset="utf-8"><style>${css}</style></head><body>${bookSampleHtml(text || bookSampleText())}</body></html>`;
+      const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+      const previous = this._bookPreviewUrl;
+      this._bookPreviewUrl = url;
+      frame.src = url;
+      if (previous) setTimeout(() => URL.revokeObjectURL(previous), 5000);
+    }
+
+    bookSourceFiles() {
+      const wanted = ["txt", "md", "markdown"];
+      return (app?.vault?.getFiles?.() || [])
+        .filter((file) => wanted.includes(String(file?.extension || "").toLowerCase()))
+        .sort((a, b) => String(a.basename).localeCompare(String(b.basename), "ru"));
+    }
+
+    toggleBookSourceList() {
+      const list = this._bookSourceList;
+      if (!list) return;
+      list.hidden = !list.hidden;
+      this.refreshBookSourceList();
+    }
+
+    refreshBookSourceList() {
+      const list = this._bookSourceList;
+      if (!list || list.hidden) return;
+      list.empty();
+      const sources = this.bookSourceFiles();
+      if (!sources.length) {
+        list.createDiv({ cls: "qbr-workshop-hint", text: "书库里还没有 txt / Markdown 书稿。" });
+        return;
+      }
+      this._bookSources ||= [];
+      for (const file of sources) {
+        const row = list.createEl("label", { cls: "qbr-workshop-book" });
+        const box = row.createEl("input", { attr: { type: "checkbox" } });
+        box.checked = this._bookSources.includes(file.path);
+        box.addEventListener("change", () => {
+          if (box.checked) this.addBookSource(file.path);
+          else this.removeBookSource(file.path);
+        });
+        row.createSpan({ text: `${file.basename} · ${String(file.extension || "").toUpperCase()}` });
+      }
+    }
+
+    addBookSource(path) {
+      this._bookSources ||= [];
+      if (path && !this._bookSources.includes(path)) this._bookSources.push(path);
+      this.renderBookSourceChips();
+      void this.renderBookPreview();
+    }
+
+    removeBookSource(path) {
+      this._bookSources = (this._bookSources || []).filter((item) => item !== path);
+      this.renderBookSourceChips();
+      void this.renderBookPreview();
+      this.refreshBookSourceList();
+    }
+
+    renderBookSourceChips() {
+      const host = this._bookSourceChips;
+      if (!host) return;
+      host.empty();
+      const sources = this._bookSources || [];
+      if (!sources.length) {
+        host.createSpan({ cls: "qbr-workshop-hint", text: "未选择书稿" });
+        return;
+      }
+      for (const source of sources) {
+        const chip = host.createSpan({ cls: "qbr-workshop-chip" });
+        chip.createSpan({ text: source.split("/").pop() || source });
+        const remove = chip.createEl("button", { cls: "qbr-workshop-chip-x", text: "✕" });
+        remove.addEventListener("click", () => this.removeBookSource(source));
+      }
+    }
+
+    async pickLocalBookSources() {
+      if (!bridge?.pickFiles) return;
+      const paths = await bridge.pickFiles().catch(() => []);
+      for (const picked of paths) {
+        const normalized = String(picked).replace(/\\/g, "/");
+        if (/\.(txt|md|markdown)$/i.test(normalized)) this.addBookSource(normalized);
+        else new Notice("快速成书目前支持 txt / Markdown;PDF、Office、图片随后续阶段接入。");
+      }
+      this.refreshBookSourceList();
+    }
+
+    startBookBuild() {
+      if (!bridge) return;
+      const rel = this._bookSources?.[0];
+      if (!rel) {
+        new Notice("请先选择 txt / Markdown 书稿");
+        return;
+      }
+      const state = this.bookStyleState();
+      const settings = plugin?.settings || {};
+      void bridge.start({
+        kind: "book-build",
+        title: "生成电子书",
+        detail: rel,
+        payload: {
+          settings: { ocrPython: String(settings.ocrPython || "") },
+          source: rel,
+          title: state.title,
+          author: state.author,
+          styles: {
+            fontSize: state.fontSize,
+            lineHeight: state.lineHeight,
+            margin: state.margin,
+            indent: state.indent,
+            spacing: state.spacing,
+            align: state.align,
+            headingAlign: state.headingAlign,
+            theme: state.theme,
+          },
+          fonts: { pairing: state.pairing, embed: true },
+        },
       }).catch((error) => new Notice(String(error?.message || error)));
       this.selectTool("tasks");
     }
@@ -1246,7 +1540,9 @@ export function createWorkshopView(leaf, options) {
       }
       if (this._bookRecent) {
         this._bookRecent.empty();
-        const recent = tasks.filter((task) => task.kind === "ebook-convert" || task.kind === "images-cbz").slice(0, 3);
+        const recent = tasks
+          .filter((task) => task.kind === "ebook-convert" || task.kind === "images-cbz" || task.kind === "book-build")
+          .slice(0, 3);
         if (recent.length) {
           this._bookRecent.createEl("h3", { text: "最近" });
           for (const task of recent) this.renderTaskRow(this._bookRecent, task);
