@@ -580,23 +580,17 @@ export function createWorkshopView(leaf, options) {
       this._ocrModeInputs = {};
       const modes = [
         ["cache", "生成文字层", "写入阅读器缓存,打开书即可搜索 / 划线;最快。"],
-        ["export", "导出可搜索 PDF 副本", "另存 <源名>.uvtext.pdf,原页保留,插入不可见文字层。"],
+        ["export", "导出可搜索 PDF 副本", "在源文件旁生成 <源名>.uvtext.pdf(同名覆盖),原页保留,插入不可见文字层。"],
       ];
       for (const [value, label, hint] of modes) {
         const row = modeCard.createEl("label", { cls: "qbr-workshop-opt" });
         const radio = row.createEl("input", { attr: { type: "radio", name: "qbr-ocr-mode", value } });
         radio.checked = value === "cache";
-        radio.addEventListener("change", () => this.syncOcrMode());
         this._ocrModeInputs[value] = radio;
         const text = row.createDiv("qbr-workshop-opt-text");
         text.createEl("b", { text: label });
         text.createDiv({ cls: "qbr-workshop-opt-hint", text: hint });
       }
-      this._ocrExportRow = modeCard.createDiv("qbr-workshop-row qbr-workshop-saveas");
-      const saveAs = this._ocrExportRow.createEl("button", { text: "另存为…" });
-      saveAs.addEventListener("click", () => void this.pickOcrSaveAs());
-      this._ocrSaveAsLabel = this._ocrExportRow.createSpan({ cls: "qbr-workshop-hint", text: "默认保存到书库(源文件旁)" });
-      this._ocrExportRow.hidden = true;
 
       const startRow = root.createDiv("qbr-workshop-row");
       const start = startRow.createEl("button", { cls: "mod-cta", text: "开始处理" });
@@ -604,7 +598,6 @@ export function createWorkshopView(leaf, options) {
       startRow.createSpan({ cls: "qbr-workshop-hint", text: "批量:可一次选多本,逐个入队。" });
 
       this._ocrRecent = root.createDiv("qbr-workshop-recent");
-      this.syncOcrMode();
       this.renderOcrChips();
     }
 
@@ -684,22 +677,6 @@ export function createWorkshopView(leaf, options) {
       this.refreshOcrBookList();
     }
 
-    syncOcrMode() {
-      const exportMode = Boolean(this._ocrModeInputs?.export?.checked);
-      if (this._ocrExportRow) this._ocrExportRow.hidden = !exportMode;
-    }
-
-    async pickOcrSaveAs() {
-      if (!bridge?.saveAs) return;
-      const first = this._ocrSelection[0] || "book.pdf";
-      const defaultRel = uvtextPath(first);
-      const vaultRoot = String(window.qbrDesktop?.paths?.vaultRoot || "").replace(/\\/g, "/").replace(/\/+$/, "");
-      const chosen = await bridge.saveAs(vaultRoot ? `${vaultRoot}/${defaultRel}` : defaultRel).catch(() => "");
-      if (!chosen) return;
-      this._ocrSaveAs = String(chosen);
-      if (this._ocrSaveAsLabel) this._ocrSaveAsLabel.setText(`另存为：${this._ocrSaveAs}`);
-    }
-
     startOcrTasks() {
       if (!bridge) return;
       const files = [...this._ocrSelection];
@@ -716,11 +693,8 @@ export function createWorkshopView(leaf, options) {
       const exportMode = Boolean(this._ocrModeInputs?.export?.checked);
       for (const rel of files) {
         const payload = { settings: payloadSettings, source: rel };
-        if (exportMode) {
-          payload.out = files.length === 1 && this._ocrSaveAs
-            ? this._ocrSaveAs
-            : uvtextPath(rel, (candidate) => Boolean(app?.vault?.getAbstractFileByPath?.(candidate)));
-        }
+        // 导出固定在源文件旁,同名覆盖(可重复执行)。
+        if (exportMode) payload.out = uvtextPath(rel);
         void bridge.start({
           kind: exportMode ? "ocr-export" : "ocr-cache",
           title: exportMode ? "导出可搜索 PDF" : "生成文字层",

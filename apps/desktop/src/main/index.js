@@ -525,8 +525,7 @@ ipcMain.handle("qbr:workshop:clear", () => {
   workshop.clearHistory();
   return workshop.snapshot();
 });
-// 书坊文件对话框:多选本地文件(打开后自动导入书库)/ 另存为(默认路径由渲染层按
-// `.uvtext` 约定给出,可保存到书库外)。
+// 书坊文件对话框:多选本地文件(打开后自动导入书库)。
 ipcMain.handle("qbr:workshop:pick-files", async () => {
   const options = {
     title: "选择文件",
@@ -538,19 +537,6 @@ ipcMain.handle("qbr:workshop:pick-files", async () => {
   };
   const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
   return result.canceled ? [] : result.filePaths;
-});
-ipcMain.handle("qbr:workshop:save-as", async (_event, payload = {}) => {
-  const defaultPath = String(payload.defaultPath || "");
-  const options = {
-    title: "另存为",
-    defaultPath: defaultPath || undefined,
-    filters: [
-      { name: "可搜索 PDF", extensions: ["pdf"] },
-      { name: "所有文件", extensions: ["*"] },
-    ],
-  };
-  const result = mainWindow ? await dialog.showSaveDialog(mainWindow, options) : await dialog.showSaveDialog(options);
-  return result.canceled || !result.filePath ? "" : result.filePath;
 });
 
 const gotLock = app.requestSingleInstanceLock();

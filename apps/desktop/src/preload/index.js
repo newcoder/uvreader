@@ -95,7 +95,6 @@ window.qbrDesktop = {
     retry: (id) => ipcRenderer.invoke("qbr:workshop:retry", id),
     clear: () => ipcRenderer.invoke("qbr:workshop:clear"),
     pickFiles: () => ipcRenderer.invoke("qbr:workshop:pick-files"),
-    saveAs: (defaultPath) => ipcRenderer.invoke("qbr:workshop:save-as", { defaultPath }),
     // Returns an unsubscribe function so a closed view stops listening.
     onState: (callback) => {
       const listener = (_event, state) => callback(state);

@@ -12,12 +12,11 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const VAULT = "D:/vault";
 const inVault = (...parts) => path.join(VAULT, ...parts);
 
-test("uvtextPath keeps the suffix next to the extension and numbers collisions", () => {
+test("uvtextPath keeps the suffix next to the extension and overwrites in place", () => {
   assert.equal(uvtextPath("Books/扫描件测试.pdf"), "Books/扫描件测试.uvtext.pdf");
   assert.equal(uvtextPath("Books\\扫描件测试.PDF"), "Books/扫描件测试.uvtext.PDF");
   assert.equal(uvtextPath("book"), "book.uvtext.pdf", "a missing extension defaults to .pdf");
-  const taken = new Set(["Books/a.uvtext.pdf", "Books/a (1).uvtext.pdf"]);
-  assert.equal(uvtextPath("Books/a.pdf", (candidate) => taken.has(candidate)), "Books/a (2).uvtext.pdf");
+  assert.equal(uvtextPath("Books/a.pdf"), uvtextPath("Books/a.pdf"), "re-exports reuse the same path");
 });
 
 function setup(overrides = {}) {

@@ -42,11 +42,11 @@ export function registerOcrRunners(workshop, { pdfOcr, vaultRoot = "", log = (..
     }
   });
 
-  // 导出可搜索 PDF:out 可以是书库相对路径(默认)或另存为的绝对路径。
+  // 导出可搜索 PDF:输出固定在源文件旁(<源名>.uvtext.pdf),同名覆盖。
   workshop.register("ocr-export", async ({ payload, report, signal }) => {
     const settings = payload?.settings || {};
     const source = absolute(payload?.source);
-    const rawOut = String(payload?.out || "");
+    const rawOut = String(payload?.out || "") || uvtextPath(payload?.source);
     if (!rawOut) throw new Error("缺少输出路径");
     const out = absolute(rawOut);
     const jobId = `ws-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;

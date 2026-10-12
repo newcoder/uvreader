@@ -2488,6 +2488,30 @@ async function runWorkshopOcrScenario() {
     if (!fs.existsSync(exportPath)) throw new Error(`expected the .uvtext.pdf next to the source: ${exportPath}`);
     console.log("workshop-ocr: searchable PDF exported —", path.basename(exportPath), fs.statSync(exportPath).size, "bytes");
 
+    // 重复导出:同名覆盖,不再产生 (1) 副本。
+    const exportCount = await page.evaluate(async () => {
+      const state = await window.qbrDesktop.workshop.list();
+      return state.tasks.filter((entry) => entry.kind === "ocr-export").length;
+    });
+    await page.evaluate(() => {
+      const start = [...document.querySelectorAll(".qbr-workshop-panel[data-tool='ocr'] button")]
+        .find((button) => button.textContent.includes("开始处理"));
+      start?.click();
+    });
+    const reExported = await waitFor("re-export task", () => page.evaluate(async (count) => {
+      const state = await window.qbrDesktop.workshop.list();
+      const tasks = state.tasks.filter((entry) => entry.kind === "ocr-export");
+      if (tasks.length <= count) return "";
+      const newest = tasks[0];
+      return newest.status !== "running" && newest.status !== "queued" ? `${newest.status}|${newest.output}` : "";
+    }, exportCount), 300_000);
+    if (!reExported.startsWith("done")) throw new Error(`the re-export should finish done: ${reExported}`);
+    if (fs.existsSync(path.join(userData, "library", "Books", "扫描件测试 (1).uvtext.pdf"))) {
+      throw new Error("re-exporting created a numbered copy instead of overwriting");
+    }
+    if (!fs.existsSync(exportPath)) throw new Error("the overwritten export is missing");
+    console.log("workshop-ocr: re-export overwrites the same .uvtext.pdf");
+
     // 打开导出的副本搜索只出现在第 2 页的词:未渲染页也必须出现在结果列表里
     // (DOM 文本层只覆盖渲染过的页;修复后查找用懒加载视图的逐页文本)。
     const copyFingerprint = fs.readdirSync(path.join(userData, "ocr-cache")).find((name) => name.startsWith("sha1-"));
