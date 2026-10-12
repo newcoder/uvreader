@@ -1191,6 +1191,8 @@ body .view-content.qiaomu-reader-view .qiaomu-reader-pdf-zoom-control {
 .qbr-workshop-preset b {
   display: block;
   margin-bottom: 3px;
+  /* 「后续阶段」标签绝对定位在右上,长标题留出空间避免叠字。 */
+  padding-right: 52px;
 }
 
 .qbr-workshop-preset-tag {

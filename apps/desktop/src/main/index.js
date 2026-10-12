@@ -4,6 +4,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { BOOK_EXTENSIONS, isBookFile } from "../shared/books.js";
+import { WORKSHOP_PICK_EXTENSIONS } from "../shared/workshop-formats.js";
 import { createAiRuntime } from "./ai-runtime.js";
 import { createDocvortex, registerDocvortexRunners } from "./docvortex.js";
 import { createFormulaChain, registerFormulaRunners } from "./workshop-formula.js";
@@ -531,7 +532,8 @@ ipcMain.handle("qbr:workshop:pick-files", async () => {
     title: "选择文件",
     properties: ["openFile", "multiSelections"],
     filters: [
-      { name: "电子书与文档", extensions: [...BOOK_EXTENSIONS] },
+      { name: "文档与电子书", extensions: [...WORKSHOP_PICK_EXTENSIONS] },
+      { name: "电子书", extensions: [...BOOK_EXTENSIONS] },
       { name: "所有文件", extensions: ["*"] },
     ],
   };

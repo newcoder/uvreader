@@ -518,6 +518,10 @@ export function createWorkshopView(leaf, options) {
           this.renderOcrPanel(panel);
         } else if (tool.id === "convert") {
           this.renderConvertPanel(panel);
+        } else if (tool.id === "extract") {
+          this.renderExtractPanel(panel);
+        } else if (tool.id === "book") {
+          this.renderBookPanel(panel);
         } else {
           const card = panel.createDiv("qbr-workshop-card");
           card.createDiv({ cls: "qbr-workshop-soon", text: "该工具将在后续阶段接入(实施计划 docs/workshop-implementation.md)。" });
@@ -699,23 +703,9 @@ export function createWorkshopView(leaf, options) {
       this.selectTool("tasks");
     }
 
-    // ── 格式转换(DocVortex,W0-4)──────────────────────────────────────
-    renderConvertPanel(panel) {
-      this._convertSelection ||= [];
-      const root = panel.createDiv("qbr-workshop-tool");
-
-      const presetCard = root.createDiv("qbr-workshop-card");
-      presetCard.createEl("h3", { text: "选择预设" });
-      const matrix = presetCard.createDiv("qbr-workshop-matrix");
-      const presets = [
-        { id: "convert", label: "文档互转(DocVortex)", hint: "保持内容与版式:Office/ODF/HTML/EPUB/OFD → md / html / docx / pdf / epub", ready: true },
-        { id: "clean", label: "PDF → 干净电子书", hint: "提取 + 制作:去页眉页脚/水印,按标题分章 → EPUB(属「内容提取 + 电子书制作」)", ready: false },
-        { id: "pdfmd", label: "PDF → Markdown", hint: "丢版式的提取,属「内容提取」;结构化 JSON / 题库也在那里", ready: false },
-        { id: "mdepub", label: "HTML → EPUB(纯转换)", hint: "Markdown 需先转 HTML,随「电子书制作」一起做", ready: false },
-        { id: "kindle", label: "EPUB → AZW3 / MOBI", hint: "版式不变,换容器:Calibre,Kindle 主流格式", ready: false },
-        { id: "img", label: "图片 → PDF / CBZ", hint: "打包成书:照片成书、漫画打包", ready: false },
-      ];
-      this._convertPreset = "convert";
+    // 预设卡片矩阵:ready 的选中,其余标「后续阶段」并提示归属。
+    renderPresetMatrix(host, presets) {
+      const matrix = host.createDiv("qbr-workshop-matrix");
       for (const preset of presets) {
         const card = matrix.createDiv("qbr-workshop-preset" + (preset.ready ? " is-ready" : " is-planned"));
         card.createEl("b", { text: preset.label });
@@ -726,6 +716,51 @@ export function createWorkshopView(leaf, options) {
           new Notice(`${preset.label} 将在后续阶段接入(见 docs/workshop-implementation.md)`);
         });
       }
+      return matrix;
+    }
+
+    // ── 内容提取(PDF/DOCX/图片 → 内容,W1-0)────────────────────────
+    renderExtractPanel(panel) {
+      const root = panel.createDiv("qbr-workshop-tool");
+      const presetCard = root.createDiv("qbr-workshop-card");
+      presetCard.createEl("h3", { text: "选择预设" });
+      this.renderPresetMatrix(presetCard, [
+        { id: "pdf-md", label: "PDF → Markdown / HTML", hint: "文本 / 扫描视觉 / MinerU;可丢版式", ready: false },
+        { id: "schema", label: "结构化 JSON / 题库模板", hint: "schema 模板抽取:题目 / 选项 / 答案 / 解析", ready: false },
+        { id: "image-text", label: "图片 → 文字", hint: "纯图提字(OCR),产物可再交给转换或制作", ready: false },
+      ]);
+      const card = root.createDiv("qbr-workshop-card");
+      card.createDiv({ cls: "qbr-workshop-soon", text: "内容提取将在后续阶段接入(实施计划 docs/workshop-implementation.md 的 W1-0)。" });
+    }
+
+    // ── 电子书制作(向导,W1-2/W1-3)──────────────────────────────────
+    renderBookPanel(panel) {
+      const root = panel.createDiv("qbr-workshop-tool");
+      const presetCard = root.createDiv("qbr-workshop-card");
+      presetCard.createEl("h3", { text: "选择预设" });
+      this.renderPresetMatrix(presetCard, [
+        { id: "pdf-clean", label: "PDF → 干净电子书", hint: "内部自动提取 + 重排:去页眉页脚/水印、按标题分章,再加样式与封面", ready: false },
+        { id: "md-html-epub", label: "Markdown / HTML → EPUB", hint: "提供内容 + 样式/封面/目录;Markdown 由向导内部转 HTML", ready: false },
+        { id: "txt-epub", label: "txt → EPUB", hint: "纯文本按标题 / 空行分章成书", ready: false },
+        { id: "office-epub", label: "Office / OFD → EPUB", hint: "内部自动转换(DocVortex),中间环节无感", ready: false },
+      ]);
+      const card = root.createDiv("qbr-workshop-card");
+      card.createDiv({ cls: "qbr-workshop-soon", text: "电子书制作向导将在后续阶段接入(实施计划 docs/workshop-implementation.md 的 W1-2/W1-3)。" });
+    }
+
+    // ── 格式转换(DocVortex,W0-4)──────────────────────────────────────
+    renderConvertPanel(panel) {
+      this._convertSelection ||= [];
+      const root = panel.createDiv("qbr-workshop-tool");
+
+      const presetCard = root.createDiv("qbr-workshop-card");
+      presetCard.createEl("h3", { text: "选择预设" });
+      this._convertPreset = "convert";
+      this.renderPresetMatrix(presetCard, [
+        { id: "convert", label: "文档互转(DocVortex)", hint: "保持内容与版式:Office/ODF/HTML/EPUB/OFD → md / html / docx / pdf / epub", ready: true },
+        { id: "kindle", label: "EPUB → AZW3 / MOBI", hint: "版式不变,换容器:Calibre,Kindle 主流格式", ready: false },
+        { id: "img", label: "图片 → PDF / CBZ", hint: "打包成书:照片成书、漫画打包", ready: false },
+      ]);
 
       const inputCard = root.createDiv("qbr-workshop-card");
       inputCard.createEl("h3", { text: "选择文件" });

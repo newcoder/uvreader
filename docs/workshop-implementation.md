@@ -72,17 +72,16 @@
 | **内容提取**(只要内容) | 文字/表格/公式等内容 | **版式**(页/栏/字体位置) | PDF(文本/扫描)、DOCX、**图片(纯图提字)** | `<源名>.md` / `.html` / **`.json`** + `<源名>.assets/`;**结构化 JSON 与 schema 模板(题库等)在此** |
 | **电子书制作**(内容+样式) | 内容 + **新加**的样式/版式/字体/封面/目录 | 原版式 | **书库里的书、PDF、Office(docx/pptx…)**、**txt**、md/html、图片、提取的 Doc | EPUB(主)/ AZW3 / MOBI / PDF(Calibre);**非文本源由向导内部自动提取/转换,用户无感** |
 
-预设归属(格式转换面板的 6 张卡片):
+预设归属(每张卡放在**自己工具的面板**里,不再全堆在格式转换):
 
 | 预设 | 归属 | 现状 |
 | --- | --- | --- |
 | 文档互转(DocVortex,内容+版式) | 格式转换 | ✅ 已实现(20 入 / 7 出,含 →EPUB) |
 | EPUB → AZW3 / MOBI(版式不变,换容器) | 格式转换 | Calibre 已装,只差接(半天) |
 | 图片 → PDF / CBZ(打包,版式=图) | 格式转换 | CBZ=ZIP(JSZip 已有);PDF 走 pdf_tool 渲染(W1-5) |
-| PDF → Markdown / HTML / **JSON**(丢版式) | **内容提取** | 未实现 → **W1-0**;纯文本版可先用 DocVortex 顶,面板加提示分流 |
-| PDF → 干净电子书(提取 + 重排样式) | **内容提取 + 电子书制作** | P1(卡片只做路由/预填) |
-| HTML → EPUB(纯转换) | 格式转换 | 可立即点亮;**Markdown 不行**(DocVortex 0.5.16 不接受 md),随向导 W1-2 做 |
-| (电子书制作:txt/md/html/Doc/图片 → 样式化 EPUB) | 电子书制作 | P1(W1-2/W1-3) |
+| PDF → Markdown / HTML(丢版式) | 内容提取 | 面板已列计划预设;未实现 → **W1-0**;纯文本版可先用 DocVortex 顶 |
+| 结构化 JSON / 题库模板、图片 → 文字 | 内容提取 | 同上(W1-0) |
+| PDF → 干净电子书、Markdown / HTML → EPUB、txt → EPUB、Office / OFD → EPUB | 电子书制作 | 面板已列计划预设;P1(W1-2/W1-3) |
 
 **结构化 JSON 只在内容提取**:格式转换的目标格式已去掉 JSON(`structured_content`);题库等结构化抽取走内容提取的 schema 模板(pdf_tool 的 vision/box 协议 + `extract_questions.py`)。
 
