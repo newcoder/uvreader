@@ -2772,6 +2772,7 @@ async function runWorkshopEpubScenario() {
       styles: { theme: "warm", fontSize: 18, lineHeight: 1.8 },
       title: "测试小说",
       author: "书坊",
+      cover: { mode: "template", palette: "ink", subtitle: "封面副标题" },
     };
     if (fs.existsSync(bundledFont)) payload.fonts = { files: [{ path: bundledFont.replace(/\\/g, "/"), family: "Zhuque" }] };
     const task = await page.evaluate((request) => window.qbrDesktop.workshop.start({
@@ -2792,6 +2793,14 @@ async function runWorkshopEpubScenario() {
     if (!nav.includes("第一章 起风了") || !nav.includes("第二章 雨")) throw new Error("the epub lost its chapters");
     const css = await zip.file("OEBPS/styles.css").async("string");
     if (!/background: #faf6ef/.test(css) || !/font-size: 18px/.test(css)) throw new Error("the epub lost its styles");
+    const coverImage = await zip.file("OEBPS/images/cover.jpg")?.async("nodebuffer");
+    if (!coverImage?.length || coverImage[0] !== 0xff || coverImage[1] !== 0xd8) {
+      throw new Error("the template cover should be a real JPEG inside the epub");
+    }
+    if (!opf.includes(`<itemref idref="cover"/>`) || !opf.includes(`<meta name="cover" content="cover-image"/>`)) {
+      throw new Error("the cover is missing from the opf");
+    }
+    console.log("workshop-epub: template cover", Math.round(coverImage.length / 1024) + "KB");
     if (fs.existsSync(bundledFont)) {
       const ttf = Object.keys(zip.files).filter((name) => name.startsWith("OEBPS/fonts/") && name.endsWith(".ttf"));
       const woff2 = Object.keys(zip.files).filter((name) => name.startsWith("OEBPS/fonts/") && name.endsWith(".woff2"));
@@ -2851,6 +2860,9 @@ async function runWorkshopEpubScenario() {
     if (!uiDone.startsWith("done")) throw new Error(`the wizard build should finish done: ${uiDone}`);
     const wizardOut = uiDone.split("|")[1];
     if (!fs.existsSync(wizardOut)) throw new Error(`expected the wizard epub: ${wizardOut}`);
+    const wizardZip = await JSZip.loadAsync(fs.readFileSync(wizardOut));
+    const wizardCover = await wizardZip.file("OEBPS/images/cover.jpg")?.async("nodebuffer");
+    if (!wizardCover?.length) throw new Error("the wizard should render the default template cover");
     console.log("workshop-epub: wizard built", path.basename(wizardOut), fs.statSync(wizardOut).size, "bytes");
     // 最后用阅读器打开生成物(阅读模式会隐藏导航,放到场景末尾)。
     await page.evaluate(async () => {

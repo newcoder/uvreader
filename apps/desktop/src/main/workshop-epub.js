@@ -6,6 +6,7 @@ import path from "node:path";
 import { buildEpub, BOOK_STYLE_DEFAULTS } from "./epub-build.js";
 import { textToChapters } from "./text-book.js";
 import { collectChars, createFontSubsetter, ensureFont, ensureFontLicense, findPairing, FONT_FAMILIES } from "./workshop-fonts.js";
+import { pairingStacks } from "../shared/book-fonts.js";
 import { convertPath } from "../shared/workshop-names.js";
 
 // 组装要嵌入的字体:pairing(下载字库)或 files(本机/导入字体)。
@@ -65,10 +66,77 @@ export async function prepareFonts({
   return fonts;
 }
 
-export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", subsetter = createFontSubsetter(), log = (...args) => console.log(...args) } = {}) {
+// Markdown 里的第一张本地图片(AUTO 封面的候选)。
+export function firstMarkdownImage(text, sourceDir) {
+  const match = String(text || "").match(/!\[[^\]]*\]\(([^)\s]+)/);
+  if (!match) return "";
+  const raw = match[1];
+  if (/^https?:/i.test(raw) || raw.startsWith("data:")) return "";
+  return path.isAbsolute(raw) ? raw : path.join(sourceDir, raw.replace(/[\\/]+/g, path.sep));
+}
+
+// 封面:指定图片 / 自动首图 / 模板生成(缺图时回退模板)。
+export async function resolveCover({ payload = {}, title = "", author = "", markdownText = "", sourceDir = "", pairing = null, cacheDir = "", coverRenderer = null, loadImage = null, log = () => {} } = {}) {
+  const cover = payload.cover || {};
+  const mode = String(cover.mode || "none");
+  if (mode === "none") return null;
+  const fromImage = async (imagePath) => {
+    const image = loadImage ? await loadImage(imagePath) : null;
+    if (!image?.data?.length) return null;
+    return { data: image.data, mediaType: image.mediaType || "image/jpeg", fileName: "cover.jpg" };
+  };
+  if (mode === "image" && cover.imagePath) {
+    const picked = await fromImage(cover.imagePath);
+    if (picked) return picked;
+    log("cover image missing", cover.imagePath);
+  }
+  if (mode === "auto") {
+    const candidate = firstMarkdownImage(markdownText, sourceDir);
+    if (candidate) {
+      const picked = await fromImage(candidate);
+      if (picked) return picked;
+    }
+  }
+  if (!coverRenderer) return null;
+  const fonts = [];
+  if (pairing) {
+    for (const id of [...new Set([pairing.heading, pairing.body])]) {
+      const ensured = await ensureFont(id, { cacheDir, log });
+      if (ensured.ok) fonts.push({ path: ensured.path, family: `QBR ${FONT_FAMILIES[id] || id}` });
+    }
+  }
+  const stacks = pairingStacks(pairing);
+  const rendered = await coverRenderer.render({
+    title,
+    author,
+    subtitle: cover.subtitle,
+    palette: cover.palette,
+    fonts,
+    headingFamily: stacks.heading,
+    bodyFamily: stacks.body,
+  });
+  if (!rendered.ok) {
+    log("cover render failed", rendered.error);
+    return null;
+  }
+  return { data: rendered.data, mediaType: rendered.mediaType || "image/jpeg", fileName: "cover.jpg" };
+}
+
+export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", subsetter = createFontSubsetter(), coverRenderer = null, readImage = null, log = (...args) => console.log(...args) } = {}) {
   const absolute = (raw) => {
     const value = String(raw || "");
     return path.isAbsolute(value) ? value : path.join(vaultRoot, value);
+  };
+  // 指定图片:优先用注入的读图器(Electron nativeImage),否则按扩展名直读。
+  const loadImage = async (filePath) => {
+    if (!filePath || !fs.existsSync(filePath)) return null;
+    if (readImage) {
+      const loaded = await readImage(filePath).catch(() => null);
+      if (loaded?.data?.length) return loaded;
+    }
+    const ext = path.extname(filePath).toLowerCase();
+    const mediaType = ext === ".png" ? "image/png" : ext === ".gif" ? "image/gif" : "image/jpeg";
+    return { data: fs.readFileSync(filePath), mediaType, fileName: `cover${ext || ".jpg"}` };
   };
 
   // txt / md → EPUB(向导的最小可用路径;后续接 Doc JSON 与封面)。
@@ -109,6 +177,21 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       });
     if (signal.aborted) throw new Error("任务已取消");
 
+    report({ label: "准备封面" });
+    const cover = await resolveCover({
+      payload,
+      title,
+      author: String(payload?.author || "").trim(),
+      markdownText: markdown ? text : "",
+      sourceDir: path.dirname(source),
+      pairing,
+      cacheDir: path.join(cacheRoot, "library"),
+      coverRenderer,
+      loadImage,
+      log,
+    });
+    if (signal.aborted) throw new Error("任务已取消");
+
     report({ label: "生成 EPUB" });
     const result = await buildEpub({
       book: {
@@ -121,6 +204,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       styles,
       chapters,
       fonts,
+      cover,
       colophon: String(payload?.colophon || "由 UV Reader 书坊生成"),
     }, out);
     if (signal.aborted) throw new Error("任务已取消");

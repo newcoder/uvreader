@@ -2,7 +2,7 @@ import { ItemView, Notice, setIcon } from "obsidian";
 
 import { iconResolver } from "./icons.js";
 import { DOCVORTEX_FORMATS, DOCVORTEX_INPUTS, EBOOK_TARGETS, IMAGE_BOOK_TARGETS, docvortexFormatExt } from "../shared/workshop-formats.js";
-import { BOOK_STYLE_DEFAULTS, BOOK_THEMES, renderBookCss } from "../shared/book-styles.js";
+import { BOOK_STYLE_DEFAULTS, BOOK_THEMES, COVER_PALETTES, renderBookCss } from "../shared/book-styles.js";
 import { FONT_PAIRINGS, findPairing, pairingStacks } from "../shared/book-fonts.js";
 import { convertPath, uvtextPath } from "../shared/workshop-names.js";
 
@@ -828,8 +828,27 @@ export function createWorkshopView(leaf, options) {
         this._bookTheme.createEl("option", { attr: { value: id }, text: theme.label });
       }
 
-      const advanced = wizardCard.createEl("details", { cls: "qbr-workshop-advanced" });
-      advanced.createEl("summary", { text: "高级排版" });
+      const coverRow = wizardCard.createDiv("qbr-workshop-row");
+      coverRow.createSpan({ cls: "qbr-workshop-hint", text: "封面" });
+      this._bookCoverMode = coverRow.createEl("select", { cls: "qbr-workshop-select" });
+      for (const [value, label] of [["template", "模板生成"], ["none", "不要封面"], ["auto", "自动(书内首图,否则模板)"], ["image", "指定图片…"]]) {
+        this._bookCoverMode.createEl("option", { attr: { value }, text: label });
+      }
+      this._bookCoverPalette = coverRow.createEl("select", { cls: "qbr-workshop-select" });
+      for (const [id, palette] of Object.entries(COVER_PALETTES)) {
+        this._bookCoverPalette.createEl("option", { attr: { value: id }, text: palette.label });
+      }
+      const coverRow2 = wizardCard.createDiv("qbr-workshop-row");
+      coverRow2.createSpan({ cls: "qbr-workshop-hint", text: "副标题" });
+      this._bookSubtitle = coverRow2.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "可选" } });
+      this._bookCoverImage = "";
+      this._bookCoverPick = coverRow2.createEl("button", { text: "选择图片…" });
+      this._bookCoverPick.addEventListener("click", () => void this.pickCoverImage());
+      this._bookCoverLabel = coverRow2.createSpan({ cls: "qbr-workshop-hint", text: "" });
+      this._bookCoverMode.addEventListener("change", () => this.syncBookCoverRow());
+      this.syncBookCoverRow();
+
+      const advanced = wizardCard.createEl("details", { cls: "qbr-workshop-advanced" });      advanced.createEl("summary", { text: "高级排版" });
       this.bookSlider(advanced, "首行缩进", "indent", { min: 0, max: 4, step: 0.5, suffix: "em" });
       this.bookSlider(advanced, "段间距", "spacing", { min: 0, max: 2, step: 0.25, suffix: "em" });
       const alignRow = advanced.createDiv("qbr-workshop-row");
@@ -1101,7 +1120,30 @@ export function createWorkshopView(leaf, options) {
       state.headingAlign = String(this._bookHeadingAlign?.value || "left");
       state.title = String(this._bookTitle?.value || "");
       state.author = String(this._bookAuthor?.value || "");
+      state.coverMode = String(this._bookCoverMode?.value || "template");
+      state.coverPalette = String(this._bookCoverPalette?.value || "warm");
+      state.coverImage = String(this._bookCoverImage || "");
+      state.subtitle = String(this._bookSubtitle?.value || "");
       return state;
+    }
+
+    syncBookCoverRow() {
+      const mode = String(this._bookCoverMode?.value || "template");
+      if (this._bookCoverPalette) this._bookCoverPalette.hidden = mode !== "template" && mode !== "auto";
+      if (this._bookCoverPick) this._bookCoverPick.hidden = mode !== "image";
+      if (this._bookCoverLabel) {
+        this._bookCoverLabel.setText(mode === "image" && this._bookCoverImage ? String(this._bookCoverImage).split("/").pop() : "");
+      }
+    }
+
+    async pickCoverImage() {
+      if (!bridge?.pickFiles) return;
+      const paths = await bridge.pickFiles().catch(() => []);
+      const picked = paths.find((candidate) => /\.(png|jpe?g|webp|gif|bmp|tiff?|jp2)$/i.test(String(candidate)));
+      if (!picked) return;
+      this._bookCoverImage = String(picked).replace(/\\/g, "/");
+      this.syncBookCoverRow();
+      this.onBookStyleChange();
     }
 
     applyBookStyleState() {
@@ -1118,6 +1160,11 @@ export function createWorkshopView(leaf, options) {
       if (saved.headingAlign) this._bookHeadingAlign.value = String(saved.headingAlign);
       if (typeof saved.title === "string") this._bookTitle.value = saved.title;
       if (typeof saved.author === "string") this._bookAuthor.value = saved.author;
+      if (saved.coverMode) this._bookCoverMode.value = String(saved.coverMode);
+      if (saved.coverPalette) this._bookCoverPalette.value = String(saved.coverPalette);
+      if (typeof saved.coverImage === "string") this._bookCoverImage = saved.coverImage;
+      if (typeof saved.subtitle === "string") this._bookSubtitle.value = saved.subtitle;
+      this.syncBookCoverRow();
       void this.renderBookPreview();
     }
 
@@ -1255,6 +1302,12 @@ export function createWorkshopView(leaf, options) {
             theme: state.theme,
           },
           fonts: { pairing: state.pairing, embed: true },
+          cover: {
+            mode: state.coverMode,
+            imagePath: state.coverImage,
+            subtitle: state.subtitle,
+            palette: state.coverPalette,
+          },
         },
       }).catch((error) => new Notice(String(error?.message || error)));
       this.selectTool("tasks");

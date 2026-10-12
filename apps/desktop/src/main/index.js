@@ -1,4 +1,4 @@
-import { BrowserWindow, Menu, app, dialog, ipcMain, safeStorage, shell } from "electron";
+import { BrowserWindow, Menu, app, dialog, ipcMain, nativeImage, safeStorage, shell } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -7,6 +7,7 @@ import { BOOK_EXTENSIONS, isBookFile } from "../shared/books.js";
 import { WORKSHOP_PICK_EXTENSIONS } from "../shared/workshop-formats.js";
 import { createAiRuntime } from "./ai-runtime.js";
 import { createCalibre } from "./calibre.js";
+import { createCoverRenderer } from "./cover-render.js";
 import { createDocvortex, registerDocvortexRunners } from "./docvortex.js";
 import { createFormulaChain, registerFormulaRunners } from "./workshop-formula.js";
 import { registerBookRunners } from "./workshop-book.js";
@@ -74,9 +75,18 @@ registerFormulaRunners(workshop, {
 // 电子书制作:Calibre 互转(EPUB→AZW3/MOBI)+ 图片打包(CBZ/EPUB)。
 const calibre = createCalibre();
 registerBookRunners(workshop, { calibre, vaultRoot });
-// 电子书制作向导(W1-2):txt/md → 章节 → 字体子集 → EPUB。
+// 电子书制作向导(W1-2):txt/md → 章节 → 字体子集 → EPUB(含模板封面)。
 const fontCacheRoot = path.join(userData, "font-cache");
-registerEpubRunners(workshop, { vaultRoot, cacheRoot: fontCacheRoot });
+const coverRenderer = createCoverRenderer({
+  createWindow: (options) => new BrowserWindow(options),
+});
+// 指定封面图:统一转 JPEG(webp 等格式也能进 EPUB)。
+const readCoverImage = async (filePath) => {
+  const image = nativeImage.createFromPath(filePath);
+  if (image.isEmpty()) return null;
+  return { data: image.toJPEG(90), mediaType: "image/jpeg", fileName: "cover.jpg" };
+};
+registerEpubRunners(workshop, { vaultRoot, cacheRoot: fontCacheRoot, coverRenderer, readImage: readCoverImage });
 // Online book downloads land in the library so they appear as regular books.
 const bookDownloads = createBookDownloads({
   downloadRoot: path.join(vaultRoot, "Books", "下载"),

@@ -23,8 +23,15 @@ export const BOOK_THEMES = Object.freeze({
   night: { bg: "#1b1b1f", fg: "#d6d3cd", rule: "#3a3a40", label: "夜间" },
 });
 
-export function normalizeBookStyles(styles = {}) {
-  const merged = { ...BOOK_STYLE_DEFAULTS, ...(styles || {}) };
+// 模板封面配色(与内文主题分开)。
+export const COVER_PALETTES = Object.freeze({
+  warm: { label: "暖纸", bg: "#f3ece1", fg: "#3a3228", accent: "#a8895f", sub: "#6f6656" },
+  paper: { label: "纸白", bg: "#f7f6f3", fg: "#1f1f1f", accent: "#8a8f98", sub: "#5f6368" },
+  celadon: { label: "青瓷", bg: "#eef3ee", fg: "#26312b", accent: "#6e9179", sub: "#5b6a5f" },
+  ink: { label: "夜墨", bg: "#14161a", fg: "#ece7dd", accent: "#d8b26a", sub: "#9aa0a6" },
+});
+
+export function normalizeBookStyles(styles = {}) {  const merged = { ...BOOK_STYLE_DEFAULTS, ...(styles || {}) };
   merged.fontSize = Math.min(28, Math.max(12, Number(merged.fontSize) || BOOK_STYLE_DEFAULTS.fontSize));
   merged.lineHeight = Math.min(2.4, Math.max(1.2, Number(merged.lineHeight) || BOOK_STYLE_DEFAULTS.lineHeight));
   merged.margin = Math.min(12, Math.max(0, Number(merged.margin) ?? BOOK_STYLE_DEFAULTS.margin));
@@ -36,8 +43,7 @@ export function normalizeBookStyles(styles = {}) {
   return merged;
 }
 
-export function renderBookCss(styles = {}, { fontFaces = [] } = {}) {
-  const s = normalizeBookStyles(styles);
+export function renderBookCss(styles = {}, { fontFaces = [] } = {}) {  const s = normalizeBookStyles(styles);
   const theme = BOOK_THEMES[s.theme];
   const faces = fontFaces
     .map((face) => `@font-face { font-family: '${face.family}'; src: url('${face.src}'); font-style: normal; font-weight: ${face.weight || 400}; font-display: swap; }`)
