@@ -110,8 +110,9 @@ function makeQueue(docvortex, spawnImpl, extra = {}) {
     vaultRoot: "D:/vault",
     spawnImpl,
     log: () => {},
-    // 单测里不跑真实 PyMuPDF;需要合并路径的用例自己传 textLayer。
+    // 单测里不跑真实 PyMuPDF;需要合并路径 / 文本型路径的用例自己传 textLayer / pdfText。
     textLayer: { read: async () => ({ ok: false, error: "no text layer in tests" }) },
+    pdfText: { read: async () => ({ ok: false, error: "no pdf text in tests" }) },
     ...extra,
   });
   return { queue, dir };
@@ -347,10 +348,39 @@ test("the pdf runner reuses existing products instead of parsing the cloud again
   assert.equal(again.status, "done", again.error);
   assert.equal(calls.length, 1, "第二次复用已有产物,不再调用 pdf_tool");
   assert.match(fs.readFileSync(again.output, "utf8"), /MinerU 的 Markdown/);
-  const third = queue.start({ kind: "extract-pdf", title: "内容提取", payload: { ...payload, mode: "text" } });
+  const third = queue.start({ kind: "extract-pdf", title: "内容提取", payload: { ...payload, mode: "vision" } });
   await sleep(80);
   assert.equal(queue.snapshot().tasks.find((row) => row.id === third).status, "done");
   assert.equal(calls.length, 2, "换模式要重新解析");
+});
+
+test("text mode extracts locally without pdf_tool or the cloud", async () => {
+  const vault = tempDir("qbr-extract-text-");
+  const source = path.join(vault, "代码讲义.pdf");
+  fs.writeFileSync(source, "%PDF-1.4");
+  const { spawnImpl, calls } = fakeSpawn(() => {});
+  const { queue } = makeQueue({ probe: async () => ({ ok: true }), convert: async () => ({ ok: true }) }, spawnImpl, {
+    cacheRoot: tempDir("qbr-extract-text-marks-"),
+    pdfText: {
+      read: async () => ({
+        ok: true,
+        pages: [
+          { width: 595, height: 842, lines: [{ text: "def run(cfg):", font: "Courier New", size: 10, x1: 500, y0: 100, y1: 112, rotated: false }] },
+          { width: 595, height: 842, lines: [{ text: "    return cfg", font: "Courier New", size: 10, x1: 500, y0: 40, y1: 52, rotated: false }] },
+        ],
+      }),
+    },
+  });
+  const id = queue.start({ kind: "extract-pdf", title: "内容提取", payload: { source, mode: "text", settings: {} } });
+  await sleep(80);
+  const task = queue.snapshot().tasks.find((row) => row.id === id);
+  assert.equal(task.status, "done", task.error);
+  assert.equal(calls.length, 0, "文本型完全本地,不调 pdf_tool");
+  const markdown = fs.readFileSync(task.output, "utf8");
+  assert.match(markdown, /```\ndef run\(cfg\):\n    return cfg\n```/, "跨页代码合成一个围栏块");
+  for (const ext of [".html", ".json", ".audit.json"]) {
+    assert.ok(fs.existsSync(path.join(vault, `代码讲义${ext}`)), `缺少产物 ${ext}`);
+  }
 });
 
 test("the extract probe reports pdf_tool, credentials and DocVortex", async () => {

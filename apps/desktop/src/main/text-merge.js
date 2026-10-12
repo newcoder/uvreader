@@ -5,6 +5,7 @@
 // 对齐用「压缩键」:只保留字母/数字/汉字并小写(NFKC 展开连字 ﬁ→fi、全角、上标),
 // 于是换行、连字符断词、空格与符号差异都不影响匹配;任何一段对不上就回退 MinerU
 // 原文——宁可少并,不丢不造。
+import { looksLikeProseBlock } from "../shared/markdown-fix.js";
 
 const MATH_RE = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\$([^$\n]+?)\$|\\\(([\s\S]+?)\\\)/g;
 
@@ -275,10 +276,10 @@ export function blockFullText(block) {
 }
 
 // 页眉 / 页脚 / 水印(如 IEEE 的下载戳)会在多页重复出现:按行统计,重复页数达到
-// 「页数 × 0.3(至少 3 页)」的行才算噪声删掉——只重复两三次的多半是正文里的公式或句子。
+// 「页数 × 0.3(至少 2 页)」的行才算噪声删掉——只重复两三次的多半是正文里的公式或句子。
 export function stripRepeatedLines(pages, { minPages = 0, minLength = 12, ratio = 0.3 } = {}) {
   const list = (Array.isArray(pages) ? pages : []).map((page) => String(page ?? "").normalize("NFKC"));
-  const threshold = Math.max(minPages || 0, 3, Math.ceil(list.length * ratio));
+  const threshold = Math.max(minPages || 0, 2, Math.ceil(list.length * ratio));
   const counts = new Map();
   for (const page of list) {
     const seen = new Set();
@@ -326,6 +327,12 @@ export function mergeBlocksWithTextLayer(blocks, pages, { log = () => {} } = {})
     }
     const full = blockFullText(block);
     if (squashKey(full).length < MIN_ANCHOR) {
+      out.push(block);
+      continue;
+    }
+    // 真代码块不参与正文合并:文字层按行取文本会把代码的换行/缩进压平(只有被上游
+    // 判成 code 的正文段落才该按段落还原,靠 looksLikeProseBlock 判断)。
+    if (type === "code" && !looksLikeProseBlock(full)) {
       out.push(block);
       continue;
     }

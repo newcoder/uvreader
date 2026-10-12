@@ -1,0 +1,273 @@
+// 「文本型 PDF」的确定性提取(纯本地,不需要模型):PyMuPDF 取结构化行(字体 / 字号 /
+// 位置)→ 先去页眉页脚 / 页码 / 水印 → 再聚块(按字号判标题、按等宽字体判代码,
+// 空行间距分块),跨页的代码块与断句段落合并成一块。
+//
+// 为什么不用 pdf_tool 的 text 模式:那条路把分块后的文本交给模型结构化,跨页边界上
+// 的代码块会被拆散,而且不做页眉页脚 / 水印清理。这里全部确定性,产物与其它链路同构
+// (Doc v1 JSON → 同一套 .md / .html 渲染)。
+import { spawn } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+
+import { blocksToHtml, blocksToMarkdown } from "./formula-html.js";
+import { uniqueFile } from "./paths.js";
+
+export const PDF_TEXT_SCRIPT = `import fitz, json, sys
+doc = fitz.open(sys.argv[1])
+pages = []
+for page in doc:
+    lines = []
+    data = page.get_text("dict")
+    for block in data.get("blocks", []):
+        if block.get("type") != 0:
+            continue
+        direction = block.get("dir", (1, 0))
+        rotated = float(direction[0] or 0) < 0.7
+        for line in block.get("lines", []):
+            spans = [s for s in line.get("spans", []) if str(s.get("text", "")).strip()]
+            if not spans:
+                continue
+            weight = {}
+            for span in spans:
+                weight[span["font"]] = weight.get(span["font"], 0) + len(span["text"])
+            font = max(weight, key=weight.get)
+            size = max(float(span["size"]) for span in spans)
+            x0, y0, x1, y1 = line["bbox"]
+            lines.append({
+                "text": "".join(span["text"] for span in spans),
+                "font": font,
+                "size": round(size, 1),
+                "x1": round(x1, 1),
+                "y0": round(y0, 1),
+                "y1": round(y1, 1),
+                "rotated": rotated,
+            })
+    pages.append({
+        "width": round(page.rect.width, 1),
+        "height": round(page.rect.height, 1),
+        "lines": lines,
+    })
+with open(sys.argv[2], "w", encoding="utf-8") as fh:
+    json.dump(pages, fh, ensure_ascii=False)
+`;
+
+const MONO_RE = /mono|courier|consol|menlo|inconsolata|source ?code|fira ?code|jetbrains|cascadia|dejavu sans mono|liberation mono|nimbus mono|andale mono|anonymous/i;
+const PAGE_NUMBER_RE = /^(?:[-–—\s]*\d{1,4}[-–—\s]*|[-–—\s]*[ivxlcdm]{1,7}[-–—\s]*|第\s*\d+\s*页(?:\s*共\s*\d+\s*页)?|page\s+\d+(?:\s*(?:of|\/)\s*\d+)?)$/i;
+const SENTENCE_END_RE = /[.!?;:。！？；：]["'”’)\]]?$/;
+const CJK_EDGE_RE = /[\u3400-\u9fff\u3000-\u303f\uff00-\uffef]$/;
+const CJK_START_RE = /^[\u3400-\u9fff\u3000-\u303f\uff00-\uffef]/;
+
+// 中文行拼接不加空格(英文行按单词间隔加空格)。
+export function joinTextLines(lines) {
+  return (Array.isArray(lines) ? lines : []).reduce((acc, line) => {
+    const value = String(line ?? "");
+    if (!acc) return value;
+    if (!value) return acc;
+    return CJK_EDGE_RE.test(acc) && CJK_START_RE.test(value) ? `${acc}${value}` : `${acc} ${value}`;
+  }, "");
+}
+
+export function isMonospaceFont(font) {
+  return MONO_RE.test(String(font || ""));
+}
+
+// 页眉 / 页脚 / 页码 / 水印:跨页重复的行 + 页码样式的行 + 旋转文字(水印)。
+// 阈值取「页数 × 30%」与 2 的较大者:两页文档的重复页眉也要能去掉(否则它会插在
+// 跨页代码块中间,把合并打断)。
+export function dropFurniture(pages, { ratio = 0.3 } = {}) {
+  const list = Array.isArray(pages) ? pages : [];
+  const threshold = Math.max(2, Math.ceil(list.length * ratio));
+  const counts = new Map();
+  for (const page of list) {
+    const seen = new Set();
+    for (const line of page?.lines || []) {
+      const key = String(line.text || "").trim().replace(/\s+/g, " ");
+      if (key.length < 3 || seen.has(key)) continue;
+      seen.add(key);
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+  }
+  return list.map((page) => ({
+    ...page,
+    lines: (page?.lines || []).filter((line) => {
+      if (line.rotated) return false;
+      const key = String(line.text || "").trim().replace(/\s+/g, " ");
+      if (!key) return false;
+      if (PAGE_NUMBER_RE.test(key)) return false;
+      return (counts.get(key) || 0) < threshold;
+    }),
+  }));
+}
+
+// 行 → 块:等宽 = 代码(跨页也连成一块),字号大的短行 = 标题,其余按空行间距分段。
+export function buildBlocks(pages) {
+  const list = dropFurniture(pages);
+  const all = list.flatMap((page) => (page.lines || []).map((line) => line));
+  if (!all.length) return [];
+  // 正文字号:按字符数取出现最多的字号
+  const sizeWeight = new Map();
+  for (const line of all) {
+    const weight = String(line.text || "").trim().length;
+    sizeWeight.set(line.size, (sizeWeight.get(line.size) || 0) + weight);
+  }
+  const bodySize = [...sizeWeight].sort((left, right) => right[1] - left[1])[0]?.[0] || 10;
+
+  const blocks = [];
+  let current = null;
+  let lastLine = null;
+  const push = () => {
+    if (!current) return;
+    const text = (current.kind === "code" ? current.lines.join("\n") : joinTextLines(current.lines)).trim();
+    if (text) blocks.push({ kind: current.kind, size: current.size, text, page: current.page, lines: current.lines.slice() });
+    current = null;
+  };
+
+  for (const [pageIndex, page] of list.entries()) {
+    for (const line of page.lines || []) {
+      const text = String(line.text || "");
+      if (!text.trim()) continue;
+      const kind = isMonospaceFont(line.font) ? "code" : "text";
+      const size = Number(line.size) || bodySize;
+      const gap = lastLine ? Number(line.y0) - Number(lastLine.y1) : 0;
+      const newPage = Boolean(lastLine) && lastLine.page !== pageIndex + 1;
+      if (current) {
+        const sizeJump = Math.abs(size - current.size) > 0.6;
+        const kindChange = current.kind !== kind;
+        const bigGap = gap > 0.7 * Math.max(size, current.size);
+        // 跨页:代码块直接续上(页眉页脚已去掉);正文在上一行没断句时续上。
+        const pageContinue = newPage && (
+          (kind === "code" && current.kind === "code")
+          || (kind === "text" && current.kind === "text" && !SENTENCE_END_RE.test(current.lines[current.lines.length - 1] || ""))
+        );
+        if (sizeJump || kindChange || bigGap || (newPage && !pageContinue)) push();
+      }
+      if (!current) current = { kind, size, lines: [], page: pageIndex + 1 };
+      // 断词:「de-」+「signed」合并;代码保持换行与缩进
+      const previous = current.lines[current.lines.length - 1];
+      if (current.kind === "text" && previous && /[\p{L}]-$/u.test(previous) && /^[\p{Ll}\p{Lo}]/u.test(text.trim())) {
+        current.lines[current.lines.length - 1] = `${previous.slice(0, -1)}${text.trim()}`;
+      } else {
+        current.lines.push(text);
+      }
+      lastLine = { ...line, page: pageIndex + 1 };
+    }
+  }
+  push();
+
+  // 标题:单行、字号明显大于正文、不长、不以句末标点结尾
+  return blocks
+    .map((block) => {
+      const base = { size: block.size, text: block.text, page: block.page };
+      if (block.kind === "code") return { ...base, type: "code" };
+      const single = block.lines.length === 1;
+      const heading = single
+        && block.size >= bodySize * 1.12
+        && block.text.length <= 80
+        && !SENTENCE_END_RE.test(block.text.trim());
+      if (!heading) return { ...base, type: "text" };
+      const level = block.size >= bodySize * 1.6 ? 1 : block.size >= bodySize * 1.3 ? 2 : 3;
+      return { ...base, type: "heading", level };
+    })
+    .filter((block) => block.text.trim());
+}
+
+// 结构化页 → Doc v1(和其它链路同构,后续 .md / .html / 合并都能直接复用)。
+export function buildTextDoc(pages, { source = "", title = "" } = {}) {
+  const blocks = buildBlocks(pages);
+  const pagesOut = new Map();
+  for (const [index, block] of blocks.entries()) {
+    const page = block.page || 1;
+    if (!pagesOut.has(page)) pagesOut.set(page, []);
+    pagesOut.get(page).push({
+      id: `t${page}-b${pagesOut.get(page).length + 1}`,
+      page,
+      type: block.type,
+      ...(block.level ? { level: block.level } : {}),
+      ...(block.type === "code" ? { content: block.text } : { text: block.text }),
+      index,
+    });
+  }
+  return {
+    schema_version: 1,
+    source: { path: source, title, engine: "fitz-text" },
+    pages: [...pagesOut].sort(([left], [right]) => left - right).map(([page, list]) => ({ page, blocks: list })),
+  };
+}
+
+export function createPdfTextReader({ spawnImpl = spawn, timeoutMs = 120_000 } = {}) {
+  async function read(pdfPath, { python = "python", workDir = "", signal } = {}) {
+    const source = String(pdfPath || "");
+    if (!source || !fs.existsSync(source)) return { ok: false, error: `找不到 PDF：${source}` };
+    const base = String(workDir || path.dirname(source) || ".");
+    try {
+      fs.mkdirSync(base, { recursive: true });
+      const outFile = path.join(base, "pdf-text.json");
+      const result = await new Promise((resolve) => {
+        let child;
+        try {
+          child = spawnImpl(python, ["-c", PDF_TEXT_SCRIPT, source, outFile], { stdio: ["ignore", "pipe", "pipe"] });
+        } catch (error) {
+          resolve({ ok: false, error: String(error?.message || error) });
+          return;
+        }
+        let out = "";
+        let settled = false;
+        const finish = (value) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          signal?.removeEventListener("abort", onAbort);
+          resolve(value);
+        };
+        const onAbort = () => {
+          try { child.kill(); } catch { /* gone */ }
+          finish({ ok: false, cancelled: true, error: "任务已取消" });
+        };
+        const timer = setTimeout(() => {
+          try { child.kill(); } catch { /* gone */ }
+          finish({ ok: false, error: "读取 PDF 文本超时" });
+        }, timeoutMs);
+        signal?.addEventListener("abort", onAbort, { once: true });
+        child.stdout?.on("data", (chunk) => { out += chunk; });
+        child.stderr?.on("data", (chunk) => { out += chunk; });
+        child.on("error", (error) => finish({ ok: false, error: String(error?.message || error) }));
+        child.on("close", (code) => finish({ ok: code === 0, error: code === 0 ? "" : (out.trim().slice(-200) || `退出码 ${code}`) }));
+      });
+      if (!result.ok) return result;
+      if (!fs.existsSync(outFile)) return { ok: false, error: "没有生成文本结构文件" };
+      const pages = JSON.parse(fs.readFileSync(outFile, "utf8"));
+      if (!Array.isArray(pages) || !pages.length) return { ok: false, error: "PDF 没有文本页" };
+      return { ok: true, pages };
+    } catch (error) {
+      return { ok: false, error: String(error?.message || error) };
+    }
+  }
+
+  return { read };
+}
+
+// 写 §7 产物:<源名>.md / .html / .json / .audit.json(同名加序号)。
+export function writeTextProducts(doc, { outDir, stem }) {
+  const files = {};
+  const target = (ext) => uniqueFile(path.join(outDir, `${stem}${ext}`));
+  const markdown = blocksToMarkdown(doc.pages.flatMap((page) => page.blocks));
+  files.md = target(".md");
+  fs.writeFileSync(files.md, markdown, "utf8");
+  files.html = target(".html");
+  fs.writeFileSync(files.html, blocksToHtml(doc.pages.flatMap((page) => page.blocks), { title: stem }), "utf8");
+  files.json = target(".json");
+  fs.writeFileSync(files.json, JSON.stringify(doc, null, 2), "utf8");
+  const blocks = doc.pages.flatMap((page) => page.blocks);
+  files.audit = target(".audit.json");
+  fs.writeFileSync(files.audit, JSON.stringify({
+    ok: true,
+    engine: "fitz-text",
+    pages: doc.pages.length,
+    blocks: blocks.length,
+    headings: blocks.filter((block) => block.type === "heading").length,
+    code: blocks.filter((block) => block.type === "code").length,
+    text: blocks.filter((block) => block.type === "text").length,
+    chars: blocks.reduce((sum, block) => sum + String(block.text || block.content || "").length, 0),
+  }, null, 2), "utf8");
+  return files;
+}

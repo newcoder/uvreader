@@ -6,7 +6,7 @@ export const IMAGE_INPUTS = Object.freeze(["png", "jpg", "jpeg", "webp", "gif", 
 export const EXTRACT_MODES = Object.freeze([
   { id: "auto", label: "自动(有 MinerU 用 MinerU,否则文本 / 扫描视觉)" },
   { id: "mineru", label: "MinerU 云端(公式 LaTeX、表格 HTML)" },
-  { id: "text", label: "文本型 PDF(本地取文本 + 模型整理)" },
+  { id: "text", label: "文本型 PDF(本地取文本,不跑 OCR;无公式)" },
   { id: "vision", label: "扫描视觉(整页图一次调用)" },
 ]);
 

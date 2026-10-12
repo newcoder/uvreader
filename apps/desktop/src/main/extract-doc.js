@@ -10,6 +10,7 @@ import path from "node:path";
 import { EXTRACT_MODES, IMAGE_INPUTS, extractionKind } from "../shared/extract-formats.js";
 import { splitMarkdownChapters, unwrapProseFences } from "../shared/markdown-fix.js";
 import { blocksFromDoc, blocksToMarkdown } from "./formula-html.js";
+import { buildTextDoc, createPdfTextReader, writeTextProducts } from "./pdf-text.js";
 import { mergeBlocksWithTextLayer } from "./text-merge.js";
 import { createTextLayerReader } from "./text-layer.js";
 import { pdfToolArgs, pdfToolScriptCommand } from "./workshop-formula.js";
@@ -302,7 +303,7 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
   return { ok: true, markdown: readMarkdown(out), path: out };
 }
 
-export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", cacheRoot = "", spawnImpl = spawn, textLayer = createTextLayerReader(), log = (...args) => console.log(...args) } = {}) {
+export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", cacheRoot = "", spawnImpl = spawn, textLayer = createTextLayerReader(), pdfText = createPdfTextReader(), log = (...args) => console.log(...args) } = {}) {
   const absolute = (raw) => {
     const value = String(raw || "");
     return path.isAbsolute(value) ? value : path.join(vaultRoot, value);
@@ -324,13 +325,11 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", ca
     };
   });
 
-  // PDF 提取:pdf_tool(pdf_to_doc.py)→ 按 §7 改名落回源文件旁。
+  // PDF 提取:文本型走本地确定性提取;其余走 pdf_tool(pdf_to_doc.py)→ 按 §7 改名落回源文件旁。
   workshop.register("extract-pdf", async ({ payload, report, signal }) => {
     const settings = payload?.settings || {};
     const source = absolute(payload?.source);
     if (!fs.existsSync(source)) throw new Error(`源文件不存在：${source}`);
-    const target = pdfToolScriptCommand(settings);
-    if (target.error) throw new Error(target.error);
     const mode = String(payload?.mode || "auto");
     const model = String(settings.mineruModel || "").trim() || "vlm";
     const outDir = path.dirname(source);
@@ -356,6 +355,22 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", ca
       return { output: cached.md, detail: `Markdown · ${Math.round(fs.statSync(cached.md).size / 1024)} KB`, outputs: cached };
     }
     report({ label: `提取中（${mode}）` });
+    // 文本型 PDF:我们自己用 PyMuPDF 确定性提取(先清页眉页脚 / 页码 / 水印,再聚块,
+    // 跨页代码块与断句段落合并)——完全本地,不需要 pdf_tool checkout,也不跑 OCR。
+    if (mode === "text") {
+      report({ label: "本地取文本" });
+      const work = path.join(cacheRoot || os.tmpdir(), "pdf-text", `${stem}-${Date.now().toString(36)}`);
+      const read = await pdfText.read(source, { python: docvortexPython(settings), workDir: work, signal });
+      if (signal.aborted) throw new Error("任务已取消");
+      if (!read.ok) throw new Error(`本地取文本失败：${read.error}`);
+      const doc = buildTextDoc(read.pages, { source, title: stem });
+      if (!doc.pages.length) throw new Error("这份 PDF 没有可提取的文本(扫描件请用「扫描视觉」或「MinerU 云端」)");
+      const files = writeTextProducts(doc, { outDir, stem });
+      writeExtractMark(cacheRoot, source, { mode, model, stat, outputs: files });
+      return { output: files.md, detail: `Markdown · ${Math.round(fs.statSync(files.md).size / 1024)} KB`, outputs: files };
+    }
+    const target = pdfToolScriptCommand(settings);
+    if (target.error) throw new Error(target.error);
     const args = pdfToolArgs(target.script, { source, outDir, model });
     const modeIndex = args.indexOf("--mode");
     if (modeIndex >= 0) args[modeIndex + 1] = mode;
