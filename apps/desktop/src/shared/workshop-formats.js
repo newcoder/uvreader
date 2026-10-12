@@ -21,9 +21,9 @@ export const DOCVORTEX_FORMATS = [
   { id: "html", label: "HTML", ext: "html" },
   { id: "latex", label: "LaTeX", ext: "tex" },
   { id: "docx", label: "DOCX", ext: "docx" },
-  { id: "epub", label: "EPUB", ext: "epub" },
   { id: "pdf", label: "PDF", ext: "pdf" },
-  // JSON(结构化)归「内容提取」:格式转换只做内容+版式的保持型转换。
+  // 电子书产物(EPUB/MOBI/AZW3/CBZ…)统一归「电子书制作」;JSON(结构化)归「内容提取」。
+  // 格式转换只做"文档产物"的保持型转换。
 ];
 
 export function docvortexFormatExt(target) {

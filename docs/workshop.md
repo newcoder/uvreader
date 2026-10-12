@@ -37,9 +37,9 @@
 | 分组 | 工具 | 后端 |
 | --- | --- | --- |
 | 文字层与可搜索 PDF | 生成文字层 / 导出可搜索 PDF | pdf_tool reader sidecar |
-| 格式转换 | 保持内容与版式的互转:Office/ODF/HTML/EPUB/OFD → md/html/docx/pdf/epub/latex;EPUB → AZW3/MOBI | DocVortex + Calibre |
+| 格式转换 | 保持内容与版式的互转(输出**文档**):Office/ODF/HTML/EPUB/OFD → md/html/docx/pdf/latex;图片 → PDF | DocVortex + pdf_tool |
 | 内容提取 | 只取内容、可丢版式:PDF / DOCX / 图片 → Markdown / HTML / 结构化 JSON | pdf_tool(高保真)+ DocVortex |
-| 电子书制作 | 新建电子书(向导):元数据/章节/封面/样式 → EPUB,可再转 AZW3 等 | Calibre `ebook-convert`(备选 EbookLib) |
+| 电子书制作 | 新建电子书(向导):元数据/章节/封面/样式 → **EPUB / AZW3 / MOBI / CBZ**(电子书产物统一在此) | Calibre `ebook-convert`(备选 EbookLib)+ 打包 |
 | 发送 | 发送到 Kindle(邮件,EPUB 直发) | 主进程 SMTP(nodemailer) |
 | 任务 | 任务队列与历史 | 主进程任务执行器 |
 
@@ -94,7 +94,7 @@
 - **输入(20 种)**:PDF、DOC/DOCX/RTF、PPT/PPTX、XLS/XLSX/CSV/TSV、ODT/ODS/ODP、EPUB、HTML、MHTML、OFD。
 - **输出(7 种)**:Markdown、HTML、LaTeX、DOCX、EPUB、PDF、结构化 JSON。
 - **用法**:`docvortex convert <源> --format <目标> -o <产物>`;`--parse-mode auto|txt|ocr`(PDF)、`--pages`、`--pdf-layout`;一次解析可多格式导出(Bundle)。
-- **预设(只留本工具的三张卡)**:文档互转(DocVortex)、EPUB → AZW3/MOBI(Calibre)、图片 → PDF/CBZ;其余预设已挪到对应工具的面板——**内容提取**:PDF→Markdown/HTML、结构化 JSON/题库模板、图片→文字;**电子书制作**:PDF→干净电子书、Markdown/HTML→EPUB、txt→EPUB、Office/OFD→EPUB。
+- **预设(只留本工具的两张卡)**:文档互转(DocVortex)、图片 → PDF;**所有电子书产物(EPUB/MOBI/AZW3/CBZ)归「电子书制作」**;提取类预设归「内容提取」。
 - **分工(2026-10-12 定调,详见实施计划)**:按保守程度分四层——**文字层**(最保守,原文件不变)> **格式转换**(内容+版式基本不变)> **内容提取**(只要内容、可丢版式;**JSON/结构化与 schema 模板在此**)> **电子书制作**(内容 + 新加的样式/版式/字体/封面/目录,支持 **txt** 输入)。本工具只做保持内容与版式的转换(DocVortex 矩阵 + Calibre 的 EPUB→AZW3/MOBI + 图片→PDF/CBZ),**目标格式不含 JSON**;预设卡片点按后路由/预填到对应工具,不重复实现。
 - **公式优先(可选,见 §8.1)**:扫描件公式多时,先经 pdf_tool(MinerU)提取 LaTeX,再转 HTML(`<script type="math/tex">`)交 DocVortex 生成 DOCX/EPUB —— 输出为真 OMML/MathML 公式。
 
@@ -102,7 +102,7 @@
 
 **布局**:左侧向导步骤,右侧**实时预览**(章节样张/封面/目录随步骤切换)。样式改动只重渲染预览(毫秒级),「生成」时才真正构建 EPUB。
 
-**面板预设(计划中)**:PDF → 干净电子书;Markdown / HTML → EPUB;txt → EPUB;Office / OFD → EPUB(非文本源由向导内部自动提取/转换)。
+**面板预设(计划中)**:PDF → 干净电子书;Markdown / HTML → EPUB;txt → EPUB;Office / OFD → EPUB;**EPUB → AZW3 / MOBI**;图片 → CBZ / EPUB(非文本源由向导内部自动提取/转换)。**所有电子书产物统一在这里。**
 
 1. **内容源**:书库里的书 / **PDF、Office 文档(docx/pptx/xlsx…)** / **txt 纯文本** / Markdown / HTML / 图片文件夹 / 已提取的 Doc。**定位**:提供内容 + 加样式(原版式不保留);**PDF/Office 等非文本源由向导内部自动先做提取/转换(内容提取、DocVortex),中间环节用户无感**——向导里只呈现「内容预览 → 样式/封面/目录 → 生成」。
 2. **元数据与封面**:书名/作者/语言/丛书/标签(「AI 推断」从正文补全);封面三选一——① **指定图片**(书库/本地);② **自动**(书内首图或首页渲染);③ **模板生成**(标题+作者+副标题,可选配色/纹理/首图,输出 1600×2400);「AI 封面文案」给标题/副标题/系列;封面预览实时可见。

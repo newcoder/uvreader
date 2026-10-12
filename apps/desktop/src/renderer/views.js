@@ -743,6 +743,8 @@ export function createWorkshopView(leaf, options) {
         { id: "md-html-epub", label: "Markdown / HTML → EPUB", hint: "提供内容 + 样式/封面/目录;Markdown 由向导内部转 HTML", ready: false },
         { id: "txt-epub", label: "txt → EPUB", hint: "纯文本按标题 / 空行分章成书", ready: false },
         { id: "office-epub", label: "Office / OFD → EPUB", hint: "内部自动转换(DocVortex),中间环节无感", ready: false },
+        { id: "kindle", label: "EPUB → AZW3 / MOBI", hint: "换 Kindle 主流格式:Calibre,版式不变", ready: false },
+        { id: "img-cbz", label: "图片 → CBZ / EPUB", hint: "漫画 / 相册打包成书", ready: false },
       ]);
       const card = root.createDiv("qbr-workshop-card");
       card.createDiv({ cls: "qbr-workshop-soon", text: "电子书制作向导将在后续阶段接入(实施计划 docs/workshop-implementation.md 的 W1-2/W1-3)。" });
@@ -757,9 +759,8 @@ export function createWorkshopView(leaf, options) {
       presetCard.createEl("h3", { text: "选择预设" });
       this._convertPreset = "convert";
       this.renderPresetMatrix(presetCard, [
-        { id: "convert", label: "文档互转(DocVortex)", hint: "保持内容与版式:Office/ODF/HTML/EPUB/OFD → md / html / docx / pdf / epub", ready: true },
-        { id: "kindle", label: "EPUB → AZW3 / MOBI", hint: "版式不变,换容器:Calibre,Kindle 主流格式", ready: false },
-        { id: "img", label: "图片 → PDF / CBZ", hint: "打包成书:照片成书、漫画打包", ready: false },
+        { id: "convert", label: "文档互转(DocVortex)", hint: "保持内容与版式:Office/ODF/HTML/EPUB/OFD → md / html / docx / pdf / latex", ready: true },
+        { id: "img", label: "图片 → PDF", hint: "打包成 PDF:照片成书、扫描页合成", ready: false },
       ]);
 
       const inputCard = root.createDiv("qbr-workshop-card");
@@ -793,7 +794,7 @@ export function createWorkshopView(leaf, options) {
         localStorage.setItem("qbr-workshop-parse", String(this._convertParse.value));
         this.syncConvertTokenRow();
       });
-      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "公式优先:PDF 先经 MinerU 云端提取(公式转 LaTeX),再交 DocVortex 生成真公式 DOCX / MathML EPUB;需要 MinerU 凭据(下面填写或环境变量),首次较慢。" });
+      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "公式优先:PDF 先经 MinerU 云端提取(公式转 LaTeX),再交 DocVortex 生成真公式 DOCX / PDF;要 EPUB 走「电子书制作」。需要 MinerU 凭据(下面填写或环境变量),首次较慢。" });
       this._convertTokenRow = optionCard.createDiv("qbr-workshop-row");
       this._convertTokenRow.createSpan({ cls: "qbr-workshop-hint", text: "MinerU 凭据" });
       this._convertToken = this._convertTokenRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空用环境变量 MINERU_API_KEY" } });

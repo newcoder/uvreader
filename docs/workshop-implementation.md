@@ -48,7 +48,7 @@
 | W1-2 | EPUB 构建器:Doc/**TXT**/MD/图片→章节 HTML+CSS+封面+元数据+nav/NCX;**非文本源(PDF/Office)自动走提取/转换,用户无感**;封面模板渲染(offscreen 截图→JPG);EbookLib 兜底 | `main/epub-build.js`、`main/cover-render.js` | 生成 EPUB 可在阅读器打开;元数据/封面/目录正确 | 单测 + e2e(打开生成物) | L |
 | W1-3 | 向导 UI + 实时预览:5 步、iframe(blob)同 CSS、样式控件、封面/目录预览 | `views.js`、`base.css` | 样式改动即时可见;生成走队列 | e2e(向导→生成→打开) | L |
 | W1-4 | 发送到 Kindle:nodemailer、SMTP 设置、授权码 SecretStorage、≤50MB ZIP、错误映射、三处入口 | `main/kindle-send.js`、`preload`、`settings-tab.js`、书库右键 | 本地 SMTP mock 收到附件;错误提示可读 | 单测 + e2e(SMTP mock) | M |
-| W1-5 | AZW3/MOBI、图片→PDF/CBZ、PDF→EPUB 预设 | `main/calibre.js`、`workshop.js`、`views.js` | 各产物可在阅读器/系统打开 | 单测 + e2e | M |
+| W1-5 | 图片→PDF(格式转换);**EPUB→AZW3/MOBI、图片→CBZ、PDF→EPUB(电子书制作)** | `main/calibre.js`、`workshop.js`、`views.js` | 各产物可在阅读器/系统打开 | 单测 + e2e | M |
 | W1-6 | 收口:i18n、门禁、文档、发布说明 | 全仓 | 同 W0-6 | CI | S |
 
 ### P2
@@ -68,20 +68,21 @@
 | 工具 | 保留 | 放弃/新增 | 输入 | 输出 |
 | --- | --- | --- | --- | --- |
 | **文字层**(最保守) | 原文件一切(像素/版式/字体位置) | — | PDF | 阅读器缓存 / `<源名>.uvtext.pdf`(加不可见文字层,原页不变) |
-| **格式转换**(内容+版式) | 内容与版式基本不变 | — | Office/ODF/HTML/EPUB/OFD/PDF | md/html/docx/pdf/epub(纯转换)+ EPUB→AZW3/MOBI(Calibre)+ 图片→PDF/CBZ |
+| **格式转换**(内容+版式) | 内容与版式基本不变 | — | Office/ODF/HTML/EPUB/OFD/PDF | **文档产物**:md/html/docx/pdf/latex + 图片→PDF |
 | **内容提取**(只要内容) | 文字/表格/公式等内容 | **版式**(页/栏/字体位置) | PDF(文本/扫描)、DOCX、**图片(纯图提字)** | `<源名>.md` / `.html` / **`.json`** + `<源名>.assets/`;**结构化 JSON 与 schema 模板(题库等)在此** |
-| **电子书制作**(内容+样式) | 内容 + **新加**的样式/版式/字体/封面/目录 | 原版式 | **书库里的书、PDF、Office(docx/pptx…)**、**txt**、md/html、图片、提取的 Doc | EPUB(主)/ AZW3 / MOBI / PDF(Calibre);**非文本源由向导内部自动提取/转换,用户无感** |
+| **电子书制作**(内容+样式) | 内容 + **新加**的样式/版式/字体/封面/目录 | 原版式 | **书库里的书、PDF、Office(docx/pptx…)**、**txt**、md/html、图片、提取的 Doc | **电子书产物全部在此**:EPUB(主)/ AZW3 / MOBI / CBZ(Calibre/打包);可另导出 MD/HTML;**非文本源由向导内部自动提取/转换,用户无感** |
 
 预设归属(每张卡放在**自己工具的面板**里,不再全堆在格式转换):
 
 | 预设 | 归属 | 现状 |
 | --- | --- | --- |
-| 文档互转(DocVortex,内容+版式) | 格式转换 | ✅ 已实现(20 入 / 7 出,含 →EPUB) |
-| EPUB → AZW3 / MOBI(版式不变,换容器) | 格式转换 | Calibre 已装,只差接(半天) |
-| 图片 → PDF / CBZ(打包,版式=图) | 格式转换 | CBZ=ZIP(JSZip 已有);PDF 走 pdf_tool 渲染(W1-5) |
+| 文档互转(DocVortex,内容+版式,输出文档) | 格式转换 | ✅ 已实现(20 入 / **5 出**:md/html/docx/pdf/latex) |
+| 图片 → PDF(打包) | 格式转换 | 走 pdf_tool 渲染(W1-5) |
 | PDF → Markdown / HTML(丢版式) | 内容提取 | 面板已列计划预设;未实现 → **W1-0**;纯文本版可先用 DocVortex 顶 |
 | 结构化 JSON / 题库模板、图片 → 文字 | 内容提取 | 同上(W1-0) |
-| PDF → 干净电子书、Markdown / HTML → EPUB、txt → EPUB、Office / OFD → EPUB | 电子书制作 | 面板已列计划预设;P1(W1-2/W1-3) |
+| PDF → 干净电子书、Markdown / HTML → EPUB、txt → EPUB、Office / OFD → EPUB、**EPUB → AZW3 / MOBI**、图片 → CBZ / EPUB | 电子书制作 | 面板已列计划预设;P1(W1-2/W1-3 + Calibre) |
+
+**电子书产物统一归「电子书制作」**(2026-10-12 用户定调):EPUB/MOBI/AZW3/CBZ 等阅读器格式的输出都放这里——格式转换面板因此去掉 EPUB 目标与「EPUB→AZW3/MOBI」卡片;输入侧不受限(EPUB 仍可作为互转输入,如 EPUB → DOCX/Markdown)。
 
 **结构化 JSON 只在内容提取**:格式转换的目标格式已去掉 JSON(`structured_content`);题库等结构化抽取走内容提取的 schema 模板(pdf_tool 的 vision/box 协议 + `extract_questions.py`)。
 
