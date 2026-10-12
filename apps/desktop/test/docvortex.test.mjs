@@ -34,6 +34,9 @@ test("convertPath uses the target extension and numbers collisions", () => {
   assert.equal(convertPath("报告", "pdf"), "报告.pdf");
   const taken = new Set(["Books/a.md", "Books/a (1).md"]);
   assert.equal(convertPath("Books/a.docx", "md", (candidate) => taken.has(candidate)), "Books/a (2).md");
+  // 扩展名不变(如 PDF→PDF):源文件本身占位,落到 (1) 而不是覆盖。
+  const source = new Set(["Books/报告.pdf"]);
+  assert.equal(convertPath("Books/报告.pdf", "pdf", (candidate) => source.has(candidate)), "Books/报告 (1).pdf");
 });
 
 test("convertArgs builds the docvortex command line", () => {

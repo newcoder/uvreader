@@ -14,7 +14,8 @@ export function uvtextPath(sourcePath) {
   return dir ? `${dir}/${target}` : target;
 }
 
-// 文档互转产物:目标扩展名(报告.docx → 报告.md),冲突自动加序号。
+// 文档互转产物:目标扩展名(报告.docx → 报告.md)。扩展名变了就不加后缀,
+// 直接换扩展名;扩展名不变(如 PDF→PDF)时用序号区分,避免覆盖源文件。
 export function convertPath(sourcePath, ext, exists = () => false) {
   const targetExt = String(ext || "out").replace(/^\./, "") || "out";
   const normalized = String(sourcePath || "").replace(/\\/g, "/");
