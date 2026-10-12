@@ -2,6 +2,7 @@
 // PDF 走 pdf_tool(pdf_to_doc.py:auto/text/vision/mineru/blocks);Office/OFD/HTML/图片走 DocVortex。
 // 产物按 §7 命名规则落在源文件旁: `<源名>.md` / `.html` / `.json` / `.audit.json` / `<源名>.assets/`。
 import { spawn } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -156,6 +157,46 @@ export function imageToPdf(source, outPath, { python = "python", signal, log = (
   });
 }
 
+// 提取产物的复用标记(MinerU 慢且计费):源文件 + 模式 + 模型一致才复用。
+export function extractMarkPath(cacheRoot, source) {
+  const root = String(cacheRoot || "");
+  if (!root) return "";
+  const key = crypto.createHash("sha1").update(path.resolve(String(source))).digest("hex").slice(0, 16);
+  return path.join(root, "marks", `${key}.json`);
+}
+
+export function readExtractMark(cacheRoot, source, { mode, model, stat }) {
+  const file = extractMarkPath(cacheRoot, source);
+  if (!file || !fs.existsSync(file)) return null;
+  try {
+    const mark = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (mark.mode !== mode || mark.model !== model) return null;
+    if (Number(mark.size) !== stat.size || Number(mark.mtimeMs) !== Math.round(stat.mtimeMs)) return null;
+    const outputs = mark.outputs || {};
+    if (!outputs.md || !Object.values(outputs).every((entry) => fs.existsSync(entry))) return null;
+    return outputs;
+  } catch {
+    return null;
+  }
+}
+
+export function writeExtractMark(cacheRoot, source, { mode, model, stat, outputs }) {
+  const file = extractMarkPath(cacheRoot, source);
+  if (!file) return;
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({
+      source: path.resolve(String(source)),
+      mode,
+      model,
+      size: stat.size,
+      mtimeMs: Math.round(stat.mtimeMs),
+      outputs,
+      at: new Date().toISOString(),
+    }, null, 2), "utf8");
+  } catch { /* 标记写不了不影响提取 */ }
+}
+
 // pdf_tool 的 Doc JSON + PDF 文字层 → 互补后的 Markdown(正文逐字、公式 LaTeX)。
 // 拿不到文字层(扫描件 / 没装 PyMuPDF)或定位失败时返回 "",调用方保留 MinerU 产物。
 export async function mergePdfMarkdown({ docPath, source, python = "python", workDir = "", signal, textLayer = null, assetPrefix = "", log = () => {} } = {}) {
@@ -261,7 +302,7 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
   return { ok: true, markdown: readMarkdown(out), path: out };
 }
 
-export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", spawnImpl = spawn, textLayer = createTextLayerReader(), log = (...args) => console.log(...args) } = {}) {
+export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", cacheRoot = "", spawnImpl = spawn, textLayer = createTextLayerReader(), log = (...args) => console.log(...args) } = {}) {
   const absolute = (raw) => {
     const value = String(raw || "");
     return path.isAbsolute(value) ? value : path.join(vaultRoot, value);
@@ -291,10 +332,31 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", sp
     const target = pdfToolScriptCommand(settings);
     if (target.error) throw new Error(target.error);
     const mode = String(payload?.mode || "auto");
+    const model = String(settings.mineruModel || "").trim() || "vlm";
     const outDir = path.dirname(source);
     const stem = path.basename(source).replace(/\.[^.]+$/, "");
+    const stat = fs.statSync(source);
+    // 复用:同一份源 + 同样的模式 / 模型已有产物就直接用(MinerU 慢且计费,重跑不再等云端)。
+    const cached = readExtractMark(cacheRoot, source, { mode, model, stat });
+    if (cached) {
+      report({ label: "复用已有的提取产物" });
+      log("extract: reuse products", cached.md);
+      const mergedCache = await mergePdfMarkdown({
+        docPath: cached.json,
+        source,
+        python: docvortexPython(settings),
+        workDir: outDir,
+        signal,
+        textLayer,
+        log,
+        assetPrefix: `${stem}.assets/`,
+      });
+      if (signal.aborted) throw new Error("任务已取消");
+      if (mergedCache) fs.writeFileSync(cached.md, mergedCache, "utf8");
+      return { output: cached.md, detail: `Markdown · ${Math.round(fs.statSync(cached.md).size / 1024)} KB`, outputs: cached };
+    }
     report({ label: `提取中（${mode}）` });
-    const args = pdfToolArgs(target.script, { source, outDir, model: String(settings.mineruModel || "").trim() || "vlm" });
+    const args = pdfToolArgs(target.script, { source, outDir, model });
     const modeIndex = args.indexOf("--mode");
     if (modeIndex >= 0) args[modeIndex + 1] = mode;
     const formatsIndex = args.indexOf("--formats");
@@ -326,6 +388,7 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", sp
     });
     if (signal.aborted) throw new Error("任务已取消");
     if (merged) fs.writeFileSync(files.md, merged, "utf8");
+    writeExtractMark(cacheRoot, source, { mode, model, stat, outputs: files });
     return { output: files.md, detail: `Markdown · ${Math.round(fs.statSync(files.md).size / 1024)} KB`, outputs: files };
   });
 

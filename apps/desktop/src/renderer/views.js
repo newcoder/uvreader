@@ -806,6 +806,7 @@ export function createWorkshopView(leaf, options) {
       for (const mode of EXTRACT_MODES) {
         this._extractMode.createEl("option", { attr: { value: mode.id }, text: mode.label });
       }
+      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "MinerU 云端排队时间波动很大(实测 2 页 25 秒、7 页可能到 20 分钟);纯文字、不需要 LaTeX 公式的 PDF 选「文本型 PDF」更快。同一份文件 + 同一模式重跑会复用已有产物,不再等云端。" });
       optionCard.createDiv({ cls: "qbr-workshop-hint", text: "输出 <源名>.md / .html / .json(+ 体检报告),落在源文件旁;PDF 走 pdf_tool(模式可切 MinerU),Office / OFD / HTML / 图片走 DocVortex;题库等 schema 模板后续阶段。" });
       const detectRow = optionCard.createDiv("qbr-workshop-row");
       const detect = detectRow.createEl("button", { text: "检测提取链路" });

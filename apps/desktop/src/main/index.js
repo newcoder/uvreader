@@ -90,7 +90,7 @@ const readCoverImage = async (filePath) => {
 };
 registerEpubRunners(workshop, { vaultRoot, cacheRoot: bookCacheRoot, coverRenderer, readImage: readCoverImage, docvortex });
 // 内容提取(PDF/Office/OFD/图片 → md/html/json):pdf_tool + DocVortex。
-registerExtractRunners(workshop, { docvortex, vaultRoot });
+registerExtractRunners(workshop, { docvortex, vaultRoot, cacheRoot: bookCacheRoot });
 // Online book downloads land in the library so they appear as regular books.
 const bookDownloads = createBookDownloads({
   downloadRoot: path.join(vaultRoot, "Books", "下载"),

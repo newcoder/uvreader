@@ -321,6 +321,38 @@ test("extractMarkdown reuses the cached merged markdown for the same PDF", async
   assert.equal(calls.length, 0, "命中缓存时不再调用 pdf_tool");
 });
 
+test("the pdf runner reuses existing products instead of parsing the cloud again", async () => {
+  const vault = tempDir("qbr-extract-reuse-");
+  fs.mkdirSync(path.join(vault, "pdf_tool"), { recursive: true });
+  fs.writeFileSync(path.join(vault, "pdf_tool", "pdf_to_doc.py"), "# stub\n");
+  const source = path.join(vault, "论文.pdf");
+  fs.writeFileSync(source, "%PDF-1.4");
+  const cacheRoot = tempDir("qbr-extract-marks-");
+  const { spawnImpl, calls } = fakeSpawn((call, child) => {
+    const outDir = call.args[call.args.indexOf("--out-dir") + 1];
+    fs.writeFileSync(path.join(outDir, "论文_doc.md"), "MinerU 的 Markdown");
+    fs.writeFileSync(path.join(outDir, "论文_doc.json"), JSON.stringify({ schema_version: 1, pages: [] }));
+    fs.writeFileSync(path.join(outDir, "论文_doc.html"), "<p>x</p>");
+    child.emit("close", 0);
+  });
+  const { queue } = makeQueue({ probe: async () => ({ ok: true }), convert: async () => ({ ok: true }) }, spawnImpl, { cacheRoot });
+  const payload = { source, mode: "mineru", settings: { ocrSidecarDir: vault } };
+  const first = queue.start({ kind: "extract-pdf", title: "内容提取", payload });
+  await sleep(80);
+  assert.equal(queue.snapshot().tasks.find((row) => row.id === first).status, "done");
+  assert.equal(calls.length, 1);
+  const second = queue.start({ kind: "extract-pdf", title: "内容提取", payload });
+  await sleep(80);
+  const again = queue.snapshot().tasks.find((row) => row.id === second);
+  assert.equal(again.status, "done", again.error);
+  assert.equal(calls.length, 1, "第二次复用已有产物,不再调用 pdf_tool");
+  assert.match(fs.readFileSync(again.output, "utf8"), /MinerU 的 Markdown/);
+  const third = queue.start({ kind: "extract-pdf", title: "内容提取", payload: { ...payload, mode: "text" } });
+  await sleep(80);
+  assert.equal(queue.snapshot().tasks.find((row) => row.id === third).status, "done");
+  assert.equal(calls.length, 2, "换模式要重新解析");
+});
+
 test("the extract probe reports pdf_tool, credentials and DocVortex", async () => {
   const { queue } = makeQueue({ probe: async () => ({ ok: true }), convert: async () => ({ ok: true }), });
   const saved = process.env.MINERU_API_KEY;
