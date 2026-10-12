@@ -12,7 +12,7 @@ export const DOCVORTEX_FORMATS = [
   { id: "docx", label: "DOCX", ext: "docx" },
   { id: "epub", label: "EPUB", ext: "epub" },
   { id: "pdf", label: "PDF", ext: "pdf" },
-  { id: "structured_content", label: "JSON(结构化)", ext: "json" },
+  // JSON(结构化)归「内容提取」:格式转换只做内容+版式的保持型转换。
 ];
 
 export function docvortexFormatExt(target) {

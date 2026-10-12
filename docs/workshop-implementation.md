@@ -43,9 +43,9 @@
 
 | ID | 任务 | 主要文件 | 验收 | 测试 | 规模 |
 | --- | --- | --- | --- | --- | --- |
-| W1-0 | 内容提取(PDF → Doc):pdf_tool `pdf_to_doc.py`(auto/text/vision/mineru/blocks)+ 结果预览/体检 + `.uvdoc.md\|html\|json` 产物;公式优先复用公式链路(本地/云端 MinerU) | `main/pdf-tool-doc.js`、`views.js` | PDF → MD/HTML/JSON 落在源文件旁,公式/表格保真 | 单测 + e2e | M |
+| W1-0 | 内容提取(PDF/DOCX/图片 → 内容):pdf_tool `pdf_to_doc.py`(auto/text/vision/mineru/blocks)+ **图片提字** + **结构化 JSON / schema 模板(题库等)** + 预览/体检;`.uvdoc.md\|html\|json` 产物 | `main/pdf-tool-doc.js`、`views.js` | 内容落源文件旁;结构化抽取按模板出 JSON | 单测 + e2e | M |
 | W1-1 | Calibre 集成:检测(自定义→常见路径→PATH)、`ebook-convert`/`ebook-meta` 调用、下载引导 | `main/calibre.js`、设置段 | 检测到本机 9.15;路径可覆盖 | 单测(检测/命令) | S |
-| W1-2 | EPUB 构建器:Doc/MD→章节 HTML+CSS+封面+元数据+nav/NCX;封面模板渲染(offscreen 截图→JPG);EbookLib 兜底 | `main/epub-build.js`、`main/cover-render.js` | 生成 EPUB 可在阅读器打开;元数据/封面/目录正确 | 单测 + e2e(打开生成物) | L |
+| W1-2 | EPUB 构建器:Doc/**TXT**/MD/图片→章节 HTML+CSS+封面+元数据+nav/NCX;封面模板渲染(offscreen 截图→JPG);EbookLib 兜底 | `main/epub-build.js`、`main/cover-render.js` | 生成 EPUB 可在阅读器打开;元数据/封面/目录正确 | 单测 + e2e(打开生成物) | L |
 | W1-3 | 向导 UI + 实时预览:5 步、iframe(blob)同 CSS、样式控件、封面/目录预览 | `views.js`、`base.css` | 样式改动即时可见;生成走队列 | e2e(向导→生成→打开) | L |
 | W1-4 | 发送到 Kindle:nodemailer、SMTP 设置、授权码 SecretStorage、≤50MB ZIP、错误映射、三处入口 | `main/kindle-send.js`、`preload`、`settings-tab.js`、书库右键 | 本地 SMTP mock 收到附件;错误提示可读 | 单测 + e2e(SMTP mock) | M |
 | W1-5 | AZW3/MOBI、图片→PDF/CBZ、PDF→EPUB 预设 | `main/calibre.js`、`workshop.js`、`views.js` | 各产物可在阅读器/系统打开 | 单测 + e2e | M |
@@ -61,24 +61,34 @@
 | W2-4 | EbookLib 内置构建(可选,AGPL 评估) | 无 Calibre 时的完整方案 | M |
 | W2-5 | 题目抽取入口(依赖 pdf_tool P1) | 后续 | M |
 
-### 预设矩阵与分工(2026-10-12 规划)
+### 功能归属与预设矩阵(2026-10-12 用户定调)
 
-格式转换面板的 6 个预设按职责重新划分:**格式转换=纯转换(不排版)**;要封面/目录/样式的一律走**电子书制作**;高保真提取走**内容提取**。
+按**保守程度**从高到低分四个工具——**保留内容/版式的多少,决定归属**:
 
-| 预设 | 能力来源 | 现状 | 归属/动作 |
-| --- | --- | --- | --- |
-| 文档互转(DocVortex) | DocVortex 20 入 / 7 出(含 →EPUB/DOCX/MD/HTML/PDF/LaTeX/JSON) | ✅ 已实现 | 格式转换(保留) |
-| PDF → Markdown | ① DocVortex 本地解析(快;扫描件走自带 OCR)② pdf_tool 提取(text/vision/mineru,保真,公式 LaTeX) | ① 可立即点亮 ② 未实现 | ① 格式转换(加提示分流)② **内容提取**(W1-0) |
-| Markdown / HTML → EPUB | ① DocVortex 纯转换(**HTML ✓ 今天可用;Markdown 不行——DocVortex 0.5.16 不接受 md**,需先转 HTML)② 电子书制作向导(样式/封面/目录/元数据,自带 md→HTML) | ① HTML 可立即点亮 ② P1(W1-2/W1-3) | ① 格式转换(加提示分流)② 电子书制作 |
-| EPUB → AZW3 / MOBI | Calibre `ebook-convert`(本机 9.15 已装) | 可立即点亮 | 格式转换(W1-1/W1-5 提前) |
-| PDF → 干净电子书 | pdf_tool 提取 + 电子书向导(去页眉页脚/水印、分章、样式、封面) | P1 | 内容提取 + 电子书制作(卡片只做路由/预填) |
-| 图片 → PDF / CBZ | CBZ=ZIP(JSZip 已有);PDF 走 pdf_tool 渲染(`blocks_to_pdf`,图片块→PDF) | P1(W1-5) | 格式转换 |
+| 工具 | 保留 | 放弃/新增 | 输入 | 输出 |
+| --- | --- | --- | --- | --- |
+| **文字层**(最保守) | 原文件一切(像素/版式/字体位置) | — | PDF | 阅读器缓存 / `<源名>.uvtext.pdf`(加不可见文字层,原页不变) |
+| **格式转换**(内容+版式) | 内容与版式基本不变 | — | Office/ODF/HTML/EPUB/OFD/PDF | md/html/docx/pdf/epub(纯转换)+ EPUB→AZW3/MOBI(Calibre)+ 图片→PDF/CBZ |
+| **内容提取**(只要内容) | 文字/表格/公式等内容 | **版式**(页/栏/字体位置) | PDF(文本/扫描)、DOCX、**图片(纯图提字)** | `.uvdoc.md` / `.uvdoc.html` / **`.uvdoc.json`** + 资产;**结构化 JSON 与 schema 模板(题库等)在此** |
+| **电子书制作**(内容+样式) | 内容 + **新加**的样式/版式/字体/封面/目录 | 原版式 | **txt**、md/html、提取的 Doc、图片 | EPUB(主)/ AZW3 / MOBI / PDF(Calibre) |
 
-**补计划缺口**:设计 §5.2 的**内容提取(PDF → Doc)** 在实施计划里缺失,补为 **W1-0**;它同时是「PDF → Markdown(高保真)」与「PDF → 干净电子书」的上游。
+预设归属(格式转换面板的 6 张卡片):
 
-**预设卡片行为**:点击预设 → **路由到对应工具并预填**(例如「PDF → 干净电子书」跳「内容提取」并选 MinerU,完成后提示去「电子书制作」);不在转换面板重复实现其它板块的功能。转换面板里的「解析方式(本地/公式优先)」保留,作为纯转换的解析选项。
+| 预设 | 归属 | 现状 |
+| --- | --- | --- |
+| 文档互转(DocVortex,内容+版式) | 格式转换 | ✅ 已实现(20 入 / 7 出,含 →EPUB) |
+| EPUB → AZW3 / MOBI(版式不变,换容器) | 格式转换 | Calibre 已装,只差接(半天) |
+| 图片 → PDF / CBZ(打包,版式=图) | 格式转换 | CBZ=ZIP(JSZip 已有);PDF 走 pdf_tool 渲染(W1-5) |
+| PDF → Markdown / HTML / **JSON**(丢版式) | **内容提取** | 未实现 → **W1-0**;纯文本版可先用 DocVortex 顶,面板加提示分流 |
+| PDF → 干净电子书(提取 + 重排样式) | **内容提取 + 电子书制作** | P1(卡片只做路由/预填) |
+| HTML → EPUB(纯转换) | 格式转换 | 可立即点亮;**Markdown 不行**(DocVortex 0.5.16 不接受 md),随向导 W1-2 做 |
+| (电子书制作:txt/md/html/Doc/图片 → 样式化 EPUB) | 电子书制作 | P1(W1-2/W1-3) |
 
-**建议顺序**:① EPUB → AZW3/MOBI(Calibre,半天)② HTML → EPUB、PDF → Markdown 两个纯转换预设(点亮 + 提示分流,半天;Markdown → EPUB 需先转 HTML,随向导 W1-2 一起做)③ W1-0 内容提取(1–2 天,复用公式链路 runner 模式)④ 电子书向导(W1-2/W1-3)⑤ 图片 → PDF/CBZ(W1-5)。
+**结构化 JSON 只在内容提取**:格式转换的目标格式已去掉 JSON(`structured_content`);题库等结构化抽取走内容提取的 schema 模板(pdf_tool 的 vision/box 协议 + `extract_questions.py`)。
+
+**预设卡片行为**:点按 → **路由/预填到对应工具**(如「PDF → 干净电子书」跳内容提取并选 MinerU,完成后提示去电子书制作);不在转换面板重复实现其它板块的功能。转换面板的「解析方式(本地/公式优先)」保留,作为纯转换的解析选项。
+
+**建议顺序**:① EPUB → AZW3/MOBI(Calibre,半天)② HTML → EPUB 与 PDF → Markdown(纯文本版)预设 + 提示分流(半天)③ **W1-0 内容提取**(md/html/**json** + schema 模板 + 图片提字;1–2 天,复用公式链路 runner)④ 电子书向导(含 **txt 输入**;W1-2/W1-3)⑤ 图片 → PDF/CBZ(W1-5)。
 
 ## 4. 依赖与顺序
 

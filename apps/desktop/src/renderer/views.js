@@ -708,12 +708,12 @@ export function createWorkshopView(leaf, options) {
       presetCard.createEl("h3", { text: "选择预设" });
       const matrix = presetCard.createDiv("qbr-workshop-matrix");
       const presets = [
-        { id: "convert", label: "文档互转(DocVortex)", hint: "DOCX/PPT/ODT/HTML/EPUB/MHTML/OFD → md / html / docx / pdf / epub / json", ready: true },
-        { id: "clean", label: "PDF → 干净电子书", hint: "提取 + 制作:去页眉页脚/水印,按标题分章 → EPUB", ready: false },
-        { id: "pdfmd", label: "PDF → Markdown", hint: "pdf_tool 高保真提取(内容提取工具)", ready: false },
-        { id: "mdepub", label: "Markdown / HTML → EPUB", hint: "电子书制作向导", ready: false },
-        { id: "kindle", label: "EPUB → AZW3 / MOBI", hint: "Calibre,Kindle 主流格式", ready: false },
-        { id: "img", label: "图片 → PDF / CBZ", hint: "照片成书、漫画打包", ready: false },
+        { id: "convert", label: "文档互转(DocVortex)", hint: "保持内容与版式:Office/ODF/HTML/EPUB/OFD → md / html / docx / pdf / epub", ready: true },
+        { id: "clean", label: "PDF → 干净电子书", hint: "提取 + 制作:去页眉页脚/水印,按标题分章 → EPUB(属「内容提取 + 电子书制作」)", ready: false },
+        { id: "pdfmd", label: "PDF → Markdown", hint: "丢版式的提取,属「内容提取」;结构化 JSON / 题库也在那里", ready: false },
+        { id: "mdepub", label: "HTML → EPUB(纯转换)", hint: "Markdown 需先转 HTML,随「电子书制作」一起做", ready: false },
+        { id: "kindle", label: "EPUB → AZW3 / MOBI", hint: "版式不变,换容器:Calibre,Kindle 主流格式", ready: false },
+        { id: "img", label: "图片 → PDF / CBZ", hint: "打包成书:照片成书、漫画打包", ready: false },
       ];
       this._convertPreset = "convert";
       for (const preset of presets) {
