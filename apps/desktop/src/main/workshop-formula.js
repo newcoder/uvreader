@@ -133,27 +133,44 @@ export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000,
   }
 
   // MinerU 解析 → Doc JSON → 公式 HTML;返回 {ok, htmlPath, docPath}。
-  async function prepare({ settings = {}, source, workDir, pages = "", signal, report } = {}) {
+  // 缓存复用:MinerU 慢且计费,同一个源(同一缓存目录、Doc JSON 比 PDF 新)再转换时
+  // 直接复用解析结果;refresh=true 才重新解析。
+  async function prepare({ settings = {}, source, workDir, pages = "", signal, report, refresh = false } = {}) {
     const target = pdfToolScriptCommand(settings);
     if (target.error) return { ok: false, error: target.error };
     fs.mkdirSync(workDir, { recursive: true });
-    report?.({ label: "MinerU 云端解析" });
-    log("formula chain: pdf_tool", target.command, target.script);
-    const token = resolveMineruToken(settings, { readEnv });
-    const args = pdfToolArgs(target.script, {
-      source,
-      outDir: workDir,
-      model: String(settings.mineruModel || "").trim() || "vlm",
-      pages,
-    });
-    // 凭据走子进程环境而不是命令行:不在进程列表里暴露。
-    const parsed = await runCommand(target.command, args, {
-      cwd: target.cwd,
-      env: token ? { MINERU_API_KEY: token } : undefined,
-      signal,
-    });
-    if (!parsed.ok) return { ok: false, error: friendlyPdfToolError(parsed.error), cancelled: parsed.cancelled };
-    const docPath = path.join(workDir, `${stemOf(source)}_doc.json`);
+    const stem = stemOf(source);
+    const docPath = path.join(workDir, `${stem}_doc.json`);
+    const reusable = (() => {
+      if (refresh || !fs.existsSync(docPath)) return false;
+      try {
+        return fs.statSync(docPath).mtimeMs >= fs.statSync(source).mtimeMs - 1000;
+      } catch {
+        return false;
+      }
+    })();
+    let parsed = { ok: true, log: "" };
+    if (reusable) {
+      report?.({ label: "复用缓存的 MinerU 解析" });
+      log("formula chain: reuse cached doc", docPath);
+    } else {
+      report?.({ label: "MinerU 云端解析" });
+      log("formula chain: pdf_tool", target.command, target.script);
+      const token = resolveMineruToken(settings, { readEnv });
+      const args = pdfToolArgs(target.script, {
+        source,
+        outDir: workDir,
+        model: String(settings.mineruModel || "").trim() || "vlm",
+        pages,
+      });
+      // 凭据走子进程环境而不是命令行:不在进程列表里暴露。
+      parsed = await runCommand(target.command, args, {
+        cwd: target.cwd,
+        env: token ? { MINERU_API_KEY: token } : undefined,
+        signal,
+      });
+      if (!parsed.ok) return { ok: false, error: friendlyPdfToolError(parsed.error), cancelled: parsed.cancelled };
+    }
     if (!fs.existsSync(docPath)) return { ok: false, error: "pdf_tool 没有生成 Doc JSON" };
     report?.({ label: "生成公式 HTML" });
     let blocks;

@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
@@ -106,7 +106,7 @@ test("prepare runs pdf_tool, reads the Doc JSON and writes the formula HTML", as
     child.stdout.emit("data", "mode=mineru ok");
     child.emit("close", 0);
   });
-  const chain = createFormulaChain({ spawnImpl });
+  const chain = createFormulaChain({ spawnImpl, textLayer: { read: async () => ({ ok: false, error: "stub" }) } });
   const result = await chain.prepare({
     settings: { ocrSidecarDir: dir, mineruToken: "tk" },
     source: "D:/vault/a.pdf",
@@ -120,6 +120,28 @@ test("prepare runs pdf_tool, reads the Doc JSON and writes the formula HTML", as
   assert.equal(calls[0].options.cwd, dir);
   assert.equal(calls[0].options.env.MINERU_API_KEY, "tk", "the credential travels in the child environment");
   assert.ok(!calls[0].args.includes("--mineru-token"));
+});
+
+test("prepare reuses the cached MinerU doc instead of calling the cloud again", async () => {
+  const dir = makePdfToolDir();
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-formula-cache-"));
+  const pdf = path.join(workDir, "a.pdf");
+  fs.writeFileSync(pdf, "%PDF-1.4");
+  writeDocJson(workDir, "a", [{ type: "text", text: "缓存命中 $x$ 测试" }]);
+  const { spawnImpl, calls } = fakeSpawn((call, child) => {
+    writeDocJson(workDir, "a", [{ type: "text", text: "重新解析 $x$" }]);
+    void call;
+    child.emit("close", 0);
+  });
+  const chain = createFormulaChain({ spawnImpl, textLayer: { read: async () => ({ ok: false, error: "stub" }) } });
+  const cached = await chain.prepare({ settings: { ocrSidecarDir: dir, mineruToken: "tk" }, source: pdf, workDir });
+  assert.equal(cached.ok, true, cached.error);
+  assert.equal(calls.length, 0, "命中缓存时不再调用 pdf_tool（MinerU 慢且计费）");
+  assert.match(fs.readFileSync(cached.htmlPath, "utf8"), /缓存命中 <script type="math\/tex">x<\/script>/);
+  const refreshed = await chain.prepare({ settings: { ocrSidecarDir: dir, mineruToken: "tk" }, source: pdf, workDir, refresh: true });
+  assert.equal(refreshed.ok, true, refreshed.error);
+  assert.equal(calls.length, 1, "refresh 才重新解析");
+  assert.match(fs.readFileSync(refreshed.htmlPath, "utf8"), /重新解析/);
 });
 
 test("prepare surfaces a failing pdf_tool exit and cancels cleanly", async () => {

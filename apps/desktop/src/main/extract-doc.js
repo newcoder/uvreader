@@ -176,7 +176,7 @@ export async function mergePdfMarkdown({ docPath, source, python = "python", wor
 }
 
 // 供向导调用:把任意来源转成 Markdown(中间产物放缓存目录,用户无感)。
-export async function extractMarkdown(source, { kind, settings = {}, docvortex, workDir, signal, log = () => {}, spawnImpl = spawn, textLayer = null } = {}) {
+export async function extractMarkdown(source, { kind, settings = {}, docvortex, workDir, signal, log = () => {}, spawnImpl = spawn, textLayer = null, refresh = false } = {}) {
   const resolvedKind = kind || extractionKind(source);
   // 提取产物里的「假代码块」(MinerU 把正文段落包进围栏)按段落还原,公式才会渲染。
   const readMarkdown = (file) => {
@@ -190,27 +190,46 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
     if (target.error) return { ok: false, error: target.error };
     fs.mkdirSync(workDir, { recursive: true });
     const stem = path.basename(source).replace(/\.[^.]+$/, "");
-    const args = pdfToolArgs(target.script, { source, outDir: workDir, model: String(settings.mineruModel || "").trim() || "vlm" });
-    const modeIndex = args.indexOf("--mode");
-    if (modeIndex >= 0) args[modeIndex + 1] = String(settings.extractMode || "auto");
-    const formatsIndex = args.indexOf("--formats");
-    if (formatsIndex >= 0) args[formatsIndex + 1] = "json,md,html";
-    else args.push("--formats", "json,md,html");
-    const token = String(settings.mineruToken || "").trim()
-      || String(process.env.MINERU_API_KEY || process.env.MINERU_TOKEN || "").trim();
-    const result = await runExtractCommand(target.command, args, {
-      cwd: target.cwd,
-      env: token ? { MINERU_API_KEY: token } : undefined,
-      signal,
-      log,
-      spawnImpl,
-    });
-    if (!result.ok) return { ok: false, error: result.error };
+    const mergedPath = path.join(workDir, "merged.md");
+    const docCandidates = [path.join(workDir, `${stem}_doc.json`), path.join(workDir, `${stem}.json`)];
+    const fresh = (file) => {
+      try {
+        return fs.existsSync(file) && fs.statSync(file).mtimeMs >= fs.statSync(source).mtimeMs - 1000;
+      } catch {
+        return false;
+      }
+    };
+    // 复用:上次提取的合并稿还在缓存目录(且比 PDF 新)就直接用——MinerU 慢且计费。
+    if (!refresh && fresh(mergedPath) && docCandidates.some(fresh)) {
+      log("extract: reuse cached merged markdown", mergedPath);
+      return { ok: true, markdown: fs.readFileSync(mergedPath, "utf8"), path: mergedPath };
+    }
+    const cachedDoc = docCandidates.find(fresh);
+    if (!cachedDoc) {
+      const args = pdfToolArgs(target.script, { source, outDir: workDir, model: String(settings.mineruModel || "").trim() || "vlm" });
+      const modeIndex = args.indexOf("--mode");
+      if (modeIndex >= 0) args[modeIndex + 1] = String(settings.extractMode || "auto");
+      const formatsIndex = args.indexOf("--formats");
+      if (formatsIndex >= 0) args[formatsIndex + 1] = "json,md,html";
+      else args.push("--formats", "json,md,html");
+      const token = String(settings.mineruToken || "").trim()
+        || String(process.env.MINERU_API_KEY || process.env.MINERU_TOKEN || "").trim();
+      const result = await runExtractCommand(target.command, args, {
+        cwd: target.cwd,
+        env: token ? { MINERU_API_KEY: token } : undefined,
+        signal,
+        log,
+        spawnImpl,
+      });
+      if (!result.ok) return { ok: false, error: result.error };
+    } else {
+      log("extract: reuse cached doc json", cachedDoc);
+    }
     const files = adoptPdfToolOutputs(workDir, stem, { renameAssets: false });
-    if (!files.md) return { ok: false, error: "提取完成但没有找到 Markdown 产物" };
+    if (!files.md && !cachedDoc) return { ok: false, error: "提取完成但没有找到 Markdown 产物" };
     // 文字层互补:正文逐字取 PDF 文字层(补 MinerU 丢的字),公式仍是 LaTeX。
     const merged = await mergePdfMarkdown({
-      docPath: files.json,
+      docPath: files.json || cachedDoc,
       source,
       python: docvortexPython(settings),
       workDir,
@@ -219,7 +238,6 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
       log,
     });
     if (merged) {
-      const mergedPath = path.join(workDir, "merged.md");
       fs.writeFileSync(mergedPath, merged, "utf8");
       return { ok: true, markdown: merged, path: mergedPath };
     }

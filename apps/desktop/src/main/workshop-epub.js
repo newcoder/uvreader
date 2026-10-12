@@ -1,6 +1,7 @@
 // 书坊:电子书制作向导的构建 runner(txt/md → 章节 → 字体子集 → EPUB)。
 // 样式、字体搭配都来自面板;字体下载/子集失败时回退系统字体,不阻断生成。
 import fs from "node:fs";
+import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import path from "node:path";
 
@@ -161,7 +162,11 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     // 面板里编辑过的目录优先(改名/合并/拆分/排序);文本源按标题自动分章;
     // PDF / Office / OFD / 图片先内部提取(中间产物放缓存目录,用户无感)。
     const provided = Array.isArray(payload?.chapters) ? payload.chapters : [];
-    const workRoot = path.join(cacheRoot, "work", `${path.basename(source).replace(/[^\w.-]+/g, "_").slice(0, 40)}-${Date.now().toString(36)}`);
+    // 工作目录按源文件稳定(路径 + 大小 + 修改时间):MinerU 的解析结果可以复用,
+    // 重跑 / 换样式不会重新等云端解析。
+    const sourceStat = fs.statSync(source);
+    const workKey = crypto.createHash("sha1").update(`${source}\n${sourceStat.size}\n${sourceStat.mtimeMs}`).digest("hex").slice(0, 8);
+    const workRoot = path.join(cacheRoot, "work", `${path.basename(source).replace(/[^\w.-]+/g, "_").slice(0, 40)}-${workKey}`);
     let text = "";
     let baseDir = path.dirname(source);
     let rawChapters;

@@ -297,6 +297,30 @@ test("the pdf runner writes the merged markdown when the text layer is available
   assert.ok(!md.includes("少了前半句"), "不再使用 MinerU 那份缺字的 Markdown");
 });
 
+test("extractMarkdown reuses the cached merged markdown for the same PDF", async () => {
+  const vault = tempDir("qbr-extract-cache-");
+  fs.mkdirSync(path.join(vault, "pdf_tool"), { recursive: true });
+  fs.writeFileSync(path.join(vault, "pdf_tool", "pdf_to_doc.py"), "# stub\n");
+  const source = path.join(vault, "论文.pdf");
+  fs.writeFileSync(source, "%PDF-1.4");
+  const workDir = path.join(vault, "work");
+  fs.mkdirSync(workDir, { recursive: true });
+  fs.writeFileSync(path.join(workDir, "论文_doc.json"), JSON.stringify({ schema_version: 1, pages: [] }));
+  fs.writeFileSync(path.join(workDir, "merged.md"), "# 缓存的合并稿\n\n正文 $x$。");
+  const { spawnImpl, calls } = fakeSpawn(() => {});
+  const result = await extractMarkdown(source, {
+    kind: "pdf",
+    settings: { ocrSidecarDir: vault },
+    workDir,
+    spawnImpl,
+    log: () => {},
+    textLayer: { read: async () => ({ ok: false, error: "no layer" }) },
+  });
+  assert.equal(result.ok, true, result.error);
+  assert.match(result.markdown, /缓存的合并稿/, "命中缓存就直接返回合并稿");
+  assert.equal(calls.length, 0, "命中缓存时不再调用 pdf_tool");
+});
+
 test("the extract probe reports pdf_tool, credentials and DocVortex", async () => {
   const { queue } = makeQueue({ probe: async () => ({ ok: true }), convert: async () => ({ ok: true }), });
   const saved = process.env.MINERU_API_KEY;
