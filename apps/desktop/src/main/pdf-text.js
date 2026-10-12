@@ -13,6 +13,13 @@ import { blocksToHtml, blocksToMarkdown } from "./formula-html.js";
 import { uniqueFile } from "./paths.js";
 
 export const PDF_TEXT_SCRIPT = `import fitz, json, sys
+
+def is_cjk(ch):
+    code = ord(ch)
+    return 0x3400 <= code <= 0x9fff or 0x3000 <= code <= 0x303f or 0xff00 <= code <= 0xffef
+
+CLOSERS = ("）", ")", "，", "。", "、", "；", "：", "”", "’", ",", ".", ";", ":", "!", "?", "！", "？")
+
 doc = fitz.open(sys.argv[1])
 pages = []
 for page in doc:
@@ -27,16 +34,35 @@ for page in doc:
             spans = [s for s in line.get("spans", []) if str(s.get("text", "")).strip()]
             if not spans:
                 continue
-            weight = {}
+            # 行内拼接:相邻 span 之间的水平空隙超过阈值时补一个空格(中西文用不同阈值)
+            parts = []
+            previous = None
+            fonts = {}
             for span in spans:
-                weight[span["font"]] = weight.get(span["font"], 0) + len(span["text"])
-            font = max(weight, key=weight.get)
-            size = max(float(span["size"]) for span in spans)
+                if previous is not None:
+                    text_span = str(span["text"])
+                    prev_text = str(previous["text"])
+                    gap = float(span["bbox"][0]) - float(previous["bbox"][2])
+                    size = min(float(span["size"]), float(previous["size"]))
+                    edge_cjk = is_cjk(prev_text[-1]) or (bool(text_span) and is_cjk(text_span[0]))
+                    threshold = 0.4 * size if edge_cjk else 0.18 * size
+                    if (
+                        gap > threshold
+                        and not prev_text.endswith(("(", "（", '"'))
+                        and not text_span[:1].isspace()
+                        and not text_span.startswith(CLOSERS)
+                    ):
+                        parts.append(" ")
+                parts.append(span["text"])
+                name = str(span.get("font", ""))
+                fonts[name] = fonts.get(name, 0) + len(str(span["text"]))
+                previous = span
+            text = "".join(parts)
             x0, y0, x1, y1 = line["bbox"]
             lines.append({
-                "text": "".join(span["text"] for span in spans),
-                "font": font,
-                "size": round(size, 1),
+                "text": text,
+                "fonts": fonts,
+                "size": round(max(float(span["size"]) for span in spans), 1),
                 "x1": round(x1, 1),
                 "y0": round(y0, 1),
                 "y1": round(y1, 1),
@@ -52,6 +78,8 @@ with open(sys.argv[2], "w", encoding="utf-8") as fh:
 `;
 
 const MONO_RE = /mono|courier|consol|menlo|inconsolata|source ?code|fira ?code|jetbrains|cascadia|dejavu sans mono|liberation mono|nimbus mono|andale mono|anonymous/i;
+// 代码特征:关键字 / 结构符号。注意别把 "C++" 的 "++" 算进来——试卷选项里到处都是它。
+const CODE_TOKEN_RE = /\b(?:def|class|import|from|return|print|for|while|if|elif|else|function|const|let|var|int|float|double|char|bool|void|struct|enum|public|private|static|include|using|namespace|package|echo|printf|scanf|cout|cin|std|true|false|null|None|True|False|self|async|await|lambda|yield)\b|[{}]|\)\s*[:;{]|#include|\/\/|<!--|;\s*$/;
 const PAGE_NUMBER_RE = /^(?:[-–—\s]*\d{1,4}[-–—\s]*|[-–—\s]*[ivxlcdm]{1,7}[-–—\s]*|第\s*\d+\s*页(?:\s*共\s*\d+\s*页)?|page\s+\d+(?:\s*(?:of|\/)\s*\d+)?)$/i;
 const SENTENCE_END_RE = /[.!?;:。！？；：]["'”’)\]]?$/;
 const CJK_EDGE_RE = /[\u3400-\u9fff\u3000-\u303f\uff00-\uffef]$/;
@@ -69,6 +97,24 @@ export function joinTextLines(lines) {
 
 export function isMonospaceFont(font) {
   return MONO_RE.test(String(font || ""));
+}
+
+// 一行里等宽字符的占比:整行都是等宽才算代码。
+// 很多排版把数字 / 拉丁字母排成 Consolas、中文排成宋体(试卷、公文常见),
+// 只看「主导字体」会把这类正文误判成代码。
+export function monospaceShare(line) {
+  const fonts = line?.fonts && typeof line.fonts === "object" ? line.fonts : null;
+  if (fonts) {
+    let mono = 0;
+    let total = 0;
+    for (const [name, count] of Object.entries(fonts)) {
+      const weight = Number(count) || 0;
+      total += weight;
+      if (isMonospaceFont(name)) mono += weight;
+    }
+    return total ? mono / total : 0;
+  }
+  return isMonospaceFont(line?.font) ? 1 : 0;
 }
 
 // 页眉 / 页脚 / 页码 / 水印:跨页重复的行 + 页码样式的行 + 旋转文字(水印)。
@@ -113,6 +159,23 @@ export function buildBlocks(pages) {
   const bodySize = [...sizeWeight].sort((left, right) => right[1] - left[1])[0]?.[0] || 10;
 
   const blocks = [];
+  // 逐行判定:整行等宽 **且**(有代码特征 或上下紧邻也是等宽行)才算代码。
+  // 试卷/公文常把数字与拉丁字母排成 Consolas,单独一行不构成代码。
+  const flat = [];
+  for (const [pageIndex, page] of list.entries()) {
+    for (const line of page.lines || []) {
+      flat.push({ line, page: pageIndex + 1, size: Number(line.size) || 10, mono: monospaceShare(line) >= 0.85 });
+    }
+  }
+  const tightGap = (left, right) => Math.abs(Number(right.line.y0) - Number(left.line.y1)) <= 0.7 * Math.max(left.size, right.size);
+  for (let index = 0; index < flat.length; index += 1) {
+    const entry = flat[index];
+    const before = flat[index - 1];
+    const after = flat[index + 1];
+    const neighbor = (before && before.mono && tightGap(before, entry)) || (after && after.mono && tightGap(entry, after));
+    entry.code = entry.mono && (CODE_TOKEN_RE.test(String(entry.line.text || "")) || Boolean(neighbor));
+  }
+
   let current = null;
   let lastLine = null;
   const push = () => {
@@ -122,35 +185,35 @@ export function buildBlocks(pages) {
     current = null;
   };
 
-  for (const [pageIndex, page] of list.entries()) {
-    for (const line of page.lines || []) {
-      const text = String(line.text || "");
-      if (!text.trim()) continue;
-      const kind = isMonospaceFont(line.font) ? "code" : "text";
-      const size = Number(line.size) || bodySize;
-      const gap = lastLine ? Number(line.y0) - Number(lastLine.y1) : 0;
-      const newPage = Boolean(lastLine) && lastLine.page !== pageIndex + 1;
-      if (current) {
-        const sizeJump = Math.abs(size - current.size) > 0.6;
-        const kindChange = current.kind !== kind;
-        const bigGap = gap > 0.7 * Math.max(size, current.size);
-        // 跨页:代码块直接续上(页眉页脚已去掉);正文在上一行没断句时续上。
-        const pageContinue = newPage && (
-          (kind === "code" && current.kind === "code")
-          || (kind === "text" && current.kind === "text" && !SENTENCE_END_RE.test(current.lines[current.lines.length - 1] || ""))
-        );
-        if (sizeJump || kindChange || bigGap || (newPage && !pageContinue)) push();
-      }
-      if (!current) current = { kind, size, lines: [], page: pageIndex + 1 };
-      // 断词:「de-」+「signed」合并;代码保持换行与缩进
-      const previous = current.lines[current.lines.length - 1];
-      if (current.kind === "text" && previous && /[\p{L}]-$/u.test(previous) && /^[\p{Ll}\p{Lo}]/u.test(text.trim())) {
-        current.lines[current.lines.length - 1] = `${previous.slice(0, -1)}${text.trim()}`;
-      } else {
-        current.lines.push(text);
-      }
-      lastLine = { ...line, page: pageIndex + 1 };
+  for (let index = 0; index < flat.length; index += 1) {
+    const entry = flat[index];
+    const line = entry.line;
+    const text = String(line.text || "");
+    if (!text.trim()) continue;
+    const kind = entry.code ? "code" : "text";
+    const size = entry.size;
+    const gap = lastLine ? Number(line.y0) - Number(lastLine.y1) : 0;
+    const newPage = Boolean(lastLine) && lastLine.page !== entry.page;
+    if (current) {
+      const sizeJump = Math.abs(size - current.size) > 0.6;
+      const kindChange = current.kind !== kind;
+      const bigGap = gap > 0.7 * Math.max(size, current.size);
+      // 跨页:代码块直接续上(页眉页脚已去掉);正文在上一行没断句时续上。
+      const pageContinue = newPage && (
+        (kind === "code" && current.kind === "code")
+        || (kind === "text" && current.kind === "text" && !SENTENCE_END_RE.test(current.lines[current.lines.length - 1] || ""))
+      );
+      if (sizeJump || kindChange || bigGap || (newPage && !pageContinue)) push();
     }
+    if (!current) current = { kind, size, lines: [], page: entry.page };
+    // 断词:「de-」+「signed」合并;代码保持换行与缩进
+    const previous = current.lines[current.lines.length - 1];
+    if (current.kind === "text" && previous && /[\p{L}]-$/u.test(previous) && /^[\p{Ll}\p{Lo}]/u.test(text.trim())) {
+      current.lines[current.lines.length - 1] = `${previous.slice(0, -1)}${text.trim()}`;
+    } else {
+      current.lines.push(text);
+    }
+    lastLine = { ...line, page: entry.page };
   }
   push();
 

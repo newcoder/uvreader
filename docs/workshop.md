@@ -111,7 +111,7 @@
   - **表格**:DocVortex 的 DOCX 渲染器**无法从 HTML 物化表格**(直接报 `HTML table cannot be materialized and has no image fallback`),PDF 渲染器则**静默丢掉表格内容**。新增目标感知的 `tableModeFor()`:`docx` / `pdf` 目标把表格换成 MinerU 的**表格截图**(Doc JSON 自带 `image`),`html` / `latex` 目标仍输出真 `<table>`。实测 2 页报价 PDF:改前 DOCX 报错、PDF 里搜不到表格文字;改后 DOCX 178KB(内嵌 3 张表格截图)、PDF 285KB、HTML 3 个真表格。
   - **本地文件同名覆盖**:渲染层的同名判断只查**书库**(本地文件永远判不到),会静默覆盖已有产物。新增 `main/paths.js` 的 `uniqueFile()`,接入 `docvortex-convert` / `formula-convert` / `ebook-convert` 三个 runner;实测同一份本地 PDF 连转两次 → `报价单.md` + `报价单 (1).md`,两个文件都在。
   - 顺带:Markdown 的**管道表格**现在渲染成真表格(`text-book.markdownToHtml`:缺格补空、单元格里的公式照常渲染;此前是带竖线的段落),`book-styles` 配了表格样式。
-  - 已知上游限制:DOCX 里的表格只能是截图(DocVortex 渲染器限制);转换 HTML 时若同目录缺图片资源 DocVortex 会报错(资源放好即可,任务会记录错误);**图片 → PDF** 预设仍未实现(面板标注「后续阶段」)。
+  - 已知上游限制:DOCX 里的表格只能是截图(DocVortex 渲染器限制);转换 HTML 时若同目录缺图片资源 DocVortex 会报错(资源放好即可,任务会记录错误);**DocVortex 会把含 `++` 的普通文字误判成公式裁成图片**(实测 `CSP2021.pdf` 的选项 "A. C++" 变成 `images/page_0_equation_6.jpg`)——这类试卷/公文用「内容提取 · 文本型 PDF」(本地确定性提取,不会把文字变图片)最稳;**图片 → PDF** 预设仍未实现(面板标注「后续阶段」)。
 
 ### 5.4 电子书制作(向导 + 实时预览,主输出 EPUB)
 

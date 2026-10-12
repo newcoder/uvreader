@@ -27,6 +27,21 @@ test("monospace fonts are recognised as code", () => {
   }
 });
 
+test("mixed CJK + Consolas lines stay text (exam papers do this)", () => {
+  const mixed = (text, fonts) => ({ text, fonts, size: 12, x1: 500, y0: 0, y1: 12, rotated: false });
+  const pages = [{
+    lines: [
+      mixed("认证时间:2021 年 9 月 19 日", { "DengXian-Regular": 8, Consolas: 12 }),
+      mixed("def run(cfg):", { Consolas: 12 }),
+      mixed("A. C++", { SimSun: 2, Consolas: 3 }),
+    ],
+  }];
+  const blocks = buildBlocks(pages);
+  assert.equal(blocks[0].type, "text", "数字用 Consolas 的中文行不是代码");
+  assert.equal(blocks[1].type, "code", "整行等宽才是代码");
+  assert.equal(blocks[2].type, "text", "混排正文不当代码");
+});
+
 test("headers, footers, page numbers and rotated watermarks are dropped", () => {
   const pages = Array.from({ length: 4 }, (_value, index) => ({
     lines: [
