@@ -1,4 +1,4 @@
-// 书坊:电子书制作向导的构建 runner(txt/md → 章节 → 字体子集 → EPUB)。
+﻿// 书坊:电子书制作向导的构建 runner(txt/md → 章节 → 字体子集 → EPUB)。
 // 样式、字体搭配都来自面板;字体下载/子集失败时回退系统字体,不阻断生成。
 import fs from "node:fs";
 import crypto from "node:crypto";

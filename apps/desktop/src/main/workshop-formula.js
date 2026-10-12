@@ -1,4 +1,4 @@
-// 书坊「公式优先」链路:pdf_tool(MinerU 云端)→ Doc v1 JSON → 带公式标记的 HTML
+﻿// 书坊「公式优先」链路:pdf_tool(MinerU 云端)→ Doc v1 JSON → 带公式标记的 HTML
 // → DocVortex 转 DOCX/EPUB(真 OMML / MathML)。见 docs/workshop.md §8.1。
 //
 // 公式质量来自 MinerU(本地 rapidocr 没有公式模型),渲染靠 DocVortex 现成的
@@ -8,7 +8,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-import { blocksFromDoc, blocksToHtml } from "./formula-html.js";
+import { blocksFromDoc, blocksToHtml, tableModeFor } from "./formula-html.js";
 import { uniqueFile } from "./paths.js";
 import { mergeBlocksWithTextLayer } from "./text-merge.js";
 import { createTextLayerReader } from "./text-layer.js";
@@ -69,11 +69,8 @@ function stemOf(source) {
   return dot > 0 ? name.slice(0, dot) : name || "doc";
 }
 
-// 表格怎么给:HTML / LaTeX 目标用真表格,DOCX / PDF 用表格截图
-// (DocVortex 的 docx 渲染器无法从 HTML 物化表格,pdf 会静默丢内容)。
-export function tableModeFor(format) {
-  return ["docx", "pdf"].includes(String(format || "").toLowerCase()) ? "image" : "table";
-}
+// 表格怎么给(tableModeFor)已移到 formula-html.js:pdf-text.js 也要用,避免模块循环。
+export { tableModeFor };
 
 // pdf_tool 的 PDF → Doc 入口(需要 checkout;打包 exe 只提供阅读器 sidecar)。
 export function pdfToolScriptCommand(settings = {}) {
@@ -163,6 +160,7 @@ export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000,
     } else {
       report?.({ label: "MinerU 云端解析" });
       log("formula chain: pdf_tool", target.command, target.script);
+      // 页眉页脚 / 页码 / 水印由 pdf_tool 侧清理(书坊不在这条链路上动手)。
       const token = resolveMineruToken(settings, { readEnv });
       const args = pdfToolArgs(target.script, {
         source,

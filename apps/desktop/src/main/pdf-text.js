@@ -7,6 +7,7 @@
 // (Doc v1 JSON → 同一套 .md / .html 渲染)。
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 import { blocksToHtml, blocksToMarkdown } from "./formula-html.js";
@@ -68,6 +69,7 @@ for page in doc:
                 "text": text,
                 "fonts": fonts,
                 "size": round(max(float(span["size"]) for span in spans), 1),
+                "x0": round(x0, 1),
                 "x1": round(x1, 1),
                 "y0": round(y0, 1),
                 "y1": round(y1, 1),
@@ -85,7 +87,10 @@ with open(sys.argv[2], "w", encoding="utf-8") as fh:
 const MONO_RE = /mono|courier|consol|menlo|inconsolata|source ?code|fira ?code|jetbrains|cascadia|dejavu sans mono|liberation mono|nimbus mono|andale mono|anonymous/i;
 // 代码特征:关键字 / 结构符号。注意别把 "C++" 的 "++" 算进来——试卷选项里到处都是它。
 const CODE_TOKEN_RE = /\b(?:def|class|import|from|return|print|for|while|if|elif|else|function|const|let|var|int|float|double|char|bool|void|struct|enum|public|private|static|include|using|namespace|package|echo|printf|scanf|cout|cin|std|true|false|null|None|True|False|self|async|await|lambda|yield)\b|[{}]|\)\s*[:;{]|#include|\/\/|<!--|;\s*$/;
-const PAGE_NUMBER_RE = /^(?:[-–—\s]*\d{1,4}[-–—\s]*|[-–—\s]*[ivxlcdm]{1,7}[-–—\s]*|第\s*\d+\s*页(?:\s*共\s*\d+\s*页)?|page\s+\d+(?:\s*(?:of|\/)\s*\d+)?)$/i;
+// 页码:纯数字 / 罗马数字 / 「第 N 页(共 M 页)」 / 「N / M」 / 「Page N of M」。
+// 先去掉空格与各种标点再判,免得漏掉「第 1 页，共 12 页」这种全角标点。
+const PAGE_NUMBER_BARE_RE = /^(?:第\d+页(?:共\d+页)?|\d{1,4}|\d{1,4}\/\d{1,4}|[ivxlcdm]{1,7}|page\d+(?:of\/?\d+)?|\d+of\d+|-?\d{1,4}-?)$/i;
+const PAGE_NUMBER_STRIP_RE = /[\s，,。.、·:：;；\-–—/|()（）'【】[\]{}]+/g;
 const SENTENCE_END_RE = /[.!?;:。！？；：]["'”’)\]]?$/;
 const CJK_EDGE_RE = /[\u3400-\u9fff\u3000-\u303f\uff00-\uffef]$/;
 const CJK_START_RE = /^[\u3400-\u9fff\u3000-\u303f\uff00-\uffef]/;
@@ -122,10 +127,26 @@ export function monospaceShare(line) {
   return isMonospaceFont(line?.font) ? 1 : 0;
 }
 
-// 页眉 / 页脚 / 页码 / 水印:跨页重复的行 + 页码样式的行 + 旋转文字(水印)。
-// 阈值取「页数 × 30%」与 2 的较大者:两页文档的重复页眉也要能去掉(否则它会插在
-// 跨页代码块中间,把合并打断)。
-export function dropFurniture(pages, { ratio = 0.3 } = {}) {
+export function looksLikePageNumber(text) {
+  const key = String(text || "").trim();
+  if (!key || key.length > 24) return false;
+  return PAGE_NUMBER_BARE_RE.test(key.replace(PAGE_NUMBER_STRIP_RE, ""));
+}
+
+// 是否在页面的上下边缘(页眉 / 页脚区):默认上下各 8%。
+export function inMargin(line, page, { ratio = 0.08 } = {}) {
+  const height = Number(page?.height) || 0;
+  if (!height) return false;
+  const y0 = Number(line?.y0);
+  const y1 = Number(line?.y1);
+  if (!Number.isFinite(y0) || !Number.isFinite(y1)) return false;
+  return y0 < height * ratio || y1 > height * (1 - ratio);
+}
+
+// 页眉 / 页脚 / 页码 / 水印的判定:旋转文字、**在上下边缘且样式像页码**的行、
+// **在上下边缘且跨页重复 ≥ max(2, 页数×30%)** 的行。
+// 正文里重复出现的代码行、正文里的独立数字行(题号)都不会误删。
+export function furnitureMatcher(pages, { ratio = 0.3 } = {}) {
   const list = Array.isArray(pages) ? pages : [];
   const threshold = Math.max(2, Math.ceil(list.length * ratio));
   const counts = new Map();
@@ -138,16 +159,43 @@ export function dropFurniture(pages, { ratio = 0.3 } = {}) {
       counts.set(key, (counts.get(key) || 0) + 1);
     }
   }
+  const isFurniture = (line, page) => {
+    if (line.rotated) return true;
+    const key = String(line.text || "").trim().replace(/\s+/g, " ");
+    if (!key) return true;
+    const margin = !Number(page?.height) || inMargin(line, page);
+    if (margin && looksLikePageNumber(key)) return true;
+    return (counts.get(key) || 0) >= threshold && inMargin(line, page);
+  };
+  return { isFurniture, threshold };
+}
+
+export function dropFurniture(pages, options = {}) {
+  const list = Array.isArray(pages) ? pages : [];
+  const { isFurniture } = furnitureMatcher(list, options);
   return list.map((page) => ({
     ...page,
-    lines: (page?.lines || []).filter((line) => {
-      if (line.rotated) return false;
-      const key = String(line.text || "").trim().replace(/\s+/g, " ");
-      if (!key) return false;
-      if (PAGE_NUMBER_RE.test(key)) return false;
-      return (counts.get(key) || 0) < threshold;
-    }),
+    lines: (page?.lines || []).filter((line) => !isFurniture(line, page)),
   }));
+}
+
+// 家具行的矩形:{ page: 1 基, rect: [x0, y0, x1, y1] }(用于在 PDF 上擦除)。
+export function furnitureRects(pages, options = {}) {
+  const list = Array.isArray(pages) ? pages : [];
+  const { isFurniture } = furnitureMatcher(list, options);
+  const out = [];
+  list.forEach((page, index) => {
+    for (const line of page?.lines || []) {
+      if (!isFurniture(line, page)) continue;
+      const x0 = Number(line.x0);
+      const x1 = Number(line.x1);
+      const y0 = Number(line.y0);
+      const y1 = Number(line.y1);
+      if (![x0, x1, y0, y1].every(Number.isFinite)) continue;
+      out.push({ page: index + 1, rect: [x0, y0, x1, y1] });
+    }
+  });
+  return out;
 }
 
 // 行 → 块:等宽 = 代码(跨页也连成一块),字号大的短行 = 标题,其余按空行间距分段。
@@ -312,6 +360,102 @@ export function createPdfTextReader({ spawnImpl = spawn, timeoutMs = 120_000 } =
   }
 
   return { read };
+}
+
+// 在 PDF 上擦掉页眉 / 页脚 / 页码 / 水印,产出「干净副本」供**不经过 pdf_tool 的**消费方使用
+// (即格式转换的「本地解析」DocVortex;经过 pdf_tool 的链路由 pdf_tool 侧清理)。
+// 文件名保持不变,放在缓存目录;文字 / 图片 / 矢量一起擦,水印是图片也能去掉。
+export const PDF_REDACT_SCRIPT = `import fitz, json, sys
+job = json.load(open(sys.argv[1], encoding="utf-8"))
+doc = fitz.open(job["source"])
+rects = {}
+for item in job.get("rects", []):
+    rects.setdefault(int(item["page"]), []).append(tuple(item["rect"]))
+for page_number, boxes in rects.items():
+    page = doc[page_number - 1]
+    for box in boxes:
+        page.add_redact_annot(fitz.Rect(box))
+    page.apply_redactions(
+        images=fitz.PDF_REDACT_IMAGE_PIXELS,
+        graphics=fitz.PDF_REDACT_LINE_ART_REMOVE_IF_COVERED,
+        text=fitz.PDF_REDACT_TEXT_REMOVE,
+    )
+doc.save(job["out"], garbage=3, deflate=True)
+`;
+
+export function createPdfCleaner({ pdfText = createPdfTextReader(), spawnImpl = spawn, timeoutMs = 120_000 } = {}) {
+  // 返回 { ok, path, removed }:没有家具时 path 就是原文件;失败由调用方回退原文件。
+  async function clean(source, { python = "python", workDir = "", signal } = {}) {
+    const original = String(source || "");
+    if (!original || !fs.existsSync(original)) return { ok: false, path: original, removed: 0, error: `找不到 PDF：${original}` };
+    const read = await pdfText.read(original, { python, workDir, signal });
+    if (!read.ok) return { ok: false, path: original, removed: 0, error: read.error };
+    const rects = furnitureRects(read.pages);
+    if (!rects.length) return { ok: true, path: original, removed: 0 };
+    const base = String(workDir || path.dirname(original) || ".");
+    try {
+      fs.mkdirSync(base, { recursive: true });
+      const jobFile = path.join(base, "redact-job.json");
+      const outPdf = path.join(base, path.basename(original));
+      fs.writeFileSync(jobFile, JSON.stringify({ source: original, out: outPdf, rects }), "utf8");
+      const result = await new Promise((resolve) => {
+        let child;
+        try {
+          child = spawnImpl(python, ["-c", PDF_REDACT_SCRIPT, jobFile], { stdio: ["ignore", "pipe", "pipe"] });
+        } catch (error) {
+          resolve({ ok: false, error: String(error?.message || error) });
+          return;
+        }
+        let out = "";
+        let settled = false;
+        const finish = (value) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          signal?.removeEventListener("abort", onAbort);
+          resolve(value);
+        };
+        const onAbort = () => {
+          try { child.kill(); } catch { /* gone */ }
+          finish({ ok: false, cancelled: true, error: "任务已取消" });
+        };
+        const timer = setTimeout(() => {
+          try { child.kill(); } catch { /* gone */ }
+          finish({ ok: false, error: "清理 PDF 超时" });
+        }, timeoutMs);
+        signal?.addEventListener("abort", onAbort, { once: true });
+        child.stdout?.on("data", (chunk) => { out += chunk; });
+        child.stderr?.on("data", (chunk) => { out += chunk; });
+        child.on("error", (error) => finish({ ok: false, error: String(error?.message || error) }));
+        child.on("close", (code) => finish({ ok: code === 0, error: code === 0 ? "" : (out.trim().slice(-200) || `退出码 ${code}`) }));
+      });
+      if (!result.ok || !fs.existsSync(outPdf)) {
+        return { ok: false, path: original, removed: 0, error: result.error || "没有生成清理后的 PDF" };
+      }
+      return { ok: true, path: outPdf, removed: rects.length };
+    } catch (error) {
+      return { ok: false, path: original, removed: 0, error: String(error?.message || error) };
+    }
+  }
+
+  return { clean };
+}
+
+// 给**不经过 pdf_tool 的**外部消费方(DocVortex 本地解析)喂 PDF 前,先去页眉页脚 / 页码 / 水印:
+// 成功返回干净副本;没有家具或清理失败则返回原文件(绝不阻断)。
+export async function cleanedPdfFor(source, { cleaner = null, settings = {}, cacheRoot = "", signal, log = () => {} } = {}) {
+  const original = String(source || "");
+  if (!cleaner || !/\.pdf$/i.test(original)) return original;
+  const stem = path.basename(original).replace(/\.[^.]+$/, "");
+  const workDir = path.join(String(cacheRoot || os.tmpdir()), "cleaned", `${stem}-${Date.now().toString(36)}`);
+  const python = String(settings.ocrPython || settings.docvortexPython || "").trim() || "python";
+  const result = await cleaner.clean(original, { python, workDir, signal });
+  if (!result.ok) {
+    log("pdf clean skipped", result.error);
+    return original;
+  }
+  if (result.removed) log("pdf clean", stem, `${result.removed} 处家具 →`, result.path);
+  return result.path;
 }
 
 // 写 §7 产物:<源名>.md / .html / .json / .audit.json(同名加序号)。

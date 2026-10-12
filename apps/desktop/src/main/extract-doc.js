@@ -248,6 +248,7 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
     }
     const cachedDoc = docCandidates.find(fresh);
     if (!cachedDoc) {
+      // 交给 pdf_tool 前先去掉页眉页脚 / 页码 / 水印。
       const args = pdfToolArgs(target.script, { source, outDir: workDir, model: String(settings.mineruModel || "").trim() || "vlm" });
       const modeIndex = args.indexOf("--mode");
       if (modeIndex >= 0) args[modeIndex + 1] = String(settings.extractMode || "auto");
@@ -371,6 +372,7 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", ca
     }
     const target = pdfToolScriptCommand(settings);
     if (target.error) throw new Error(target.error);
+    // 交给 pdf_tool 前先去掉页眉页脚 / 页码 / 水印(MinerU 会丢一部分,文本 / vision 模式不会)。
     const args = pdfToolArgs(target.script, { source, outDir, model });
     const modeIndex = args.indexOf("--mode");
     if (modeIndex >= 0) args[modeIndex + 1] = mode;

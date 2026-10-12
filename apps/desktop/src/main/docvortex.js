@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
+import { cleanedPdfFor, createPdfCleaner } from "./pdf-text.js";
 import { uniqueFile } from "./paths.js";
 import { DOCVORTEX_FORMATS, docvortexFormatExt } from "../shared/workshop-formats.js";
 import { convertPath } from "../shared/workshop-names.js";
@@ -118,7 +119,7 @@ export function createDocvortex({ spawnImpl = spawn, timeoutMs = 10 * 60_000, pr
   return { probe, convert, run };
 }
 
-export function registerDocvortexRunners(workshop, { docvortex, vaultRoot = "", log = (...args) => console.log(...args) } = {}) {
+export function registerDocvortexRunners(workshop, { docvortex, vaultRoot = "", cacheRoot = "", cleaner = createPdfCleaner(), log = (...args) => console.log(...args) } = {}) {
   const absolute = (raw) => {
     const value = String(raw || "");
     return path.isAbsolute(value) ? value : path.join(vaultRoot, value);
@@ -141,9 +142,12 @@ export function registerDocvortexRunners(workshop, { docvortex, vaultRoot = "", 
     const out = uniqueFile(payload?.out
       ? absolute(payload.out)
       : absolute(convertPath(payload?.source, docvortexFormatExt(format))));
+    // 这条链路不经过 pdf_tool,PDF 的页眉页脚 / 页码 / 水印由我们先擦掉
+    // (经过 pdf_tool 的链路由 pdf_tool 侧负责)。
+    const input = await cleanedPdfFor(source, { cleaner, settings, cacheRoot, signal, log });
     report({ label: `转换为 ${format}` });
     log("workshop convert", source, "→", out);
-    const result = await docvortex.convert(settings, { source, format, out, signal });
+    const result = await docvortex.convert(settings, { source: input, format, out, signal });
     if (signal.aborted) throw new Error("任务已取消");
     if (!result.ok) throw new Error(String(result.error || "转换失败"));
     return { output: out, detail: `${format} · ${path.basename(out)}` };

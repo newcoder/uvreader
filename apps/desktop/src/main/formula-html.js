@@ -6,6 +6,12 @@
 // 纯文本变换,便于单测;图片保持相对路径,和 Doc JSON 同目录写出即可被解析。
 import { looksLikeProseBlock } from "../shared/markdown-fix.js";
 
+// 表格怎么给:HTML / LaTeX 目标用真表格,DOCX / PDF 用表格截图
+// (DocVortex 的 docx 渲染器无法从 HTML 物化表格,pdf 会静默丢内容)。
+export function tableModeFor(format) {
+  return ["docx", "pdf"].includes(String(format || "").toLowerCase()) ? "image" : "table";
+}
+
 export function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")

@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
@@ -188,6 +188,42 @@ test("the convert runner numbers the output when it already exists", async () =>
   assert.equal(task.status, "done", task.error);
   assert.equal(task.output, path.join(vault, "Books", "报告 (1).md"), "同名加序号,不覆盖已有产物");
   assert.equal(calls[0].out, task.output);
+});
+
+test("the convert runner cleans PDF furniture before DocVortex sees the file", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-docvortex-clean-"));
+  const source = path.join(dir, "试卷.pdf");
+  fs.writeFileSync(source, "%PDF-1.4");
+  fs.writeFileSync(path.join(dir, "讲义.docx"), "docx");
+  const calls = [];
+  let cleanedPath = "";
+  const queue = createWorkshopQueue({ file: path.join(dir, "tasks.json"), onState: () => {}, log: { warn() {} } });
+  registerDocvortexRunners(queue, {
+    docvortex: {
+      probe: async () => ({ ok: true }),
+      convert: async (_settings, request) => {
+        calls.push(request);
+        return { ok: true, out: request.out };
+      },
+    },
+    vaultRoot: dir,
+    cleaner: {
+      clean: async () => {
+        cleanedPath = path.join(dir, "clean-试卷.pdf");
+        fs.writeFileSync(cleanedPath, "%PDF-clean");
+        return { ok: true, path: cleanedPath, removed: 3 };
+      },
+    },
+    log: () => {},
+  });
+  const first = queue.start({ kind: "docvortex-convert", title: "文档互转", payload: { source: "试卷.pdf", format: "markdown", settings: {} } });
+  await sleep(40);
+  assert.equal(queue.snapshot().tasks.find((row) => row.id === first).status, "done");
+  assert.equal(calls[0].source, cleanedPath, "PDF 先清理再交给 DocVortex(这条链路不经过 pdf_tool)");
+  const second = queue.start({ kind: "docvortex-convert", title: "文档互转", payload: { source: "讲义.docx", format: "markdown", settings: {} } });
+  await sleep(40);
+  assert.equal(queue.snapshot().tasks.find((row) => row.id === second).status, "done");
+  assert.equal(calls[1].source, path.join(dir, "讲义.docx"), "非 PDF 原样交给 DocVortex");
 });
 
 test("the probe runner fails the task when docvortex is missing", async () => {
