@@ -1180,6 +1180,22 @@ body .view-content.qiaomu-reader-view .qiaomu-reader-pdf-zoom-control {
   border-color: color-mix(in srgb, var(--interactive-accent) 55%, var(--background-modifier-border));
 }
 
+.qbr-workshop-preset.is-selected {
+  border-color: var(--interactive-accent);
+  border-width: 2px;
+  padding: 9px 11px;
+  background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-primary));
+}
+
+.qbr-workshop-preset.is-selected::after {
+  content: "✓";
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  color: var(--interactive-accent);
+  font-weight: 700;
+}
+
 .qbr-workshop-preset.is-ready:hover {
   background: var(--background-modifier-hover);
 }

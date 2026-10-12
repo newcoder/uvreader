@@ -79,10 +79,10 @@
 - **结果**:`n/n 页`、耗时、缓存命中;操作「打开」「在书库中显示」。
 - 复用 `pdfOcr.probe/start/openSession`(workers=1、文本页跳过、失败页统计已就绪)。
 
-### 5.2 内容提取(PDF → Doc)
+### 5.2 内容提取
 
-- **定位**:只保**内容**,可丢版式(页/栏/字体位置);**结构化 JSON(含 schema 模板:题库等)与纯图片提字**都在这里。
-- **已实现(2026-10-12)**:PDF 走 pdf_tool(`pdf_to_doc.py`:自动 / MinerU / 文本 / 扫描视觉);Office / ODF / OFD / HTML / EPUB / **图片**走 DocVortex。产物按 §7 落在源文件旁:PDF 为 `<源名>.md|.html|.json|.audit.json` + `<源名>.assets/`(pdf_tool 的 `_doc`/`mineru` 命名在 runner 里改名并改写资产引用),其余为 `<源名>.md|.html|.json`。面板:预设矩阵、PDF 模式选择、检测提取链路、最近任务、**结果预览**(Markdown 开头 1500 字 + 体检摘要)。**题库 schema 模板待接**。
+- **定位**:只保**内容**,可丢版式(页/栏/字体位置);**结构化 JSON(含 schema 模板:题库等)与纯图片提字**都在这里。页面标题就是「内容提取 EXTRACT」(2026-10-12 按反馈去掉「PDF → Doc」的字样与预设矩阵:提取产物固定是 `<源名>.md / .html / .json`,输入决定走哪条链路,选预设没有实际效果)。
+- **已实现(2026-10-12)**:PDF 走 pdf_tool(`pdf_to_doc.py`:自动 / MinerU / 文本 / 扫描视觉);Office / ODF / OFD / HTML / EPUB / **图片**走 DocVortex。产物按 §7 落在源文件旁:PDF 为 `<源名>.md|.html|.json|.audit.json` + `<源名>.assets/`(pdf_tool 的 `_doc`/`mineru` 命名在 runner 里改名并改写资产引用),其余为 `<源名>.md|.html|.json`。面板:PDF 模式选择、检测提取链路、最近任务、**结果预览**(Markdown 开头 1500 字 + 体检摘要)。**题库 schema 模板待接**。
 - **输入**:PDF(文本/扫描)、DOCX、**图片(纯图提字)**。
 - **模式**:自动 / 文本 / 扫描视觉 / MinerU(高级)/ **模板抽取(题库等 schema)**;在线模式沿用现有行为(不加额外确认)。
 - **输出**:Markdown / HTML / **JSON(Doc v1 / 模板 schema)** / 图片资产;命名见 §7(扩展名变化不加后缀)。

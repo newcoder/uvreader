@@ -2352,6 +2352,36 @@ async function runWorkshopScenario() {
       throw new Error(`the convert panel did not open alone: ${JSON.stringify(convert)}`);
     }
     console.log("workshop: page opens with", rail.count, "tools; panel switching ok");
+    // 内容提取面板:标题就是「内容提取」+ EXTRACT;会误导的预设矩阵已撤掉(选中无效果)。
+    const extract = await page.evaluate(() => {
+      const button = [...document.querySelectorAll(".qbr-workshop-rail button")].find((b) => b.dataset.tool === "extract");
+      button?.click();
+      const panel = document.querySelector(".qbr-workshop-panel[data-tool='extract']");
+      return {
+        title: panel?.querySelector("h2 b")?.textContent || "",
+        en: panel?.querySelector("h2 span")?.textContent.trim() || "",
+        presets: panel ? panel.querySelectorAll(".qbr-workshop-preset").length : -1,
+      };
+    });
+    if (extract.title !== "内容提取" || extract.en.toLowerCase() !== "extract" || extract.presets !== 0) {
+      throw new Error(`the extract panel should be plain 内容提取 without a preset matrix: ${JSON.stringify(extract)}`);
+    }
+    // 格式转换面板:预设卡片点击后有可见的选中态。
+    const preset = await page.evaluate(() => {
+      const button = [...document.querySelectorAll(".qbr-workshop-rail button")].find((b) => b.dataset.tool === "convert");
+      button?.click();
+      const panel = document.querySelector(".qbr-workshop-panel[data-tool='convert']");
+      const ready = [...panel.querySelectorAll(".qbr-workshop-preset.is-ready")];
+      const first = ready[0];
+      const before = Boolean(first?.classList.contains("is-selected"));
+      first?.click();
+      const after = Boolean(first?.classList.contains("is-selected"));
+      return { ready: ready.length, before, after, label: first?.querySelector("b")?.textContent || "" };
+    });
+    if (!preset.ready || !preset.before || !preset.after) {
+      throw new Error(`the convert preset should show a visible selected state: ${JSON.stringify(preset)}`);
+    }
+    console.log("workshop: extract is plain 内容提取 (no preset matrix); convert preset selected:", preset.label);
     // The nav route returns home and the workshop remembers the last tool.
     await page.click('[data-route="home"]');
     await page.waitForSelector(".qbr-home-view", { timeout: 10_000 });

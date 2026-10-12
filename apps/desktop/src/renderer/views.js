@@ -406,7 +406,7 @@ const WORKSHOP_TOOLS = [
     lead: "把扫描 PDF 变成可搜索、可划线的文本;不改原件,阅读器直接可用。" },
   { id: "convert", group: "处理", label: "格式转换", title: "格式转换", en: "Convert", icon: "arrow-right",
     lead: "保持内容与版式的文档互转:Office / ODF / HTML / EPUB / OFD → Markdown / HTML / DOCX / PDF / EPUB。" },
-  { id: "extract", group: "处理", label: "内容提取", title: "内容提取(PDF → Doc)", en: "Extract", icon: "file-text",
+  { id: "extract", group: "处理", label: "内容提取", title: "内容提取", en: "Extract", icon: "file-text",
     lead: "只取内容、可丢版式:PDF / DOCX / 图片 → Markdown / HTML / 结构化 JSON(题库等 schema 模板)。" },
   { id: "book", group: "处理", label: "电子书制作", title: "新建电子书", en: "Make a Book", icon: "book-open",
     lead: "从 PDF / Office / txt / Markdown / 图片制作 EPUB:自动提取与分章,配样式、封面、目录,边调边看预览。" },
@@ -753,17 +753,27 @@ export function createWorkshopView(leaf, options) {
       this.selectTool("tasks");
     }
 
-    // 预设卡片矩阵:ready 的选中,其余标「后续阶段」并提示归属。
-    renderPresetMatrix(host, presets) {
+    // 预设卡片矩阵:ready 的选中(有可见选中态),其余标「后续阶段」并提示归属。
+    renderPresetMatrix(host, presets, { selected = "" } = {}) {
       const matrix = host.createDiv("qbr-workshop-matrix");
+      const cards = [];
       for (const preset of presets) {
-        const card = matrix.createDiv("qbr-workshop-preset" + (preset.ready ? " is-ready" : " is-planned"));
+        const card = matrix.createDiv(
+          "qbr-workshop-preset"
+          + (preset.ready ? " is-ready" : " is-planned")
+          + (preset.id === selected ? " is-selected" : ""),
+        );
         card.createEl("b", { text: preset.label });
         card.createDiv({ cls: "qbr-workshop-opt-hint", text: preset.hint });
         if (!preset.ready) card.createSpan({ cls: "qbr-workshop-preset-tag", text: "后续阶段" });
+        cards.push(card);
         card.addEventListener("click", () => {
-          if (preset.ready) { this._convertPreset = preset.id; return; }
-          new Notice(`${preset.label} 将在后续阶段接入(见 docs/workshop-implementation.md)`);
+          if (!preset.ready) {
+            new Notice(`${preset.label} 将在后续阶段接入(见 docs/workshop-implementation.md)`);
+            return;
+          }
+          for (const entry of cards) entry.classList.toggle("is-selected", entry === card);
+          if (preset.onSelect) preset.onSelect(preset.id);
         });
       }
       return matrix;
@@ -774,14 +784,8 @@ export function createWorkshopView(leaf, options) {
       this._extractSelection ||= [];
       const root = panel.createDiv("qbr-workshop-tool");
 
-      const presetCard = root.createDiv("qbr-workshop-card");
-      presetCard.createEl("h3", { text: "选择预设" });
-      this.renderPresetMatrix(presetCard, [
-        { id: "pdf-md", label: "PDF → Markdown / HTML", hint: "文本 / 扫描视觉 / MinerU;可丢版式", ready: true },
-        { id: "schema", label: "结构化 JSON / 题库模板", hint: "Doc v1 JSON 已可用;题库 schema 模板后续", ready: true },
-        { id: "image-text", label: "图片 → 文字", hint: "纯图提字(OCR),产物可再交给转换或制作", ready: true },
-      ]);
-
+      // 这里不放预设矩阵:提取产物固定是 <源名>.md / .html / .json,输入决定走哪条链路,
+      // 「选中预设」没有实际效果(会误导)——信息放进下面的设置说明里。
       const inputCard = root.createDiv("qbr-workshop-card");
       inputCard.createEl("h3", { text: "选择文件" });
       const pickRow = inputCard.createDiv("qbr-workshop-row");
@@ -802,7 +806,7 @@ export function createWorkshopView(leaf, options) {
       for (const mode of EXTRACT_MODES) {
         this._extractMode.createEl("option", { attr: { value: mode.id }, text: mode.label });
       }
-      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "输出 <源名>.md / .html / .json(+ 体检报告),落在源文件旁;Office / 图片走 DocVortex,PDF 走 pdf_tool(公式优先可切 MinerU)。" });
+      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "输出 <源名>.md / .html / .json(+ 体检报告),落在源文件旁;PDF 走 pdf_tool(模式可切 MinerU),Office / OFD / HTML / 图片走 DocVortex;题库等 schema 模板后续阶段。" });
       const detectRow = optionCard.createDiv("qbr-workshop-row");
       const detect = detectRow.createEl("button", { text: "检测提取链路" });
       detect.addEventListener("click", () => this.probeExtract());
@@ -1668,7 +1672,7 @@ export function createWorkshopView(leaf, options) {
       this.renderPresetMatrix(presetCard, [
         { id: "convert", label: "文档互转(DocVortex)", hint: "保持内容与版式:Office/ODF/HTML/EPUB/OFD → md / html / docx / pdf / latex", ready: true },
         { id: "img", label: "图片 → PDF", hint: "打包成 PDF:照片成书、扫描页合成", ready: false },
-      ]);
+      ], { selected: this._convertPreset, onSelect: (id) => { this._convertPreset = id; } });
 
       const inputCard = root.createDiv("qbr-workshop-card");
       inputCard.createEl("h3", { text: "选择文件" });

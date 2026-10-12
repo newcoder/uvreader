@@ -69,6 +69,7 @@
   - **对齐**：压缩键（NFKC + 小写 + 只留字母数字汉字；短键要求词边界，避免 `30` 命中 `3000`）+ 长段落 ~8 词分块、失败二分；两个锚点之间的间隙正是 MinerU 丢掉的词，逐字补回；公式位置换成 LaTeX（字形跳过不重复）；任一段对不上即整段回退 MinerU 原文（不猜不造）。
   - **接入**：`createFormulaChain.prepare()` 在生成 HTML 前合并（格式转换的 HTML/DOCX 因此都受益）、`extractMarkdown()`（向导吃 PDF）改用合并稿成书、`extract-pdf` runner 把 `.md` 产物改写成合并稿（图片引用照 §7 改到 `<源名>.assets/`，`.json` 仍是 MinerU 原始记录）。
   - **实测** `1.DUL+paper.pdf`：补回 `3000 rpm for`、`×`、`designed`（断词）、公式后的句号；文字块合并 35/39（4 个回退，回退块正文本身完好），14 display + 40 inline 公式全在；成品 HTML 段落 39 / 公式 91 / 图片 24 与纯 MinerU 版一致，用户 Downloads 的 HTML 已重生成（69KB）。测试：text-layer 2 项、text-merge 9 项、extract-doc「合并稿写入」1 项 → desktop 191。
+- 格式转换全面测试 + 界面两处反馈（2026-10-12）：15 组互转（docx/pdf/epub/html/csv × md/html/tex/docx/pdf）+ 命名冲突 + 公式优先（含缓存）+ 3 条错误路径全过；修掉 **表格**（DocVortex 的 DOCX 渲染器无法物化 HTML 表格、PDF 渲染器静默丢表格 → 新增目标感知 `tableModeFor()`：docx/pdf 用 MinerU 表格截图、html/latex 用真 `<table>`；实测 DOCX 178KB 内嵌 3 张截图、PDF 285KB、HTML 3 个真表格）、**本地文件同名覆盖**（渲染层只查书库 → 新增 `main/paths.js` 的 `uniqueFile()` 接入三个 runner；实测 `报价单.md` + `报价单 (1).md`）、**MinerU 缓存复用**（prepare/extractMarkdown 命中已有 Doc JSON 就跳过云端，向导工作目录改为按路径+大小+mtime 稳定）、**Markdown 管道表格**渲染成真表格（`markdownToHtml` + 表格样式）、**界面反馈**（内容提取页标题去掉「PDF → Doc」→「内容提取 EXTRACT」；撤掉该面板会误导的预设矩阵——选中本无效果；格式转换面板的预设卡片补上可见选中态 `is-selected` + 对勾）。测试：paths 1、formula-html +1、formula-chain +2、docvortex +1、text-book +1 → desktop **200**；e2e `workshop` 扩展断言（内容提取无预设矩阵、转换预设可选中）、`workshop-extract` / `workshop-convert` 回归通过。
 
 ## 1. 目标与范围
 
