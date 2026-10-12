@@ -982,40 +982,44 @@ export function createWorkshopView(leaf, options) {
       // 快速成书(txt / Markdown → EPUB):样式与预览共用同一份 CSS。
       const wizardCard = root.createDiv("qbr-workshop-card");
       wizardCard.createEl("h3", { text: "快速成书(txt / Markdown → EPUB)" });
-      const sourceRow = wizardCard.createDiv("qbr-workshop-row");
+      // 左:样式与设置;右:预览(正文 + 封面),并排方便边调边看。
+      const wizardGrid = wizardCard.createDiv("qbr-workshop-wizard");
+      const controls = wizardGrid.createDiv("qbr-workshop-wizard-controls");
+      const previewCol = wizardGrid.createDiv("qbr-workshop-wizard-preview");
+      const sourceRow = controls.createDiv("qbr-workshop-row");
       const pickSource = sourceRow.createEl("button", { text: "选择书稿…" });
       pickSource.addEventListener("click", () => this.toggleBookSourceList());
       const pickSourceLocal = sourceRow.createEl("button", { text: "打开本地文件…" });
       pickSourceLocal.addEventListener("click", () => void this.pickLocalBookSources());
       sourceRow.createSpan({ cls: "qbr-workshop-hint", text: "txt / Markdown / PDF / Office / OFD / 图片;非文本源生成时自动提取" });
-      this._bookSourceList = wizardCard.createDiv("qbr-workshop-booklist");
+      this._bookSourceList = controls.createDiv("qbr-workshop-booklist");
       this._bookSourceList.hidden = true;
-      this._bookSourceChips = wizardCard.createDiv("qbr-workshop-chips");
+      this._bookSourceChips = controls.createDiv("qbr-workshop-chips");
 
-      const metaRow = wizardCard.createDiv("qbr-workshop-row");
+      const metaRow = controls.createDiv("qbr-workshop-row");
       metaRow.createSpan({ cls: "qbr-workshop-hint", text: "书名" });
       this._bookTitle = metaRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空用文件名" } });
       metaRow.createSpan({ cls: "qbr-workshop-hint", text: "作者" });
       this._bookAuthor = metaRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "可选" } });
 
-      const layoutRow = wizardCard.createDiv("qbr-workshop-row");
+      const layoutRow = controls.createDiv("qbr-workshop-row");
       layoutRow.createSpan({ cls: "qbr-workshop-hint", text: "字体搭配" });
       this._bookPairing = layoutRow.createEl("select", { cls: "qbr-workshop-select" });
       for (const pairing of FONT_PAIRINGS) {
         this._bookPairing.createEl("option", { attr: { value: pairing.id }, text: pairing.label });
       }
       this._bookControls = {};
-      this.bookSlider(wizardCard, "字号", "fontSize", { min: 12, max: 28, step: 1, suffix: "px" });
-      this.bookSlider(wizardCard, "行距", "lineHeight", { min: 1.2, max: 2.4, step: 0.05, suffix: "" });
-      this.bookSlider(wizardCard, "边距", "margin", { min: 0, max: 12, step: 1, suffix: "%" });
-      const themeRow = wizardCard.createDiv("qbr-workshop-row");
+      this.bookSlider(controls, "字号", "fontSize", { min: 12, max: 28, step: 1, suffix: "px" });
+      this.bookSlider(controls, "行距", "lineHeight", { min: 1.2, max: 2.4, step: 0.05, suffix: "" });
+      this.bookSlider(controls, "边距", "margin", { min: 0, max: 12, step: 1, suffix: "%" });
+      const themeRow = controls.createDiv("qbr-workshop-row");
       themeRow.createSpan({ cls: "qbr-workshop-hint", text: "主题" });
       this._bookTheme = themeRow.createEl("select", { cls: "qbr-workshop-select" });
       for (const [id, theme] of Object.entries(BOOK_THEMES)) {
         this._bookTheme.createEl("option", { attr: { value: id }, text: theme.label });
       }
 
-      const coverRow = wizardCard.createDiv("qbr-workshop-row");
+      const coverRow = controls.createDiv("qbr-workshop-row");
       coverRow.createSpan({ cls: "qbr-workshop-hint", text: "封面" });
       this._bookCoverMode = coverRow.createEl("select", { cls: "qbr-workshop-select" });
       for (const [value, label] of [["template", "模板生成"], ["none", "不要封面"], ["auto", "自动(书内首图,否则模板)"], ["image", "指定图片…"]]) {
@@ -1025,7 +1029,7 @@ export function createWorkshopView(leaf, options) {
       for (const [id, palette] of Object.entries(COVER_PALETTES)) {
         this._bookCoverPalette.createEl("option", { attr: { value: id }, text: palette.label });
       }
-      const coverRow2 = wizardCard.createDiv("qbr-workshop-row");
+      const coverRow2 = controls.createDiv("qbr-workshop-row");
       coverRow2.createSpan({ cls: "qbr-workshop-hint", text: "副标题" });
       this._bookSubtitle = coverRow2.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "可选" } });
       this._bookCoverImage = "";
@@ -1034,13 +1038,9 @@ export function createWorkshopView(leaf, options) {
       this._bookCoverLabel = coverRow2.createSpan({ cls: "qbr-workshop-hint", text: "" });
       this._bookCoverMode.addEventListener("change", () => { this.syncBookCoverRow(); this.onBookStyleChange(); });
       this.syncBookCoverRow();
-      this._bookCoverPreview = wizardCard.createDiv("qbr-workshop-cover-preview");
-      const coverBox = this._bookCoverPreview.createDiv("qbr-workshop-cover-box");
-      this._bookCoverFrame = coverBox.createEl("iframe", { cls: "qbr-workshop-cover-frame" });
-
       this._bookChaptersHost = wizardCard.createDiv("qbr-workshop-chapters");
 
-      const advanced = wizardCard.createEl("details", { cls: "qbr-workshop-advanced" });      advanced.createEl("summary", { text: "高级排版" });
+      const advanced = controls.createEl("details", { cls: "qbr-workshop-advanced" });      advanced.createEl("summary", { text: "高级排版" });
       this.bookSlider(advanced, "首行缩进", "indent", { min: 0, max: 4, step: 0.5, suffix: "em" });
       this.bookSlider(advanced, "段间距", "spacing", { min: 0, max: 2, step: 0.25, suffix: "em" });
       const alignRow = advanced.createDiv("qbr-workshop-row");
@@ -1054,18 +1054,23 @@ export function createWorkshopView(leaf, options) {
       this._bookHeadingAlign.createEl("option", { attr: { value: "left" }, text: "左对齐" });
       this._bookHeadingAlign.createEl("option", { attr: { value: "center" }, text: "居中" });
 
-      const previewRow = wizardCard.createDiv("qbr-workshop-row");
+      const buildRow = controls.createDiv("qbr-workshop-row");
+      const build = buildRow.createEl("button", { cls: "mod-cta", text: "生成 EPUB" });
+      build.addEventListener("click", () => this.startBookBuild());
+      buildRow.createSpan({ cls: "qbr-workshop-hint", text: "产物落在源文件旁" });
+
+      // 预览列:宽度切换 + 正文样张 + 封面缩略图。
+      const previewRow = previewCol.createDiv("qbr-workshop-row");
       const phoneBtn = previewRow.createEl("button", { text: "手机宽度" });
       phoneBtn.addEventListener("click", () => this.setBookPreviewWidth("phone"));
       const wideBtn = previewRow.createEl("button", { text: "桌面宽度" });
       wideBtn.addEventListener("click", () => this.setBookPreviewWidth("wide"));
       previewRow.createSpan({ cls: "qbr-workshop-hint", text: "预览用系统近似字体;生成时嵌入所选字体子集" });
-      this._bookPreview = wizardCard.createDiv("qbr-workshop-preview");
+      this._bookPreview = previewCol.createDiv("qbr-workshop-preview");
       this._bookPreviewFrame = this._bookPreview.createEl("iframe", { cls: "qbr-workshop-preview-frame" });
-      const buildRow = wizardCard.createDiv("qbr-workshop-row");
-      const build = buildRow.createEl("button", { cls: "mod-cta", text: "生成 EPUB" });
-      build.addEventListener("click", () => this.startBookBuild());
-      buildRow.createSpan({ cls: "qbr-workshop-hint", text: "产物落在源文件旁" });
+      this._bookCoverPreview = previewCol.createDiv("qbr-workshop-cover-preview");
+      const coverBox = this._bookCoverPreview.createDiv("qbr-workshop-cover-box");
+      this._bookCoverFrame = coverBox.createEl("iframe", { cls: "qbr-workshop-cover-frame" });
 
       const convertCard = root.createDiv("qbr-workshop-card");
       convertCard.createEl("h3", { text: "电子书互转(EPUB → AZW3 / MOBI)" });

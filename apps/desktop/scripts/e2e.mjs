@@ -2912,6 +2912,22 @@ async function runWorkshopEpubScenario() {
       return Boolean(row);
     });
     if (!wizardPicked) throw new Error("the wizard did not list the txt manuscript");
+    const layout = await page.evaluate(() => {
+      const grid = document.querySelector(".qbr-workshop-panel[data-tool='book'] .qbr-workshop-wizard");
+      if (!grid) return null;
+      const controls = grid.querySelector(".qbr-workshop-wizard-controls")?.getBoundingClientRect();
+      const preview = grid.querySelector(".qbr-workshop-wizard-preview")?.getBoundingClientRect();
+      return {
+        display: getComputedStyle(grid).display,
+        controlsRight: Math.round(controls?.right || 0),
+        previewLeft: Math.round(preview?.left || 0),
+        previewWidth: Math.round(preview?.width || 0),
+      };
+    });
+    if (!layout || layout.display !== "grid" || layout.previewWidth < 200 || layout.previewLeft < layout.controlsRight - 4) {
+      throw new Error(`the wizard should place controls and preview side by side: ${JSON.stringify(layout)}`);
+    }
+    console.log("workshop-epub: controls and preview sit side by side");
     const ranges = await page.evaluate(() => [...document.querySelectorAll(".qbr-workshop-panel[data-tool='book'] input[type='range']")]
       .map((input) => `${input.min}-${input.max}:${input.value}`));
     if (ranges[0] !== "12-28:17" || ranges[1] !== "1.2-2.4:1.75" || ranges[2] !== "0-12:5") {
