@@ -97,6 +97,22 @@ test("repeated lines in the body are not treated as furniture", () => {
   assert.ok(text.includes("第 6 题的正文。"));
 });
 
+test("low-opacity watermark lines are dropped (100pt, opacity 0.1)", () => {
+  // 试卷里的「山西」水印:水平、位于正文区中间、100pt / opacity 0.1,只能靠不透明度识别。
+  const pages = Array.from({ length: 3 }, (_value, index) => ({
+    height: 842,
+    faint: ["山西"],
+    lines: [
+      line("山西", { size: 100, x1: 700, y0: 300, y1: 420 }),
+      line(`第 ${index + 1} 题的正文。`, { y0: 200, y1: 212 }),
+    ],
+  }));
+  const blocks = buildBlocks(pages);
+  const text = blocks.map((block) => block.text).join("\n");
+  assert.ok(!text.includes("山西"), "低不透明度水印删掉");
+  assert.ok(text.includes("第 1 题的正文。"), "正文保留");
+});
+
 test("a code block spanning a page break is joined into one block", () => {
   const pages = [
     {
@@ -181,75 +197,6 @@ test("the text-convert runner bridges the local extraction into DocVortex", asyn
   assert.equal(converted.length, 1);
   assert.match(String(converted[0].source), /bridge\.html$/, "DocVortex 收到的是桥接 HTML");
   assert.match(fs.readFileSync(converted[0].source, "utf8"), /def run\(\):/, "本地提取的文字进了桥接 HTML");
-});
-
-test("furnitureRects locates headers, footers and watermarks for redaction", () => {
-  const pages = [
-    {
-      height: 842,
-      lines: [
-        { text: "CCF CSP-J 2021 第一轮C++语言试题", fonts: { SimSun: 14 }, size: 9, x0: 200, x1: 400, y0: 769, y1: 781, rotated: false },
-        { text: "第 1 页，共 2 页", fonts: { SimSun: 10 }, size: 9, x0: 300, x1: 360, y0: 781, y1: 792, rotated: false },
-        { text: "第一题的正文。", fonts: { SimSun: 20 }, size: 12, x0: 55, x1: 300, y0: 200, y1: 212, rotated: false },
-      ],
-    },
-    {
-      height: 842,
-      lines: [
-        { text: "CCF CSP-J 2021 第一轮C++语言试题", fonts: { SimSun: 14 }, size: 9, x0: 200, x1: 400, y0: 769, y1: 781, rotated: false },
-        { text: "第 2 页，共 2 页", fonts: { SimSun: 10 }, size: 9, x0: 300, x1: 360, y0: 781, y1: 792, rotated: false },
-        { text: "第二题的正文。", fonts: { SimSun: 20 }, size: 12, x0: 55, x1: 300, y0: 200, y1: 212, rotated: false },
-      ],
-    },
-  ];
-  const rects = furnitureRects(pages);
-  assert.equal(rects.length, 4, JSON.stringify(rects));
-  assert.deepEqual(rects[0].rect, [200, 769, 400, 781]);
-  assert.equal(rects[0].page, 1);
-  assert.ok(!rects.some((item) => item.rect[1] === 200), "正文不进擦除清单");
-});
-
-test("createPdfCleaner redacts the furniture into a clean copy", async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-clean-"));
-  const source = path.join(dir, "试卷.pdf");
-  fs.writeFileSync(source, "%PDF-1.4");
-  const { spawnImpl, calls } = fakeSpawn((call, child) => {
-    const job = JSON.parse(fs.readFileSync(call.args[2], "utf8"));
-    fs.writeFileSync(job.out, "cleaned-pdf-bytes");
-    child.emit("close", 0);
-  });
-  const cleaner = createPdfCleaner({
-    spawnImpl,
-    pdfText: {
-      read: async () => ({
-        ok: true,
-        pages: [{
-          height: 842,
-          lines: [
-            { text: "第 1 页，共 1 页", fonts: { SimSun: 10 }, size: 9, x0: 300, x1: 360, y0: 781, y1: 792, rotated: false },
-            { text: "正文。", fonts: { SimSun: 20 }, size: 12, x0: 55, x1: 120, y0: 200, y1: 212, rotated: false },
-          ],
-        }],
-      }),
-    },
-  });
-  const workDir = path.join(dir, "work");
-  const result = await cleaner.clean(source, { python: "python", workDir });
-  assert.equal(result.ok, true, result.error);
-  assert.equal(result.removed, 1);
-  assert.equal(path.basename(result.path), "试卷.pdf", "干净副本保持原文件名");
-  assert.equal(fs.readFileSync(result.path, "utf8"), "cleaned-pdf-bytes");
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].command, "python");
-  const job = JSON.parse(fs.readFileSync(path.join(workDir, "redact-job.json"), "utf8"));
-  assert.deepEqual(job.rects, [{ page: 1, rect: [300, 781, 360, 792] }]);
-
-  // 没有家具时直接返回原文件,不启动 Python
-  const plain = createPdfCleaner({ spawnImpl, pdfText: { read: async () => ({ ok: true, pages: [{ height: 842, lines: [] }] }) } });
-  const untouched = await plain.clean(source, { python: "python", workDir: path.join(dir, "work2") });
-  assert.equal(untouched.ok, true);
-  assert.equal(untouched.path, source);
-  assert.equal(untouched.removed, 0);
 });
 
 test("furnitureRects locates headers, footers and watermarks for redaction", () => {

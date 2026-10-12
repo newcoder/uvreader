@@ -75,10 +75,21 @@ for page in doc:
                 "y1": round(y1, 1),
                 "rotated": rotated,
             })
+    # 低不透明度文字 = 水印(如 100pt / opacity 0.1 的「山西」),单独收集供整行剔除。
+    faint = []
+    try:
+        for span in page.get_texttrace():
+            if float(span.get("opacity", 1) or 1) < 0.5:
+                text = "".join(chr(char[0]) for char in span.get("chars", []) if char and char[0]).strip()
+                if text:
+                    faint.append(text)
+    except Exception:
+        faint = []
     pages.append({
         "width": round(page.rect.width, 1),
         "height": round(page.rect.height, 1),
         "lines": lines,
+        "faint": faint,
     })
 with open(sys.argv[2], "w", encoding="utf-8") as fh:
     json.dump(pages, fh, ensure_ascii=False)
@@ -143,12 +154,19 @@ export function inMargin(line, page, { ratio = 0.08 } = {}) {
   return y0 < height * ratio || y1 > height * (1 - ratio);
 }
 
-// 页眉 / 页脚 / 页码 / 水印的判定:旋转文字、**在上下边缘且样式像页码**的行、
-// **在上下边缘且跨页重复 ≥ max(2, 页数×30%)** 的行。
+// 页眉 / 页脚 / 页码 / 水印的判定:旋转文字、**整行是低不透明度文字**(水印)、
+// **在上下边缘且样式像页码**的行、**在上下边缘且跨页重复 ≥ max(2, 页数×30%)** 的行。
 // 正文里重复出现的代码行、正文里的独立数字行(题号)都不会误删。
 export function furnitureMatcher(pages, { ratio = 0.3 } = {}) {
   const list = Array.isArray(pages) ? pages : [];
   const threshold = Math.max(2, Math.ceil(list.length * ratio));
+  const faint = new Set();
+  for (const page of list) {
+    for (const text of page?.faint || []) {
+      const value = String(text || "").trim().replace(/\s+/g, " ");
+      if (value) faint.add(value);
+    }
+  }
   const counts = new Map();
   for (const page of list) {
     const seen = new Set();
@@ -163,6 +181,7 @@ export function furnitureMatcher(pages, { ratio = 0.3 } = {}) {
     if (line.rotated) return true;
     const key = String(line.text || "").trim().replace(/\s+/g, " ");
     if (!key) return true;
+    if (faint.has(key)) return true;
     const margin = !Number(page?.height) || inMargin(line, page);
     if (margin && looksLikePageNumber(key)) return true;
     return (counts.get(key) || 0) >= threshold && inMargin(line, page);
