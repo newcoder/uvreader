@@ -2756,6 +2756,88 @@ async function writeMinimalDocx(file) {
   fs.writeFileSync(file, await zip.generateAsync({ type: "nodebuffer" }));
 }
 
+// 内容提取:书库 DOCX → md/html/json 落源文件旁(面板预览),并验证向导直接吃 DOCX。
+async function runWorkshopExtractScenario() {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-e2e-wshop-extract-"));
+  fs.mkdirSync(path.join(userData, "library", "Books"), { recursive: true });
+  await writeMinimalDocx(path.join(userData, "library", "Books", "讲义.docx"));
+  const { app, page } = await launch("", { userData });
+  try {
+    await page.waitForSelector(".qbr-home-view", { timeout: 30_000 });
+    await page.click('[data-route="workshop"]');
+    await page.waitForSelector(".qbr-workshop-view", { timeout: 15_000 });
+    // Skip on machines without DocVortex.
+    const probe = await page.evaluate(() => window.qbrDesktop.workshop.start({ kind: "docvortex-probe", title: "检测 DocVortex", payload: {} }));
+    const probed = await waitFor("docvortex probe", () => page.evaluate(async (id) => {
+      const state = await window.qbrDesktop.workshop.list();
+      const task = state.tasks.find((entry) => entry.id === id);
+      return task && task.status !== "running" && task.status !== "queued" ? `${task.status}|${task.output}${task.error}` : "";
+    }, probe), 20_000);
+    if (!probed.startsWith("done")) {
+      console.log("workshop-extract: skipped — docvortex unavailable:", probed.slice(0, 90));
+      return;
+    }
+    await page.evaluate(() => document.querySelector('.qbr-workshop-rail button[data-tool="extract"]')?.click());
+    await page.waitForSelector(".qbr-workshop-panel[data-tool='extract']", { timeout: 10_000 });
+    const picked = await page.evaluate(() => {
+      const panel = document.querySelector(".qbr-workshop-panel[data-tool='extract']");
+      const pick = [...panel.querySelectorAll("button")].find((button) => button.textContent.includes("选择书库文件"));
+      pick?.click();
+      const row = [...document.querySelectorAll(".qbr-workshop-book")].find((entry) => entry.textContent.includes("讲义"));
+      const box = row?.querySelector("input");
+      if (box) { box.checked = true; box.dispatchEvent(new Event("change", { bubbles: true })); }
+      return Boolean(row);
+    });
+    if (!picked) throw new Error("the docx was not listed in the extract picker");
+    const before = await page.evaluate(async () => {
+      const state = await window.qbrDesktop.workshop.list();
+      return state.tasks.filter((task) => task.kind.startsWith("extract-")).length;
+    });
+    await page.evaluate(() => {
+      const panel = document.querySelector(".qbr-workshop-panel[data-tool='extract']");
+      const start = [...panel.querySelectorAll("button")].find((button) => button.textContent.includes("开始提取"));
+      start?.click();
+    });
+    const done = await waitFor("extract task", () => page.evaluate(async (count) => {
+      const state = await window.qbrDesktop.workshop.list();
+      const tasks = state.tasks.filter((task) => task.kind.startsWith("extract-"));
+      if (tasks.length <= count) return "";
+      const newest = tasks[0];
+      return newest.status !== "running" && newest.status !== "queued" ? `${newest.status}|${newest.output}|${newest.error}` : "";
+    }, before), 180_000);
+    if (!done.startsWith("done")) throw new Error(`the extraction should finish done: ${done}`);
+    const md = path.join(userData, "library", "Books", "讲义.md");
+    if (!fs.existsSync(md)) throw new Error(`expected the markdown next to the source: ${md}`);
+    if (!fs.readFileSync(md, "utf8").includes("书坊转换测试")) throw new Error("the extracted markdown lost the text");
+    if (!fs.existsSync(path.join(userData, "library", "Books", "讲义.json"))) throw new Error("expected the structured json next to the source");
+    await waitFor("extract preview", () => page.evaluate(() => {
+      const text = document.querySelector(".qbr-workshop-extract-text")?.textContent || "";
+      return text.includes("书坊转换测试") ? text.slice(0, 12) : "";
+    }), 20_000);
+    console.log("workshop-extract: docx → md/json next to the source with a panel preview");
+    // 向导直接吃 DOCX:内部自动提取。
+    const count = await page.evaluate(async () => {
+      const state = await window.qbrDesktop.workshop.list();
+      return state.tasks.filter((task) => task.kind === "book-build").length;
+    });
+    await page.evaluate(() => window.qbrDesktop.workshop.start({
+      kind: "book-build", title: "生成电子书", payload: { source: "Books/讲义.docx", settings: {}, title: "讲义" },
+    }));
+    const epubDone = await waitFor("wizard from docx", () => page.evaluate(async (beforeBooks) => {
+      const state = await window.qbrDesktop.workshop.list();
+      const tasks = state.tasks.filter((task) => task.kind === "book-build");
+      if (tasks.length <= beforeBooks) return "";
+      const newest = tasks[0];
+      return newest.status !== "running" && newest.status !== "queued" ? `${newest.status}|${newest.output}|${newest.error}` : "";
+    }, count), 180_000);
+    if (!epubDone.startsWith("done")) throw new Error(`the wizard build from docx should finish done: ${epubDone}`);
+    console.log("workshop-extract: wizard built from docx —", path.basename(epubDone.split("|")[1]));
+  } finally {
+    await app.close().catch(() => {});
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+}
+
 // 电子书制作向导(W1-2):txt → 章节 → 字体子集 → EPUB,并在阅读器打开。
 async function runWorkshopEpubScenario() {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-e2e-wshop-epub-"));
@@ -3230,6 +3312,7 @@ const scenarios = [
   ["workshop-formula", runWorkshopFormulaScenario],
   ["workshop-book", runWorkshopBookScenario],
   ["workshop-epub", runWorkshopEpubScenario],
+  ["workshop-extract", runWorkshopExtractScenario],
   ["library", runLibraryTabsScenario],
   ["ebook", runEbookScenario],
   ["restart", runRestartScenario],

@@ -144,6 +144,32 @@ test("the book-build runner honours chapters edited in the panel", async () => {
   assert.match(first, /<p>改过的正文。<\/p>/);
 });
 
+test("the book-build runner extracts office sources before building the epub", async () => {
+  const vault = tempDir("qbr-epub-vault4-");
+  const source = path.join(vault, "讲义.docx");
+  fs.writeFileSync(source, "docx-bytes");
+  const docvortex = {
+    convert: async (_settings, request) => {
+      fs.writeFileSync(request.out, "# 第一章 提取来的\n\n正文甲。\n\n# 第二章 继续\n\n正文乙。");
+      return { ok: true, out: request.out };
+    },
+  };
+  const dir = tempDir("qbr-epub-queue4-");
+  const queue = createWorkshopQueue({ file: path.join(dir, "tasks.json"), onState: () => {}, log: { warn() {} } });
+  registerEpubRunners(queue, { vaultRoot: "D:/vault", cacheRoot: path.join(dir, "cache"), subsetter: null, docvortex, log: () => {} });
+  const id = queue.start({ kind: "book-build", title: "生成电子书", payload: { source, settings: {} } });
+  await sleep(80);
+  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  assert.equal(task.status, "done");
+  assert.ok(fs.existsSync(path.join(vault, "讲义.epub")));
+  const zip = await JSZip.loadAsync(fs.readFileSync(task.output));
+  const nav = await zip.file("OEBPS/nav.xhtml").async("string");
+  assert.match(nav, /第一章 提取来的/);
+  assert.match(nav, /第二章 继续/);
+  const first = await zip.file("OEBPS/chapter-001.xhtml").async("string");
+  assert.match(first, /<p>正文甲。<\/p>/);
+});
+
 test("the book-build runner embeds subsetted fonts", async () => {
   const vault = tempDir("qbr-epub-vault2-");
   const source = path.join(vault, "有字体.md");

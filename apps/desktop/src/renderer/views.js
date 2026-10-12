@@ -7,6 +7,7 @@ import { FONT_PAIRINGS, findPairing, pairingStacks } from "../shared/book-fonts.
 import { coverHtml } from "../shared/cover-template.js";
 import { chapterStats, mergeChapters, moveChapter, renameChapter, splitChapter } from "../shared/book-chapters.js";
 import { splitTextChapters } from "../main/text-book.js";
+import { EXTRACT_MODES, IMAGE_INPUTS, extractionKind } from "../shared/extract-formats.js";
 import { convertPath, uvtextPath } from "../shared/workshop-names.js";
 
 const BOOK_EXTENSIONS = ["epub", "fb2", "fbz", "mobi", "azw", "azw3", "cbz", "pdf"];
@@ -427,6 +428,9 @@ const WORKSHOP_KIND_LABELS = {
   "ebook-convert": "互转",
   "images-cbz": "打包",
   "book-build": "成书",
+  "extract-probe": "检测",
+  "extract-pdf": "提取",
+  "extract-docvortex": "提取",
 };
 
 function formatElapsed(ms) {
@@ -764,18 +768,198 @@ export function createWorkshopView(leaf, options) {
       return matrix;
     }
 
-    // ── 内容提取(PDF/DOCX/图片 → 内容,W1-0)────────────────────────
+    // ── 内容提取(PDF / Office / OFD / 图片 → 内容,W1-0)──────────────
     renderExtractPanel(panel) {
+      this._extractSelection ||= [];
       const root = panel.createDiv("qbr-workshop-tool");
+
       const presetCard = root.createDiv("qbr-workshop-card");
       presetCard.createEl("h3", { text: "选择预设" });
       this.renderPresetMatrix(presetCard, [
-        { id: "pdf-md", label: "PDF → Markdown / HTML", hint: "文本 / 扫描视觉 / MinerU;可丢版式", ready: false },
-        { id: "schema", label: "结构化 JSON / 题库模板", hint: "schema 模板抽取:题目 / 选项 / 答案 / 解析", ready: false },
-        { id: "image-text", label: "图片 → 文字", hint: "纯图提字(OCR),产物可再交给转换或制作", ready: false },
+        { id: "pdf-md", label: "PDF → Markdown / HTML", hint: "文本 / 扫描视觉 / MinerU;可丢版式", ready: true },
+        { id: "schema", label: "结构化 JSON / 题库模板", hint: "Doc v1 JSON 已可用;题库 schema 模板后续", ready: true },
+        { id: "image-text", label: "图片 → 文字", hint: "纯图提字(OCR),产物可再交给转换或制作", ready: true },
       ]);
-      const card = root.createDiv("qbr-workshop-card");
-      card.createDiv({ cls: "qbr-workshop-soon", text: "内容提取将在后续阶段接入(实施计划 docs/workshop-implementation.md 的 W1-0)。" });
+
+      const inputCard = root.createDiv("qbr-workshop-card");
+      inputCard.createEl("h3", { text: "选择文件" });
+      const pickRow = inputCard.createDiv("qbr-workshop-row");
+      const pickVault = pickRow.createEl("button", { text: "选择书库文件…" });
+      pickVault.addEventListener("click", () => this.toggleExtractBookList());
+      const pickLocal = pickRow.createEl("button", { text: "打开本地文件…" });
+      pickLocal.addEventListener("click", () => void this.pickLocalExtractFiles());
+      pickRow.createSpan({ cls: "qbr-workshop-hint", text: "PDF / Office / OFD / HTML / 图片;本地文件就地处理" });
+      this._extractBookList = inputCard.createDiv("qbr-workshop-booklist");
+      this._extractBookList.hidden = true;
+      this._extractChips = inputCard.createDiv("qbr-workshop-chips");
+
+      const optionCard = root.createDiv("qbr-workshop-card");
+      optionCard.createEl("h3", { text: "提取设置" });
+      const modeRow = optionCard.createDiv("qbr-workshop-row");
+      modeRow.createSpan({ cls: "qbr-workshop-hint", text: "PDF 模式" });
+      this._extractMode = modeRow.createEl("select", { cls: "qbr-workshop-select" });
+      for (const mode of EXTRACT_MODES) {
+        this._extractMode.createEl("option", { attr: { value: mode.id }, text: mode.label });
+      }
+      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "输出 <源名>.md / .html / .json(+ 体检报告),落在源文件旁;Office / 图片走 DocVortex,PDF 走 pdf_tool(公式优先可切 MinerU)。" });
+      const detectRow = optionCard.createDiv("qbr-workshop-row");
+      const detect = detectRow.createEl("button", { text: "检测提取链路" });
+      detect.addEventListener("click", () => this.probeExtract());
+      this._extractStatus = detectRow.createSpan({ cls: "qbr-workshop-hint", text: "未检测" });
+
+      const startRow = root.createDiv("qbr-workshop-row");
+      const start = startRow.createEl("button", { cls: "mod-cta", text: "开始提取" });
+      start.addEventListener("click", () => this.startExtractTasks());
+      startRow.createSpan({ cls: "qbr-workshop-hint", text: "批量:逐个入队" });
+
+      this._extractPreview = root.createDiv("qbr-workshop-card");
+      this._extractPreview.hidden = true;
+      this._extractRecent = root.createDiv("qbr-workshop-recent");
+      this.renderExtractChips();
+    }
+
+    extractFiles() {
+      const wanted = [...DOCVORTEX_INPUTS, ...IMAGE_INPUTS];
+      return (app?.vault?.getFiles?.() || [])
+        .filter((file) => wanted.includes(String(file?.extension || "").toLowerCase()))
+        .sort((a, b) => String(a.basename).localeCompare(String(b.basename), "ru"));
+    }
+
+    toggleExtractBookList() {
+      const list = this._extractBookList;
+      if (!list) return;
+      list.hidden = !list.hidden;
+      this.refreshExtractBookList();
+    }
+
+    refreshExtractBookList() {
+      const list = this._extractBookList;
+      if (!list || list.hidden) return;
+      list.empty();
+      const files = this.extractFiles();
+      if (!files.length) {
+        list.createDiv({ cls: "qbr-workshop-hint", text: "书库里还没有可提取的文档。" });
+        return;
+      }
+      for (const file of files) {
+        const row = list.createEl("label", { cls: "qbr-workshop-book" });
+        const box = row.createEl("input", { attr: { type: "checkbox" } });
+        box.checked = this._extractSelection.includes(file.path);
+        box.addEventListener("change", () => {
+          if (box.checked) this.addExtractFile(file.path);
+          else this.removeExtractFile(file.path);
+        });
+        row.createSpan({ text: `${file.basename} · ${String(file.extension || "").toUpperCase()}` });
+      }
+    }
+
+    addExtractFile(path) {
+      if (!path || this._extractSelection.includes(path)) return;
+      this._extractSelection.push(path);
+      this.renderExtractChips();
+    }
+
+    removeExtractFile(path) {
+      this._extractSelection = this._extractSelection.filter((item) => item !== path);
+      this.renderExtractChips();
+      this.refreshExtractBookList();
+    }
+
+    renderExtractChips() {
+      const host = this._extractChips;
+      if (!host) return;
+      host.empty();
+      if (!this._extractSelection.length) {
+        host.createSpan({ cls: "qbr-workshop-hint", text: "未选择文件" });
+        return;
+      }
+      for (const path of this._extractSelection) {
+        const chip = host.createSpan({ cls: "qbr-workshop-chip" });
+        chip.createSpan({ text: path.split("/").pop() || path });
+        const remove = chip.createEl("button", { cls: "qbr-workshop-chip-x", text: "✕" });
+        remove.addEventListener("click", () => this.removeExtractFile(path));
+      }
+    }
+
+    async pickLocalExtractFiles() {
+      if (!bridge?.pickFiles) return;
+      const paths = await bridge.pickFiles().catch(() => []);
+      for (const picked of paths) this.addExtractFile(String(picked).replace(/\\/g, "/"));
+      this.refreshExtractBookList();
+    }
+
+    probeExtract() {
+      if (!bridge) return;
+      void bridge.start({
+        kind: "extract-probe",
+        title: "检测提取链路",
+        detail: "pdf_tool + DocVortex",
+        payload: { settings: this.formulaSettings() },
+      }).catch((error) => new Notice(String(error?.message || error)));
+      this.selectTool("tasks");
+    }
+
+    startExtractTasks() {
+      if (!bridge) return;
+      const files = [...this._extractSelection];
+      if (!files.length) {
+        new Notice("请先选择文件");
+        return;
+      }
+      const mode = String(this._extractMode?.value || "auto");
+      const settings = this.formulaSettings();
+      for (const rel of files) {
+        const kind = extractionKind(rel);
+        void bridge.start({
+          kind: kind === "pdf" ? "extract-pdf" : "extract-docvortex",
+          title: "内容提取",
+          detail: rel,
+          payload: { settings, source: rel, mode },
+        }).catch((error) => new Notice(String(error?.message || error)));
+      }
+      this.selectTool("tasks");
+    }
+
+    // 提取结果预览:产物路径 + 体检报告 + Markdown 开头(仅书库内产物可读)。
+    async renderExtractPreview(task) {
+      const host = this._extractPreview;
+      if (!host) return;
+      host.empty();
+      if (!task || task.status !== "done" || !task.output) {
+        host.hidden = true;
+        return;
+      }
+      host.hidden = false;
+      host.createEl("h3", { text: "提取结果" });
+      host.createDiv({ cls: "qbr-workshop-hint", text: task.detail || "" });
+      const vaultRoot = String(window.qbrDesktop?.paths?.vaultRoot || "").replace(/\\/g, "/").replace(/\/+$/, "");
+      const normalized = String(task.output).replace(/\\/g, "/");
+      const relative = vaultRoot && normalized.toLowerCase().startsWith(`${vaultRoot.toLowerCase()}/`)
+        ? normalized.slice(vaultRoot.length + 1)
+        : "";
+      const file = relative ? app?.vault?.getAbstractFileByPath?.(relative) : null;
+      if (!file) {
+        host.createDiv({ cls: "qbr-workshop-hint", text: `产物在源文件旁：${task.output}` });
+        return;
+      }
+      const text = await app.vault.read(file).catch(() => "");
+      if (text) {
+        const preview = host.createEl("pre", { cls: "qbr-workshop-extract-text" });
+        preview.setText(text.slice(0, 1500));
+      }
+      const auditRel = relative.replace(/\.md$/i, ".audit.json");
+      const auditFile = app?.vault?.getAbstractFileByPath?.(auditRel);
+      if (auditFile) {
+        const auditText = await app.vault.read(auditFile).catch(() => "");
+        try {
+          const audit = JSON.parse(auditText);
+          const issues = Array.isArray(audit?.issues) ? audit.issues : [];
+          host.createDiv({
+            cls: "qbr-workshop-hint",
+            text: `体检：${audit?.ok === false ? "有问题" : "通过"}${issues.length ? ` · ${issues.length} 条：${issues.slice(0, 3).map((issue) => String(issue?.message || issue?.code || issue)).join("；")}` : ""}`,
+          });
+        } catch { /* audit is optional */ }
+      }
     }
 
     // ── 电子书制作(W1-2/W1-3 向导;已接:Calibre 互转 + 图片打包)────────
@@ -803,7 +987,7 @@ export function createWorkshopView(leaf, options) {
       pickSource.addEventListener("click", () => this.toggleBookSourceList());
       const pickSourceLocal = sourceRow.createEl("button", { text: "打开本地文件…" });
       pickSourceLocal.addEventListener("click", () => void this.pickLocalBookSources());
-      sourceRow.createSpan({ cls: "qbr-workshop-hint", text: "txt / Markdown;PDF、Office、图片随后续阶段接入" });
+      sourceRow.createSpan({ cls: "qbr-workshop-hint", text: "txt / Markdown / PDF / Office / OFD / 图片;非文本源生成时自动提取" });
       this._bookSourceList = wizardCard.createDiv("qbr-workshop-booklist");
       this._bookSourceList.hidden = true;
       this._bookSourceChips = wizardCard.createDiv("qbr-workshop-chips");
@@ -1229,6 +1413,11 @@ export function createWorkshopView(leaf, options) {
         if (rel) host.createDiv({ cls: "qbr-workshop-hint", text: "本地文件的目录在生成时自动识别(此处不可编辑)" });
         return;
       }
+      if (!/\.(txt|md|markdown)$/i.test(rel)) {
+        this._bookChapters = [];
+        host.createDiv({ cls: "qbr-workshop-hint", text: "PDF / Office / OFD / 图片的目录在生成时自动识别(内部先提取,无需先跑内容提取)" });
+        return;
+      }
       const text = await app.vault.read(file).catch(() => "");
       this._bookChapters = splitTextChapters(text).map((chapter) => ({ title: chapter.title, text: chapter.body }));
       if (!this._bookChapters.length) return;
@@ -1289,7 +1478,7 @@ export function createWorkshopView(leaf, options) {
     }
 
     bookSourceFiles() {
-      const wanted = ["txt", "md", "markdown"];
+      const wanted = ["txt", "md", "markdown", ...DOCVORTEX_INPUTS, ...IMAGE_INPUTS];
       return (app?.vault?.getFiles?.() || [])
         .filter((file) => wanted.includes(String(file?.extension || "").toLowerCase()))
         .sort((a, b) => String(a.basename).localeCompare(String(b.basename), "ru"));
@@ -1362,10 +1551,12 @@ export function createWorkshopView(leaf, options) {
     async pickLocalBookSources() {
       if (!bridge?.pickFiles) return;
       const paths = await bridge.pickFiles().catch(() => []);
+      const wanted = ["txt", "md", "markdown", ...DOCVORTEX_INPUTS, ...IMAGE_INPUTS];
       for (const picked of paths) {
         const normalized = String(picked).replace(/\\/g, "/");
-        if (/\.(txt|md|markdown)$/i.test(normalized)) this.addBookSource(normalized);
-        else new Notice("快速成书目前支持 txt / Markdown;PDF、Office、图片随后续阶段接入。");
+        const ext = normalized.split(".").pop()?.toLowerCase() || "";
+        if (wanted.includes(ext)) this.addBookSource(normalized);
+        else new Notice("这个格式暂不支持制作电子书。");
       }
       this.refreshBookSourceList();
     }
@@ -1690,6 +1881,27 @@ export function createWorkshopView(leaf, options) {
         else if (probe.status === "running" || probe.status === "queued") this._bookStatus.setText("检测中…");
         else if (probe.status === "done") this._bookStatus.setText(`已就绪：${probe.output || "ebook-convert"}`);
         else this._bookStatus.setText(`未就绪：${probe.error || "未找到"}`);
+      }
+      if (this._extractStatus) {
+        const probe = tasks.find((task) => task.kind === "extract-probe");
+        if (!probe) this._extractStatus.setText("未检测");
+        else if (probe.status === "running" || probe.status === "queued") this._extractStatus.setText("检测中…");
+        else if (probe.status === "done") this._extractStatus.setText(`已就绪：${probe.output || "pdf_tool + DocVortex"}`);
+        else this._extractStatus.setText(`未就绪：${probe.error || "未找到"}`);
+      }
+      if (this._extractRecent) {
+        this._extractRecent.empty();
+        const recent = tasks
+          .filter((task) => task.kind === "extract-pdf" || task.kind === "extract-docvortex")
+          .slice(0, 3);
+        if (recent.length) {
+          this._extractRecent.createEl("h3", { text: "最近" });
+          for (const task of recent) this.renderTaskRow(this._extractRecent, task);
+        }
+      }
+      if (this._extractPreview) {
+        const finished = tasks.find((task) => (task.kind === "extract-pdf" || task.kind === "extract-docvortex") && task.status === "done");
+        void this.renderExtractPreview(finished || null);
       }
       if (this._bookRecent) {
         this._bookRecent.empty();

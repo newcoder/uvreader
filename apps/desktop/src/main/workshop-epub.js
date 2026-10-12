@@ -1,10 +1,12 @@
 // 书坊:电子书制作向导的构建 runner(txt/md → 章节 → 字体子集 → EPUB)。
 // 样式、字体搭配都来自面板;字体下载/子集失败时回退系统字体,不阻断生成。
 import fs from "node:fs";
+import { spawn } from "node:child_process";
 import path from "node:path";
 
 import { buildEpub, BOOK_STYLE_DEFAULTS } from "./epub-build.js";
 import { markdownToHtml, textToChapters, textToHtml } from "./text-book.js";
+import { extractMarkdown, extractionKind, splitMarkdownChapters } from "./extract-doc.js";
 import { collectChars, createFontSubsetter, ensureFont, ensureFontLicense, findPairing, FONT_FAMILIES } from "./workshop-fonts.js";
 import { pairingStacks } from "../shared/book-fonts.js";
 import { convertPath } from "../shared/workshop-names.js";
@@ -122,7 +124,7 @@ export async function resolveCover({ payload = {}, title = "", author = "", mark
   return { data: rendered.data, mediaType: rendered.mediaType || "image/jpeg", fileName: "cover.jpg" };
 }
 
-export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", subsetter = createFontSubsetter(), coverRenderer = null, readImage = null, log = (...args) => console.log(...args) } = {}) {
+export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", subsetter = createFontSubsetter(), coverRenderer = null, readImage = null, docvortex = null, spawnImpl = spawn, log = (...args) => console.log(...args) } = {}) {
   const absolute = (raw) => {
     const value = String(raw || "");
     return path.isAbsolute(value) ? value : path.join(vaultRoot, value);
@@ -152,11 +154,14 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       : absolute(convertPath(payload?.source, "epub", (candidate) => fs.existsSync(absolute(candidate))));
 
     report({ label: "读取内容" });
-    const text = fs.readFileSync(source, "utf8");
-    // 面板里编辑过的目录优先(改名/合并/拆分/排序);否则按标题自动分章。
+    const isText = /\.(txt|md|markdown)$/i.test(source);
+    // 面板里编辑过的目录优先(改名/合并/拆分/排序);文本源按标题自动分章;
+    // PDF / Office / OFD / 图片先内部提取(中间产物放缓存目录,用户无感)。
     const provided = Array.isArray(payload?.chapters) ? payload.chapters : [];
-    const chapters = provided.length
-      ? provided
+    let text = "";
+    let chapters;
+    if (provided.length) {
+      chapters = provided
         .map((chapter, index) => {
           const body = String(chapter?.text || "");
           return {
@@ -165,8 +170,34 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
             html: markdown ? markdownToHtml(body) : textToHtml(body),
           };
         })
-        .filter((chapter) => chapter.text.trim())
-      : textToChapters(text, { markdown, title });
+        .filter((chapter) => chapter.text.trim());
+    } else if (isText) {
+      text = fs.readFileSync(source, "utf8");
+      chapters = textToChapters(text, { markdown, title });
+    } else {
+      report({ label: "提取内容" });
+      const workDir = path.join(cacheRoot, "extract", `${path.basename(source).replace(/[^\w.-]+/g, "_").slice(0, 40)}-${Date.now().toString(36)}`);
+      const extracted = await extractMarkdown(source, {
+        kind: extractionKind(source),
+        settings,
+        docvortex,
+        workDir,
+        signal,
+        log,
+        spawnImpl,
+      });
+      if (signal.aborted) throw new Error("任务已取消");
+      if (!extracted.ok) throw new Error(String(extracted.error || "内容提取失败"));
+      text = extracted.markdown;
+      const found = splitMarkdownChapters(text);
+      chapters = found.length
+        ? found.map((chapter, index) => ({
+          title: chapter.title || `第 ${index + 1} 章`,
+          text: chapter.text,
+          html: markdownToHtml(chapter.text),
+        }))
+        : textToChapters(text, { markdown: true, title });
+    }
     if (!chapters.length) throw new Error("没有可写的内容");
     if (signal.aborted) throw new Error("任务已取消");
     log("book build", source, "→", out, `${chapters.length} 章`);

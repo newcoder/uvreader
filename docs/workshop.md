@@ -82,7 +82,7 @@
 ### 5.2 内容提取(PDF → Doc)
 
 - **定位**:只保**内容**,可丢版式(页/栏/字体位置);**结构化 JSON(含 schema 模板:题库等)与纯图片提字**都在这里。
-- **面板预设(计划中)**:PDF → Markdown / HTML;结构化 JSON / 题库模板;图片 → 文字。
+- **已实现(2026-10-12)**:PDF 走 pdf_tool(`pdf_to_doc.py`:自动 / MinerU / 文本 / 扫描视觉);Office / ODF / OFD / HTML / EPUB / **图片**走 DocVortex。产物按 §7 落在源文件旁:PDF 为 `<源名>.md|.html|.json|.audit.json` + `<源名>.assets/`(pdf_tool 的 `_doc`/`mineru` 命名在 runner 里改名并改写资产引用),其余为 `<源名>.md|.html|.json`。面板:预设矩阵、PDF 模式选择、检测提取链路、最近任务、**结果预览**(Markdown 开头 1500 字 + 体检摘要)。**题库 schema 模板待接**。
 - **输入**:PDF(文本/扫描)、DOCX、**图片(纯图提字)**。
 - **模式**:自动 / 文本 / 扫描视觉 / MinerU(高级)/ **模板抽取(题库等 schema)**;在线模式沿用现有行为(不加额外确认)。
 - **输出**:Markdown / HTML / **JSON(Doc v1 / 模板 schema)** / 图片资产;命名见 §7(扩展名变化不加后缀)。
@@ -103,6 +103,8 @@
 **布局**:左侧向导步骤,右侧**实时预览**(章节样张/封面/目录随步骤切换)。样式改动只重渲染预览(毫秒级),「生成」时才真正构建 EPUB。
 
 **面板预设(计划中)**:PDF → 干净电子书;Markdown / HTML → EPUB;txt → EPUB;Office / OFD → EPUB;**EPUB → AZW3 / MOBI**;图片 → CBZ / EPUB(非文本源由向导内部自动提取/转换)。**所有电子书产物统一在这里。**
+
+**源已全部接入(2026-10-12)**:书稿选择接受 **txt / Markdown / PDF / Office(docx/pptx/xlsx…)/ ODF / OFD / HTML / EPUB / 图片**;**非文本源在生成时由向导内部自动提取**(PDF 走 pdf_tool,其余走 DocVortex,中间产物放 `userData` 缓存,用户无感),提取出的 Markdown 按 1–3 级标题分章。
 
 **已实现(2026-10-12)**:
 - 「**电子书互转(EPUB → AZW3 / MOBI)**」(Calibre `ebook-convert`,检测 + 路径设置 + 检测按钮)与「**图片 → CBZ / EPUB**」(CBZ 自己打包:自然排序、同名序号;EPUB 由 CBZ 经 Calibre 转);产物落在源文件旁。

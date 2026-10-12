@@ -1,0 +1,197 @@
+import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+
+import { adoptPdfToolOutputs, extractionKind, registerExtractRunners, splitMarkdownChapters } from "../src/main/extract-doc.js";
+import { createWorkshopQueue } from "../src/main/workshop.js";
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function tempDir(prefix = "qbr-extract-") {
+  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+}
+
+function fakeSpawn(handler) {
+  const calls = [];
+  const spawnImpl = (command, args, options) => {
+    const call = { command, args, options };
+    calls.push(call);
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => {};
+    setImmediate(() => handler(call, child));
+    return child;
+  };
+  return { spawnImpl, calls };
+}
+
+test("extractionKind routes pdf, images and documents", () => {
+  assert.equal(extractionKind("D:/a/b.pdf"), "pdf");
+  assert.equal(extractionKind("D:/a/scan.PNG"), "image");
+  assert.equal(extractionKind("D:/a/report.docx"), "document");
+  assert.equal(extractionKind("D:/a/notes.txt"), "");
+});
+
+test("splitMarkdownChapters follows 1–3 level headings and keeps fences intact", () => {
+  const markdown = [
+    "# 第一章 起",
+    "",
+    "正文一。",
+    "",
+    "## 小节",
+    "",
+    "正文二。",
+    "",
+    "```js",
+    "# not a heading",
+    "```",
+    "",
+    "### 更深的小节",
+    "",
+    "正文三。",
+  ].join("\n");
+  const chapters = splitMarkdownChapters(markdown);
+  assert.equal(chapters.length, 3);
+  assert.equal(chapters[0].title, "第一章 起");
+  assert.match(chapters[0].text, /正文一。/);
+  assert.match(chapters[1].text, /# not a heading/, "code fences never split chapters");
+  assert.equal(chapters[2].title, "更深的小节");
+  assert.equal(splitMarkdownChapters("没有标题\n\n只有正文").length, 1);
+  assert.equal(splitMarkdownChapters("").length, 0);
+});
+
+test("adoptPdfToolOutputs renames pdf_tool products and rewrites asset links", () => {
+  const dir = tempDir();
+  const stem = "报告";
+  fs.writeFileSync(path.join(dir, `${stem}_doc.md`), `![图](mineru/images/a.jpg)\n\n正文`);
+  fs.writeFileSync(path.join(dir, `${stem}_doc.html`), `<img src="mineru/images/a.jpg">`);
+  fs.writeFileSync(path.join(dir, `${stem}_doc.json`), JSON.stringify({ blocks: [{ image: { src: "mineru/images/a.jpg" } }] }));
+  fs.writeFileSync(path.join(dir, `${stem}_audit.json`), JSON.stringify({ ok: true, issues: [] }));
+  fs.mkdirSync(path.join(dir, "mineru", "images"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "mineru", "images", "a.jpg"), "img");
+
+  const files = adoptPdfToolOutputs(dir, stem);
+  assert.equal(files.md, path.join(dir, `${stem}.md`));
+  assert.equal(files.html, path.join(dir, `${stem}.html`));
+  assert.equal(files.json, path.join(dir, `${stem}.json`));
+  assert.equal(files.audit, path.join(dir, `${stem}.audit.json`));
+  assert.ok(fs.existsSync(path.join(dir, `${stem}.assets`, "images", "a.jpg")));
+  assert.ok(!fs.existsSync(path.join(dir, "mineru")), "the mineru folder is adopted as <name>.assets");
+  assert.match(fs.readFileSync(files.md, "utf8"), /!\[图\]\(报告\.assets\/images\/a\.jpg\)/);
+  assert.match(fs.readFileSync(files.json, "utf8"), /报告\.assets\/images\/a\.jpg/);
+
+  // 再次提取:同名产物加序号,不覆盖。
+  fs.writeFileSync(path.join(dir, `${stem}_doc.md`), "第二遍");
+  const again = adoptPdfToolOutputs(dir, stem);
+  assert.match(path.basename(again.md), /^报告 \(\d+\)\.md$/);
+});
+
+function makeQueue(docvortex, spawnImpl) {
+  const dir = tempDir("qbr-extract-queue-");
+  const queue = createWorkshopQueue({ file: path.join(dir, "tasks.json"), onState: () => {}, log: { warn() {} } });
+  registerExtractRunners(queue, { docvortex, vaultRoot: "D:/vault", spawnImpl, log: () => {} });
+  return { queue, dir };
+}
+
+test("the pdf runner drives pdf_tool and adopts its products next to the source", async () => {
+  const vault = tempDir("qbr-extract-vault-");
+  fs.mkdirSync(path.join(vault, "pdf_tool"), { recursive: true });
+  fs.writeFileSync(path.join(vault, "pdf_tool", "pdf_to_doc.py"), "# stub\n");
+  const source = path.join(vault, "试卷.pdf");
+  fs.writeFileSync(source, "%PDF-1.4");
+  const { spawnImpl, calls } = fakeSpawn((call, child) => {
+    const outDir = call.args[call.args.indexOf("--out-dir") + 1];
+    const stem = "试卷";
+    fs.writeFileSync(path.join(outDir, `${stem}_doc.md`), "![图](mineru/images/a.jpg)\n\n正文");
+    fs.writeFileSync(path.join(outDir, `${stem}_doc.json`), "{}");
+    fs.mkdirSync(path.join(outDir, "mineru", "images"), { recursive: true });
+    fs.writeFileSync(path.join(outDir, "mineru", "images", "a.jpg"), "img");
+    child.emit("close", 0);
+  });
+  const { queue } = makeQueue({ probe: async () => ({ ok: true }), convert: async () => ({ ok: true }) }, spawnImpl);
+  const id = queue.start({
+    kind: "extract-pdf",
+    title: "内容提取",
+    payload: { source, mode: "mineru", settings: { ocrSidecarDir: vault } },
+  });
+  await sleep(60);
+  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  assert.equal(task.status, "done", task.error);
+  assert.equal(task.output, path.join(vault, "试卷.md"));
+  assert.ok(fs.existsSync(path.join(vault, "试卷.json")));
+  assert.ok(fs.existsSync(path.join(vault, "试卷.assets", "images", "a.jpg")));
+  assert.equal(calls[0].args[calls[0].args.indexOf("--mode") + 1], "mineru");
+  assert.equal(calls[0].args[calls[0].args.indexOf("--formats") + 1], "json,md,html");
+});
+
+test("the docvortex runner writes markdown, html and json next to the source", async () => {
+  const vault = tempDir("qbr-extract-vault2-");
+  const source = path.join(vault, "讲义.docx");
+  fs.writeFileSync(source, "docx-bytes");
+  const calls = [];
+  const docvortex = {
+    probe: async () => ({ ok: true }),
+    convert: async (_settings, request) => {
+      calls.push(request.format);
+      fs.writeFileSync(request.out, request.format === "structured_content" ? "{}" : `内容:${request.format}`);
+      return { ok: true, out: request.out };
+    },
+  };
+  const { queue } = makeQueue(docvortex);
+  const id = queue.start({ kind: "extract-docvortex", title: "内容提取", payload: { source, settings: {} } });
+  await sleep(60);
+  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  assert.equal(task.status, "done", task.error);
+  assert.deepEqual(calls, ["markdown", "html", "structured_content"]);
+  assert.equal(fs.readFileSync(path.join(vault, "讲义.md"), "utf8"), "内容:markdown");
+  assert.ok(fs.existsSync(path.join(vault, "讲义.html")));
+  assert.ok(fs.existsSync(path.join(vault, "讲义.json")));
+});
+
+test("the docvortex runner keeps markdown while skipping optional formats", async () => {
+  const vault = tempDir("qbr-extract-vault3-");
+  const source = path.join(vault, "照片.png");
+  fs.writeFileSync(source, "png-bytes");
+  const docvortex = {
+    probe: async () => ({ ok: true }),
+    convert: async (_settings, request) => {
+      if (request.format === "markdown") {
+        fs.writeFileSync(request.out, "图片里的文字");
+        return { ok: true, out: request.out };
+      }
+      return { ok: false, error: "not supported" };
+    },
+  };
+  const { queue } = makeQueue(docvortex);
+  const id = queue.start({ kind: "extract-docvortex", title: "内容提取", payload: { source, settings: {} } });
+  await sleep(60);
+  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  assert.equal(task.status, "done", task.error);
+  assert.ok(fs.existsSync(path.join(vault, "照片.md")));
+  assert.ok(!fs.existsSync(path.join(vault, "照片.html")));
+});
+
+test("the extract probe reports pdf_tool, credentials and DocVortex", async () => {
+  const { queue } = makeQueue({ probe: async () => ({ ok: true }), convert: async () => ({ ok: true }), });
+  const saved = process.env.MINERU_API_KEY;
+  process.env.MINERU_API_KEY = "tk";
+  try {
+    const id = queue.start({ kind: "extract-probe", title: "检测提取链路", payload: { settings: { ocrSidecarDir: "D:/pt" } } });
+    await sleep(40);
+    const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+    if (task.status === "failed") {
+      // 没有 pdf_tool checkout 的机器:报错要可操作。
+      assert.match(task.error, /pdf_tool/);
+    } else {
+      assert.equal(task.status, "done");
+      assert.match(task.output, /pdf_tool \+ DocVortex/);
+    }
+  } finally {
+    if (saved === undefined) delete process.env.MINERU_API_KEY;
+    else process.env.MINERU_API_KEY = saved;
+  }
+});

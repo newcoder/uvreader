@@ -9,6 +9,7 @@ import { createAiRuntime } from "./ai-runtime.js";
 import { createCalibre } from "./calibre.js";
 import { createCoverRenderer } from "./cover-render.js";
 import { createDocvortex, registerDocvortexRunners } from "./docvortex.js";
+import { registerExtractRunners } from "./extract-doc.js";
 import { createFormulaChain, registerFormulaRunners } from "./workshop-formula.js";
 import { registerBookRunners } from "./workshop-book.js";
 import { registerEpubRunners } from "./workshop-epub.js";
@@ -86,7 +87,9 @@ const readCoverImage = async (filePath) => {
   if (image.isEmpty()) return null;
   return { data: image.toJPEG(90), mediaType: "image/jpeg", fileName: "cover.jpg" };
 };
-registerEpubRunners(workshop, { vaultRoot, cacheRoot: fontCacheRoot, coverRenderer, readImage: readCoverImage });
+registerEpubRunners(workshop, { vaultRoot, cacheRoot: fontCacheRoot, coverRenderer, readImage: readCoverImage, docvortex });
+// 内容提取(PDF/Office/OFD/图片 → md/html/json):pdf_tool + DocVortex。
+registerExtractRunners(workshop, { docvortex, vaultRoot });
 // Online book downloads land in the library so they appear as regular books.
 const bookDownloads = createBookDownloads({
   downloadRoot: path.join(vaultRoot, "Books", "下载"),

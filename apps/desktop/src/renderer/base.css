@@ -1317,6 +1317,19 @@ body .view-content.qiaomu-reader-view .qiaomu-reader-pdf-zoom-control {
   gap: 4px;
 }
 
+.qbr-workshop-extract-text {
+  max-height: 260px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
 /* ── 书坊:任务队列 ─────────────────────────────────────────────────── */
 .qbr-workshop-rail button .badge {
   margin-left: auto;

@@ -43,7 +43,7 @@
 
 | ID | 任务 | 主要文件 | 验收 | 测试 | 规模 |
 | --- | --- | --- | --- | --- | --- |
-| W1-0 | 内容提取(PDF/DOCX/图片 → 内容):pdf_tool `pdf_to_doc.py`(auto/text/vision/mineru/blocks)+ **图片提字** + **结构化 JSON / schema 模板(题库等)** + 预览/体检;`<源名>.md\|html\|json` + `<源名>.assets/` 产物 | `main/pdf-tool-doc.js`、`views.js` | 内容落源文件旁;结构化抽取按模板出 JSON | 单测 + e2e | M |
+| W1-0 | 内容提取(PDF/DOCX/图片 → 内容):pdf_tool `pdf_to_doc.py`(auto/text/vision/mineru)+ **图片提字** + **结构化 JSON(Doc v1)** + 预览/体检;`<源名>.md\|html\|json` + `<源名>.assets/` 产物 | `main/extract-doc.js`、`views.js` | 内容落源文件旁;结构化抽取按模板出 JSON | 单测 + e2e | M ✅ 已完成(题库 schema 模板待接) |
 | W1-1 | Calibre 集成:检测(自定义→常见路径→PATH)、`ebook-convert`/`ebook-meta` 调用、下载引导 | `main/calibre.js`、设置段 | 检测到本机 9.15;路径可覆盖 | 单测(检测/命令) | S ✅ 已完成 |
 | W1-2 | EPUB 构建器:Doc/**TXT**/MD/图片→章节 HTML+CSS+封面+元数据+nav/NCX;**字体按需下载(乔木封面字库,`index.json` SHA-256 校验,缓存 `userData/font-cache`)+ 子集化嵌入(`pyftsubset`→TTF,子集改名 `QBR …`,OFL 随包;不可子集字体只用于封面;需 Python 的 fontTools(+brotli 读 WOFF2),缺失时回退嵌原文件/系统字体)**;**非文本源(PDF/Office)自动走提取/转换,用户无感**;封面模板渲染(offscreen 截图→JPG);EbookLib 兜底 | `main/epub-build.js`、`main/workshop-fonts.js`、`main/text-book.js`、`main/workshop-epub.js`、`main/cover-render.js` | 生成 EPUB 可在阅读器打开;字体嵌入正确、体积可控;元数据/封面/目录正确 | 单测 + e2e(打开生成物、校验嵌字与许可) | L ✅ 构建器与字体子系统已完成(封面/向导 UI 待 W1-3) |
 | W1-3 | 向导 UI + 实时预览:**快速成书面板已完成**(书稿选择 txt/md、书名/作者、12 套搭配、字号/行距/边距/主题 + 高级折叠、**正文 iframe 实时预览 + 模板封面缩略图预览**、**目录编辑:改名/合并/拆分/排序**、生成走队列;样式持久化);封面三模式与离线渲染亦完成;其余源(PDF/Office/图片)后续 | `views.js`、`base.css`、`main/cover-render.js`、`shared/book-chapters.js` | 样式改动即时可见;生成走队列 | e2e(向导→封面→目录改名→生成→打开) | L 部分完成 |
@@ -140,3 +140,4 @@ W2-* 依赖 P1 ─────────────────────�
 
 - 0.4.0 = P0;0.5.0 = P1;0.6.0 = P2。每阶段:全量门禁 → 本地安装包 → tag → Release(沿用现有流水线)。
 - 书坊入口可整体开关(`settings.workshopEnabled`,默认开;关闭时导航不显示),便于灰度与回退。
+- **进度(2026-10-12)**:W0 全部完成(0.4.0 可发布);W1-0 ✅(内容提取,题库 schema 模板待接)、W1-1 ✅(Calibre)、W1-2 ✅(构建器 / 字体 / 封面)、W1-3 ✅(向导面板 / 实时预览 / 目录 / 封面预览)、W1-5 部分(EPUB→AZW3/MOBI、图片→CBZ/EPUB 已完成;图片→PDF 待做);**W1-4 发送到 Kindle 未开始**。按用户要求:**此轮后暂停新功能开发**。
