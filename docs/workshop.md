@@ -93,6 +93,7 @@
 - **输出(7 种)**:Markdown、HTML、LaTeX、DOCX、EPUB、PDF、结构化 JSON。
 - **用法**:`docvortex convert <源> --format <目标> -o <产物>`;`--parse-mode auto|txt|ocr`(PDF)、`--pages`、`--pdf-layout`;一次解析可多格式导出(Bundle)。
 - **预设**:PDF→Markdown、DOCX→Markdown/EPUB、EPUB→Markdown、HTML→DOCX 等;选项折叠,默认值可用。
+- **分工(2026-10-12 规划,详见实施计划)**:本工具只做**纯转换**——DocVortex 矩阵 + Calibre 的 EPUB→AZW3/MOBI + 图片→PDF/CBZ;**要封面/目录/样式 → 电子书制作**;**高保真 PDF 提取(PDF→Markdown/干净电子书)→ 内容提取**。预设卡片点按后路由/预填到对应工具,不重复实现。
 - **公式优先(可选,见 §8.1)**:扫描件公式多时,先经 pdf_tool(MinerU)提取 LaTeX,再转 HTML(`<script type="math/tex">`)交 DocVortex 生成 DOCX/EPUB —— 输出为真 OMML/MathML 公式。
 
 ### 5.4 电子书制作(向导 + 实时预览,主输出 EPUB)

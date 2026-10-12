@@ -43,6 +43,7 @@
 
 | ID | 任务 | 主要文件 | 验收 | 测试 | 规模 |
 | --- | --- | --- | --- | --- | --- |
+| W1-0 | 内容提取(PDF → Doc):pdf_tool `pdf_to_doc.py`(auto/text/vision/mineru/blocks)+ 结果预览/体检 + `.uvdoc.md\|html\|json` 产物;公式优先复用公式链路(本地/云端 MinerU) | `main/pdf-tool-doc.js`、`views.js` | PDF → MD/HTML/JSON 落在源文件旁,公式/表格保真 | 单测 + e2e | M |
 | W1-1 | Calibre 集成:检测(自定义→常见路径→PATH)、`ebook-convert`/`ebook-meta` 调用、下载引导 | `main/calibre.js`、设置段 | 检测到本机 9.15;路径可覆盖 | 单测(检测/命令) | S |
 | W1-2 | EPUB 构建器:Doc/MD→章节 HTML+CSS+封面+元数据+nav/NCX;封面模板渲染(offscreen 截图→JPG);EbookLib 兜底 | `main/epub-build.js`、`main/cover-render.js` | 生成 EPUB 可在阅读器打开;元数据/封面/目录正确 | 单测 + e2e(打开生成物) | L |
 | W1-3 | 向导 UI + 实时预览:5 步、iframe(blob)同 CSS、样式控件、封面/目录预览 | `views.js`、`base.css` | 样式改动即时可见;生成走队列 | e2e(向导→生成→打开) | L |
@@ -59,6 +60,25 @@
 | W2-3 | Markdown→EPUB、EPUB→Markdown | Calibre / DocVortex | S |
 | W2-4 | EbookLib 内置构建(可选,AGPL 评估) | 无 Calibre 时的完整方案 | M |
 | W2-5 | 题目抽取入口(依赖 pdf_tool P1) | 后续 | M |
+
+### 预设矩阵与分工(2026-10-12 规划)
+
+格式转换面板的 6 个预设按职责重新划分:**格式转换=纯转换(不排版)**;要封面/目录/样式的一律走**电子书制作**;高保真提取走**内容提取**。
+
+| 预设 | 能力来源 | 现状 | 归属/动作 |
+| --- | --- | --- | --- |
+| 文档互转(DocVortex) | DocVortex 20 入 / 7 出(含 →EPUB/DOCX/MD/HTML/PDF/LaTeX/JSON) | ✅ 已实现 | 格式转换(保留) |
+| PDF → Markdown | ① DocVortex 本地解析(快;扫描件走自带 OCR)② pdf_tool 提取(text/vision/mineru,保真,公式 LaTeX) | ① 可立即点亮 ② 未实现 | ① 格式转换(加提示分流)② **内容提取**(W1-0) |
+| Markdown / HTML → EPUB | ① DocVortex 纯转换(无封面/样式/目录控制)② 电子书制作向导(样式/封面/目录/元数据) | ① 可立即点亮 ② P1(W1-2/W1-3) | ① 格式转换(加提示分流)② 电子书制作 |
+| EPUB → AZW3 / MOBI | Calibre `ebook-convert`(本机 9.15 已装) | 可立即点亮 | 格式转换(W1-1/W1-5 提前) |
+| PDF → 干净电子书 | pdf_tool 提取 + 电子书向导(去页眉页脚/水印、分章、样式、封面) | P1 | 内容提取 + 电子书制作(卡片只做路由/预填) |
+| 图片 → PDF / CBZ | CBZ=ZIP(JSZip 已有);PDF 走 pdf_tool 渲染(`blocks_to_pdf`,图片块→PDF) | P1(W1-5) | 格式转换 |
+
+**补计划缺口**:设计 §5.2 的**内容提取(PDF → Doc)** 在实施计划里缺失,补为 **W1-0**;它同时是「PDF → Markdown(高保真)」与「PDF → 干净电子书」的上游。
+
+**预设卡片行为**:点击预设 → **路由到对应工具并预填**(例如「PDF → 干净电子书」跳「内容提取」并选 MinerU,完成后提示去「电子书制作」);不在转换面板重复实现其它板块的功能。转换面板里的「解析方式(本地/公式优先)」保留,作为纯转换的解析选项。
+
+**建议顺序**:① EPUB → AZW3/MOBI(Calibre,半天)② Markdown/HTML → EPUB、PDF → Markdown 两个纯转换预设(点亮 + 提示分流,半天)③ W1-0 内容提取(1–2 天,复用公式链路 runner 模式)④ 电子书向导(W1-2/W1-3)⑤ 图片 → PDF/CBZ(W1-5)。
 
 ## 4. 依赖与顺序
 

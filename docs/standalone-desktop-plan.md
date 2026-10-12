@@ -50,6 +50,7 @@
 - 公式方案定调：**采用 A**（MinerU → DocVortex，质量优先），**B 方案记录备忘**在 `docs/docvortex-formula-upstream.md`（把公式识别做进 DocVortex 的 OCR 路径：实施钩子/优势/代价/中间路线 B′/触发条件/复现资料），等离线或隐私需求出现时再启动。**A-local（本地 MinerU）交 pdf_tool 实现**：需求文档 `pdf_tool/docs/reader-request-mineru-local-2026-10-11.md`（`--mineru-source auto|cloud|local`、档位 basic/standard/advanced、输出契约不变、验收与 8GB 硬件参考）；书坊侧等 pdf_tool 就绪后加「公式优先(MinerU 本地)」并透传参数，其余不动。
 - 文字层导出简化（用户反馈）：去掉「另存为…」按钮（未生成完也能点、且没必要），导出固定在**源文件旁** `<源名>.uvtext.pdf`、**同名直接覆盖**（可重复导出，不再自动加序号）；同步移除 `qbr:workshop:save-as` IPC/preload 与 `uvtextPath` 的冲突编号参数；E2E `workshop-ocr` 增加「重复导出不产生 (1) 副本」断言。
 - 书坊「本地文件」流程调整（用户反馈）：本地文件**就地处理、不再导入书库**（原文件留在原处），产物一律落在**源文件旁**（文字层 `.uvtext.pdf` 同名覆盖；互转/公式链路产物在源文件旁）；面板提示改为「本地文件就地处理,产物落在源文件旁」。E2E `workshop-ocr` / `workshop-convert` 各增「库外文件就地处理」断言（产物在源文件旁、书库无副本）。
+- 预设矩阵分工规划（用户反馈「有些转换是不是已经实现/有的属于电子书制作」）：**格式转换=纯转换**（DocVortex 矩阵 + Calibre EPUB→AZW3/MOBI + 图片→PDF/CBZ）；**Markdown/HTML→EPUB、PDF→Markdown 的纯转换版今天就可用**（加提示分流）；**要封面/目录/样式 → 电子书制作**；**高保真提取（PDF→Markdown/干净电子书）→ 内容提取**（补为 **W1-0**，原实施计划缺失）；预设卡片改为**路由/预填**到对应工具。写入 `docs/workshop-implementation.md`「预设矩阵与分工」与 `docs/workshop.md` §5.3。
 - 渲染层收紧（安全）：主窗口加 `will-navigate`/`setWindowOpenHandler` 守卫（外链交给系统浏览器，`window.open` 一律拒绝）；Markdown 清洗升级为 `renderer/sanitize.js`（标签与 URL 协议白名单，notes/AI 输出统一入口，另配点击兜底）；CSP 去掉 `script-src` 的内联脚本许可；来源窗口（登录/页加载/下载）只允许 http(s) 加载；下载格式白名单与大小上限；OCR 请求加超时。剩余：`contextIsolation`/`sandbox` 翻转（需把 shim 的 fs 端口改为 IPC）与 `webSecurity` 关闭项清理。
 
 ## 1. 目标与范围
