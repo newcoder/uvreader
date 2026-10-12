@@ -1569,13 +1569,12 @@ export function createWorkshopView(leaf, options) {
         return;
       }
       const state = this.bookStyleState();
-      const settings = plugin?.settings || {};
       void bridge.start({
         kind: "book-build",
         title: "生成电子书",
         detail: rel,
         payload: {
-          settings: { ocrPython: String(settings.ocrPython || "") },
+          settings: this.formulaSettings(),
           source: rel,
           title: state.title,
           author: state.author,

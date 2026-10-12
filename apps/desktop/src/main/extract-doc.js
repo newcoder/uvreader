@@ -132,6 +132,9 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
     const args = pdfToolArgs(target.script, { source, outDir: workDir, model: String(settings.mineruModel || "").trim() || "vlm" });
     const modeIndex = args.indexOf("--mode");
     if (modeIndex >= 0) args[modeIndex + 1] = String(settings.extractMode || "auto");
+    const formatsIndex = args.indexOf("--formats");
+    if (formatsIndex >= 0) args[formatsIndex + 1] = "json,md,html";
+    else args.push("--formats", "json,md,html");
     const token = String(settings.mineruToken || "").trim()
       || String(process.env.MINERU_API_KEY || process.env.MINERU_TOKEN || "").trim();
     const result = await runExtractCommand(target.command, args, {

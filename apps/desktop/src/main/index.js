@@ -76,8 +76,9 @@ registerFormulaRunners(workshop, {
 // 电子书制作:Calibre 互转(EPUB→AZW3/MOBI)+ 图片打包(CBZ/EPUB)。
 const calibre = createCalibre();
 registerBookRunners(workshop, { calibre, vaultRoot });
-// 电子书制作向导(W1-2):txt/md → 章节 → 字体子集 → EPUB(含模板封面)。
-const fontCacheRoot = path.join(userData, "font-cache");
+// 电子书制作向导(W1-2):txt/md/PDF/Office → 章节 → 字体子集 → EPUB(含模板封面)。
+// 缓存布局:<book-cache>/library(字体)、/subset(字体子集)、/extract(非文本源的提取中间产物)。
+const bookCacheRoot = path.join(userData, "book-cache");
 const coverRenderer = createCoverRenderer({
   createWindow: (options) => new BrowserWindow(options),
 });
@@ -87,7 +88,7 @@ const readCoverImage = async (filePath) => {
   if (image.isEmpty()) return null;
   return { data: image.toJPEG(90), mediaType: "image/jpeg", fileName: "cover.jpg" };
 };
-registerEpubRunners(workshop, { vaultRoot, cacheRoot: fontCacheRoot, coverRenderer, readImage: readCoverImage, docvortex });
+registerEpubRunners(workshop, { vaultRoot, cacheRoot: bookCacheRoot, coverRenderer, readImage: readCoverImage, docvortex });
 // 内容提取(PDF/Office/OFD/图片 → md/html/json):pdf_tool + DocVortex。
 registerExtractRunners(workshop, { docvortex, vaultRoot });
 // Online book downloads land in the library so they appear as regular books.

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -14,6 +15,21 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function tempDir(prefix = "qbr-epub-run-") {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+}
+
+function fakeSpawn(handler) {
+  const calls = [];
+  const spawnImpl = (command, args, options) => {
+    const call = { command, args, options };
+    calls.push(call);
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => {};
+    setImmediate(() => handler(call, child));
+    return child;
+  };
+  return { spawnImpl, calls };
 }
 
 function fontBytesFetch(payload = "woff2-bytes") {
@@ -168,6 +184,36 @@ test("the book-build runner extracts office sources before building the epub", a
   assert.match(nav, /第二章 继续/);
   const first = await zip.file("OEBPS/chapter-001.xhtml").async("string");
   assert.match(first, /<p>正文甲。<\/p>/);
+});
+
+test("the book-build runner extracts pdf sources with the pdf_tool checkout", async () => {
+  const vault = tempDir("qbr-epub-vault5-");
+  fs.mkdirSync(path.join(vault, "pdf_tool"), { recursive: true });
+  fs.writeFileSync(path.join(vault, "pdf_tool", "pdf_to_doc.py"), "# stub\n");
+  const source = path.join(vault, "标准.pdf");
+  fs.writeFileSync(source, "%PDF-1.4");
+  const { spawnImpl, calls } = fakeSpawn((call, child) => {
+    const outDir = call.args[call.args.indexOf("--out-dir") + 1];
+    fs.writeFileSync(path.join(outDir, "标准_doc.md"), "# 第一章 标准\n\n正文。\n\n# 第二章 等级\n\n更多。");
+    child.emit("close", 0);
+  });
+  const dir = tempDir("qbr-epub-queue5-");
+  const queue = createWorkshopQueue({ file: path.join(dir, "tasks.json"), onState: () => {}, log: { warn() {} } });
+  registerEpubRunners(queue, { vaultRoot: "D:/vault", cacheRoot: path.join(dir, "cache"), subsetter: null, spawnImpl, log: () => {} });
+  const id = queue.start({
+    kind: "book-build",
+    title: "生成电子书",
+    payload: { source, settings: { ocrSidecarDir: vault }, title: "标准" },
+  });
+  await sleep(80);
+  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  assert.equal(task.status, "done", task.error);
+  assert.equal(calls.length, 1, "pdf_tool runs once, the wizard never shells out twice");
+  assert.equal(calls[0].options.cwd, vault, "the checkout dir from the settings is used");
+  const zip = await JSZip.loadAsync(fs.readFileSync(task.output));
+  const nav = await zip.file("OEBPS/nav.xhtml").async("string");
+  assert.match(nav, /第一章 标准/);
+  assert.match(nav, /第二章 等级/);
 });
 
 test("the book-build runner embeds subsetted fonts", async () => {
