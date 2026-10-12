@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createTextLayerReader, TEXT_LAYER_SCRIPT } from "../src/main/text-layer.js";
+import { createTextLayerReader, safeDir, TEXT_LAYER_SCRIPT } from "../src/main/text-layer.js";
 
 function tempDir(prefix = "qbr-layer-") {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -43,6 +43,14 @@ test("the text layer reader runs PyMuPDF and returns the per-page text", async (
   assert.equal(calls[0].args[1], TEXT_LAYER_SCRIPT);
   assert.equal(calls[0].args[2], pdf);
   assert.ok(fs.existsSync(path.join(dir, "text-layer.json")), "结果写文件而不是 stdout（控制台编码会破坏连字）");
+});
+
+test("safeDir trims trailing dots and spaces Windows cannot create", () => {
+  const trimmed = safeDir(path.join(os.tmpdir(), "qbr-cache."));
+  assert.ok(!trimmed.endsWith("."), `目录名不该以点结尾: ${trimmed}`);
+  assert.equal(path.basename(trimmed), "qbr-cache");
+  const spaced = safeDir(path.join(os.tmpdir(), "qbr-dir "));
+  assert.equal(path.basename(spaced), "qbr-dir");
 });
 
 test("the text layer reader reports failures without throwing", async () => {

@@ -274,10 +274,11 @@ export function blockFullText(block) {
   return [caption, body].filter((part) => part.trim()).join("\n");
 }
 
-// 页眉 / 页脚 / 水印(如 IEEE 的下载戳)会在多页重复出现:按行统计,跨页重复的行删掉,
-// 免得被当成正文补进结果。
-export function stripRepeatedLines(pages, { minPages = 3, minLength = 12 } = {}) {
+// 页眉 / 页脚 / 水印(如 IEEE 的下载戳)会在多页重复出现:按行统计,重复页数达到
+// 「页数 × 0.3(至少 3 页)」的行才算噪声删掉——只重复两三次的多半是正文里的公式或句子。
+export function stripRepeatedLines(pages, { minPages = 0, minLength = 12, ratio = 0.3 } = {}) {
   const list = (Array.isArray(pages) ? pages : []).map((page) => String(page ?? "").normalize("NFKC"));
+  const threshold = Math.max(minPages || 0, 3, Math.ceil(list.length * ratio));
   const counts = new Map();
   for (const page of list) {
     const seen = new Set();
@@ -288,7 +289,7 @@ export function stripRepeatedLines(pages, { minPages = 3, minLength = 12 } = {})
       counts.set(key, (counts.get(key) || 0) + 1);
     }
   }
-  const repeated = new Set([...counts].filter(([, count]) => count >= minPages).map(([key]) => key));
+  const repeated = new Set([...counts].filter(([, count]) => count >= threshold).map(([key]) => key));
   if (!repeated.size) return list;
   return list.map((page) => page
     .split("\n")

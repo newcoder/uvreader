@@ -11,12 +11,20 @@ with open(sys.argv[2], "w", encoding="utf-8") as fh:
     json.dump(pages, fh, ensure_ascii=False)
 `;
 
+// Windows 不接受以点/空格结尾的目录名(mkdir 会静默改名,Python 再按原名写入就会报错),修一下。
+export function safeDir(raw) {
+  const resolved = path.resolve(String(raw || "."));
+  const parts = resolved.split(/[\\/]+/);
+  const last = (parts.pop() || "").replace(/[. ]+$/, "");
+  return [...parts, last].join(path.sep) || ".";
+}
+
 export function createTextLayerReader({ spawnImpl = spawn, timeoutMs = 120_000 } = {}) {
   // 返回 { ok, pages }(pages[i] = 第 i+1 页的纯文本)。
   async function read(pdfPath, { python = "python", workDir = "", signal } = {}) {
     const source = String(pdfPath || "");
     if (!source || !fs.existsSync(source)) return { ok: false, error: `找不到 PDF：${source}` };
-    const base = String(workDir || path.dirname(source) || ".");
+    const base = safeDir(String(workDir || path.dirname(source) || "."));
     try {
       fs.mkdirSync(base, { recursive: true });
       const outFile = path.join(base, "text-layer.json");

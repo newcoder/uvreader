@@ -54,6 +54,10 @@ test("stripRepeatedLines drops repeated headers, footers and watermarks only", (
   assert.ok(cleaned[0].includes("body one line") && cleaned[3].includes("body four line"), "正文保留");
   const unique = stripRepeatedLines(["只有一页的正文", "第二页正文"]);
   assert.deepEqual(unique, ["只有一页的正文", "第二页正文"]);
+  // 长文档里只重复两三次的行多半是正文里的公式/句子,不删(阈值 = 页数 × 0.3)
+  const book = Array.from({ length: 20 }, (_value, index) => `body line ${index}${index < 3 ? "\nsame formula line here" : ""}`);
+  const cleanedBook = stripRepeatedLines(book);
+  assert.ok(cleanedBook.slice(0, 3).every((page) => page.includes("same formula line here")), "3/20 页的重复不当噪声");
 });
 
 test("mergeParagraph recovers words MinerU dropped and keeps its LaTeX", () => {
