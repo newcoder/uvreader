@@ -361,10 +361,10 @@ export function createSettingsView(leaf, options) {
 const WORKSHOP_TOOLS = [
   { id: "ocr", group: "处理", label: "文字层", title: "文字层与可搜索 PDF", en: "Text Layer", icon: "text-select",
     lead: "把扫描 PDF 变成可搜索、可划线的文本;不改原件,阅读器直接可用。" },
-  { id: "extract", group: "处理", label: "内容提取", title: "内容提取(PDF → Doc)", en: "Extract", icon: "file-text",
-    lead: "完整提取文字、图片、表格、代码、公式,输出 Markdown / HTML / JSON,供转换或重新排版。" },
   { id: "convert", group: "处理", label: "格式转换", title: "格式转换", en: "Convert", icon: "arrow-right",
-    lead: "文档互转:Office / ODF / HTML / EPUB / OFD → Markdown / HTML / DOCX / PDF / EPUB。" },
+    lead: "保持内容与版式的文档互转:Office / ODF / HTML / EPUB / OFD → Markdown / HTML / DOCX / PDF / EPUB。" },
+  { id: "extract", group: "处理", label: "内容提取", title: "内容提取(PDF → Doc)", en: "Extract", icon: "file-text",
+    lead: "只取内容、可丢版式:PDF / DOCX / 图片 → Markdown / HTML / 结构化 JSON(题库等 schema 模板)。" },
   { id: "book", group: "处理", label: "电子书制作", title: "新建电子书", en: "Make a Book", icon: "book-open",
     lead: "从提取结果、Markdown 或图片制作 EPUB:元数据、章节、封面、样式,可实时预览。" },
   { id: "kindle", group: "发送", label: "发送到 Kindle", title: "发送到 Kindle", en: "Send to Kindle", icon: "external-link",

@@ -2336,6 +2336,11 @@ async function runWorkshopScenario() {
     if (!rail.labels.includes("文字层") || !rail.labels.includes("发送到 Kindle")) {
       throw new Error(`unexpected workshop rail: ${JSON.stringify(rail.labels)}`);
     }
+    // 处理组的顺序:文字层 → 格式转换 → 内容提取 → 电子书制作。
+    const head = rail.labels.slice(0, 4);
+    if (head.join("|") !== "文字层|格式转换|内容提取|电子书制作") {
+      throw new Error(`unexpected workshop rail order: ${JSON.stringify(head)}`);
+    }
     // Switching tools shows exactly one panel.
     const convert = await page.evaluate(() => {
       const button = [...document.querySelectorAll(".qbr-workshop-rail button")].find((b) => b.dataset.tool === "convert");
