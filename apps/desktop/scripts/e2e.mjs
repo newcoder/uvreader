@@ -2756,6 +2756,67 @@ async function writeMinimalDocx(file) {
   fs.writeFileSync(file, await zip.generateAsync({ type: "nodebuffer" }));
 }
 
+// 电子书制作向导(W1-2):txt → 章节 → 字体子集 → EPUB,并在阅读器打开。
+async function runWorkshopEpubScenario() {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-e2e-wshop-epub-"));
+  fs.mkdirSync(path.join(userData, "library", "Books"), { recursive: true });
+  const source = path.join(userData, "library", "Books", "测试小说.txt");
+  fs.writeFileSync(source, "第一章 起风了\n\n第一段正文，犇。\n\n第二章 雨\n\n第二段正文。\n", "utf8");
+  const bundledFont = fileURLToPath(new URL("../../../fonts/QiaomuReadingFangsong.woff2", import.meta.url));
+  const { app, page } = await launch("", { userData });
+  try {
+    await page.waitForSelector(".qbr-home-view", { timeout: 30_000 });
+    const payload = {
+      source: "Books/测试小说.txt",
+      settings: { ocrPython: process.env.QBR_OCR_PYTHON || "python" },
+      styles: { theme: "warm", fontSize: 18, lineHeight: 1.8 },
+      title: "测试小说",
+      author: "书坊",
+    };
+    if (fs.existsSync(bundledFont)) payload.fonts = { files: [{ path: bundledFont.replace(/\\/g, "/"), family: "Zhuque" }] };
+    const task = await page.evaluate((request) => window.qbrDesktop.workshop.start({
+      kind: "book-build", title: "生成电子书", payload: request,
+    }), payload);
+    const done = await waitFor("book-build", () => page.evaluate(async (id) => {
+      const state = await window.qbrDesktop.workshop.list();
+      const entry = state.tasks.find((row) => row.id === id);
+      return entry && entry.status !== "running" && entry.status !== "queued" ? `${entry.status}|${entry.output}|${entry.error}` : "";
+    }, task), 300_000);
+    if (!done.startsWith("done")) throw new Error(`the book build should finish done: ${done}`);
+    const out = path.join(userData, "library", "Books", "测试小说.epub");
+    if (!fs.existsSync(out)) throw new Error(`expected the epub next to the source: ${out}`);
+    const zip = await JSZip.loadAsync(fs.readFileSync(out));
+    const opf = await zip.file("OEBPS/content.opf").async("string");
+    if (!opf.includes("<dc:title>测试小说</dc:title>")) throw new Error("the epub lost its metadata");
+    const nav = await zip.file("OEBPS/nav.xhtml").async("string");
+    if (!nav.includes("第一章 起风了") || !nav.includes("第二章 雨")) throw new Error("the epub lost its chapters");
+    const css = await zip.file("OEBPS/styles.css").async("string");
+    if (!/background: #faf6ef/.test(css) || !/font-size: 18px/.test(css)) throw new Error("the epub lost its styles");
+    if (fs.existsSync(bundledFont)) {
+      const ttf = Object.keys(zip.files).filter((name) => name.startsWith("OEBPS/fonts/") && name.endsWith(".ttf"));
+      const woff2 = Object.keys(zip.files).filter((name) => name.startsWith("OEBPS/fonts/") && name.endsWith(".woff2"));
+      if (!ttf.length && !woff2.length) throw new Error("expected an embedded font inside the epub");
+      const entry = ttf[0] || woff2[0];
+      const bytes = (await zip.file(entry).async("nodebuffer")).length;
+      if (bytes <= 0) throw new Error(`the embedded font looks empty: ${bytes} bytes`);
+      if (ttf.length && bytes > 1_500_000) throw new Error(`the font subset looks wrong: ${bytes} bytes`);
+      const licenses = Object.keys(zip.files).filter((name) => name.startsWith("OEBPS/fonts/OFL-"));
+      if (!licenses.length) throw new Error("expected the OFL license inside the epub");
+      console.log("workshop-epub: font", ttf.length ? "subset" : "full (fontTools/brotli unavailable)", Math.round(bytes / 1024) + "KB with its license");
+    }
+    console.log("workshop-epub: txt → epub", fs.statSync(out).size, "bytes");
+    await page.evaluate(async () => {
+      const file = window.__qbrApp.vault.getAbstractFileByPath("Books/测试小说.epub");
+      await window.__qbrPlugin.openFile(file);
+    });
+    await waitFor("generated epub open", () => readerReady(page), 30_000);
+    console.log("workshop-epub: the reader opened the generated book");
+  } finally {
+    await app.close().catch(() => {});
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+}
+
 // 电子书制作:图片 → CBZ(纯打包)+ EPUB → AZW3 / 图片 → EPUB(Calibre,缺失则跳过)。
 async function runWorkshopBookScenario() {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-e2e-wshop-book-"));
@@ -3090,6 +3151,7 @@ const scenarios = [
   ["workshop-convert", runWorkshopConvertScenario],
   ["workshop-formula", runWorkshopFormulaScenario],
   ["workshop-book", runWorkshopBookScenario],
+  ["workshop-epub", runWorkshopEpubScenario],
   ["library", runLibraryTabsScenario],
   ["ebook", runEbookScenario],
   ["restart", runRestartScenario],
