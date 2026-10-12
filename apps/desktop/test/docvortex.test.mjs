@@ -164,6 +164,32 @@ test("the convert runner resolves the vault path and lands the output", async ()
   assert.equal(calls[0].format, "markdown");
 });
 
+test("the convert runner numbers the output when it already exists", async () => {
+  const vault = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-docvortex-dup-"));
+  fs.mkdirSync(path.join(vault, "Books"), { recursive: true });
+  fs.writeFileSync(path.join(vault, "Books", "报告.docx"), "docx");
+  fs.writeFileSync(path.join(vault, "Books", "报告.md"), "先来的产物");
+  const calls = [];
+  const queue = createWorkshopQueue({ file: path.join(vault, "tasks.json"), onState: () => {}, log: { warn() {} } });
+  registerDocvortexRunners(queue, {
+    docvortex: {
+      probe: async () => ({ ok: true }),
+      convert: async (_settings, request) => {
+        calls.push(request);
+        return { ok: true, out: request.out };
+      },
+    },
+    vaultRoot: vault,
+    log: () => {},
+  });
+  const id = queue.start({ kind: "docvortex-convert", title: "文档互转", payload: { source: "Books/报告.docx", format: "markdown" } });
+  await sleep(40);
+  const task = queue.snapshot().tasks.find((row) => row.id === id);
+  assert.equal(task.status, "done", task.error);
+  assert.equal(task.output, path.join(vault, "Books", "报告 (1).md"), "同名加序号,不覆盖已有产物");
+  assert.equal(calls[0].out, task.output);
+});
+
 test("the probe runner fails the task when docvortex is missing", async () => {
   const { queue } = fakeRunner({
     probe: async () => ({ ok: false, detail: "未找到 docvortex(可 pip install docvortex 或填写路径)" }),

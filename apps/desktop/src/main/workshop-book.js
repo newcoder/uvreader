@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { buildCbz, cbzPath } from "./cbz.js";
+import { uniqueFile } from "./paths.js";
 import { EBOOK_TARGETS, IMAGE_BOOK_TARGETS, ebookTargetExt } from "../shared/workshop-formats.js";
 import { convertPath } from "../shared/workshop-names.js";
 
@@ -28,9 +29,10 @@ export function registerBookRunners(workshop, { calibre, vaultRoot = "", log = (
     const settings = payload?.settings || {};
     const source = absolute(payload?.source);
     const format = String(payload?.format || "azw3");
-    const out = payload?.out
+    // 同名不覆盖:本地文件也要按 §7 加序号(渲染层的书库判断看不到本地文件)。
+    const out = uniqueFile(payload?.out
       ? absolute(payload.out)
-      : absolute(convertPath(payload?.source, ebookTargetExt(format)));
+      : absolute(convertPath(payload?.source, ebookTargetExt(format))));
     report({ label: `转换为 ${format.toUpperCase()}` });
     log("ebook convert", source, "→", out);
     const result = await calibre.convert(settings, { source, out, signal });

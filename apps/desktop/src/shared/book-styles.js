@@ -75,6 +75,8 @@ pre { font-family: ${s.codeFont}; font-size: .9em; line-height: 1.5; padding: .7
 code { font-family: ${s.codeFont}; font-size: .92em; }
 pre code { font-size: 1em; }
 img { max-width: 100%; height: auto; display: block; margin: 1em auto; }
+table { width: 100%; border-collapse: collapse; margin: 1em 0; font-size: 0.92em; }
+th, td { border: 1px solid rgba(120, 120, 120, 0.45); padding: 3px 6px; text-align: left; vertical-align: top; }
 math { font-size: 1.02em; }
 math[display="block"] { display: block; margin: 1.1em 0; text-align: center; }
 figure { margin: 1em 0; text-align: center; }

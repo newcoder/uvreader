@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { blocksFromDoc, blocksToHtml } from "./formula-html.js";
+import { uniqueFile } from "./paths.js";
 import { mergeBlocksWithTextLayer } from "./text-merge.js";
 import { createTextLayerReader } from "./text-layer.js";
 import { docvortexFormatExt } from "../shared/workshop-formats.js";
@@ -66,6 +67,12 @@ function stemOf(source) {
   const name = path.basename(String(source || ""));
   const dot = name.lastIndexOf(".");
   return dot > 0 ? name.slice(0, dot) : name || "doc";
+}
+
+// 表格怎么给:HTML / LaTeX 目标用真表格,DOCX / PDF 用表格截图
+// (DocVortex 的 docx 渲染器无法从 HTML 物化表格,pdf 会静默丢内容)。
+export function tableModeFor(format) {
+  return ["docx", "pdf"].includes(String(format || "").toLowerCase()) ? "image" : "table";
 }
 
 // pdf_tool 的 PDF → Doc 入口(需要 checkout;打包 exe 只提供阅读器 sidecar)。
@@ -135,7 +142,7 @@ export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000,
   // MinerU 解析 → Doc JSON → 公式 HTML;返回 {ok, htmlPath, docPath}。
   // 缓存复用:MinerU 慢且计费,同一个源(同一缓存目录、Doc JSON 比 PDF 新)再转换时
   // 直接复用解析结果;refresh=true 才重新解析。
-  async function prepare({ settings = {}, source, workDir, pages = "", signal, report, refresh = false } = {}) {
+  async function prepare({ settings = {}, source, workDir, pages = "", signal, report, refresh = false, format = "" } = {}) {
     const target = pdfToolScriptCommand(settings);
     if (target.error) return { ok: false, error: target.error };
     fs.mkdirSync(workDir, { recursive: true });
@@ -187,7 +194,7 @@ export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000,
       else log("text layer skipped", layer.error);
     }
     if (signal?.aborted) return { ok: false, cancelled: true, error: "任务已取消" };
-    const html = blocksToHtml(blocks, { title: stemOf(source) });
+    const html = blocksToHtml(blocks, { title: stemOf(source), tableMode: tableModeFor(format) });
     const htmlPath = path.join(workDir, "bridge.html");
     fs.writeFileSync(htmlPath, html, "utf8");
     return { ok: true, htmlPath, docPath, log: parsed.log };
@@ -222,11 +229,12 @@ export function registerFormulaRunners(workshop, { chain, docvortex, vaultRoot =
     const source = absolute(payload?.source);
     const format = String(payload?.format || "docx");
     const pages = String(payload?.pages || "");
-    const out = payload?.out
+    // 同名不覆盖:本地文件也要按 §7 加序号(渲染层的书库判断看不到本地文件)。
+    const out = uniqueFile(payload?.out
       ? absolute(payload.out)
-      : absolute(convertPath(payload?.source, docvortexFormatExt(format)));
+      : absolute(convertPath(payload?.source, docvortexFormatExt(format))));
     const workDir = formulaCacheDir(cacheRoot, source, pages);
-    const prepared = await chain.prepare({ settings, source, workDir, pages, signal, report });
+    const prepared = await chain.prepare({ settings, source, workDir, pages, signal, report, format });
     if (signal.aborted) throw new Error("任务已取消");
     if (!prepared.ok) throw new Error(String(prepared.error || "MinerU 解析失败"));
     report({ label: "DocVortex 转换" });

@@ -105,7 +105,12 @@
   - **公式用 MinerU 的 LaTeX**:对齐出的公式位置照旧写 `<script type="math/tex">`;公式字形(如 `65 °C`)被跳过、换成 LaTeX,不重复;两边冲突时按「谁覆盖谁」择优,任一段对不上就整段回退 MinerU 原文(不猜、不造)。
   - **接入点**:`formula-convert`(格式转换的公式优先)在生成 HTML 前合并;`book-build`(电子书制作)提取 PDF 时用合并稿成书;`内容提取`(PDF)的 `.md` 产物也改写成这份合并稿(图片引用照 §7 改写为 `<源名>.assets/`),`.json` 仍是 MinerU 原始结构化记录。
   - 实测 `1.DUL+paper.pdf`:补回 `3000 rpm for`、`×`、`designed`(断词)、公式后的句号;79 块里正文块合并 35/39(4 个回退,回退块本身正文完好),14 个行间公式 + 40 个行内公式一个没丢;成品 HTML 段落 39、公式 91、图片 24 与纯 MinerU 版一致。
-  - **多文件实测(2026-10-12,pdf_tool `test-docs` 的 6 份 PDF)**:R-D Background(9 页,合并 28/回退 5)、Plan and Methodology(7 页,50/1)、Q202607194(2 页,7/4)、DUL 论文(7 页,44/4,净补 +175 键字符)、kinetic theory 教材(**107 页**,649/95,净补 +81,**852 个行间 + 1045 个行内公式全保留**)、TI+DMD(11 页)在测。所有文件**"缩短"计数为 0**(没有任何正文块比 MinerU 更短 = 没丢字);回退块审计显示剩余缺口基本是页眉/版权脚注/公式字形/连字拆词,不是正文。
+  - **多文件实测(2026-10-12,pdf_tool `test-docs` 的 6 份 PDF)**:R-D Background(9 页,合并 28/回退 5)、Plan and Methodology(7 页,50/1,净补 +57)、Q202607194(2 页,7/4)、DUL 论文(7 页,44/4,净补 +175 键字符)、TI+DMD(11 页,65/98)、kinetic theory 教材(**107 页**,649/95,净补 +81,**852 个行间 + 1045 个行内公式全保留**)。所有文件**"缩短"计数为 0**(没有任何正文块比 MinerU 更短 = 没丢字);回退块审计显示剩余缺口基本是页眉/版权脚注/公式字形/连字拆词,不是正文。
+- **格式转换全面测试(2026-10-12,15 组互转 + 命名 + 错误路径)**:docx / pdf / epub / html / csv × md / html / tex / docx / pdf 全绿(docx → 5 种目标各 2–4 秒,epub / pdf 各 1–3 秒);过程中发现并修掉两个真问题:
+  - **表格**:DocVortex 的 DOCX 渲染器**无法从 HTML 物化表格**(直接报 `HTML table cannot be materialized and has no image fallback`),PDF 渲染器则**静默丢掉表格内容**。新增目标感知的 `tableModeFor()`:`docx` / `pdf` 目标把表格换成 MinerU 的**表格截图**(Doc JSON 自带 `image`),`html` / `latex` 目标仍输出真 `<table>`。实测 2 页报价 PDF:改前 DOCX 报错、PDF 里搜不到表格文字;改后 DOCX 178KB(内嵌 3 张表格截图)、PDF 285KB、HTML 3 个真表格。
+  - **本地文件同名覆盖**:渲染层的同名判断只查**书库**(本地文件永远判不到),会静默覆盖已有产物。新增 `main/paths.js` 的 `uniqueFile()`,接入 `docvortex-convert` / `formula-convert` / `ebook-convert` 三个 runner;实测同一份本地 PDF 连转两次 → `报价单.md` + `报价单 (1).md`,两个文件都在。
+  - 顺带:Markdown 的**管道表格**现在渲染成真表格(`text-book.markdownToHtml`:缺格补空、单元格里的公式照常渲染;此前是带竖线的段落),`book-styles` 配了表格样式。
+  - 已知上游限制:DOCX 里的表格只能是截图(DocVortex 渲染器限制);转换 HTML 时若同目录缺图片资源 DocVortex 会报错(资源放好即可,任务会记录错误);**图片 → PDF** 预设仍未实现(面板标注「后续阶段」)。
 
 ### 5.4 电子书制作(向导 + 实时预览,主输出 EPUB)
 

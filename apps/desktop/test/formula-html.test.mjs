@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { blocksFromDoc, blocksToHtml, blockToHtml, escapeHtml, joinProseLines, stripMathDelimiters, wrapInlineMath } from "../src/main/formula-html.js";
+import { blocksFromDoc, blocksToHtml, blockToHtml, blockToMarkdown, escapeHtml, joinProseLines, stripMathDelimiters, wrapInlineMath } from "../src/main/formula-html.js";
 
 test("escapeHtml neutralizes markup", () => {
   assert.equal(escapeHtml('<b>"a" & b</b>'), "&lt;b&gt;&quot;a&quot; &amp; b&lt;/b&gt;");
@@ -94,6 +94,19 @@ test("a code block whose caption holds the paragraph lead-in keeps both halves",
 test("a real code block keeps its caption as a paragraph above the code", () => {
   const html = blockToHtml({ type: "code", caption: "算法 1 伪代码。", content: "def run(cfg):\n    return cfg" });
   assert.match(html, /^<p>算法 1 伪代码。<\/p>\n<pre><code>def run\(cfg\):\n    return cfg<\/code><\/pre>$/);
+});
+
+test("tables can be emitted as their MinerU screenshot for DOCX/PDF targets", () => {
+  const block = { type: "table", headers: ["a"], rows: [["1"]], image: { src: "mineru/images/t.jpg", alt: "表格" } };
+  assert.match(blockToHtml(block), /^<table>/, "默认给真表格(HTML / LaTeX 目标)");
+  assert.equal(blockToHtml(block, { tableMode: "image" }), '<figure><img src="mineru/images/t.jpg" alt="表格"></figure>');
+  assert.equal(
+    blockToHtml({ type: "table", headers: ["a"], rows: [["1"]] }, { tableMode: "image" }),
+    "<table><thead><tr><th>a</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table>",
+    "没有截图就退回真表格",
+  );
+  assert.equal(blockToMarkdown(block, { tableMode: "image" }), "![表格](mineru/images/t.jpg)");
+  assert.match(blockToMarkdown(block), /^\| a \|/);
 });
 
 test("image captions become figcaption", () => {

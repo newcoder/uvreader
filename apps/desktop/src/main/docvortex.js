@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
+import { uniqueFile } from "./paths.js";
 import { DOCVORTEX_FORMATS, docvortexFormatExt } from "../shared/workshop-formats.js";
 import { convertPath } from "../shared/workshop-names.js";
 
@@ -136,9 +137,10 @@ export function registerDocvortexRunners(workshop, { docvortex, vaultRoot = "", 
     const settings = payload?.settings || {};
     const source = absolute(payload?.source);
     const format = String(payload?.format || "markdown");
-    const out = payload?.out
+    // 同名不覆盖:本地文件也要按 §7 加序号(渲染层的书库判断看不到本地文件)。
+    const out = uniqueFile(payload?.out
       ? absolute(payload.out)
-      : absolute(convertPath(payload?.source, docvortexFormatExt(format)));
+      : absolute(convertPath(payload?.source, docvortexFormatExt(format))));
     report({ label: `转换为 ${format}` });
     log("workshop convert", source, "→", out);
     const result = await docvortex.convert(settings, { source, format, out, signal });

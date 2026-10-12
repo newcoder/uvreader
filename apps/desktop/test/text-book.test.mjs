@@ -100,6 +100,22 @@ test("markdownToHtml falls back to the escaped LaTeX when a formula fails to ren
   assert.match(html, /结果是 \$\\frac\{1\}\{2\}\$ 的。/);
 });
 
+test("markdownToHtml renders pipe tables as real tables", () => {
+  const html = markdownToHtml([
+    "| Item | Qty | Note |",
+    "| --- | ---: | --- |",
+    "| 波导 | 1 | 含 $x^2$ |",
+    "| 谐振器 | 2 | |",
+    "",
+    "表后正文。",
+  ].join("\n"), { renderMath: (latex) => `<math>${latex}</math>` });
+  assert.match(html, /<table><thead><tr><th>Item<\/th><th>Qty<\/th><th>Note<\/th><\/tr><\/thead><tbody>/);
+  assert.match(html, /<tr><td>波导<\/td><td>1<\/td><td>含 <math>x\^2<\/math><\/td><\/tr>/);
+  assert.match(html, /<tr><td>谐振器<\/td><td>2<\/td><td><\/td><\/tr>/, "缺的单元格补空");
+  assert.match(html, /<\/table>\n<p>表后正文。<\/p>/);
+  assert.equal(markdownToHtml("普通段落 | 里有竖线。"), "<p>普通段落 | 里有竖线。</p>", "行内竖线不当表格");
+});
+
 test("textToChapters maps both plain text and markdown inputs", () => {
   const plain = textToChapters("第一章 一\n\n正文。\n\n第二章 二\n\n更多。");
   assert.equal(plain.length, 2);

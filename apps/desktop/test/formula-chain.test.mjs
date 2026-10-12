@@ -14,6 +14,7 @@ import {
   pdfToolScriptCommand,
   registerFormulaRunners,
   resolveMineruToken,
+  tableModeFor,
 } from "../src/main/workshop-formula.js";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -120,6 +121,34 @@ test("prepare runs pdf_tool, reads the Doc JSON and writes the formula HTML", as
   assert.equal(calls[0].options.cwd, dir);
   assert.equal(calls[0].options.env.MINERU_API_KEY, "tk", "the credential travels in the child environment");
   assert.ok(!calls[0].args.includes("--mineru-token"));
+});
+
+test("tableModeFor sends DOCX and PDF targets to the table screenshot", () => {
+  assert.equal(tableModeFor("docx"), "image");
+  assert.equal(tableModeFor("pdf"), "image");
+  assert.equal(tableModeFor("DOCX"), "image");
+  assert.equal(tableModeFor("html"), "table");
+  assert.equal(tableModeFor("latex"), "table");
+  assert.equal(tableModeFor(""), "table");
+});
+
+test("prepare gives DOCX/PDF targets a table screenshot instead of HTML tables", async () => {
+  const dir = makePdfToolDir();
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-formula-table-"));
+  const { spawnImpl } = fakeSpawn((_call, child) => {
+    writeDocJson(workDir, "t", [
+      { type: "table", headers: ["a"], rows: [["1"]], image: { src: "mineru/images/t.jpg", alt: "表格" } },
+    ]);
+    child.emit("close", 0);
+  });
+  const chain = createFormulaChain({ spawnImpl, textLayer: { read: async () => ({ ok: false, error: "stub" }) } });
+  const settings = { ocrSidecarDir: dir, mineruToken: "tk" };
+  const asHtml = await chain.prepare({ settings, source: "D:/vault/t.pdf", workDir, format: "html" });
+  assert.equal(asHtml.ok, true, asHtml.error);
+  assert.match(fs.readFileSync(asHtml.htmlPath, "utf8"), /<table>/, "HTML 目标用真表格");
+  const asDocx = await chain.prepare({ settings, source: "D:/vault/t.pdf", workDir, format: "docx" });
+  assert.equal(asDocx.ok, true, asDocx.error);
+  assert.match(fs.readFileSync(asDocx.htmlPath, "utf8"), /<img src="mineru\/images\/t\.jpg"/, "DOCX 目标用表格截图");
 });
 
 test("prepare reuses the cached MinerU doc instead of calling the cloud again", async () => {

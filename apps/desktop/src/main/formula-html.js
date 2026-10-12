@@ -108,6 +108,15 @@ function imageHtml(image, fallbackAlt = "") {
   return `<img src="${escapeHtml(src)}" alt="${escapeHtml(image?.alt || fallbackAlt)}">`;
 }
 
+// 表格截图兜底:DocVortex 的 DOCX 渲染器不支持从 HTML 物化表格(直接报错),
+// PDF 渲染器会静默丢掉表格内容——这两个目标改用 MinerU 给的表格截图。
+function tableImageHtml(block) {
+  const image = imageHtml(block.image, "表格");
+  if (!image) return "";
+  const caption = blockCaption(block);
+  return `<figure>${image}${caption ? `<figcaption>${wrapInlineMath(joinProseLines(caption))}</figcaption>` : ""}</figure>`;
+}
+
 function questionHtml(block) {
   const parts = [];
   const number = String(block.number || "").trim();
@@ -124,7 +133,8 @@ function questionHtml(block) {
 }
 
 // Doc v1 的块 → HTML 片段(公式优先,图片兜底)。
-export function blockToHtml(block) {
+// tableMode:"table" 输出真表格(HTML/LaTeX 目标),"image" 输出表格截图(DOCX/PDF)。
+export function blockToHtml(block, { tableMode = "table" } = {}) {
   const type = String(block?.type || "text");
   if (type === "heading") {
     const level = Math.min(Math.max(Number(block.level) || 2, 1), 6);
@@ -136,7 +146,10 @@ export function blockToHtml(block) {
     if (latex) return `<p>${scriptTag(latex, true)}</p>`;
     return image ? `<p>${image}</p>` : "";
   }
-  if (type === "table") return tableHtml(block);
+  if (type === "table") {
+    const image = tableMode === "image" ? tableImageHtml(block) : "";
+    return image || tableHtml(block);
+  }
   if (type === "image") {
     const image = imageHtml(block.image, block.alt || "");
     if (!image) return "";
@@ -162,9 +175,9 @@ export function blocksFromDoc(doc) {
   return out;
 }
 
-export function blocksToHtml(blocks, { title = "" } = {}) {
+export function blocksToHtml(blocks, { title = "", tableMode = "table" } = {}) {
   const body = (Array.isArray(blocks) ? blocks : [])
-    .map((block) => blockToHtml(block))
+    .map((block) => blockToHtml(block, { tableMode }))
     .filter((html) => html.trim());
   return `<!doctype html>
 <html lang="zh-CN">
@@ -181,7 +194,7 @@ ${body.join("\n")}
 
 // Doc v1 块 → Markdown(与 blocksToHtml 同一套语义:公式留 LaTeX、图片保持相对路径,
 // 被判成 code 的正文按段落还原)。
-export function blockToMarkdown(block) {
+export function blockToMarkdown(block, { tableMode = "table" } = {}) {
   const type = String(block?.type || "text");
   if (type === "heading") {
     const level = Math.min(Math.max(Number(block.level) || 2, 1), 6);
@@ -193,6 +206,8 @@ export function blockToMarkdown(block) {
     return latex ? `$$${latex}$$` : "";
   }
   if (type === "table") {
+    // 电子书里表格截图更可靠(我们的流式排版不做复杂表格);.md 产物默认保留管道表格。
+    if (tableMode === "image" && block.image?.src) return `![表格](${String(block.image.src)})`;
     const table = block.table && typeof block.table === "object" ? block.table : block;
     const headers = Array.isArray(table.headers) ? table.headers : [];
     const rows = Array.isArray(table.rows) ? table.rows : [];
@@ -215,9 +230,9 @@ export function blockToMarkdown(block) {
   return String(text).trim();
 }
 
-export function blocksToMarkdown(blocks) {
+export function blocksToMarkdown(blocks, { tableMode = "table" } = {}) {
   return (Array.isArray(blocks) ? blocks : [])
-    .map((block) => blockToMarkdown(block))
+    .map((block) => blockToMarkdown(block, { tableMode }))
     .filter((chunk) => chunk.trim())
     .join("\n\n");
 }

@@ -116,7 +116,7 @@ export function textToHtml(text) {
     .join("\n");
 }
 
-// 最小 Markdown → HTML:标题/段落/列表/引用/代码块/图片/链接/强调。
+// 最小 Markdown → HTML:标题/段落/列表/引用/代码块/图片/链接/强调/管道表格。
 // options.renderMath(latex, display) 返回公式 HTML;缺省时公式按原文保留。
 export function markdownToHtml(markdown, options = {}) {
   const renderMath = typeof options.renderMath === "function" ? options.renderMath : null;
@@ -125,6 +125,7 @@ export function markdownToHtml(markdown, options = {}) {
   let paragraph = [];
   let list = null; // "ul" | "ol"
   let fence = null;
+  let table = null; // { head: string[] | null, rows: string[][] }
 
   const flushParagraph = () => {
     if (!paragraph.length) return;
@@ -147,6 +148,23 @@ export function markdownToHtml(markdown, options = {}) {
       list = null;
     }
   };
+  const closeTable = () => {
+    if (!table) return;
+    const head = table.head || table.rows.shift() || [];
+    const body = table.rows;
+    const cell = (tag, value) => `<${tag}>${inlineWithMath(value, renderMath)}</${tag}>`;
+    const headHtml = head.length ? `<thead><tr>${head.map((value) => cell("th", value)).join("")}</tr></thead>` : "";
+    const bodyHtml = body
+      .map((row) => `<tr>${head.map((_value, index) => cell("td", row[index] ?? "")).join("")}</tr>`)
+      .join("");
+    out.push(`<table>${headHtml}<tbody>${bodyHtml}</tbody></table>`);
+    table = null;
+  };
+  const tableCells = (line) => {
+    const match = line.trim().match(/^\|(.+)\|$/);
+    if (!match) return null;
+    return match[1].split("|").map((value) => value.trim());
+  };
 
   for (const raw of lines) {
     const line = raw.replace(/\s+$/, "");
@@ -157,6 +175,16 @@ export function markdownToHtml(markdown, options = {}) {
       } else {
         fence.lines.push(raw);
       }
+      continue;
+    }
+    const cells = tableCells(line);
+    if (!cells && table) closeTable();
+    if (cells) {
+      flushParagraph();
+      closeList();
+      if (!table) table = { head: null, rows: [] };
+      if (cells.every((value) => /^:?-{2,}:?$/.test(value))) table.head = table.rows.pop() || [];
+      else table.rows.push(cells);
       continue;
     }
     const fenceStart = line.trim().match(/^```/);
@@ -210,6 +238,7 @@ export function markdownToHtml(markdown, options = {}) {
   if (fence) out.push(`<pre><code>${escapeHtml(fence.lines.join("\n"))}</code></pre>`);
   flushParagraph();
   closeList();
+  closeTable();
   return out.join("\n");
 }
 
