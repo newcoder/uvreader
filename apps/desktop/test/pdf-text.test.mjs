@@ -111,6 +111,42 @@ test("headings come out as headings with levels", () => {
   assert.equal(blocks.filter((block) => block.type === "text").length, 2);
 });
 
+test("the text-convert runner bridges the local extraction into DocVortex", async () => {
+  const { createWorkshopQueue } = await import("../src/main/workshop.js");
+  const { registerTextConvertRunner } = await import("../src/main/pdf-text.js");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-textconv-"));
+  const source = path.join(dir, "讲义.pdf");
+  fs.writeFileSync(source, "%PDF-1.4");
+  const converted = [];
+  const queue = createWorkshopQueue({ file: path.join(dir, "tasks.json"), onState: () => {}, log: { warn() {} } });
+  registerTextConvertRunner(queue, {
+    vaultRoot: dir,
+    cacheRoot: dir,
+    log: () => {},
+    pdfText: {
+      read: async () => ({
+        ok: true,
+        pages: [{ width: 595, height: 842, lines: [{ text: "def run():", fonts: { Consolas: 11 }, size: 10, x1: 100, y0: 0, y1: 12, rotated: false }] }],
+      }),
+    },
+    docvortex: {
+      convert: async (_settings, request) => {
+        converted.push(request);
+        fs.writeFileSync(request.out, "<html><body><p>ok</p></body></html>");
+        return { ok: true, out: request.out };
+      },
+    },
+  });
+  const id = queue.start({ kind: "text-convert", title: "文本型文档", payload: { source, format: "markdown", settings: {} } });
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  const task = queue.snapshot().tasks.find((row) => row.id === id);
+  assert.equal(task.status, "done", task.error);
+  assert.equal(path.basename(task.output), "讲义.md");
+  assert.equal(converted.length, 1);
+  assert.match(String(converted[0].source), /bridge\.html$/, "DocVortex 收到的是桥接 HTML");
+  assert.match(fs.readFileSync(converted[0].source, "utf8"), /def run\(\):/, "本地提取的文字进了桥接 HTML");
+});
+
 test("buildTextDoc and writeTextProducts produce §7 products", () => {
   const pages = [{ lines: [line("第一章 起风了", { size: 16, y0: 30, y1: 50 }), code("const a = 1;", { y0: 80, y1: 92 })] }];
   const doc = buildTextDoc(pages, { source: "D:/v/报告.pdf", title: "报告" });

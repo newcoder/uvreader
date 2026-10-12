@@ -11,6 +11,11 @@ import path from "node:path";
 
 import { blocksToHtml, blocksToMarkdown } from "./formula-html.js";
 import { uniqueFile } from "./paths.js";
+import { tableModeFor } from "./workshop-formula.js";
+import { docvortexFormatExt } from "../shared/workshop-formats.js";
+import { convertPath } from "../shared/workshop-names.js";
+
+export { blocksToHtml, blocksToMarkdown } from "./formula-html.js";
 
 export const PDF_TEXT_SCRIPT = `import fitz, json, sys
 
@@ -333,4 +338,46 @@ export function writeTextProducts(doc, { outDir, stem }) {
     chars: blocks.reduce((sum, block) => sum + String(block.text || block.content || "").length, 0),
   }, null, 2), "utf8");
   return files;
+}
+
+// 格式转换的「文本型」链路:本地确定性提取 → 桥接 HTML → DocVortex 转目标格式。
+// 与「公式优先」同构,只是解析结果来自 fitz(不需要 MinerU、不把文字裁成图片)。
+export function registerTextConvertRunner(workshop, { docvortex, vaultRoot = "", cacheRoot = "", pdfText = createPdfTextReader(), log = (...args) => console.log(...args) } = {}) {
+  const absolute = (raw) => {
+    const value = String(raw || "");
+    return path.isAbsolute(value) ? value : path.join(vaultRoot, value);
+  };
+
+  workshop.register("text-convert", async ({ payload, report, signal }) => {
+    const settings = payload?.settings || {};
+    const source = absolute(payload?.source);
+    if (!fs.existsSync(source)) throw new Error(`源文件不存在：${source}`);
+    const format = String(payload?.format || "markdown");
+    const out = uniqueFile(payload?.out
+      ? absolute(payload.out)
+      : absolute(convertPath(payload?.source, docvortexFormatExt(format))));
+    const stem = path.basename(source).replace(/\.[^.]+$/, "");
+    const python = String(settings.docvortexPython || settings.ocrPython || "").trim() || "python";
+    const workDir = path.join(cacheRoot || process.env.TEMP || process.env.TMP || "/tmp", "pdf-text", `${stem}-${Date.now().toString(36)}`);
+
+    report({ label: "本地取文本" });
+    const read = await pdfText.read(source, { python, workDir, signal });
+    if (signal.aborted) throw new Error("任务已取消");
+    if (!read.ok) throw new Error(`本地取文本失败：${read.error}`);
+    const doc = buildTextDoc(read.pages, { source, title: stem });
+    if (!doc.pages.length) throw new Error("这份 PDF 没有可提取的文本(扫描件请用「公式优先」或内容提取的「扫描视觉」)");
+
+    report({ label: "DocVortex 转换" });
+    fs.mkdirSync(workDir, { recursive: true });
+    const htmlPath = path.join(workDir, "bridge.html");
+    const blocks = doc.pages.flatMap((page) => page.blocks);
+    fs.writeFileSync(htmlPath, blocksToHtml(blocks, { title: stem, tableMode: tableModeFor(format) }), "utf8");
+    log("text convert", source, "→", out);
+    const result = await docvortex.convert(settings, { source: htmlPath, format, out, signal });
+    if (signal.aborted) throw new Error("任务已取消");
+    if (!result.ok) throw new Error(String(result.error || "转换失败"));
+    return { output: out, detail: `${format} · ${path.basename(out)}` };
+  });
+
+  return { writeTextProducts };
 }

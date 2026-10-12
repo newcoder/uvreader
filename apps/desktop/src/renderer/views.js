@@ -1699,14 +1699,18 @@ export function createWorkshopView(leaf, options) {
       const parseRow = optionCard.createDiv("qbr-workshop-row");
       parseRow.createSpan({ cls: "qbr-workshop-hint", text: "解析方式" });
       this._convertParse = parseRow.createEl("select", { cls: "qbr-workshop-select" });
-      this._convertParse.createEl("option", { attr: { value: "local" }, text: "本地解析(DocVortex 自带 OCR)" });
+      this._convertParse.createEl("option", { attr: { value: "local" }, text: "本地解析(DocVortex,通用)" });
+      this._convertParse.createEl("option", { attr: { value: "text" }, text: "文本型(本地 fitz,PDF:试卷 / 公文 / 讲义)" });
       this._convertParse.createEl("option", { attr: { value: "mineru" }, text: "公式优先(MinerU 云端,PDF)" });
-      this._convertParse.value = localStorage.getItem("qbr-workshop-parse") === "mineru" ? "mineru" : "local";
+      const savedParse = localStorage.getItem("qbr-workshop-parse");
+      this._convertParse.value = ["text", "mineru"].includes(String(savedParse)) ? String(savedParse) : "local";
       this._convertParse.addEventListener("change", () => {
         localStorage.setItem("qbr-workshop-parse", String(this._convertParse.value));
         this.syncConvertTokenRow();
       });
+      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "怎么选:有数学公式的论文 / 教材 → 公式优先;试卷 / 公文 / 讲义(文字为主、符号少)→ 文本型(本地,不会把「A. C++」这类文字裁成图片);Office / HTML / EPUB 等文档 → 本地解析。" });
       optionCard.createDiv({ cls: "qbr-workshop-hint", text: "公式优先:PDF 先经 MinerU 云端提取(公式转 LaTeX),再交 DocVortex 生成真公式 DOCX / PDF;要 EPUB 走「电子书制作」。需要 MinerU 凭据(下面填写或环境变量),首次较慢。" });
+      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "文本型:本地 PyMuPDF 确定性提取(先清页眉页脚 / 页码 / 水印,跨页代码块合并),不跑 OCR、不需要凭据、秒级;没有 LaTeX 公式(公式按原文)。" });
       this._convertTokenRow = optionCard.createDiv("qbr-workshop-row");
       this._convertTokenRow.createSpan({ cls: "qbr-workshop-hint", text: "MinerU 凭据" });
       this._convertToken = this._convertTokenRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空用环境变量 MINERU_API_KEY" } });
@@ -1878,12 +1882,14 @@ export function createWorkshopView(leaf, options) {
       const parseMode = String(this._convertParse?.value || "local");
       for (const rel of files) {
         const out = convertPath(rel, ext, (candidate) => Boolean(app?.vault?.getAbstractFileByPath?.(candidate)));
-        const useFormula = parseMode === "mineru" && /\.pdf$/i.test(rel);
+        const isPdf = /\.pdf$/i.test(rel);
+        const useFormula = parseMode === "mineru" && isPdf;
+        const useText = parseMode === "text" && isPdf;
         void bridge.start({
-          kind: useFormula ? "formula-convert" : "docvortex-convert",
-          title: useFormula ? "公式文档" : "文档互转",
+          kind: useFormula ? "formula-convert" : useText ? "text-convert" : "docvortex-convert",
+          title: useFormula ? "公式文档" : useText ? "文本型文档" : "文档互转",
           detail: rel,
-          payload: { settings: useFormula ? formula : settings, source: rel, format, out },
+          payload: { settings: useFormula || useText ? formula : settings, source: rel, format, out },
         }).catch((error) => new Notice(String(error?.message || error)));
       }
       this.selectTool("tasks");

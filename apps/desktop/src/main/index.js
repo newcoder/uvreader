@@ -10,6 +10,7 @@ import { createCalibre } from "./calibre.js";
 import { createCoverRenderer } from "./cover-render.js";
 import { createDocvortex, registerDocvortexRunners } from "./docvortex.js";
 import { registerExtractRunners } from "./extract-doc.js";
+import { registerTextConvertRunner } from "./pdf-text.js";
 import { createFormulaChain, registerFormulaRunners } from "./workshop-formula.js";
 import { registerBookRunners } from "./workshop-book.js";
 import { registerEpubRunners } from "./workshop-epub.js";
@@ -91,6 +92,8 @@ const readCoverImage = async (filePath) => {
 registerEpubRunners(workshop, { vaultRoot, cacheRoot: bookCacheRoot, coverRenderer, readImage: readCoverImage, docvortex });
 // 内容提取(PDF/Office/OFD/图片 → md/html/json):pdf_tool + DocVortex。
 registerExtractRunners(workshop, { docvortex, vaultRoot, cacheRoot: bookCacheRoot });
+// 格式转换的「文本型」链路(本地 fitz 提取 → DocVortex;与公式优先同构)。
+registerTextConvertRunner(workshop, { docvortex, vaultRoot, cacheRoot: bookCacheRoot });
 // Online book downloads land in the library so they appear as regular books.
 const bookDownloads = createBookDownloads({
   downloadRoot: path.join(vaultRoot, "Books", "下载"),
