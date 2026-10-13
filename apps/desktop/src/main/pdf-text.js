@@ -100,6 +100,41 @@ def figure_regions(page):
         regions.append({"rect": rect, "scale": scale, "image": True})
     return regions
 
+def is_faint(span):
+    """低不透明度(≤0.6)的大字 = 水印。实测:CSP2021 是 100pt/0.1,noip1 是 120pt/0.5。"""
+    return float(span.get("opacity", 1) or 1) <= 0.6
+
+def faint_boxes(page):
+    """水印的每个字符矩形:裁图前先把它们擦掉,水印就不会烘进图里。"""
+    boxes = []
+    try:
+        for span in page.get_texttrace():
+            if not is_faint(span):
+                continue
+            for char in span.get("chars", []):
+                if len(char) > 3 and char[3] is not None:
+                    box = fitz.Rect(char[3])
+                    if box.width > 0 and box.height > 0:
+                        boxes.append(box)
+    except Exception:
+        return []
+    return boxes
+
+def redact_watermarks(page):
+    boxes = faint_boxes(page)
+    if not boxes:
+        return
+    for box in boxes:
+        page.add_redact_annot(box)
+    try:
+        page.apply_redactions(
+            images=fitz.PDF_REDACT_IMAGE_NONE,
+            graphics=fitz.PDF_REDACT_LINE_ART_NONE,
+            text=fitz.PDF_REDACT_TEXT_REMOVE,
+        )
+    except TypeError:
+        page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
+
 doc = fitz.open(sys.argv[1])
 assets_dir = sys.argv[3] if len(sys.argv) > 3 else ""
 if assets_dir:
@@ -152,21 +187,27 @@ for page in doc:
                 "y1": round(y1, 1),
                 "rotated": rotated,
             })
-    # 低不透明度文字 = 水印(如 100pt / opacity 0.1 的「山西」),单独收集供整行剔除。
+    # 低不透明度文字 = 水印(如 100pt / opacity 0.1 的「山西」、120pt / 0.5 的「江西」),单独收集供整行剔除。
     faint = []
     try:
         for span in page.get_texttrace():
-            if float(span.get("opacity", 1) or 1) < 0.5:
-                text = "".join(chr(char[0]) for char in span.get("chars", []) if char and char[0]).strip()
-                if text:
-                    faint.append(text)
+            if not is_faint(span):
+                continue
+            text = "".join(chr(char[0]) for char in span.get("chars", []) if char and char[0]).strip()
+            if text:
+                faint.append(text)
     except Exception:
         faint = []
     # 图(线画 / 内嵌图片)裁成 png(线画)或 jpg(照片),图区内部的文字并入图片(不再作为正文)。
     # 整页没有文字时(扫描件)不做:那种 PDF 本来就走不了「文本型」。
     figures = []
     if assets_dir and lines:
-        for order, region in enumerate(figure_regions(page), start=1):
+        regions = figure_regions(page)
+        # 先把低不透明度水印擦掉(只删这层文字:图片像素 / 线画都保留),再裁图,
+        # 否则水印会跟着图一起被烘进图片。
+        if regions:
+            redact_watermarks(page)
+        for order, region in enumerate(regions, start=1):
             rect = region["rect"]
             suffix = "jpg" if region.get("image") else "png"
             name = "fig-p%d-%d.%s" % (page.number + 1, order, suffix)
