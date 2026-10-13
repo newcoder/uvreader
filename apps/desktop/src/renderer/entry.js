@@ -144,8 +144,16 @@ async function boot() {
   if (!bridge.smoke) {
     void bridge.mineru?.ensure?.(mineruSettings())
       .then((result) => {
-        if (result?.status === "running") console.log("[qbr] local MinerU ready", result.url, result.version || "");
-        else console.log("[qbr] local MinerU", result?.status || "unknown", result?.detail || "");
+        // 控制台只放 ASCII:Windows 终端默认 GBK,中文日志会显示成乱码;
+        // 中文提示在书坊面板的状态行里(那里渲染正常)。
+        const tried = Array.isArray(result?.tried) && result.tried.length ? result.tried.join(", ") : "mineru-kit";
+        if (result?.status === "running") {
+          console.log(`[qbr] local MinerU running ${result.url}${result.version ? ` v${result.version}` : ""} (${result.managed ? "started by app" : "already running"})`);
+        } else if (result?.status === "missing") {
+          console.log(`[qbr] local MinerU missing: mineru-kit not found; tried: ${tried}`);
+        } else {
+          console.log(`[qbr] local MinerU ${result?.status || "unknown"} ${result?.url || ""} ${String(result?.tail || "").trim()}`.trim());
+        }
       })
       .catch((error) => console.warn("[qbr] local MinerU failed", String(error?.message || error)));
   }

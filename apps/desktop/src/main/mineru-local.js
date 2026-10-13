@@ -37,12 +37,38 @@ export function servicePort(url) {
   }
 }
 
-// mineru-kit 程序路径:设置 → (桌面端注入的)环境变量;找不到返回 "",由调用方用裸名再试一次。
+// mineru-kit 的候选路径:设置 → 环境变量 → sidecar python 的同目录 → pdf_tool 目录下常见的 venv 布局。
+export function mineruKitCandidates(settings = {}, { env = process.env } = {}) {
+  const list = [];
+  const add = (value) => {
+    const trimmed = String(value || "").trim();
+    if (trimmed && !list.includes(trimmed)) list.push(trimmed);
+  };
+  add(settings.mineruLocalExe);
+  add(env?.MINERU_LOCAL_CMD);
+  const python = String(settings.ocrPython || "").trim();
+  if (python) {
+    const dir = path.dirname(python);
+    add(path.join(dir, "mineru-kit.exe"));
+    add(path.join(dir, "mineru-kit"));
+  }
+  const sidecar = String(settings.ocrSidecarDir || "").trim();
+  if (sidecar) {
+    for (const name of ["mineru-kit.exe", "mineru-kit"]) {
+      add(path.join(sidecar, ".venv", "Scripts", name));
+      add(path.join(sidecar, "venv", "Scripts", name));
+      add(path.join(sidecar, ".venv", "bin", name));
+    }
+  }
+  return list;
+}
+
+// 找到就用完整路径;裸名字也返回(让 spawn 去 PATH 找,ENOENT 时给可操作提示)。
 export function resolveMineruKit(settings = {}, { env = process.env, exists = fs.existsSync } = {}) {
-  const fromSettings = String(settings.mineruLocalExe || "").trim();
-  if (fromSettings) return exists(fromSettings) ? fromSettings : "";
-  const fromEnv = String(env?.MINERU_LOCAL_CMD || "").trim();
-  if (fromEnv) return exists(fromEnv) ? fromEnv : "";
+  for (const candidate of mineruKitCandidates(settings, { env })) {
+    if (candidate === "mineru-kit" || candidate === "mineru-kit.exe") return candidate;
+    if (exists(candidate)) return candidate;
+  }
   return "";
 }
 
@@ -88,6 +114,7 @@ export function createMineruLocalService({
   // 检测:如实探测 /v1/health,再叠加已知状态(不猜)。
   async function status(settings = {}) {
     const url = mineruServiceUrl(settings);
+    const tried = mineruKitCandidates(settings, { env });
     const health = await probe(url);
     if (health.ok) {
       state = { status: "running", url, version: health.version || state.version, detail: managed ? "由应用启动" : "已在运行" };
@@ -97,7 +124,7 @@ export function createMineruLocalService({
     } else if (state.status !== "missing" && state.status !== "error") {
       state = { status: "stopped", url, version: "", detail: health.error || "" };
     }
-    return { ...state, url, managed };
+    return { ...state, tried, url, managed };
   }
 
   async function ensure(settings = {}) {
@@ -116,6 +143,7 @@ export function createMineruLocalService({
       return { ...state, managed };
     }
     if (!child) {
+      const tried = mineruKitCandidates(settings, { env });
       const exe = resolveMineruKit(settings, { env, exists })
         || String(settings.mineruLocalExe || "").trim()
         || String(env?.MINERU_LOCAL_CMD || "").trim()
@@ -129,7 +157,7 @@ export function createMineruLocalService({
         child = spawnImpl(exe, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
       } catch (error) {
         child = null;
-        state = { status: "error", url, detail: String(error?.message || error) };
+        state = { status: "error", url, tried, detail: String(error?.message || error) };
         return { ...state, managed: false };
       }
       managed = true;
@@ -142,8 +170,10 @@ export function createMineruLocalService({
         state = {
           status: missing ? "missing" : "error",
           url,
+          tried,
+          tail: tail.slice(-200),
           detail: missing
-            ? `没找到 ${exe}:在「转换设置 → 本地 MinerU 程序」里填完整路径(或设环境变量 MINERU_LOCAL_CMD)`
+            ? `没找到 ${exe}:在「转换设置 → 本地 MinerU 程序」里填完整路径(例如 <venv>\\Scripts\\mineru-kit.exe),或设环境变量 MINERU_LOCAL_CMD`
             : String(error?.message || error),
         };
         child = null;
@@ -151,12 +181,12 @@ export function createMineruLocalService({
       });
       child.on?.("close", (code) => {
         if (state.status === "running" || state.status === "starting") {
-          state = { status: "stopped", url, detail: `服务已退出(退出码 ${code})${tail ? `:${tail.slice(-120)}` : ""}` };
+          state = { status: "stopped", url, tried, tail: tail.slice(-200), detail: `服务已退出(退出码 ${code})${tail ? `:${tail.slice(-120)}` : ""}` };
         }
         child = null;
         managed = false;
       });
-      state = { status: "starting", url, detail: "" };
+      state = { status: "starting", url, tried, tail: "", detail: "" };
       log("starting", exe, args.join(" "));
     }
     const deadline = Date.now() + Math.max(1000, Number(startTimeoutMs) || MINERU_START_TIMEOUT);
@@ -172,7 +202,7 @@ export function createMineruLocalService({
       }
       await sleep(1000);
     }
-    state = { status: "error", url, detail: `启动超时(${Math.round((Number(startTimeoutMs) || MINERU_START_TIMEOUT) / 1000)}s):${(tail || "没有健康响应").slice(-160)}` };
+    state = { status: "error", url, tried, tail: tail.slice(-200), detail: `启动超时(${Math.round((Number(startTimeoutMs) || MINERU_START_TIMEOUT) / 1000)}s):${(tail || "没有健康响应").slice(-160)}` };
     return { ...state, managed };
   }
 

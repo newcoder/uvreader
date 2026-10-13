@@ -110,6 +110,7 @@ test("ensure turns a missing mineru-kit into an actionable state", async () => {
   assert.equal(result.status, "missing");
   assert.match(String(result.detail), /mineru-kit/);
   assert.match(String(result.detail), /MINERU_LOCAL_CMD/);
+  assert.ok(Array.isArray(result.tried), "带上试过哪些路径(给控制台的 ASCII 提示用)");
 });
 
 test("ensure leaves foreign urls alone and honours autoStart=false", async () => {
