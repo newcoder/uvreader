@@ -1,11 +1,11 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { clearMineruCaches, createMineruLocalService, mineruServiceUrl, mineruStartArgs, resolveMineruKit, servicePort } from "../src/main/mineru-local.js";
+import { clearMineruCaches, createMineruLocalService, mineruKitCandidates, mineruServiceUrl, mineruStartArgs, resolveMineruKit, servicePort } from "../src/main/mineru-local.js";
 
 function fakeChild() {
   const child = new EventEmitter();
@@ -52,6 +52,12 @@ test("resolveMineruKit prefers the setting, then the environment", () => {
   assert.equal(resolveMineruKit({ mineruLocalExe: "D:/nope.exe" }, { exists }), "", "a stale path counts as unset");
   assert.equal(resolveMineruKit({}, { exists, env: { MINERU_LOCAL_CMD: "D:/kit/mineru-kit.exe" } }), "D:/kit/mineru-kit.exe");
   assert.equal(resolveMineruKit({}, { exists, env: {} }), "");
+  assert.deepEqual(mineruKitCandidates({ ocrPython: "python" }), [], "a bare python name yields no candidates");
+  assert.deepEqual(
+    mineruKitCandidates({ ocrPython: "D:\\mineru_env\\Scripts\\python.exe" }),
+    ["D:\\mineru_env\\Scripts\\mineru-kit.exe", "D:\\mineru_env\\Scripts\\mineru-kit"],
+    "a venv python points at the mineru-kit next to it",
+  );
 });
 
 test("status probes /v1/health and never starts anything", async () => {
@@ -113,7 +119,7 @@ test("ensure turns a missing mineru-kit into an actionable state", async () => {
   assert.equal(result.status, "missing");
   assert.match(String(result.detail), /mineru-kit/);
   assert.match(String(result.detail), /MINERU_LOCAL_CMD/);
-  assert.ok(Array.isArray(result.tried), "带上试过哪些路径(给控制台的 ASCII 提示用)");
+  assert.ok(Array.isArray(result.tried), "the status carries what was searched (for the ASCII console line)");
 });
 
 test("ensure leaves foreign urls alone and honours autoStart=false", async () => {
@@ -133,13 +139,13 @@ test("clearMineruCaches removes the caches and reports the freed bytes", () => {
   const formula = path.join(root, "formula-cache");
   fs.mkdirSync(path.join(formula, "paper-abc"), { recursive: true });
   fs.writeFileSync(path.join(formula, "paper-abc", "doc.json"), "x".repeat(2048));
-  const service = path.join(root, "mineru-service");
-  fs.mkdirSync(service, { recursive: true });
-  fs.writeFileSync(path.join(service, "blob.bin"), "y".repeat(1024));
+  const serviceDir = path.join(root, "mineru-service");
+  fs.mkdirSync(serviceDir, { recursive: true });
+  fs.writeFileSync(path.join(serviceDir, "blob.bin"), "y".repeat(1024));
   const absent = path.join(root, "nope");
-  const result = clearMineruCaches([formula, service, absent, ""]);
+  const result = clearMineruCaches([formula, serviceDir, absent, ""]);
   assert.equal(fs.existsSync(formula), false);
-  assert.equal(fs.existsSync(service), false);
+  assert.equal(fs.existsSync(serviceDir), false);
   assert.equal(result.cleared.length, 2, JSON.stringify(result));
   assert.equal(result.totalBytes, 3072);
   assert.deepEqual(result.skipped, []);

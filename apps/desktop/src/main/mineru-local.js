@@ -47,10 +47,11 @@ export function mineruKitCandidates(settings = {}, { env = process.env } = {}) {
   add(settings.mineruLocalExe);
   add(env?.MINERU_LOCAL_CMD);
   const python = String(settings.ocrPython || "").trim();
-  if (python) {
-    const dir = path.dirname(python);
-    add(path.join(dir, "mineru-kit.exe"));
-    add(path.join(dir, "mineru-kit"));
+  const pythonDir = python ? path.dirname(python) : "";
+  // 裸的 python 名(如 "python")没有目录,派生不出有用候选,别写进 tried 列表里凑数。
+  if (pythonDir && pythonDir !== ".") {
+    add(path.join(pythonDir, "mineru-kit.exe"));
+    add(path.join(pythonDir, "mineru-kit"));
   }
   const sidecar = String(settings.ocrSidecarDir || "").trim();
   if (sidecar) {
