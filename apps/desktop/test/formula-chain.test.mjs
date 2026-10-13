@@ -130,9 +130,12 @@ test("prepare uses the local MinerU service without cloud credentials", async ()
     writeDocJson(workDir, "l", [{ type: "text", text: "正文 $x$" }]);
     child.emit("close", 0);
   });
-  const chain = createFormulaChain({ spawnImpl, readEnv: () => "", textLayer: { read: async () => ({ ok: false, error: "stub" }) } });
+  const healthy = { ok: true, status: 200, json: async () => ({ status: "ok", version: "4.0.12" }) };
+  const exe = path.join(dir, "mineru-kit.exe");
+  fs.writeFileSync(exe, "stub");
+  const chain = createFormulaChain({ spawnImpl, readEnv: () => "", fetchImpl: async () => healthy, textLayer: { read: async () => ({ ok: false, error: "stub" }) } });
   const result = await chain.prepare({
-    settings: { ocrSidecarDir: dir, mineruSource: "local", mineruLocalUrl: "http://127.0.0.1:8123" },
+    settings: { ocrSidecarDir: dir, mineruSource: "local", mineruLocalUrl: "http://127.0.0.1:8123", mineruLocalExe: exe },
     source: "D:/vault/l.pdf",
     workDir,
   });
@@ -141,8 +144,35 @@ test("prepare uses the local MinerU service without cloud credentials", async ()
   const index = calls[0].args.indexOf("--mineru-source");
   assert.ok(index > 0, "显式指定本地后端");
   assert.equal(calls[0].args[index + 1], "local");
-  assert.equal(calls[0].options.env.MINERU_LOCAL_URL, "http://127.0.0.1:8123", "服务地址走环境变量");
+  assert.equal(calls[0].options.env.MINERU_LOCAL_URL, "http://127.0.0.1:8123", "服务在跑就把地址交给 pdf_tool");
+  assert.equal(calls[0].options.env.MINERU_LOCAL_CMD, path.join(dir, "mineru-kit.exe"), "程序路径同时也给:helper 靠它找 venv python");  assert.equal(calls[0].options.env.PYTHONUTF8, "1", "pdf_tool 的中文报错按 UTF-8 出来");
+  assert.equal(calls[0].options.env.PYTHONIOENCODING, "utf-8");
   assert.ok(!calls[0].args.includes("--mineru-url"), "地址不进命令行");
+});
+
+test("prepare falls back to the mineru-kit CLI when the local service is down", async () => {
+  const dir = makePdfToolDir();
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-formula-cli-"));
+  const { spawnImpl, calls } = fakeSpawn((_call, child) => {
+    writeDocJson(workDir, "c", [{ type: "text", text: "正文 $y$" }]);
+    child.emit("close", 0);
+  });
+  const exe = path.join(dir, "mineru-kit.exe");
+  fs.writeFileSync(exe, "stub");
+  const chain = createFormulaChain({
+    spawnImpl,
+    readEnv: () => "",
+    fetchImpl: async () => { throw new Error("ECONNREFUSED"); },
+    textLayer: { read: async () => ({ ok: false, error: "stub" }) },
+  });
+  const result = await chain.prepare({
+    settings: { ocrSidecarDir: dir, mineruSource: "local", mineruLocalExe: exe },
+    source: "D:/vault/c.pdf",
+    workDir,
+  });
+  assert.equal(result.ok, true, result.error);
+  assert.equal(calls[0].options.env.MINERU_LOCAL_CMD, exe, "服务没起来就把程序路径交给 pdf_tool 的 CLI");
+  assert.ok(!calls[0].options.env.MINERU_LOCAL_URL, "死地址不传下去");
 });
 
 test("prepare without a token or a local service asks for one", async () => {

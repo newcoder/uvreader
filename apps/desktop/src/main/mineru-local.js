@@ -85,6 +85,18 @@ export function mineruStartArgs(url, uploadDir, { tier = "standard" } = {}) {
 
 const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
+// 探测常驻服务是否健康(给转换链路用:健康才把地址交给 pdf_tool,避免把死地址传下去)。
+export async function probeMineruService(url, { fetchImpl = (...args) => fetch(...args), timeoutMs = MINERU_HEALTH_TIMEOUT } = {}) {
+  try {
+    const response = await fetchImpl(`${String(url).replace(/\/+$/, "")}/v1/health`, { signal: AbortSignal.timeout(timeoutMs) });
+    if (!response?.ok) return { ok: false, error: `HTTP ${response?.status ?? "?"}` };
+    const data = await response.json().catch(() => ({}));
+    return { ok: true, version: String(data?.version || "") };
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  }
+}
+
 // 递归算目录大小(清理时报告释放了多少)。
 function directorySize(target, fsImpl) {
   let total = 0;
@@ -136,14 +148,7 @@ export function createMineruLocalService({
   let state = { status: "idle", url: "", version: "", detail: "" };
 
   async function probe(url) {
-    try {
-      const response = await fetchImpl(`${url}/v1/health`, { signal: AbortSignal.timeout(healthTimeoutMs) });
-      if (!response?.ok) return { ok: false, error: `HTTP ${response?.status ?? "?"}` };
-      const data = await response.json().catch(() => ({}));
-      return { ok: true, version: String(data?.version || "") };
-    } catch (error) {
-      return { ok: false, error: String(error?.message || error) };
-    }
+    return probeMineruService(url, { fetchImpl, timeoutMs: healthTimeoutMs });
   }
 
   // 检测:如实探测 /v1/health,再叠加已知状态(不猜)。

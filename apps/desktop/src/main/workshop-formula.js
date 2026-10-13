@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { blocksFromDoc, blocksToHtml, tableModeFor } from "./formula-html.js";
+import { mineruServiceUrl, probeMineruService, resolveMineruKit } from "./mineru-local.js";
 import { uniqueFile } from "./paths.js";
 import { mergeBlocksWithTextLayer } from "./text-merge.js";
 import { createTextLayerReader } from "./text-layer.js";
@@ -111,7 +112,7 @@ export function formulaCacheDir(root, source, pages = "") {
   return path.join(String(root || ""), `${stem}-${key}`);
 }
 
-export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000, readEnv = readWindowsEnv, textLayer = createTextLayerReader(), log = (...args) => console.log(...args) } = {}) {
+export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000, readEnv = readWindowsEnv, fetchImpl = (...args) => fetch(...args), textLayer = createTextLayerReader(), log = (...args) => console.log(...args) } = {}) {
   function runCommand(command, args, { cwd, env, signal } = {}) {
     return new Promise((resolve) => {
       let child;
@@ -173,14 +174,21 @@ export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000,
       log("formula chain: reuse cached doc", docPath);
     } else {
       const token = resolveMineruToken(settings, { readEnv });
-      const localUrl = resolveMineruLocalUrl(settings, { readEnv });
+      const configuredUrl = resolveMineruLocalUrl(settings, { readEnv });
       const mineruSource = String(settings.mineruSource || "").trim();
-      const useLocal = mineruSource === "local" || (!mineruSource && Boolean(localUrl));
-      // 有本地服务地址(或显式 local)时 pdf_tool 走本地,不再需要云端凭据。
-      if (!useLocal && !token) {
+      const wantLocal = mineruSource === "local" || (!mineruSource && Boolean(configuredUrl));
+      // 本地方案:优先用配置地址 / 应用拉起的常驻服务;服务没起来就退回 CLI
+      // (把「本地 MinerU 程序」作为 MINERU_LOCAL_CMD 交给 pdf_tool)。
+      const serviceCandidate = configuredUrl || (wantLocal ? mineruServiceUrl(settings) : "");
+      const service = serviceCandidate ? await probeMineruService(serviceCandidate, { fetchImpl }) : { ok: false };
+      const localExe = resolveMineruKit(settings) || String(settings.mineruLocalExe || "").trim();
+      if (!token && !service.ok && !wantLocal) {
         return { ok: false, error: "没有找到 MinerU 凭据:在「转换设置 → MinerU 凭据」里填,或配置环境变量 MINERU_API_KEY / MINERU_TOKEN;也可以启动本地 MinerU 服务并填「本地 MinerU 服务」地址。" };
       }
-      report?.({ label: useLocal ? "本地 MinerU 解析" : "MinerU 云端解析" });
+      if (wantLocal && !service.ok && !localExe) {
+        return { ok: false, error: "选了本地 MinerU,但服务没在跑、也找不到 mineru-kit:在「转换设置 → 本地 MinerU 程序」里填完整路径(或点「启动服务」)。" };
+      }
+      report?.({ label: service.ok ? "本地 MinerU 服务解析" : localExe && wantLocal ? "本地 MinerU(CLI)解析" : "MinerU 云端解析" });
       log("formula chain: pdf_tool", target.command, target.script);
       // 页眉页脚 / 页码 / 水印由 pdf_tool 侧清理(书坊不在这条链路上动手)。
       const args = pdfToolArgs(target.script, {
@@ -188,15 +196,19 @@ export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000,
         outDir: workDir,
         model: String(settings.mineruModel || "").trim() || "vlm",
         pages,
-        mineruSource,
+        mineruSource: wantLocal ? "local" : "",
       });
       // 凭据 / 本地地址走子进程环境而不是命令行:不在进程列表里暴露。
-      const env = {};
+      // PYTHONUTF8/PYTHONIOENCODING:让 pdf_tool(Python)的中文报错按 UTF-8 出来,不然在书坊里是乱码。
+      const env = { PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" };
       if (token) env.MINERU_API_KEY = token;
-      if (localUrl) env.MINERU_LOCAL_URL = localUrl;
+      if (service.ok) env.MINERU_LOCAL_URL = serviceCandidate;
+      // 程序路径也要给:pdf_tool 的 helper 靠它(同目录 python)找 MinerU venv ——
+      // 走常驻服务时同样需要,否则 helper 用系统 python 会报 No module named 'mineru'。
+      if (localExe) env.MINERU_LOCAL_CMD = localExe;
       parsed = await runCommand(target.command, args, {
         cwd: target.cwd,
-        env: Object.keys(env).length ? env : undefined,
+        env,
         signal,
       });
       if (!parsed.ok) return { ok: false, error: friendlyPdfToolError(parsed.error), cancelled: parsed.cancelled };
