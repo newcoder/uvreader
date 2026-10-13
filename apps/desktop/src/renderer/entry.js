@@ -136,10 +136,13 @@ async function boot() {
 
   // 本地 MinerU 常驻服务:配了地址/程序就随应用一起拉起(失败不影响阅读;面板里可关)。
   // 冒烟测试不拉服务(免得起 GPU 模型拖慢启动自检)。
+  // 带上 sidecar python / 目录:找不到程序时会按它们的同目录 / .venv 布局自动找 mineru-kit。
   const mineruSettings = () => ({
     exe: String(plugin.settings?.mineruLocalExe || ""),
     url: String(plugin.settings?.mineruLocalUrl || ""),
     autoStart: plugin.settings?.mineruLocalAutoStart !== false,
+    ocrPython: String(plugin.settings?.ocrPython || ""),
+    ocrSidecarDir: String(plugin.settings?.ocrSidecarDir || ""),
   });
   if (!bridge.smoke) {
     void bridge.mineru?.ensure?.(mineruSettings())
