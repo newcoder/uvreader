@@ -203,7 +203,14 @@ export function writeExtractMark(cacheRoot, source, { mode, model, stat, outputs
 export async function mergePdfMarkdown({ docPath, source, python = "python", workDir = "", signal, textLayer = null, assetPrefix = "", log = () => {} } = {}) {
   if (!textLayer || !docPath || !fs.existsSync(docPath)) return "";
   try {
-    const blocks = blocksFromDoc(JSON.parse(fs.readFileSync(docPath, "utf8")));
+    const doc = JSON.parse(fs.readFileSync(docPath, "utf8"));
+    // 文本型产物(engine=fitz-text)本身就是文字层提取的结果:再合一次只会把它改坏
+    // (实测会把「（CSP-J1）」这类全角括号吃掉)。直接跳过,复用原产物。
+    if (String(doc?.source?.engine || "") === "fitz-text") {
+      log("text layer merge skipped: doc already comes from the text layer");
+      return "";
+    }
+    const blocks = blocksFromDoc(doc);
     const layer = await textLayer.read(source, { python, workDir, signal });
     if (!layer.ok) {
       log("text layer skipped", layer.error);

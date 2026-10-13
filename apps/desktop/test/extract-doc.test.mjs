@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { adoptPdfToolOutputs, extractMarkdown, extractionKind, patchMarkdownCaptions, registerExtractRunners, splitMarkdownChapters } from "../src/main/extract-doc.js";
+import { adoptPdfToolOutputs, extractMarkdown, extractionKind, mergePdfMarkdown, patchMarkdownCaptions, registerExtractRunners, splitMarkdownChapters } from "../src/main/extract-doc.js";
 import { unwrapProseFences } from "../src/shared/markdown-fix.js";
 import { createWorkshopQueue } from "../src/main/workshop.js";
 
@@ -352,6 +352,68 @@ test("the pdf runner reuses existing products instead of parsing the cloud again
   await sleep(80);
   assert.equal(queue.snapshot().tasks.find((row) => row.id === third).status, "done");
   assert.equal(calls.length, 2, "换模式要重新解析");
+});
+
+test("mergePdfMarkdown leaves text-mode products alone", async () => {
+  const dir = tempDir("qbr-merge-skip-");
+  const docPath = path.join(dir, "试卷.json");
+  fs.writeFileSync(docPath, JSON.stringify({
+    schema_version: 1,
+    source: { path: "试卷.pdf", title: "试卷", engine: "fitz-text" },
+    pages: [{ page: 1, blocks: [{ id: "t1-b1", page: 1, type: "text", text: "（CSP-J1）入门级C++语言试题" }] }],
+  }), "utf8");
+  const merged = await mergePdfMarkdown({
+    docPath,
+    source: "试卷.pdf",
+    textLayer: { read: async () => { throw new Error("文本型产物不该再读文字层"); } },
+  });
+  assert.equal(merged, "", "跳过合并,复用原产物");
+});
+
+test("re-extracting a text-mode product reuses it unchanged", async () => {
+  const vault = tempDir("qbr-extract-text-reuse-");
+  const source = path.join(vault, "试卷.pdf");
+  fs.writeFileSync(source, "%PDF-1.4");
+  const cacheRoot = tempDir("qbr-extract-marks-");
+  let reads = 0;
+  let layerReads = 0;
+  const { queue } = makeQueue({ probe: async () => ({ ok: true }), convert: async () => ({ ok: true }) }, null, {
+    cacheRoot,
+    pdfText: {
+      read: async () => {
+        reads += 1;
+        return {
+          ok: true,
+          pages: [{
+            width: 595,
+            height: 842,
+            faint: [],
+            lines: [{ text: "（CSP-J1）入门级C++语言试题", fonts: { SimSun: 12 }, size: 12, x0: 55, x1: 300, y0: 100, y1: 112, rotated: false }],
+          }],
+        };
+      },
+    },
+    textLayer: {
+      read: async () => {
+        layerReads += 1;
+        return { ok: false, error: "文本型产物不该再读文字层" };
+      },
+    },
+  });
+  const payload = { source, mode: "text", settings: {} };
+  const first = queue.start({ kind: "extract-pdf", title: "内容提取", payload });
+  await sleep(80);
+  const task = queue.snapshot().tasks.find((row) => row.id === first);
+  assert.equal(task.status, "done", task.error);
+  const before = fs.readFileSync(task.output, "utf8");
+  assert.match(before, /（CSP-J1）入门级C\+\+语言试题/, "全角括号原样保留");
+  const second = queue.start({ kind: "extract-pdf", title: "内容提取", payload });
+  await sleep(80);
+  const again = queue.snapshot().tasks.find((row) => row.id === second);
+  assert.equal(again.status, "done", again.error);
+  assert.equal(fs.readFileSync(again.output, "utf8"), before, "复用产物时不再合并文字层");
+  assert.equal(reads, 1, "复用不再跑本地提取");
+  assert.equal(layerReads, 0, "文本型产物跳过文字层合并");
 });
 
 test("text mode extracts locally without pdf_tool or the cloud", async () => {
