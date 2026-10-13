@@ -807,6 +807,7 @@ export function createWorkshopView(leaf, options) {
         this._extractMode.createEl("option", { attr: { value: mode.id }, text: mode.label });
       }
       optionCard.createDiv({ cls: "qbr-workshop-hint", text: "MinerU 云端排队时间波动很大(实测 2 页 25 秒、7 页可能到 20 分钟);纯文字、不需要 LaTeX 公式的 PDF 选「文本型 PDF」更快。同一份文件 + 同一模式重跑会复用已有产物,不再等云端。" });
+      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "在「格式转换 → 转换设置」填了「本地 MinerU 服务」地址后,MinerU 模式优先走本机服务(不出网、免凭据,热请求快很多)。" });
       optionCard.createDiv({ cls: "qbr-workshop-hint", text: "输出 <源名>.md / .html / .json(+ 体检报告),落在源文件旁;PDF 走 pdf_tool(模式可切 MinerU),Office / OFD / HTML / 图片走 DocVortex;题库等 schema 模板后续阶段。" });
       const detectRow = optionCard.createDiv("qbr-workshop-row");
       const detect = detectRow.createEl("button", { text: "检测提取链路" });
@@ -1702,14 +1703,16 @@ export function createWorkshopView(leaf, options) {
       this._convertParse.createEl("option", { attr: { value: "local" }, text: "本地解析(DocVortex,通用)" });
       this._convertParse.createEl("option", { attr: { value: "text" }, text: "文本型(本地 fitz,PDF:试卷 / 公文 / 讲义)" });
       this._convertParse.createEl("option", { attr: { value: "mineru" }, text: "公式优先(MinerU 云端,PDF)" });
+      this._convertParse.createEl("option", { attr: { value: "mineru-local" }, text: "公式优先(本地 MinerU 服务,PDF)" });
       const savedParse = localStorage.getItem("qbr-workshop-parse");
-      this._convertParse.value = ["text", "mineru"].includes(String(savedParse)) ? String(savedParse) : "local";
+      this._convertParse.value = ["text", "mineru", "mineru-local"].includes(String(savedParse)) ? String(savedParse) : "local";
       this._convertParse.addEventListener("change", () => {
         localStorage.setItem("qbr-workshop-parse", String(this._convertParse.value));
         this.syncConvertTokenRow();
       });
       optionCard.createDiv({ cls: "qbr-workshop-hint", text: "怎么选:有数学公式的论文 / 教材 → 公式优先;试卷 / 公文 / 讲义(文字为主、符号少)→ 文本型(本地,不会把「A. C++」这类文字裁成图片);Office / HTML / EPUB 等文档 → 本地解析。" });
-      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "公式优先:PDF 先经 MinerU 云端提取(公式转 LaTeX),再交 DocVortex 生成真公式 DOCX / PDF;要 EPUB 走「电子书制作」。需要 MinerU 凭据(下面填写或环境变量),首次较慢。" });
+      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "公式优先:PDF 先经 MinerU 提取(公式转 LaTeX),再交 DocVortex 生成真公式 DOCX / PDF;要 EPUB 走「电子书制作」。云端需要 MinerU 凭据(下面填写或环境变量),首次较慢。" });
+      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "公式优先(本地):交给本机 MinerU 常驻服务,不出网、免凭据。先在下面填服务地址,启动一次:mineru-kit api-server --host 127.0.0.1 --port 8123 --tier standard --upload-dir <临时目录>。" });
       optionCard.createDiv({ cls: "qbr-workshop-hint", text: "文本型:本地 PyMuPDF 确定性提取(先清页眉页脚 / 页码 / 水印,跨页代码块合并),不跑 OCR、不需要凭据、秒级;没有 LaTeX 公式(公式按原文)。" });
       this._convertTokenRow = optionCard.createDiv("qbr-workshop-row");
       this._convertTokenRow.createSpan({ cls: "qbr-workshop-hint", text: "MinerU 凭据" });
@@ -1722,6 +1725,17 @@ export function createWorkshopView(leaf, options) {
         new Notice("MinerU 凭据已保存；新任务生效。");
       });
       this._convertTokenRow.createSpan({ cls: "qbr-workshop-hint", text: "填一次长期生效；用环境变量的话，设完需重启应用。" });
+      this._convertLocalRow = optionCard.createDiv("qbr-workshop-row");
+      this._convertLocalRow.createSpan({ cls: "qbr-workshop-hint", text: "本地 MinerU 服务" });
+      this._convertLocal = this._convertLocalRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "如 http://127.0.0.1:8123；留空走云端" } });
+      this._convertLocal.value = String(plugin?.settings?.mineruLocalUrl || "");
+      this._convertLocal.addEventListener("change", () => {
+        if (!plugin?.settings) return;
+        plugin.settings.mineruLocalUrl = this._convertLocal.value.trim();
+        void plugin.saveAll?.();
+        new Notice("本地 MinerU 服务地址已保存；新任务生效。");
+      });
+      this._convertLocalRow.createSpan({ cls: "qbr-workshop-hint", text: "填了它，MinerU 链路（公式优先 / 内容提取）优先走本地，即使机器上有云端凭据；本地不可用时报错，不会静默换云端。" });
       this.syncConvertTokenRow();
       optionCard.createDiv({ cls: "qbr-workshop-hint", text: "扫描件由 DocVortex 自带 OCR 识别（首次会下载约 220MB 模型）；数学公式与上下标识别有限。" });
       const detectRow = optionCard.createDiv("qbr-workshop-row");
@@ -1848,13 +1862,16 @@ export function createWorkshopView(leaf, options) {
         ocrPython: String(settings.ocrPython || ""),
         mineruToken: String(settings.mineruToken || ""),
         mineruModel: String(settings.mineruModel || ""),
+        mineruLocalUrl: String(settings.mineruLocalUrl || ""),
       };
     }
 
-    // 凭据输入只在公式优先时露出(渐进披露)。
+    // 凭据 / 本地服务地址只在 MinerU 相关模式露出(渐进披露)。
     syncConvertTokenRow() {
-      if (!this._convertTokenRow) return;
-      this._convertTokenRow.hidden = String(this._convertParse?.value || "local") !== "mineru";
+      const mode = String(this._convertParse?.value || "local");
+      const mineru = mode === "mineru" || mode === "mineru-local";
+      if (this._convertTokenRow) this._convertTokenRow.hidden = !mineru;
+      if (this._convertLocalRow) this._convertLocalRow.hidden = !mineru;
     }
 
     probeFormulaChain() {
@@ -1883,13 +1900,14 @@ export function createWorkshopView(leaf, options) {
       for (const rel of files) {
         const out = convertPath(rel, ext, (candidate) => Boolean(app?.vault?.getAbstractFileByPath?.(candidate)));
         const isPdf = /\.pdf$/i.test(rel);
-        const useFormula = parseMode === "mineru" && isPdf;
+        const useFormula = (parseMode === "mineru" || parseMode === "mineru-local") && isPdf;
         const useText = parseMode === "text" && isPdf;
+        const formulaPayload = useFormula ? { ...formula, mineruSource: parseMode === "mineru-local" ? "local" : "" } : formula;
         void bridge.start({
           kind: useFormula ? "formula-convert" : useText ? "text-convert" : "docvortex-convert",
           title: useFormula ? "公式文档" : useText ? "文本型文档" : "文档互转",
           detail: rel,
-          payload: { settings: useFormula || useText ? formula : settings, source: rel, format, out },
+          payload: { settings: useFormula || useText ? formulaPayload : settings, source: rel, format, out },
         }).catch((error) => new Notice(String(error?.message || error)));
       }
       this.selectTool("tasks");

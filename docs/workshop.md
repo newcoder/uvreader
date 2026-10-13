@@ -98,11 +98,18 @@
 - **预设(只留本工具的两张卡)**:文档互转(DocVortex)、图片 → PDF;**所有电子书产物(EPUB/MOBI/AZW3/CBZ)归「电子书制作」**;提取类预设归「内容提取」。
 - **分工(2026-10-12 定调,详见实施计划)**:按保守程度分四层——**文字层**(最保守,原文件不变)> **格式转换**(内容+版式基本不变)> **内容提取**(只要内容、可丢版式;**JSON/结构化与 schema 模板在此**)> **电子书制作**(内容 + 新加的样式/版式/字体/封面/目录,支持 **txt** 输入)。本工具只做保持内容与版式的转换(DocVortex 矩阵 + Calibre 的 EPUB→AZW3/MOBI + 图片→PDF/CBZ),**目标格式不含 JSON**;预设卡片点按后路由/预填到对应工具,不重复实现。
 - **公式优先(可选,见 §8.1)**:扫描件公式多时,先经 pdf_tool(MinerU)提取 LaTeX,再转 HTML(`<script type="math/tex">`)交 DocVortex 生成 DOCX/EPUB —— 输出为真 OMML/MathML 公式。**结果按源文件缓存复用**(缓存目录里已有 Doc JSON 且比 PDF 新 → 跳过云端解析;换目标格式、重跑、电子书重试都走缓存,`refresh` 才重新解析):MinerU 云端排队波动很大(实测 7 页论文 20 分 49 秒、107 页教材 73 秒),而文字层校正 + 合并 + 出稿的本地耗时只有 ~0.2 秒/9 页。
-- **解析方式三选一(2026-10-12)**:PDF 输入时——
+- **解析方式四选一(2026-10-13 新增第 4 项)**:PDF 输入时——
   1. **本地解析(DocVortex,通用)**:它自己分类(文本型 → `txt`,乱码/扫描 → `ocr`);
   2. **文本型(本地 fitz)**:新增链路 `text-convert` = `pdf-text.js` 的确定性提取(先清页眉页脚 / 页码 / 水印,跨页代码块合并,图区裁成图片)→ 桥接 HTML → DocVortex 转任意目标格式。**不需要 pdf_tool / 凭据 / OCR**,秒级;没有 LaTeX 公式;
-  3. **公式优先(MinerU 云端)**:真 LaTeX 公式,慢且计费。
+  3. **公式优先(MinerU 云端)**:真 LaTeX 公式,慢且计费;
+  4. **公式优先(本地 MinerU 服务)**:同一个公式链路,但解析交给本机 `mineru-kit api-server`(**不出网、免凭据**)。面板「转换设置 → 本地 MinerU 服务」填地址(如 `http://127.0.0.1:8123`,存 `settings.mineruLocalUrl`),启动一次:`mineru-kit api-server --host 127.0.0.1 --port 8123 --tier standard --upload-dir <临时目录>`(务必给 `--upload-dir`,否则 blobs 落在启动目录)。
   面板里带「怎么选」提示:有公式的论文 / 教材 → 公式优先;试卷 / 公文 / 讲义 → 文本型;Office / HTML / EPUB → 本地解析。
+- **pdf_tool 2026-10-13 更新(本地常驻服务 + 家具自动清理,已实测)**:交付说明 `pdf_tool/docs/reader-update-2026-10-13.md`;书坊侧的接入点:
+  - **路由优先级(重要)**:`auto` = `MINERU_LOCAL_URL` > 云端 token > 本地 CLI。即机器上同时有 `MINERU_API_KEY` 时,**配了本地地址就走本地**;要强制云端用 `--mineru-source cloud`。书坊把设置里的地址以 `MINERU_LOCAL_URL` 传进子进程(公式优先 / 内容提取 / 向导都传,地址不进命令行),显式选了「公式优先(本地)」时还会加 `--mineru-source local`(本地不可用会报错,不静默换云端)。
+  - **实测(同机,3 页 testpdf2)**:本地 CLI 21.6s(模型冷加载一次);常驻服务**冷 11.1s / 热 5.0s**(云端那次 260.8s,且云端会把整本解析完再筛页);产物与 CLI **逐项一致**(37 blocks / heading 3 · text 26 · image 8,audit ok);`doc.convert` JSON-RPC(pages 1-3 + mineru_url)也验证通过(1.6s 完成,`convert.done` 通知带 files/stats)。
+  - **家具清理默认开、无开关**(`--clean-furniture` 不存在):水印(不透明度 ≤0.35,含旋转页)、跨页重复页边行(数字归一 ≥ 半数页、上下 10% 页边带,文档 ≥3 页才统计)、页码样式行、表格/代码护栏、倾斜文字不入正文;计数在 `stats.furniture`。实测 `CSP2021.pdf`:山西 / 页，共 / CCF CSP-J **全 0 残留**,代码样例一条不少。**经过 pdf_tool 的路径无需改动直接受益**;书坊的红标预清只留「不经过 pdf_tool 的 DocVortex 直连」那条(保持不动)。
+  - **页码下传**:本地后端真正只解析指定页(实测 `pages=1-3` 只跑 3 页);**middle v2 文字层**:本地产物可作为 hybrid 文字层。
+  - **一个上游限制(实测)**:MinerU 自己的 `middle_json` 保留完整(5 段样例),但它生成的 `markdown.md` / `content_list` 会丢**跨页程序**——`CSP2021.pdf` 的 5 段代码样例在 MinerU 产物里只剩 3 段,书坊的互补合并按块对齐、**补不回整块缺失**,而「文本型」5 段全在。所以试卷 / 程序类 PDF 建议用文本型(与面板提示一致)。
 - **正文误判还原(2026-10-12,两栏论文实测)**:pdf_tool / MinerU 偶尔把**正文段落判成代码块**——`1.DUL+paper.pdf`(7 页 79 块)里有 2 个 `code` 块其实是正文,转换出的 HTML 因此把段落显示成 `<pre>`(两个 `<pre class="language-latex">`,里面还留着未转换的 `$…$`)。`formula-html.js` 的 `codeBlockHtml()` 现在按**内容**判断:去掉 `$…$` 后没有代码 / LaTeX 特征、有句子与足够词数就按段落渲染——硬换行并回一段(`for\n10 min` → `for 10 min`)、被断开的数字粘回(`61.\n91` → `61.91`)、段内公式照常转 `<script type="math/tex">`;真代码块保持 `<pre><code>`。内容提取的 `.md` 产物同样把这类无语言围栏拆回段落(`adoptPdfToolOutputs` → `unwrapProseFences`)。实测同一份论文:HTML 里 `data-block-type="code"` 2 → 0、段落 37 → 39、公式 73 → 89,标题 / 图片 / 字数不变。
 - **caption 还原(2026-10-12,同一篇实测)**:这类误判块还带一个坑——MinerU 把**正文前半段放进了块的 `caption` 字段**(不是题注),而 MinerU 自己的 `.md` / `.html` 写作器都把 caption 丢掉,于是段落缺少开头(`In the experiments, the silicon wafer capped with a 4-μm thick SiO2 layer…` 整句不见了,输出直接从 `30 s to promote the adhesion…` 开始)。修法:渲染 `code` 块时把 **caption 与 content 合并**成一个段落(真代码块则把 caption 作为说明段放在 `<pre>` 之前),`image` 块的 caption 输出为 `<figcaption>`(DocVortex 转成 `image_caption`),`adoptPdfToolOutputs` 在拆「假代码块」**之前**先用 Doc JSON 把 caption 补回 `.md` 围栏内(这样向导 / 预览读的 `.md` 也完整)。实测同一份论文:段落仍 39、公式 89 → 91、字数 +827,两段开头都回来了。
 - **文字层互补(2026-10-12,论文实测)**:MinerU 偶尔丢字/丢符号(实测:`at the speed of 3000 rpm for` 少了 `3000 rpm for`、`1 × 2 Y-branch` 少了 `×`、caption 被当成题注丢弃),而 PDF 自带文字层是逐字精确的(缺点是没有 LaTeX 公式、还混着页眉/水印)。新增 `main/text-layer.js`(PyMuPDF `page.get_text()`,结果写 UTF-8 文件——控制台编码会破坏 `ﬁ` 之类连字)+ `main/text-merge.js`,在「公式优先」链路里做**互补合并**:

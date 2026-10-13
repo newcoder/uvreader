@@ -13,7 +13,7 @@ import { blocksFromDoc, blocksToMarkdown } from "./formula-html.js";
 import { buildTextDoc, createPdfTextReader, writeTextProducts } from "./pdf-text.js";
 import { mergeBlocksWithTextLayer } from "./text-merge.js";
 import { createTextLayerReader } from "./text-layer.js";
-import { pdfToolArgs, pdfToolScriptCommand } from "./workshop-formula.js";
+import { pdfToolArgs, pdfToolScriptCommand, resolveMineruLocalUrl } from "./workshop-formula.js";
 
 export { EXTRACT_MODES, IMAGE_INPUTS, extractionKind };
 export { splitMarkdownChapters, unwrapProseFences } from "../shared/markdown-fix.js";
@@ -290,9 +290,13 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
       else args.push("--formats", "json,md,html");
       const token = String(settings.mineruToken || "").trim()
         || String(process.env.MINERU_API_KEY || process.env.MINERU_TOKEN || "").trim();
+      const env = {};
+      if (token) env.MINERU_API_KEY = token;
+      const localUrl = resolveMineruLocalUrl(settings);
+      if (localUrl) env.MINERU_LOCAL_URL = localUrl;
       const result = await runExtractCommand(target.command, args, {
         cwd: target.cwd,
-        env: token ? { MINERU_API_KEY: token } : undefined,
+        env: Object.keys(env).length ? env : undefined,
         signal,
         log,
         spawnImpl,
@@ -353,8 +357,9 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", ca
     if (!docvortexResult.ok) throw new Error(String(docvortexResult.detail || "DocVortex 不可用"));
     const token = String(settings.mineruToken || "").trim()
       || String(process.env.MINERU_API_KEY || process.env.MINERU_TOKEN || "").trim();
+    const localUrl = resolveMineruLocalUrl(settings);
     return {
-      output: token ? "pdf_tool + DocVortex + MinerU" : "pdf_tool + DocVortex(PDF 无 MinerU 需文本模型凭据)",
+      output: localUrl ? "pdf_tool + DocVortex + 本地 MinerU" : token ? "pdf_tool + DocVortex + MinerU" : "pdf_tool + DocVortex(PDF 无 MinerU 需文本模型凭据)",
       detail: `pdf_tool · ${path.basename(target.cwd)}`,
     };
   });
@@ -419,10 +424,15 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", ca
     const formatsIndex = args.indexOf("--formats");
     if (formatsIndex >= 0) args[formatsIndex + 1] = "json,md,html";
     else args.push("--formats", "json,md,html");
+    // 凭据 / 本地服务地址走子进程环境:配了 MINERU_LOCAL_URL,pdf_tool 的 auto 路由优先本地。
+    const env = {};
     const token = String(settings.mineruToken || "").trim();
+    if (token) env.MINERU_API_KEY = token;
+    const localUrl = resolveMineruLocalUrl(settings);
+    if (localUrl) env.MINERU_LOCAL_URL = localUrl;
     const result = await runExtractCommand(target.command, args, {
       cwd: target.cwd,
-      env: token ? { MINERU_API_KEY: token } : undefined,
+      env: Object.keys(env).length ? env : undefined,
       signal,
       log,
       spawnImpl,

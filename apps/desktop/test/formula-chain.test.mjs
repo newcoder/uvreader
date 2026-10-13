@@ -123,6 +123,47 @@ test("prepare runs pdf_tool, reads the Doc JSON and writes the formula HTML", as
   assert.ok(!calls[0].args.includes("--mineru-token"));
 });
 
+test("prepare uses the local MinerU service without cloud credentials", async () => {
+  const dir = makePdfToolDir();
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-formula-local-"));
+  const { spawnImpl, calls } = fakeSpawn((_call, child) => {
+    writeDocJson(workDir, "l", [{ type: "text", text: "正文 $x$" }]);
+    child.emit("close", 0);
+  });
+  const chain = createFormulaChain({ spawnImpl, readEnv: () => "", textLayer: { read: async () => ({ ok: false, error: "stub" }) } });
+  const result = await chain.prepare({
+    settings: { ocrSidecarDir: dir, mineruSource: "local", mineruLocalUrl: "http://127.0.0.1:8123" },
+    source: "D:/vault/l.pdf",
+    workDir,
+  });
+  assert.equal(result.ok, true, result.error);
+  assert.equal(calls.length, 1, "没有云端凭据也能跑本地");
+  const index = calls[0].args.indexOf("--mineru-source");
+  assert.ok(index > 0, "显式指定本地后端");
+  assert.equal(calls[0].args[index + 1], "local");
+  assert.equal(calls[0].options.env.MINERU_LOCAL_URL, "http://127.0.0.1:8123", "服务地址走环境变量");
+  assert.ok(!calls[0].args.includes("--mineru-url"), "地址不进命令行");
+});
+
+test("prepare without a token or a local service asks for one", async () => {
+  const dir = makePdfToolDir();
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-formula-none-"));
+  const chain = createFormulaChain({ spawnImpl: fakeSpawn(() => {}).spawnImpl, readEnv: () => "", textLayer: { read: async () => ({ ok: false, error: "stub" }) } });
+  // 本机环境里可能就配了 MINERU_API_KEY:这条用例要的就是「都没有」的状态。
+  const saved = { key: process.env.MINERU_API_KEY, token: process.env.MINERU_TOKEN };
+  delete process.env.MINERU_API_KEY;
+  delete process.env.MINERU_TOKEN;
+  try {
+    const result = await chain.prepare({ settings: { ocrSidecarDir: dir }, source: "D:/vault/x.pdf", workDir });
+    assert.equal(result.ok, false);
+    assert.match(String(result.error), /MinerU 凭据/);
+    assert.match(String(result.error), /本地 MinerU/);
+  } finally {
+    if (saved.key !== undefined) process.env.MINERU_API_KEY = saved.key;
+    if (saved.token !== undefined) process.env.MINERU_TOKEN = saved.token;
+  }
+});
+
 test("tableModeFor sends DOCX and PDF targets to the table screenshot", () => {
   assert.equal(tableModeFor("docx"), "image");
   assert.equal(tableModeFor("pdf"), "image");
