@@ -1736,7 +1736,33 @@ export function createWorkshopView(leaf, options) {
         new Notice("本地 MinerU 服务地址已保存；新任务生效。");
       });
       this._convertLocalRow.createSpan({ cls: "qbr-workshop-hint", text: "填了它，MinerU 链路（公式优先 / 内容提取）优先走本地，即使机器上有云端凭据；本地不可用时报错，不会静默换云端。" });
+      this._convertLocalExeRow = optionCard.createDiv("qbr-workshop-row");
+      this._convertLocalExeRow.createSpan({ cls: "qbr-workshop-hint", text: "本地 MinerU 程序" });
+      this._convertLocalExe = this._convertLocalExeRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "如 D:\\mineru_env\\Scripts\\mineru-kit.exe；留空按 MINERU_LOCAL_CMD / PATH 找" } });
+      this._convertLocalExe.value = String(plugin?.settings?.mineruLocalExe || "");
+      this._convertLocalExe.addEventListener("change", () => {
+        if (!plugin?.settings) return;
+        plugin.settings.mineruLocalExe = this._convertLocalExe.value.trim();
+        void plugin.saveAll?.();
+      });
+      const autoRow = optionCard.createDiv("qbr-workshop-row");
+      const autoLabel = autoRow.createEl("label", { cls: "qbr-workshop-opt" });
+      this._convertLocalAuto = autoLabel.createEl("input", { attr: { type: "checkbox" } });
+      this._convertLocalAuto.checked = plugin?.settings?.mineruLocalAutoStart !== false;
+      autoLabel.createSpan({ text: "启动应用时自动开启本地 MinerU 服务（退出时只关自己拉起的那个）" });
+      this._convertLocalAuto.addEventListener("change", () => {
+        if (!plugin?.settings) return;
+        plugin.settings.mineruLocalAutoStart = Boolean(this._convertLocalAuto.checked);
+        void plugin.saveAll?.();
+      });
+      this._convertLocalTools = optionCard.createDiv("qbr-workshop-row");
+      const checkLocal = this._convertLocalTools.createEl("button", { text: "检测本地 MinerU" });
+      checkLocal.addEventListener("click", () => this.checkMineruLocal());
+      const startLocal = this._convertLocalTools.createEl("button", { text: "启动服务" });
+      startLocal.addEventListener("click", () => this.checkMineruLocal({ start: true }));
+      this._convertLocalStatus = this._convertLocalTools.createSpan({ cls: "qbr-workshop-hint", text: "未检测" });
       this.syncConvertTokenRow();
+      void this.checkMineruLocal();
       optionCard.createDiv({ cls: "qbr-workshop-hint", text: "扫描件由 DocVortex 自带 OCR 识别（首次会下载约 220MB 模型）；数学公式与上下标识别有限。" });
       const detectRow = optionCard.createDiv("qbr-workshop-row");
       const detect = detectRow.createEl("button", { text: "检测 DocVortex" });
@@ -1863,6 +1889,8 @@ export function createWorkshopView(leaf, options) {
         mineruToken: String(settings.mineruToken || ""),
         mineruModel: String(settings.mineruModel || ""),
         mineruLocalUrl: String(settings.mineruLocalUrl || ""),
+        mineruLocalExe: String(settings.mineruLocalExe || ""),
+        mineruLocalAutoStart: settings.mineruLocalAutoStart !== false,
       };
     }
 
@@ -1872,6 +1900,41 @@ export function createWorkshopView(leaf, options) {
       const mineru = mode === "mineru" || mode === "mineru-local";
       if (this._convertTokenRow) this._convertTokenRow.hidden = !mineru;
       if (this._convertLocalRow) this._convertLocalRow.hidden = !mineru;
+      if (this._convertLocalExeRow) this._convertLocalExeRow.hidden = !mineru;
+      if (this._convertLocalTools) this._convertLocalTools.hidden = !mineru;
+    }
+
+    // 本地 MinerU:检测 = 如实探测 /v1/health(不会偷偷拉起服务);「启动服务」才启动。
+    async checkMineruLocal({ start = false } = {}) {
+      const status = this._convertLocalStatus;
+      if (!status) return;
+      const mineru = bridge?.mineru;
+      if (!mineru) {
+        status.setText("这个宿主不支持本地服务检测");
+        return;
+      }
+      status.setText(start ? "启动中…" : "检测中…");
+      try {
+        const settings = this.formulaSettings();
+        const result = start ? await mineru.ensure(settings) : await mineru.status(settings);
+        status.setText(this.describeMineruStatus(result));
+      } catch (error) {
+        status.setText(`检测失败:${String(error?.message || error)}`);
+      }
+    }
+
+    describeMineruStatus(result) {
+      const url = String(result?.url || "");
+      const version = result?.version ? ` · 版本 ${result.version}` : "";
+      const detail = result?.detail ? ` · ${result.detail}` : "";
+      switch (String(result?.status || "")) {
+        case "running": return `运行中${version}(${url}${detail})`;
+        case "starting": return "启动中…首次加载模型约 10–15 秒";
+        case "external": return `外部服务(${url})，不由应用管理`;
+        case "missing": return String(result?.detail || "没找到 mineru-kit:在下面填程序路径");
+        case "error": return `启动失败:${String(result?.detail || "未知错误")}`;
+        default: return `未运行(${url})；点「启动服务」拉起`;
+      }
     }
 
     probeFormulaChain() {

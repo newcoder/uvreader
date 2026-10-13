@@ -134,6 +134,22 @@ async function boot() {
   await plugin.onload();
   app.workspace.markLayoutReady();
 
+  // 本地 MinerU 常驻服务:配了地址/程序就随应用一起拉起(失败不影响阅读;面板里可关)。
+  // 冒烟测试不拉服务(免得起 GPU 模型拖慢启动自检)。
+  const mineruSettings = () => ({
+    exe: String(plugin.settings?.mineruLocalExe || ""),
+    url: String(plugin.settings?.mineruLocalUrl || ""),
+    autoStart: plugin.settings?.mineruLocalAutoStart !== false,
+  });
+  if (!bridge.smoke) {
+    void bridge.mineru?.ensure?.(mineruSettings())
+      .then((result) => {
+        if (result?.status === "running") console.log("[qbr] local MinerU ready", result.url, result.version || "");
+        else console.log("[qbr] local MinerU", result?.status || "unknown", result?.detail || "");
+      })
+      .catch((error) => console.warn("[qbr] local MinerU failed", String(error?.message || error)));
+  }
+
   window.__qbrApp = app;
   window.__qbrPlugin = plugin;
 

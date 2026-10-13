@@ -88,6 +88,11 @@ window.qbrDesktop = {
       });
     },
   },
+  mineru: {
+    status: (settings) => ipcRenderer.invoke("qbr:mineru:status", settings),
+    ensure: (settings) => ipcRenderer.invoke("qbr:mineru:ensure", settings),
+    stop: () => ipcRenderer.invoke("qbr:mineru:stop"),
+  },
   workshop: {
     list: () => ipcRenderer.invoke("qbr:workshop:list"),
     start: (request) => ipcRenderer.invoke("qbr:workshop:start", request),

@@ -10,6 +10,7 @@ import { createCalibre } from "./calibre.js";
 import { createCoverRenderer } from "./cover-render.js";
 import { createDocvortex, registerDocvortexRunners } from "./docvortex.js";
 import { registerExtractRunners } from "./extract-doc.js";
+import { createMineruLocalService } from "./mineru-local.js";
 import { registerTextConvertRunner } from "./pdf-text.js";
 import { createFormulaChain, registerFormulaRunners } from "./workshop-formula.js";
 import { registerBookRunners } from "./workshop-book.js";
@@ -44,6 +45,8 @@ const secretsPath = path.join(userData, "secrets.json");
 // The sidecar's page cache lives with the app profile: the second open of a
 // book is a cache hit instead of a re-OCR.
 const pdfOcr = createPdfOcr({ cacheRoot: path.join(userData, "ocr-cache") });
+// 本地 MinerU 常驻服务:启动时自动拉起(设置里可关),书坊里检测;退出只收自己拉起的进程。
+const mineruLocal = createMineruLocalService({ uploadDir: path.join(userData, "mineru-service") });
 // 书坊任务队列:串行执行,历史落盘(最近 20 条,不自动续跑)。W0-3+ 为各工具
 // 注册 runner;这里先提供「环境自检」(探测 OCR sidecar)。
 const workshop = createWorkshopQueue({
@@ -402,6 +405,9 @@ function createWindow() {
 }
 
 ipcMain.handle("qbr:launch-file", () => launchFile);
+ipcMain.handle("qbr:mineru:status", (_event, settings) => mineruLocal.status(settings || {}));
+ipcMain.handle("qbr:mineru:ensure", (_event, settings) => mineruLocal.ensure(settings || {}));
+ipcMain.handle("qbr:mineru:stop", () => mineruLocal.stop());
 ipcMain.handle("qbr:open-book-dialog", () => openBookDialog());
 ipcMain.handle("qbr:open-path", (_event, target) => {
   const value = String(target || "");
@@ -597,7 +603,7 @@ if (!gotLock) {
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();
   });
-  app.on("before-quit", () => { pdfOcr.cancelAll(); bookDownloads.cancelAll(); closeBookSession(); });
+  app.on("before-quit", () => { pdfOcr.cancelAll(); bookDownloads.cancelAll(); closeBookSession(); mineruLocal.stop(); });
   app.on("activate", () => {
     if (!BrowserWindow.getAllWindows().length) createWindow();
   });
