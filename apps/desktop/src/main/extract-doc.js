@@ -13,7 +13,7 @@ import { blocksFromDoc, blocksToMarkdown } from "./formula-html.js";
 import { buildTextDoc, createPdfTextReader, writeTextProducts } from "./pdf-text.js";
 import { mergeBlocksWithTextLayer } from "./text-merge.js";
 import { createTextLayerReader } from "./text-layer.js";
-import { resolveMineruKit } from "./mineru-local.js";
+import { resolveLocalBackend } from "./mineru-local.js";
 import { pdfToolArgs, pdfToolScriptCommand, resolveMineruLocalUrl } from "./workshop-formula.js";
 
 export { EXTRACT_MODES, IMAGE_INPUTS, extractionKind };
@@ -291,12 +291,11 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
       else args.push("--formats", "json,md,html");
       const token = String(settings.mineruToken || "").trim()
         || String(process.env.MINERU_API_KEY || process.env.MINERU_TOKEN || "").trim();
-      const env = { PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" };
+      const backend = await resolveLocalBackend(settings);
+      // MINERU_LOCAL_URL 显式给(可能空):挡掉父进程继承来的死地址。
+      const env = { PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8", MINERU_LOCAL_URL: backend.url };
       if (token) env.MINERU_API_KEY = token;
-      const localUrl = resolveMineruLocalUrl(settings);
-      if (localUrl) env.MINERU_LOCAL_URL = localUrl;
-      const localExe = resolveMineruKit(settings);
-      if (localExe) env.MINERU_LOCAL_CMD = localExe;
+      if (backend.exe) env.MINERU_LOCAL_CMD = backend.exe;
       const result = await runExtractCommand(target.command, args, {
         cwd: target.cwd,
         env,
@@ -427,18 +426,16 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", ca
     const formatsIndex = args.indexOf("--formats");
     if (formatsIndex >= 0) args[formatsIndex + 1] = "json,md,html";
     else args.push("--formats", "json,md,html");
-    // 凭据 / 本地服务地址走子进程环境:配了 MINERU_LOCAL_URL,pdf_tool 的 auto 路由优先本地;
+    // 凭据 / 本地后端走子进程环境:MINERU_LOCAL_URL 显式给(可能空),挡掉父进程继承来的死地址;
     // PYTHONUTF8/PYTHONIOENCODING 让 pdf_tool(Python)的中文报错按 UTF-8 出来,不在书坊里乱码。
-    const env = { PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" };
     const token = String(settings.mineruToken || "").trim();
+    const backend = await resolveLocalBackend(settings);
+    const env = { PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8", MINERU_LOCAL_URL: backend.url };
     if (token) env.MINERU_API_KEY = token;
-    const localUrl = resolveMineruLocalUrl(settings);
-    if (localUrl) env.MINERU_LOCAL_URL = localUrl;
-    const localExe = resolveMineruKit(settings);
-    if (localExe) env.MINERU_LOCAL_CMD = localExe;
+    if (backend.exe) env.MINERU_LOCAL_CMD = backend.exe;
     const result = await runExtractCommand(target.command, args, {
       cwd: target.cwd,
-      env: Object.keys(env).length ? env : undefined,
+      env,
       signal,
       log,
       spawnImpl,

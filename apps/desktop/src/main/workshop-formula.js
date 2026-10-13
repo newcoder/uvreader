@@ -9,7 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { blocksFromDoc, blocksToHtml, tableModeFor } from "./formula-html.js";
-import { mineruServiceUrl, probeMineruService, resolveMineruKit } from "./mineru-local.js";
+import { resolveLocalBackend, resolveMineruLocalUrl } from "./mineru-local.js";
 import { uniqueFile } from "./paths.js";
 import { mergeBlocksWithTextLayer } from "./text-merge.js";
 import { createTextLayerReader } from "./text-layer.js";
@@ -50,15 +50,9 @@ export function resolveMineruToken(settings = {}, { env = process.env, readEnv =
   return String(readEnv("MINERU_API_KEY") || readEnv("MINERU_TOKEN") || "").trim();
 }
 
-// 本地 MinerU 常驻服务地址(`mineru-kit api-server`,V1 /v1/file_parse):
-// 配置后 pdf_tool 的 auto 路由会优先本地(即使机器上有云端 token)。
-export function resolveMineruLocalUrl(settings = {}, { env = process.env, readEnv = readWindowsEnv } = {}) {
-  const fromSettings = String(settings.mineruLocalUrl || "").trim();
-  if (fromSettings) return fromSettings;
-  const fromEnv = String(env?.MINERU_LOCAL_URL || "").trim();
-  if (fromEnv) return fromEnv;
-  return String(readEnv("MINERU_LOCAL_URL") || "").trim();
-}
+// 本地 MinerU 常驻服务地址:实现已挪到 mineru-local.js(那里还有探测 / 服务生命周期),
+// 这里只从它转出,保持既有导入路径可用。
+export { resolveMineruLocalUrl } from "./mineru-local.js";
 
 // pdf_tool 的失败尾部常是 Python traceback:把已知原因翻成可操作的话。
 export function friendlyPdfToolError(text) {
@@ -174,21 +168,14 @@ export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000,
       log("formula chain: reuse cached doc", docPath);
     } else {
       const token = resolveMineruToken(settings, { readEnv });
-      const configuredUrl = resolveMineruLocalUrl(settings, { readEnv });
-      const mineruSource = String(settings.mineruSource || "").trim();
-      const wantLocal = mineruSource === "local" || (!mineruSource && Boolean(configuredUrl));
-      // 本地方案:优先用配置地址 / 应用拉起的常驻服务;服务没起来就退回 CLI
-      // (把「本地 MinerU 程序」作为 MINERU_LOCAL_CMD 交给 pdf_tool)。
-      const serviceCandidate = configuredUrl || (wantLocal ? mineruServiceUrl(settings) : "");
-      const service = serviceCandidate ? await probeMineruService(serviceCandidate, { fetchImpl }) : { ok: false };
-      const localExe = resolveMineruKit(settings) || String(settings.mineruLocalExe || "").trim();
-      if (!token && !service.ok && !wantLocal) {
+      const backend = await resolveLocalBackend(settings, { fetchImpl, readEnv });
+      if (!token && !backend.wantLocal) {
         return { ok: false, error: "没有找到 MinerU 凭据:在「转换设置 → MinerU 凭据」里填,或配置环境变量 MINERU_API_KEY / MINERU_TOKEN;也可以启动本地 MinerU 服务并填「本地 MinerU 服务」地址。" };
       }
-      if (wantLocal && !service.ok && !localExe) {
+      if (backend.wantLocal && !backend.url && !backend.exe) {
         return { ok: false, error: "选了本地 MinerU,但服务没在跑、也找不到 mineru-kit:在「转换设置 → 本地 MinerU 程序」里填完整路径(或点「启动服务」)。" };
       }
-      report?.({ label: service.ok ? "本地 MinerU 服务解析" : localExe && wantLocal ? "本地 MinerU(CLI)解析" : "MinerU 云端解析" });
+      report?.({ label: backend.url ? "本地 MinerU 服务解析" : backend.exe && backend.wantLocal ? "本地 MinerU(CLI)解析" : "MinerU 云端解析" });
       log("formula chain: pdf_tool", target.command, target.script);
       // 页眉页脚 / 页码 / 水印由 pdf_tool 侧清理(书坊不在这条链路上动手)。
       const args = pdfToolArgs(target.script, {
@@ -196,16 +183,16 @@ export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000,
         outDir: workDir,
         model: String(settings.mineruModel || "").trim() || "vlm",
         pages,
-        mineruSource: wantLocal ? "local" : "",
+        mineruSource: backend.wantLocal ? "local" : "",
       });
       // 凭据 / 本地地址走子进程环境而不是命令行:不在进程列表里暴露。
+      // MINERU_LOCAL_URL 显式给(可能为空):把父进程继承来的地址挡掉,免得 pdf_tool 去连一个死地址。
       // PYTHONUTF8/PYTHONIOENCODING:让 pdf_tool(Python)的中文报错按 UTF-8 出来,不然在书坊里是乱码。
-      const env = { PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" };
+      const env = { PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8", MINERU_LOCAL_URL: backend.url };
       if (token) env.MINERU_API_KEY = token;
-      if (service.ok) env.MINERU_LOCAL_URL = serviceCandidate;
       // 程序路径也要给:pdf_tool 的 helper 靠它(同目录 python)找 MinerU venv ——
       // 走常驻服务时同样需要,否则 helper 用系统 python 会报 No module named 'mineru'。
-      if (localExe) env.MINERU_LOCAL_CMD = localExe;
+      if (backend.exe) env.MINERU_LOCAL_CMD = backend.exe;
       parsed = await runCommand(target.command, args, {
         cwd: target.cwd,
         env,

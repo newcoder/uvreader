@@ -175,6 +175,38 @@ test("prepare falls back to the mineru-kit CLI when the local service is down", 
   assert.ok(!calls[0].options.env.MINERU_LOCAL_URL, "死地址不传下去");
 });
 
+test("a stale MINERU_LOCAL_URL in the environment never reaches pdf_tool", async () => {
+  const dir = makePdfToolDir();
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-formula-stale-"));
+  const exe = path.join(dir, "mineru-kit.exe");
+  fs.writeFileSync(exe, "stub");
+  const { spawnImpl, calls } = fakeSpawn((_call, child) => {
+    writeDocJson(workDir, "s", [{ type: "text", text: "正文 $z$" }]);
+    child.emit("close", 0);
+  });
+  const saved = process.env.MINERU_LOCAL_URL;
+  process.env.MINERU_LOCAL_URL = "http://127.0.0.1:8123";
+  try {
+    const chain = createFormulaChain({
+      spawnImpl,
+      readEnv: () => "",
+      fetchImpl: async () => { throw new Error("ECONNREFUSED"); },
+      textLayer: { read: async () => ({ ok: false, error: "stub" }) },
+    });
+    const result = await chain.prepare({
+      settings: { ocrSidecarDir: dir, mineruSource: "local", mineruLocalExe: exe },
+      source: "D:/vault/s.pdf",
+      workDir,
+    });
+    assert.equal(result.ok, true, result.error);
+    assert.equal(calls[0].options.env.MINERU_LOCAL_URL, "", "继承来的死地址被显式清掉(否则 pdf_tool 会硬连)");
+    assert.equal(calls[0].options.env.MINERU_LOCAL_CMD, exe, "退回 CLI");
+  } finally {
+    if (saved === undefined) delete process.env.MINERU_LOCAL_URL;
+    else process.env.MINERU_LOCAL_URL = saved;
+  }
+});
+
 test("prepare without a token or a local service asks for one", async () => {
   const dir = makePdfToolDir();
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-formula-none-"));

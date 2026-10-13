@@ -165,12 +165,14 @@ test("the pdf runner drives pdf_tool and adopts its products next to the source"
   assert.equal(calls[0].args[calls[0].args.indexOf("--formats") + 1], "json,md,html");
 });
 
-test("the pdf runner hands the local MinerU service address to pdf_tool", async () => {
+test("the pdf runner hands the local MinerU program to pdf_tool and blocks dead addresses", async () => {
   const vault = tempDir("qbr-extract-local-");
   fs.mkdirSync(path.join(vault, "pdf_tool"), { recursive: true });
   fs.writeFileSync(path.join(vault, "pdf_tool", "pdf_to_doc.py"), "# stub\n");
   const source = path.join(vault, "试卷.pdf");
   fs.writeFileSync(source, "%PDF-1.4");
+  const exe = path.join(vault, "mineru-kit.exe");
+  fs.writeFileSync(exe, "stub");
   const { spawnImpl, calls } = fakeSpawn((call, child) => {
     const outDir = call.args[call.args.indexOf("--out-dir") + 1];
     fs.writeFileSync(path.join(outDir, "试卷_doc.md"), "正文\n");
@@ -181,14 +183,15 @@ test("the pdf runner hands the local MinerU service address to pdf_tool", async 
   const id = queue.start({
     kind: "extract-pdf",
     title: "内容提取",
-    payload: { source, mode: "mineru", settings: { ocrSidecarDir: vault, mineruLocalUrl: "http://127.0.0.1:8123" } },
+    payload: { source, mode: "mineru", settings: { ocrSidecarDir: vault, mineruLocalExe: exe, mineruLocalUrl: "http://127.0.0.1:8123" } },
   });
   await sleep(80);
   const task = queue.snapshot().tasks.find((row) => row.id === id);
   assert.equal(task.status, "done", task.error);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].options.env.MINERU_LOCAL_URL, "http://127.0.0.1:8123", "本地服务地址走环境变量");
-  assert.ok(!calls[0].args.includes("--mineru-url"), "地址不进命令行");
+  assert.equal(calls[0].options.env.MINERU_LOCAL_CMD, exe, "程序路径交给 pdf_tool(helper 靠它找 venv python)");
+  assert.equal(calls[0].options.env.MINERU_LOCAL_URL, "", "服务没在跑:不把死地址传下去");
+  assert.equal(calls[0].options.env.PYTHONUTF8, "1");
 });
 
 test("the docvortex runner writes markdown, html and json next to the source", async () => {

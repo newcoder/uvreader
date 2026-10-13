@@ -98,6 +98,33 @@ export async function probeMineruService(url, { fetchImpl = (...args) => fetch(.
   }
 }
 
+// 设置 / 环境变量里的本地服务地址(readEnv 由调用方注入:桌面端读 Windows 用户环境)。
+export function resolveMineruLocalUrl(settings = {}, { env = process.env, readEnv = () => "" } = {}) {
+  const fromSettings = String(settings.mineruLocalUrl || "").trim();
+  if (fromSettings) return fromSettings;
+  const fromEnv = String(env?.MINERU_LOCAL_URL || "").trim();
+  if (fromEnv) return fromEnv;
+  try {
+    return String(readEnv("MINERU_LOCAL_URL") || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+// 交给 pdf_tool 的本地后端:健康才给地址(探测过,不把死地址传下去,也不用继承来的);
+// 程序路径始终给(helper 靠它找 venv python;服务没起来时是 CLI 的入口)。
+export async function resolveLocalBackend(settings = {}, { fetchImpl = (...args) => fetch(...args), env = process.env, exists = fs.existsSync, readEnv = () => "", probe = true } = {}) {
+  const configured = resolveMineruLocalUrl(settings, { env, readEnv });
+  const wantLocal = String(settings.mineruSource || "").trim() === "local" || Boolean(configured);
+  const candidate = configured || (wantLocal ? `http://127.0.0.1:${DEFAULT_MINERU_PORT}` : "");
+  const health = probe && candidate ? await probeMineruService(candidate, { fetchImpl }) : { ok: false };
+  return {
+    wantLocal,
+    url: health.ok ? candidate : "",
+    exe: resolveMineruKit(settings, { env, exists }) || String(settings.mineruLocalExe || "").trim(),
+  };
+}
+
 // 递归算目录大小(清理时报告释放了多少)。
 function directorySize(target, fsImpl) {
   let total = 0;
