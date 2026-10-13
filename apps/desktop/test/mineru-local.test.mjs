@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
-import { createMineruLocalService, mineruServiceUrl, mineruStartArgs, resolveMineruKit, servicePort } from "../src/main/mineru-local.js";
+import { clearMineruCaches, createMineruLocalService, mineruServiceUrl, mineruStartArgs, resolveMineruKit, servicePort } from "../src/main/mineru-local.js";
 
 function fakeChild() {
   const child = new EventEmitter();
@@ -123,6 +126,23 @@ test("ensure leaves foreign urls alone and honours autoStart=false", async () =>
   assert.equal(off.status, "stopped");
   assert.equal(off.detail, "已关闭自动启动");
   assert.equal(calls.length, 0, "neither case spawns");
+});
+
+test("clearMineruCaches removes the caches and reports the freed bytes", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-clear-"));
+  const formula = path.join(root, "formula-cache");
+  fs.mkdirSync(path.join(formula, "paper-abc"), { recursive: true });
+  fs.writeFileSync(path.join(formula, "paper-abc", "doc.json"), "x".repeat(2048));
+  const service = path.join(root, "mineru-service");
+  fs.mkdirSync(service, { recursive: true });
+  fs.writeFileSync(path.join(service, "blob.bin"), "y".repeat(1024));
+  const absent = path.join(root, "nope");
+  const result = clearMineruCaches([formula, service, absent, ""]);
+  assert.equal(fs.existsSync(formula), false);
+  assert.equal(fs.existsSync(service), false);
+  assert.equal(result.cleared.length, 2, JSON.stringify(result));
+  assert.equal(result.totalBytes, 3072);
+  assert.deepEqual(result.skipped, []);
 });
 
 test("a started service that dies is reported as stopped with the tail", async () => {

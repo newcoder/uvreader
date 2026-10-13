@@ -92,6 +92,7 @@ window.qbrDesktop = {
     status: (settings) => ipcRenderer.invoke("qbr:mineru:status", settings),
     ensure: (settings) => ipcRenderer.invoke("qbr:mineru:ensure", settings),
     stop: () => ipcRenderer.invoke("qbr:mineru:stop"),
+    clearCaches: (settings) => ipcRenderer.invoke("qbr:mineru:clear-cache", settings),
   },
   workshop: {
     list: () => ipcRenderer.invoke("qbr:workshop:list"),

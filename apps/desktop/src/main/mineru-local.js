@@ -85,6 +85,41 @@ export function mineruStartArgs(url, uploadDir, { tier = "standard" } = {}) {
 
 const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
+// 递归算目录大小(清理时报告释放了多少)。
+function directorySize(target, fsImpl) {
+  let total = 0;
+  for (const entry of fsImpl.readdirSync(target, { withFileTypes: true })) {
+    const child = path.join(target, entry.name);
+    if (entry.isDirectory()) total += directorySize(child, fsImpl);
+    else {
+      try { total += fsImpl.statSync(child).size; } catch { /* 已经没了 */ }
+    }
+  }
+  return total;
+}
+
+// 清理 MinerU 相关缓存目录:公式链路的解析缓存 / 本地服务的上传目录 / 文本型工作目录等。
+// 逐个删,删不掉的(被服务占用)跳过;返回清掉的路径与总字节数。
+export function clearMineruCaches(paths = [], { fsImpl = fs } = {}) {
+  const cleared = [];
+  const skipped = [];
+  let totalBytes = 0;
+  for (const target of paths) {
+    const value = String(target || "").trim();
+    if (!value || !fsImpl.existsSync(value)) continue;
+    let bytes = 0;
+    try { bytes = directorySize(value, fsImpl); } catch { bytes = 0; }
+    try {
+      fsImpl.rmSync(value, { recursive: true, force: true });
+      cleared.push({ path: value, bytes });
+      totalBytes += bytes;
+    } catch {
+      skipped.push(value);
+    }
+  }
+  return { cleared, skipped, totalBytes };
+}
+
 export function createMineruLocalService({
   spawnImpl = spawn,
   fetchImpl = (...args) => fetch(...args),

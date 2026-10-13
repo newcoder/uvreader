@@ -1760,6 +1760,8 @@ export function createWorkshopView(leaf, options) {
       checkLocal.addEventListener("click", () => this.checkMineruLocal());
       const startLocal = this._convertLocalTools.createEl("button", { text: "启动服务" });
       startLocal.addEventListener("click", () => this.checkMineruLocal({ start: true }));
+      const clearLocal = this._convertLocalTools.createEl("button", { text: "清理 MinerU 缓存" });
+      clearLocal.addEventListener("click", () => this.clearMineruCaches());
       this._convertLocalStatus = this._convertLocalTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
       this.syncConvertTokenRow();
       void this.checkMineruLocal();
@@ -1924,8 +1926,30 @@ export function createWorkshopView(leaf, options) {
       }
     }
 
-    describeMineruStatus(result) {
-      const url = String(result?.url || "");
+    // 清理 MinerU 缓存:公式优先的解析复用缓存 + (服务没在跑时)本地上传目录;如实报告释放量。
+    async clearMineruCaches() {
+      const mineru = typeof window !== "undefined" ? window.qbrDesktop?.mineru || null : null;
+      if (!mineru?.clearCaches) {
+        new Notice("这个宿主不支持清理 MinerU 缓存");
+        return;
+      }
+      try {
+        const result = await mineru.clearCaches(this.formulaSettings());
+        const total = Number(result?.totalBytes) || 0;
+        const size = total >= 1024 * 1024 ? `${(total / 1024 / 1024).toFixed(1)} MB` : `${Math.max(0, Math.round(total / 1024))} KB`;
+        const parts = [];
+        if (result?.cleared?.length) parts.push(`已清理 ${size}`);
+        else parts.push("没有可清理的缓存");
+        if (result?.skippedService) parts.push("服务在运行,上传目录已跳过(停掉服务后可再清)");
+        if (Array.isArray(result?.skipped) && result.skipped.length) parts.push(`${result.skipped.length} 个目录被占用,跳过`);
+        new Notice(`MinerU 缓存:${parts.join(";")}`);
+        this._convertLocalStatus?.setText(parts.join(" · "));
+      } catch (error) {
+        new Notice(`清理失败:${String(error?.message || error)}`);
+      }
+    }
+
+    describeMineruStatus(result) {      const url = String(result?.url || "");
       const version = result?.version ? ` · 版本 ${result.version}` : "";
       const detail = result?.detail ? ` · ${result.detail}` : "";
       switch (String(result?.status || "")) {

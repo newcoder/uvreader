@@ -10,7 +10,7 @@ import { createCalibre } from "./calibre.js";
 import { createCoverRenderer } from "./cover-render.js";
 import { createDocvortex, registerDocvortexRunners } from "./docvortex.js";
 import { registerExtractRunners } from "./extract-doc.js";
-import { createMineruLocalService } from "./mineru-local.js";
+import { clearMineruCaches, createMineruLocalService } from "./mineru-local.js";
 import { registerTextConvertRunner } from "./pdf-text.js";
 import { createFormulaChain, registerFormulaRunners } from "./workshop-formula.js";
 import { registerBookRunners } from "./workshop-book.js";
@@ -408,6 +408,14 @@ ipcMain.handle("qbr:launch-file", () => launchFile);
 ipcMain.handle("qbr:mineru:status", (_event, settings) => mineruLocal.status(settings || {}));
 ipcMain.handle("qbr:mineru:ensure", (_event, settings) => mineruLocal.ensure(settings || {}));
 ipcMain.handle("qbr:mineru:stop", () => mineruLocal.stop());
+ipcMain.handle("qbr:mineru:clear-cache", async (_event, settings = {}) => {
+  const running = (await mineruLocal.status(settings || {})).status === "running";
+  const formulaCache = path.join(userData, "formula-cache");
+  const serviceDir = path.join(userData, "mineru-service");
+  // 服务在跑时上传目录还被占着:跳过并如实告诉界面,不假装清干净了。
+  if (running) return { ...clearMineruCaches([formulaCache]), skippedService: serviceDir };
+  return { ...clearMineruCaches([formulaCache, serviceDir]), skippedService: "" };
+});
 ipcMain.handle("qbr:open-book-dialog", () => openBookDialog());
 ipcMain.handle("qbr:open-path", (_event, target) => {
   const value = String(target || "");
