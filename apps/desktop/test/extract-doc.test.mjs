@@ -416,6 +416,39 @@ test("re-extracting a text-mode product reuses it unchanged", async () => {
   assert.equal(layerReads, 0, "文本型产物跳过文字层合并");
 });
 
+test("the text-mode runner writes figure crops next to the source", async () => {
+  const vault = tempDir("qbr-extract-text-figs-");
+  const source = path.join(vault, "试卷.pdf");
+  fs.writeFileSync(source, "%PDF-1.4");
+  const cacheRoot = tempDir("qbr-extract-marks-");
+  const { queue } = makeQueue({ probe: async () => ({ ok: true }), convert: async () => ({ ok: true }) }, null, {
+    cacheRoot,
+    pdfText: {
+      read: async (_pdf, { workDir }) => {
+        const dir = path.join(workDir, "assets");
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, "fig-p1-1.png"), "png-bytes");
+        return {
+          ok: true,
+          pages: [{
+            width: 595,
+            height: 842,
+            faint: [],
+            figures: [{ rect: [350, 290, 460, 400], file: "fig-p1-1.png" }],
+            lines: [{ text: "第一题的正文。", fonts: { SimSun: 12 }, size: 12, x0: 55, x1: 300, y0: 100, y1: 112, rotated: false }],
+          }],
+        };
+      },
+    },
+  });
+  const task = queue.start({ kind: "extract-pdf", title: "内容提取", payload: { source, mode: "text", settings: {} } });
+  await sleep(80);
+  const row = queue.snapshot().tasks.find((entry) => entry.id === task);
+  assert.equal(row.status, "done", row.error);
+  assert.match(fs.readFileSync(row.output, "utf8"), /试卷\.assets\/fig-p1-1\.png/);
+  assert.equal(fs.readFileSync(path.join(vault, "试卷.assets", "fig-p1-1.png"), "utf8"), "png-bytes");
+});
+
 test("text mode extracts locally without pdf_tool or the cloud", async () => {
   const vault = tempDir("qbr-extract-text-");
   const source = path.join(vault, "代码讲义.pdf");

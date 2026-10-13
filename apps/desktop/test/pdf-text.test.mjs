@@ -299,6 +299,39 @@ test("createPdfCleaner redacts the furniture into a clean copy", async () => {
   assert.equal(untouched.removed, 0);
 });
 
+test("figures found by the extractor become image blocks in place", () => {
+  const pages = [{
+    height: 800,
+    figures: [{ rect: [350, 290, 460, 400], file: "fig-p1-1.png" }],
+    lines: [
+      line("14.以 a 为起点，对右边的无向图进行深度优先遍历。", { y0: 265, y1: 279 }),
+      line("A. 1", { y0: 312, y1: 326 }),
+      line("D. 4", { y0: 382, y1: 396 }),
+      line("15.下一题。", { y0: 429, y1: 443 }),
+    ],
+  }];
+  const blocks = buildBlocks(pages, { assetPrefix: "试卷.assets/" });
+  assert.deepEqual(blocks.map((block) => block.type), ["text", "text", "text", "image", "text"], JSON.stringify(blocks));
+  assert.equal(blocks[3].image.src, "试卷.assets/fig-p1-1.png");
+  assert.equal(blocks[3].page, 1);
+});
+
+test("writeTextProducts copies figure crops into <stem>.assets/", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-products-"));
+  const crops = path.join(dir, "crops");
+  fs.mkdirSync(crops, { recursive: true });
+  const crop = path.join(crops, "fig-p1-1.png");
+  fs.writeFileSync(crop, "png-bytes");
+  const doc = buildTextDoc(
+    [{ height: 800, figures: [{ rect: [10, 10, 200, 200], file: "fig-p1-1.png" }], lines: [line("正文。", { y0: 300, y1: 312 })] }],
+    { source: "D:/v/试卷.pdf", title: "试卷", assetPrefix: "试卷.assets/" },
+  );
+  const files = writeTextProducts(doc, { outDir: dir, stem: "试卷", assets: [{ name: "fig-p1-1.png", path: crop }] });
+  assert.match(fs.readFileSync(files.md, "utf8"), /!\[第 1 页插图\]\(试卷\.assets\/fig-p1-1\.png\)/);
+  assert.match(fs.readFileSync(files.html, "utf8"), /试卷\.assets\/fig-p1-1\.png/);
+  assert.equal(fs.readFileSync(path.join(dir, "试卷.assets", "fig-p1-1.png"), "utf8"), "png-bytes");
+});
+
 test("buildTextDoc and writeTextProducts produce §7 products", () => {
   const pages = [{ lines: [line("第一章 起风了", { size: 16, y0: 30, y1: 50 }), code("const a = 1;", { y0: 80, y1: 92 })] }];
   const doc = buildTextDoc(pages, { source: "D:/v/报告.pdf", title: "报告" });

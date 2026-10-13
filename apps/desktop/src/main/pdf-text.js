@@ -18,7 +18,7 @@ import { convertPath } from "../shared/workshop-names.js";
 
 export { blocksToHtml, blocksToMarkdown } from "./formula-html.js";
 
-export const PDF_TEXT_SCRIPT = `import fitz, json, sys
+export const PDF_TEXT_SCRIPT = `import fitz, json, os, sys
 
 def is_cjk(ch):
     code = ord(ch)
@@ -26,7 +26,84 @@ def is_cjk(ch):
 
 CLOSERS = ("）", ")", "，", "。", "、", "；", "：", "”", "’", ",", ".", ";", ":", "!", "?", "！", "？")
 
+PAD = 6.0          # 绘图元素聚类时允许的空隙(把一张图的零散线条聚成一块)
+MIN_W, MIN_H = 24.0, 24.0
+MIN_PATHS = 5      # 线画图至少这么多路径(填空下划线 / 表格线只有 1–4 条)
+
+def rect_overlap(a, b, pad):
+    return not (b.x1 + pad < a.x0 or a.x1 + pad < b.x0 or b.y1 + pad < a.y0 or a.y1 + pad < b.y0)
+
+def figure_regions(page):
+    """图区:矢量线画(聚类后够大、够多路径、不是表格线框)与内嵌图片(够大、不在页边带)。"""
+    groups = []
+    for drawing in page.get_drawings():
+        rect = drawing["rect"]
+        hit = None
+        for group in groups:
+            if any(rect_overlap(rect, item["rect"], PAD) for item in group):
+                hit = group
+                break
+        if hit is None:
+            groups.append([drawing])
+            continue
+        hit.append(drawing)
+        changed = True
+        while changed:
+            changed = False
+            for other in groups:
+                if other is hit:
+                    continue
+                if any(rect_overlap(item["rect"], entry["rect"], PAD) for item in hit for entry in other):
+                    hit.extend(other)
+                    groups.remove(other)
+                    changed = True
+                    break
+    regions = []
+    for group in groups:
+        rect = group[0]["rect"]
+        for other in group[1:]:
+            rect = rect | other["rect"]
+        if rect.width < MIN_W or rect.height < MIN_H or len(group) < MIN_PATHS:
+            continue
+        horizontal = vertical = 0
+        for drawing in group:
+            for item in drawing.get("items", []):
+                if item[0] != "l":
+                    continue
+                ax, ay = item[1].x, item[1].y
+                bx, by = item[2].x, item[2].y
+                length = ((bx - ax) ** 2 + (by - ay) ** 2) ** 0.5
+                if abs(ay - by) <= 1.5 and length >= 0.8 * rect.width:
+                    horizontal += 1
+                elif abs(ax - bx) <= 1.5 and length >= 0.8 * rect.height:
+                    vertical += 1
+        # 表格是两个方向都有贯穿线;宽扁条多是表格行 / 分隔带
+        if horizontal >= 2 and vertical >= 2:
+            continue
+        if rect.width >= 200 and rect.height < 30:
+            continue
+        regions.append({"rect": rect, "scale": 3.0})
+    page_area = page.rect.width * page.rect.height
+    for info in page.get_image_info():
+        rect = fitz.Rect(info["bbox"])
+        if rect.width < 64 or rect.height < 32 or rect.width * rect.height < 0.04 * page_area:
+            continue
+        # 整页扫描图不是插图;页眉页脚带里的图片多是刊头 / 装饰条
+        if rect.width * rect.height >= 0.85 * page_area:
+            continue
+        if rect.y1 <= page.rect.height * 0.08 or rect.y0 >= page.rect.height * 0.92:
+            continue
+        if any(rect_overlap(rect, region["rect"], 4.0) for region in regions):
+            continue
+        # 照片类图按内嵌像素定倍率(上限 2.5),产物里存 JPEG 压体积
+        scale = min(2.5, max(1.2, float(info.get("width") or 0) / max(rect.width, 1.0)))
+        regions.append({"rect": rect, "scale": scale, "image": True})
+    return regions
+
 doc = fitz.open(sys.argv[1])
+assets_dir = sys.argv[3] if len(sys.argv) > 3 else ""
+if assets_dir:
+    os.makedirs(assets_dir, exist_ok=True)
 pages = []
 for page in doc:
     lines = []
@@ -85,11 +162,35 @@ for page in doc:
                     faint.append(text)
     except Exception:
         faint = []
+    # 图(线画 / 内嵌图片)裁成 png(线画)或 jpg(照片),图区内部的文字并入图片(不再作为正文)。
+    # 整页没有文字时(扫描件)不做:那种 PDF 本来就走不了「文本型」。
+    figures = []
+    if assets_dir and lines:
+        for order, region in enumerate(figure_regions(page), start=1):
+            rect = region["rect"]
+            suffix = "jpg" if region.get("image") else "png"
+            name = "fig-p%d-%d.%s" % (page.number + 1, order, suffix)
+            clip = fitz.Rect(rect.x0 - 3, rect.y0 - 3, rect.x1 + 3, rect.y1 + 3) & page.rect
+            try:
+                pix = page.get_pixmap(matrix=fitz.Matrix(region["scale"], region["scale"]), clip=clip)
+                if suffix == "jpg":
+                    pix.save(os.path.join(assets_dir, name), jpg_quality=85)
+                else:
+                    pix.save(os.path.join(assets_dir, name))
+            except Exception:
+                continue
+            figures.append({
+                "rect": [round(rect.x0, 1), round(rect.y0, 1), round(rect.x1, 1), round(rect.y1, 1)],
+                "file": name,
+            })
+            inside = fitz.Rect(rect.x0 - 1, rect.y0 - 1, rect.x1 + 1, rect.y1 + 1)
+            lines = [line for line in lines if not inside.contains(fitz.Rect(line["x0"], line["y0"], line["x1"], line["y1"]))]
     pages.append({
         "width": round(page.rect.width, 1),
         "height": round(page.rect.height, 1),
         "lines": lines,
         "faint": faint,
+        "figures": figures,
     })
 with open(sys.argv[2], "w", encoding="utf-8") as fh:
     json.dump(pages, fh, ensure_ascii=False)
@@ -218,7 +319,7 @@ export function furnitureRects(pages, options = {}) {
 }
 
 // 行 → 块:等宽 = 代码(跨页也连成一块),字号大的短行 = 标题,其余按空行间距分段。
-export function buildBlocks(pages) {
+export function buildBlocks(pages, { assetPrefix = "" } = {}) {
   const list = dropFurniture(pages);
   const all = list.flatMap((page) => (page.lines || []).map((line) => line));
   if (!all.length) return [];
@@ -322,10 +423,47 @@ export function buildBlocks(pages) {
     blocks.splice(cursor, 1);
   }
 
+  // 图:Python 侧已把线画图区 / 内嵌图片裁成 png(图区内部的文字并入图片)。这里按几何
+  // 位置把图片块插进流里:插在「起始位置落在图的垂直范围内」的最后一个块之后。
+  for (const [pageIndex, page] of list.entries()) {
+    const pageNumber = pageIndex + 1;
+    for (const figure of page?.figures || []) {
+      const bottom = Number(Array.isArray(figure?.rect) ? figure.rect[3] : NaN);
+      const file = String(figure?.file || "");
+      if (!file || !Number.isFinite(bottom)) continue;
+      let at = -1;
+      let best = -Infinity;
+      for (let index = 0; index < blocks.length; index += 1) {
+        const geom = blocks[index].geom;
+        if (blocks[index].page !== pageNumber || !geom?.length) continue;
+        const top = Number(geom[0].y0);
+        if (!Number.isFinite(top) || top > bottom) continue;
+        if (top >= best) {
+          best = top;
+          at = index;
+        }
+      }
+      if (at < 0) {
+        const first = blocks.findIndex((block) => block.page >= pageNumber);
+        at = first < 0 ? blocks.length - 1 : first - 1;
+      }
+      blocks.splice(at + 1, 0, {
+        kind: "image",
+        size: 0,
+        page: pageNumber,
+        text: "",
+        lines: [],
+        geom: [],
+        image: { src: `${assetPrefix}${file}`, alt: `第 ${pageNumber} 页插图` },
+      });
+    }
+  }
+
   // 标题:单行、字号明显大于正文、不长、不以句末标点结尾
   return blocks
     .map((block) => {
       const base = { size: block.size, text: block.text, page: block.page };
+      if (block.kind === "image") return { size: 0, text: "", page: block.page, type: "image", image: block.image };
       if (block.kind === "code") return { ...base, type: "code" };
       const single = block.lines.length === 1;
       const heading = single
@@ -336,12 +474,12 @@ export function buildBlocks(pages) {
       const level = block.size >= bodySize * 1.6 ? 1 : block.size >= bodySize * 1.3 ? 2 : 3;
       return { ...base, type: "heading", level };
     })
-    .filter((block) => block.text.trim());
+    .filter((block) => block.type === "image" || String(block.text || "").trim());
 }
 
 // 结构化页 → Doc v1(和其它链路同构,后续 .md / .html / 合并都能直接复用)。
-export function buildTextDoc(pages, { source = "", title = "" } = {}) {
-  const blocks = buildBlocks(pages);
+export function buildTextDoc(pages, { source = "", title = "", assetPrefix = "" } = {}) {
+  const blocks = buildBlocks(pages, { assetPrefix });
   const pagesOut = new Map();
   for (const [index, block] of blocks.entries()) {
     const page = block.page || 1;
@@ -351,7 +489,8 @@ export function buildTextDoc(pages, { source = "", title = "" } = {}) {
       page,
       type: block.type,
       ...(block.level ? { level: block.level } : {}),
-      ...(block.type === "code" ? { content: block.text } : { text: block.text }),
+      ...(block.type === "image" ? { image: block.image } : {}),
+      ...(block.type === "code" ? { content: block.text } : block.type === "image" ? {} : { text: block.text }),
       index,
     });
   }
@@ -370,10 +509,11 @@ export function createPdfTextReader({ spawnImpl = spawn, timeoutMs = 120_000 } =
     try {
       fs.mkdirSync(base, { recursive: true });
       const outFile = path.join(base, "pdf-text.json");
+      const assetsDir = path.join(base, "assets");
       const result = await new Promise((resolve) => {
         let child;
         try {
-          child = spawnImpl(python, ["-c", PDF_TEXT_SCRIPT, source, outFile], { stdio: ["ignore", "pipe", "pipe"] });
+          child = spawnImpl(python, ["-c", PDF_TEXT_SCRIPT, source, outFile, assetsDir], { stdio: ["ignore", "pipe", "pipe"] });
         } catch (error) {
           resolve({ ok: false, error: String(error?.message || error) });
           return;
@@ -510,9 +650,20 @@ export async function cleanedPdfFor(source, { cleaner = null, settings = {}, cac
   return result.path;
 }
 
-// 写 §7 产物:<源名>.md / .html / .json / .audit.json(同名加序号)。
-export function writeTextProducts(doc, { outDir, stem }) {
+// 写 §7 产物:<源名>.md / .html / .json / .audit.json(同名加序号);图片产物进 <源名>.assets/。
+export function writeTextProducts(doc, { outDir, stem, assets = [] } = {}) {
   const files = {};
+  if (assets.length) {
+    const dir = path.join(outDir, `${stem}.assets`);
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      for (const asset of assets) {
+        const from = String(asset?.path || "");
+        const name = String(asset?.name || path.basename(from));
+        if (from && name && fs.existsSync(from)) fs.copyFileSync(from, path.join(dir, name));
+      }
+    } catch { /* 图片拷不过去不影响其它产物 */ }
+  }
   const target = (ext) => uniqueFile(path.join(outDir, `${stem}${ext}`));
   const markdown = blocksToMarkdown(doc.pages.flatMap((page) => page.blocks));
   files.md = target(".md");
@@ -560,7 +711,7 @@ export function registerTextConvertRunner(workshop, { docvortex, vaultRoot = "",
     const read = await pdfText.read(source, { python, workDir, signal });
     if (signal.aborted) throw new Error("任务已取消");
     if (!read.ok) throw new Error(`本地取文本失败：${read.error}`);
-    const doc = buildTextDoc(read.pages, { source, title: stem });
+    const doc = buildTextDoc(read.pages, { source, title: stem, assetPrefix: "assets/" });
     if (!doc.pages.length) throw new Error("这份 PDF 没有可提取的文本(扫描件请用「公式优先」或内容提取的「扫描视觉」)");
 
     report({ label: "DocVortex 转换" });

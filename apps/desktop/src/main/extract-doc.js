@@ -159,6 +159,9 @@ export function imageToPdf(source, outPath, { python = "python", signal, log = (
 }
 
 // 提取产物的复用标记(MinerU 慢且计费):源文件 + 模式 + 模型一致才复用。
+// 文本型再多比一个产物版本:提取器行为变了(如新增图的裁剪)就别复用旧产物。
+const EXTRACT_VERSION = 2;
+
 export function extractMarkPath(cacheRoot, source) {
   const root = String(cacheRoot || "");
   if (!root) return "";
@@ -172,6 +175,8 @@ export function readExtractMark(cacheRoot, source, { mode, model, stat }) {
   try {
     const mark = JSON.parse(fs.readFileSync(file, "utf8"));
     if (mark.mode !== mode || mark.model !== model) return null;
+    // 文本型的产物格式随提取器一起演进(如新增图的裁剪):版本对不上就不再复用。
+    if (mode === "text" && Number(mark.version || 1) !== EXTRACT_VERSION) return null;
     if (Number(mark.size) !== stat.size || Number(mark.mtimeMs) !== Math.round(stat.mtimeMs)) return null;
     const outputs = mark.outputs || {};
     if (!outputs.md || !Object.values(outputs).every((entry) => fs.existsSync(entry))) return null;
@@ -190,6 +195,7 @@ export function writeExtractMark(cacheRoot, source, { mode, model, stat, outputs
       source: path.resolve(String(source)),
       mode,
       model,
+      version: EXTRACT_VERSION,
       size: stat.size,
       mtimeMs: Math.round(stat.mtimeMs),
       outputs,
@@ -371,9 +377,16 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", ca
       const read = await pdfText.read(source, { python: docvortexPython(settings), workDir: work, signal });
       if (signal.aborted) throw new Error("任务已取消");
       if (!read.ok) throw new Error(`本地取文本失败：${read.error}`);
-      const doc = buildTextDoc(read.pages, { source, title: stem });
+      const doc = buildTextDoc(read.pages, { source, title: stem, assetPrefix: `${stem}.assets/` });
       if (!doc.pages.length) throw new Error("这份 PDF 没有可提取的文本(扫描件请用「扫描视觉」或「MinerU 云端」)");
-      const files = writeTextProducts(doc, { outDir, stem });
+      const files = writeTextProducts(doc, {
+        outDir,
+        stem,
+        assets: read.pages.flatMap((page) => (page.figures || []).map((figure) => ({
+          name: figure.file,
+          path: path.join(work, "assets", String(figure.file || "")),
+        }))),
+      });
       writeExtractMark(cacheRoot, source, { mode, model, stat, outputs: files });
       return { output: files.md, detail: `Markdown · ${Math.round(fs.statSync(files.md).size / 1024)} KB`, outputs: files };
     }
