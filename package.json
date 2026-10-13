@@ -20,7 +20,8 @@
     "desktop:dist:dir": "npm --prefix apps/desktop run dist:dir",
     "desktop:smoke:packaged": "npm --prefix apps/desktop run smoke:packaged",
     "build:icon": "npm --prefix apps/desktop run build:logo",
-    "build:icons": "node scripts/slice-app-icons.mjs"
+    "build:icons": "node scripts/slice-app-icons.mjs",
+    "desktop:matrix": "npm --prefix apps/desktop run matrix"
   },
   "keywords": [
     "reader",
