@@ -67,8 +67,10 @@ export function renderMathIn(element) {
         });
         fragment.append(span);
       } catch {
-        // 解析不了的公式(或还没写完的半截公式)原样保留,读起来还是那段文本。
-        fragment.append(segment.raw);
+        // 解析不了的公式(MinerU 常把程序表达式当公式,如 \texttt { \theta }):
+        // 既不画 KaTeX 的报错文本,也不保留 $ 定界符——原文照旧可读,也不会被当成坏了。
+        const plain = String(segment.tex || "").trim();
+        fragment.append(plain || segment.raw);
       }
       cursor = segment.index + segment.raw.length;
     }

@@ -70,4 +70,6 @@ test("a formula KaTeX cannot parse stays as raw text (no ParseError on screen)",
   assert.doesNotMatch(element.textContent, /ParseError/, "不要把 KaTeX 的报错文本显示出来");
   assert.doesNotMatch(element.textContent, /KaTeX/, "报错里的库名也不该出现在正文");
   assert.match(element.textContent, /\\texttt \{ t \} = = \\texttt \{ \\theta \}/, "原文照旧可读");
+  assert.doesNotMatch(element.textContent, /\$/, "定界符也去掉,免得看起来像没渲染");
+  assert.match(element.textContent, /^选项 \\texttt.*之后。$/, "前后正文原样保留");
 });
