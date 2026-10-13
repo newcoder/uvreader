@@ -50,6 +50,17 @@ export function patchMarkdownCaptions(markdown, blocks) {
   return out;
 }
 
+// 递归拷贝目录(资产目录合并用;直接 copyFile,不依赖 fs.cpSync 的版本)。
+function copyDir(from, to) {
+  fs.mkdirSync(to, { recursive: true });
+  for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
+    const source = path.join(from, entry.name);
+    const target = path.join(to, entry.name);
+    if (entry.isDirectory()) copyDir(source, target);
+    else fs.copyFileSync(source, target);
+  }
+}
+
 // pdf_tool 的产物(<stem>_doc.md / .html / .json / _audit.json + mineru/ 资产)
 // → §7 约定(<源名>.md / .html / .json / .audit.json / <源名>.assets/)。
 export function adoptPdfToolOutputs(outDir, name, { renameAssets = true } = {}) {
@@ -68,11 +79,20 @@ export function adoptPdfToolOutputs(outDir, name, { renameAssets = true } = {}) 
   ];
   const assetsFrom = path.join(outDir, "mineru");
   const assetsTo = path.join(outDir, `${name}.assets`);
-  const assetsRenamed = renameAssets && fs.existsSync(assetsFrom) && !fs.existsSync(assetsTo);
-  if (assetsRenamed) {
-    try { fs.renameSync(assetsFrom, assetsTo); } catch { /* keep the old folder */ }
+  let assetPrefix = "mineru/";
+  if (renameAssets && fs.existsSync(assetsFrom)) {
+    try {
+      if (fs.existsSync(assetsTo)) {
+        // 同一份源提取过多次:目标 assets 目录已经在了(MinerU 每次的图名是内容哈希,
+        // 可能和上次不同),把这次的新图并进去,否则 <源名>.assets/... 的链接会指空。
+        copyDir(assetsFrom, assetsTo);
+        fs.rmSync(assetsFrom, { recursive: true, force: true });
+      } else {
+        fs.renameSync(assetsFrom, assetsTo);
+      }
+      assetPrefix = `${name}.assets/`;
+    } catch { assetPrefix = "mineru/"; }
   }
-  const assetPrefix = assetsRenamed ? `${name}.assets/` : "mineru/";
   for (const [suffix, key] of moves) {
     const from = path.join(outDir, `${name}${suffix}`);
     if (!fs.existsSync(from)) continue;

@@ -60,14 +60,14 @@ export function renderMathIn(element) {
       try {
         katex.render(segment.tex, span, {
           displayMode: segment.display,
-          throwOnError: false,
+          // throwOnError 关掉的话 KaTeX 不会抛错,而是把 "ParseError: …" 当正文画出来
+          // (MinerU 会把试卷里的程序表达式误当公式,吐出的 LaTeX 常常解析不了)。
+          throwOnError: true,
           strict: false,
-          errorColor: "inherit",
         });
         fragment.append(span);
       } catch {
-        // A half-typed formula mid-stream stays readable and is retried on the
-        // next render once its closing delimiter arrives.
+        // 解析不了的公式(或还没写完的半截公式)原样保留,读起来还是那段文本。
         fragment.append(segment.raw);
       }
       cursor = segment.index + segment.raw.length;

@@ -102,6 +102,22 @@ test("adoptPdfToolOutputs renames pdf_tool products and rewrites asset links", (
   assert.match(path.basename(again.md), /^报告 \(\d+\)\.md$/);
 });
 
+test("adoptPdfToolOutputs merges new images into an existing .assets folder", () => {
+  const dir = tempDir("qbr-adopt-assets-");
+  fs.mkdirSync(path.join(dir, "mineru", "images"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "mineru", "images", "new.jpg"), "new-bytes");
+  fs.writeFileSync(path.join(dir, "mineru", "figs.json"), "{}");
+  fs.writeFileSync(path.join(dir, "报告_doc.md"), "![插图](mineru/images/new.jpg)\n");
+  fs.mkdirSync(path.join(dir, "报告.assets", "images"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "报告.assets", "images", "old.jpg"), "old-bytes");
+  const files = adoptPdfToolOutputs(dir, "报告");
+  assert.equal(fs.readFileSync(path.join(dir, "报告.assets", "images", "new.jpg"), "utf8"), "new-bytes", "这次的图并进来了");
+  assert.equal(fs.readFileSync(path.join(dir, "报告.assets", "images", "old.jpg"), "utf8"), "old-bytes", "上次的图还在");
+  assert.ok(fs.existsSync(path.join(dir, "报告.assets", "figs.json")), "资产目录整体并入");
+  assert.ok(!fs.existsSync(path.join(dir, "mineru")), "mineru/ 并入后清掉");
+  assert.match(fs.readFileSync(files.md, "utf8"), /报告\.assets\/images\/new\.jpg/, "链接指向真实存在的文件");
+});
+
 function makeQueue(docvortex, spawnImpl, extra = {}) {
   const dir = tempDir("qbr-extract-queue-");
   const queue = createWorkshopQueue({ file: path.join(dir, "tasks.json"), onState: () => {}, log: { warn() {} } });

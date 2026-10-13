@@ -60,3 +60,14 @@ test("a broken formula stays readable instead of throwing", () => {
   assert.match(element.textContent, /\\frac\{1\}\{2/);
   assert.doesNotThrow(() => renderMathIn(null));
 });
+
+test("a formula KaTeX cannot parse stays as raw text (no ParseError on screen)", () => {
+  // MinerU 会把试卷里的程序表达式误当公式:\texttt { t } = = \texttt { \theta } | | … 里
+  // \theta 在文本模式里非法,KaTeX 直接报错。
+  const { element } = makeElement("<p>选项 $\\texttt { t } = = \\texttt { \\theta } | | \\texttt { e q u a l s }$ 之后。</p>");
+  renderMathIn(element);
+  assert.equal(element.querySelector("math"), null, "解析不了就不渲染公式");
+  assert.doesNotMatch(element.textContent, /ParseError/, "不要把 KaTeX 的报错文本显示出来");
+  assert.doesNotMatch(element.textContent, /KaTeX/, "报错里的库名也不该出现在正文");
+  assert.match(element.textContent, /\\texttt \{ t \} = = \\texttt \{ \\theta \}/, "原文照旧可读");
+});
