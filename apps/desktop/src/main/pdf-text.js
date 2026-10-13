@@ -253,7 +253,7 @@ export function buildBlocks(pages) {
   const push = () => {
     if (!current) return;
     const text = (current.kind === "code" ? current.lines.join("\n") : joinTextLines(current.lines)).trim();
-    if (text) blocks.push({ kind: current.kind, size: current.size, text, page: current.page, lines: current.lines.slice() });
+    if (text) blocks.push({ kind: current.kind, size: current.size, text, page: current.page, lines: current.lines.slice(), geom: current.geom.slice() });
     current = null;
   };
 
@@ -277,17 +277,50 @@ export function buildBlocks(pages) {
       );
       if (sizeJump || kindChange || bigGap || (newPage && !pageContinue)) push();
     }
-    if (!current) current = { kind, size, lines: [], page: entry.page };
+    if (!current) current = { kind, size, lines: [], page: entry.page, geom: [] };
     // 断词:「de-」+「signed」合并;代码保持换行与缩进
     const previous = current.lines[current.lines.length - 1];
     if (current.kind === "text" && previous && /[\p{L}]-$/u.test(previous) && /^[\p{Ll}\p{Lo}]/u.test(text.trim())) {
       current.lines[current.lines.length - 1] = `${previous.slice(0, -1)}${text.trim()}`;
+      current.geom[current.geom.length - 1] = line;
     } else {
       current.lines.push(text);
+      current.geom.push(line);
     }
     lastLine = { ...line, page: entry.page };
   }
   push();
+
+  // 图文混排的 PDF(试卷常见)会把图上的零散文字(如无向图的节点标签 a–e)排在页面块
+  // 顺序的最后。它夹在「上一页页底的代码块」和「下一页页顶的代码块」之间,会把一块代码
+  // 截成两段。按几何判定这种碎片:整块都在代码块上方、又短又碎 → 两段代码合成一块,
+  // 碎片留在合块之后(不丢,只是不再打断代码)。
+  const heightOf = (page) => Number(list[page - 1]?.height) || 0;
+  const isShard = (block) => block.kind === "text" && block.lines.length <= 4 && block.text.trim().length <= 32;
+  for (let index = 0; index < blocks.length; index += 1) {
+    const head = blocks[index];
+    if (head.kind !== "code" || !head.geom?.length) continue;
+    const codeTop = Number(head.geom[0].y0);
+    let cursor = index + 1;
+    while (
+      cursor < blocks.length
+      && blocks[cursor].page === head.page
+      && isShard(blocks[cursor])
+      && Number(blocks[cursor].geom?.[blocks[cursor].geom.length - 1]?.y1) <= codeTop
+    ) cursor += 1;
+    if (cursor === index + 1) continue;
+    const tail = blocks[cursor];
+    if (!tail || tail.kind !== "code" || tail.page !== head.page + 1 || !tail.geom?.length) continue;
+    const height = heightOf(head.page);
+    const nextHeight = heightOf(tail.page);
+    const atBottom = !height || Number(head.geom[head.geom.length - 1]?.y1) >= height * 0.85;
+    const atTop = !nextHeight || Number(tail.geom[0]?.y0) <= nextHeight * 0.15;
+    if (!atBottom || !atTop) continue;
+    head.text = `${head.text}\n${tail.text}`;
+    head.lines.push(...tail.lines);
+    head.geom.push(...tail.geom);
+    blocks.splice(cursor, 1);
+  }
 
   // 标题:单行、字号明显大于正文、不长、不以句末标点结尾
   return blocks

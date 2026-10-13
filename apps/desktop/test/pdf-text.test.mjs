@@ -135,6 +135,37 @@ test("a code block spanning a page break is joined into one block", () => {
   assert.equal(blocks[0].text, "def run(cfg):\n    return cfg\nprint(run({}))", "代码的换行与缩进保持原样");
 });
 
+test("a figure's stray labels do not split a code block across pages", () => {
+  // 图文混排的试卷:无向图的节点标签(a/b/…)在块顺序里排在页尾,夹在跨页代码中间。
+  const pages = [
+    {
+      height: 800,
+      lines: [
+        code("01 #include <iostream>", { y0: 700, y1: 712 }),
+        code("02 int n;", { y0: 716, y1: 728 }),
+        line("a", { size: 10, x0: 380, x1: 390, y0: 292, y1: 307 }),
+        line("b", { size: 10, x0: 352, x1: 368, y0: 330, y1: 345 }),
+      ],
+    },
+    {
+      height: 800,
+      lines: [
+        code("03 int a[1000];", { y0: 60, y1: 72 }),
+        code("04 int main() {", { y0: 76, y1: 88 }),
+      ],
+    },
+  ];
+  const blocks = buildBlocks(pages);
+  const codes = blocks.filter((block) => block.type === "code");
+  assert.equal(codes.length, 1, `跨页代码应合成一块:${JSON.stringify(blocks)}`);
+  assert.equal(codes[0].text, "01 #include <iostream>\n02 int n;\n03 int a[1000];\n04 int main() {");
+  assert.deepEqual(
+    blocks.filter((block) => block.type === "text").map((block) => block.text),
+    ["a", "b"],
+    "图上的零散文字留在代码块之后,不丢",
+  );
+});
+
 test("paragraphs split across pages are joined and hyphenation is repaired", () => {
   const pages = [
     { lines: [line("本地提取用固定规则:先把页眉页脚拿掉,再把被页边界切开的段落接回去 de-", { y0: 100, y1: 112 })] },
