@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { EXTRACT_MODES, IMAGE_INPUTS, extractionKind } from "../shared/extract-formats.js";
-import { splitMarkdownChapters, unwrapProseFences } from "../shared/markdown-fix.js";
+import { joinSplitCodeFences, splitMarkdownChapters, unwrapProseFences } from "../shared/markdown-fix.js";
 import { blocksFromDoc, blocksToMarkdown } from "./formula-html.js";
 import { buildTextDoc, createPdfTextReader, writeTextProducts } from "./pdf-text.js";
 import { mergeBlocksWithTextLayer } from "./text-merge.js";
@@ -17,7 +17,7 @@ import { resolveLocalBackend } from "./mineru-local.js";
 import { pdfToolArgs, pdfToolScriptCommand, resolveMineruLocalUrl } from "./workshop-formula.js";
 
 export { EXTRACT_MODES, IMAGE_INPUTS, extractionKind };
-export { splitMarkdownChapters, unwrapProseFences } from "../shared/markdown-fix.js";
+export { splitMarkdownChapters, unwrapProseFences, joinSplitCodeFences } from "../shared/markdown-fix.js";
 
 function replaceAll(text, from, to) {
   return String(text).split(from).join(to);
@@ -109,6 +109,8 @@ export function adoptPdfToolOutputs(outDir, name, { renameAssets = true } = {}) 
         if (key === "md") {
           fixed = patchMarkdownCaptions(fixed, blocks);
           fixed = unwrapProseFences(fixed);
+          // MinerU 按页切块:跨页的程序会变成两段围栏,这里并回一段。
+          fixed = joinSplitCodeFences(fixed);
         }
         if (fixed !== text) fs.writeFileSync(to, fixed, "utf8");
       } catch { /* leave as-is */ }
@@ -257,7 +259,8 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
   // 提取产物里的「假代码块」(MinerU 把正文段落包进围栏)按段落还原,公式才会渲染。
   const readMarkdown = (file) => {
     const raw = fs.readFileSync(file, "utf8");
-    const cleaned = unwrapProseFences(raw);
+    let cleaned = unwrapProseFences(raw);
+    cleaned = joinSplitCodeFences(cleaned);
     if (cleaned !== raw) log("prose fences unwrapped", path.basename(file));
     return cleaned;
   };

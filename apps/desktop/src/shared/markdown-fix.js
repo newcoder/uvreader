@@ -57,6 +57,46 @@ export function unwrapProseFences(markdown) {
   return out.join("\n");
 }
 
+// MinerU 按页切块:一段程序跨页时会被切成两个相邻的无语言围栏(第二段通常从行号继续,
+// 如 22 memset…),md 里就成了两段代码。这里把这种「跨页截断」的围栏并回一段:
+// 中间只能有空行;两段都必须是没语言标记的裸围栏;第二段第一行要以行号开头;
+// 若第一段末尾也带行号,则必须连续(22 接 21)。有文字/题目标签隔开的一律不动。
+export function joinSplitCodeFences(markdown) {
+  const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
+  const blocks = [];
+  let open = null;
+  lines.forEach((line, index) => {
+    const match = line.trim().match(/^```(.*)$/);
+    if (!match) return;
+    if (!open) {
+      open = { start: index, info: String(match[1] || "").trim(), bodyStart: index + 1 };
+      return;
+    }
+    blocks.push({ start: open.start, info: open.info, bodyStart: open.bodyStart, end: index });
+    open = null;
+  });
+  if (blocks.length < 2) return lines.join("\n");
+  const drop = new Set();
+  for (let index = 0; index < blocks.length - 1; index += 1) {
+    const first = blocks[index];
+    const second = blocks[index + 1];
+    if (first.info || second.info) continue;
+    if (lines.slice(first.end + 1, second.start).some((line) => line.trim())) continue;
+    const firstBody = lines.slice(first.bodyStart, first.end).filter((line) => line.trim());
+    const secondBody = lines.slice(second.bodyStart, second.end).filter((line) => line.trim());
+    if (!firstBody.length || !secondBody.length) continue;
+    const secondNumber = /^\s*(\d{1,3})[\s.]/.exec(secondBody[0]);
+    if (!secondNumber) continue;
+    const firstNumber = /^\s*(\d{1,3})[\s.]/.exec(firstBody[firstBody.length - 1]);
+    if (firstNumber && Number(secondNumber[1]) !== Number(firstNumber[1]) + 1) continue;
+    for (let line = first.end; line <= second.start; line += 1) drop.add(line);
+    // 合并后的块继续参与下一轮(整段程序跨三页也能接上)。
+    blocks[index + 1] = { ...second, start: first.start, info: "", bodyStart: first.bodyStart };
+  }
+  if (!drop.size) return lines.join("\n");
+  return lines.filter((_line, index) => !drop.has(index)).join("\n");
+}
+
 // 提取出的 Markdown → 章节:按 1–3 级标题分;标题缺失时交给调用方按长度分块。
 export function splitMarkdownChapters(markdown) {
   const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");

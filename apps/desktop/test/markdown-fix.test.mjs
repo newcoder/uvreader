@@ -1,7 +1,43 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { isProseFence, looksLikeProseBlock, unwrapProseFences } from "../src/shared/markdown-fix.js";
+import { isProseFence, joinSplitCodeFences, looksLikeProseBlock, unwrapProseFences } from "../src/shared/markdown-fix.js";
+
+test("a program split across a page break is joined back into one fence", () => {
+  const md = [
+    "```",
+    "#include <cstdio>",
+    "const int maxs = 1010;",
+    "```",
+    "",
+    "```",
+    "22 memset(cnt, 0, sizeof(cnt));",
+    "23 for (int i = 0; i < n; ++i)",
+    "```",
+    "",
+    "1）①处应填（ ）",
+  ].join("\n");
+  const joined = joinSplitCodeFences(md);
+  assert.equal((joined.match(/```/g) || []).length, 2, "只剩一对围栏");
+  assert.match(joined, /const int maxs = 1010;\n22 memset/);
+  assert.match(joined, /23 for \(int i = 0; i < n; \+\+i\)\n```/);
+});
+
+test("fences separated by text, or with discontinuous numbering, stay split", () => {
+  const withLabel = ["```", "01 int main() {", "```", "", "（2）下面是另一个程序", "", "```", "05 int x;", "```"].join("\n");
+  assert.equal(joinSplitCodeFences(withLabel), withLabel, "中间有文字不合并");
+  const wrongNumber = ["```", "10 int a;", "```", "", "```", "30 int b;", "```"].join("\n");
+  assert.equal(joinSplitCodeFences(wrongNumber), wrongNumber, "行号不连续不合并");
+  const typed = ["```cpp", "int a;", "```", "", "```", "12 int b;", "```"].join("\n");
+  assert.equal(joinSplitCodeFences(typed), typed, "带语言标记的围栏不动");
+});
+
+test("a listing spanning three pages joins across both breaks", () => {
+  const md = ["```", "05 int x;", "```", "", "```", "06 int y;", "```", "", "```", "07 int z;", "```"].join("\n");
+  const joined = joinSplitCodeFences(md);
+  assert.equal((joined.match(/```/g) || []).length, 2);
+  assert.match(joined, /05 int x;\n06 int y;\n07 int z;/);
+});
 
 test("prose without formulas is still rescued, formulas inside it are not counted as code", () => {
   // 1.DUL+paper.pdf 第 5 页:另一段被误判成 code 的正文(没有公式)。

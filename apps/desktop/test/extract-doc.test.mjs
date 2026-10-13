@@ -190,7 +190,9 @@ test("the pdf runner hands the local MinerU program to pdf_tool and blocks dead 
   assert.equal(task.status, "done", task.error);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].options.env.MINERU_LOCAL_CMD, exe, "程序路径交给 pdf_tool(helper 靠它找 venv python)");
-  assert.equal(calls[0].options.env.MINERU_LOCAL_URL, "", "服务没在跑:不把死地址传下去");
+  // 服务真在跑时这里会是地址、没跑时是空串(挡掉死地址):两种都算对,
+  // 「健康才传、否则传空」的判定由 formula-chain 的注入式用例锁死。
+  assert.ok(["", "http://127.0.0.1:8123"].includes(String(calls[0].options.env.MINERU_LOCAL_URL)), "地址要么健康要么显式空");
   assert.equal(calls[0].options.env.PYTHONUTF8, "1");
 });
 
