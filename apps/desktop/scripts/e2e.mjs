@@ -2382,6 +2382,23 @@ async function runWorkshopScenario() {
       throw new Error(`the convert preset should show a visible selected state: ${JSON.stringify(preset)}`);
     }
     console.log("workshop: extract is plain 内容提取 (no preset matrix); convert preset selected:", preset.label);
+    // 「检测本地 MinerU」必须真的走到 qbrDesktop.mineru(曾经误用 workshop bridge,
+    // 点了没反应、状态行还显示「这个宿主不支持本地服务检测」)。
+    const mineru = await page.evaluate(async () => {
+      const panel = document.querySelector(".qbr-workshop-panel[data-tool='convert']");
+      const button = [...panel.querySelectorAll("button")].find((b) => b.textContent === "检测本地 MinerU");
+      button?.click();
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      return {
+        found: Boolean(button),
+        text: panel.querySelector(".qbr-mineru-status")?.textContent || "",
+      };
+    });
+    if (!mineru.found) throw new Error("the convert panel should offer 检测本地 MinerU");
+    if (/不支持/.test(mineru.text) || /检测中/.test(mineru.text) || /未检测/.test(mineru.text)) {
+      throw new Error(`检测本地 MinerU should reach the bridge and report a real state: ${mineru.text}`);
+    }
+    console.log("workshop: local MinerU detection reports", mineru.text);
     // The nav route returns home and the workshop remembers the last tool.
     await page.click('[data-route="home"]');
     await page.waitForSelector(".qbr-home-view", { timeout: 10_000 });

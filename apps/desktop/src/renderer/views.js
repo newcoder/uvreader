@@ -1760,7 +1760,7 @@ export function createWorkshopView(leaf, options) {
       checkLocal.addEventListener("click", () => this.checkMineruLocal());
       const startLocal = this._convertLocalTools.createEl("button", { text: "启动服务" });
       startLocal.addEventListener("click", () => this.checkMineruLocal({ start: true }));
-      this._convertLocalStatus = this._convertLocalTools.createSpan({ cls: "qbr-workshop-hint", text: "未检测" });
+      this._convertLocalStatus = this._convertLocalTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
       this.syncConvertTokenRow();
       void this.checkMineruLocal();
       optionCard.createDiv({ cls: "qbr-workshop-hint", text: "扫描件由 DocVortex 自带 OCR 识别（首次会下载约 220MB 模型）；数学公式与上下标识别有限。" });
@@ -1905,10 +1905,11 @@ export function createWorkshopView(leaf, options) {
     }
 
     // 本地 MinerU:检测 = 如实探测 /v1/health(不会偷偷拉起服务);「启动服务」才启动。
+    // 注意:这个视图里的 bridge 是 qbrDesktop.workshop(只有任务接口),服务接口在 qbrDesktop.mineru。
     async checkMineruLocal({ start = false } = {}) {
       const status = this._convertLocalStatus;
       if (!status) return;
-      const mineru = bridge?.mineru;
+      const mineru = typeof window !== "undefined" ? window.qbrDesktop?.mineru || null : null;
       if (!mineru) {
         status.setText("这个宿主不支持本地服务检测");
         return;
