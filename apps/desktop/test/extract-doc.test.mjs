@@ -590,3 +590,16 @@ test("appendFootnotes adds one 注释 section and stays idempotent", () => {
   assert.equal(appendFootnotes(once, notes), once, "重复调用不会再加一节");
   assert.equal(appendFootnotes("正文。", []), "正文。", "没有脚注时原样返回");
 });
+
+test("appendFootnotes does not duplicate notes pdf_tool already wrote", () => {
+  const notes = [
+    { page: 17, text: "① 原题: An Axiomatization of Set Theory。" },
+    { page: 202, text: "② 参见 Ch. IV." },
+  ];
+  // pdf_tool 新版自己会写:引用块 + 页码,内容可能带换行/标点差异。
+  const upstream = "正文。\n\n> ① 原题: An Axiomatization of Set Theory。（第 17 页）\n";
+  const onlyMissing = appendFootnotes(upstream, notes);
+  assert.match(onlyMissing, /② 参见 Ch\. IV\./, "只补上游没写的那条");
+  assert.ok(!/① 原题: An Axiomatization/.test(onlyMissing.split("## 注释")[1] || ""), "上游写过的不再重复");
+  assert.equal(appendFootnotes(upstream + "\n> ② 参见 Ch. IV.（第 202 页）\n", notes), upstream + "\n> ② 参见 Ch. IV.（第 202 页）\n", "两条都在时一个字都不动");
+});

@@ -2,7 +2,31 @@
 
 日期:2026-10-14 · 来源:UV Reader 书坊 · 关联:MinerU 内容提取链路
 
-## 现象
+## 状态(2026-10-14 晚):**pdf_tool 已实现,reader 侧已验证**
+
+pdf_tool 工作区(未提交)的改动:
+
+- `mineru/client.py`:`content_list_to_blocks()` 新增 `elif t == "page_footnote":` 分支,
+  保留块(`{"type": "page_footnote", "position": "Page N", "text": …, "page_idx": N-1}`),
+  `stats` 增加 `footnotes`;`reflow_text_blocks()` 的 `keep_types` 也带上它;
+- `extract/furniture.py`:空文本丢弃规则覆盖 `page_footnote`(避免把空脚注留下);
+- `render/md.py`:`render_md_blocks()` 把脚注写成引用块 + 页码
+  (`> ① 原题: …（第 17 页）`)。
+
+reader 侧验证(用该书的真实 `*_content_list.json` 调 `content_list_to_blocks`):
+
+```
+733 块 | stats.footnotes = 47 | page_footnote 块 47
+示例: {"type":"page_footnote","position":"Page 17","page_idx":16} | ① 原题: An Axiomatization of Set Theory…
+```
+
+reader 侧已就绪:`formula-html` 把 `page_footnote`(及 `footnote`)渲染成引用块(HTML 与 md 两条路);
+`extract-doc` 的脚注兜底(见下)加了「上游已写过就不重复补」的判断,两边同时生效不会出现双份。
+
+> 待办(pdf_tool 侧):把上述改动提交,并补一条单测(`content_list_to_blocks` 里含
+> `page_footnote` 的用例 → 期望保留块 + `stats.footnotes == 1`)。
+
+## 原始现象(留档)
 
 用户用书坊把一本扫描/OCR 的 PDF 做成 EPUB(《数学在科学和社会中的作用》,Von Neumann):
 

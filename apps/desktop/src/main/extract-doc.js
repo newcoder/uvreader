@@ -107,12 +107,22 @@ export function collectPageFootnotes(workDir) {
   return notes.sort((a, b) => a.page - b.page);
 }
 
-// 把脚注接到 Markdown 末尾(已有「注释」一节就不重复加)。
+// 把脚注接到 Markdown 末尾(已有「注释」一节、或该条脚注已经在稿子里,就不重复加)。
+// pdf_tool 新版会把脚注直接写进 md(引用块 + 页码),老版本才需要这里兜底。
 export function appendFootnotes(markdown, notes) {
   const text = String(markdown || "");
   const list = Array.isArray(notes) ? notes : [];
   if (!list.length || /^#{1,6}\s*注释\s*$/m.test(text)) return text;
-  const body = list
+  const compact = text.replace(/\s+/g, "");
+  const missing = list.filter((note) => {
+    const noteText = String(note?.text || "").replace(/\s+/g, "");
+    if (!noteText) return false;
+    // 拿前 24 个字判断:上游写进 md 时可能补了页码/标点。
+    const probe = noteText.slice(0, 24);
+    return probe.length < 6 || !compact.includes(probe);
+  });
+  if (!missing.length) return text;
+  const body = missing
     .map((note) => `> ${String(note.text || "").replace(/\s*\n\s*/g, " ").trim()}${note.page ? `（第 ${note.page} 页）` : ""}`)
     .join("\n\n");
   return `${text.replace(/\s*$/, "")}\n\n## 注释\n\n${body}\n`;
