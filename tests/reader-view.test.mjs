@@ -15,13 +15,14 @@ globalThis.window ??= dom.window;
 const { createReaderView } = await import("../packages/reader/src/reader-view.js");
 const { beginColumnDrag, endColumnDrag } = await import("../packages/reader/src/column-drag.js");
 
-function build() {
+function build(extraPorts = {}) {
   const Base = class ItemView { constructor(leaf) { this.leaf = leaf; } };
   const ReaderView = createReaderView({
     ItemView: Base,
     VIEW_TYPE: "qiaomu-reader",
     createPdfPaginator: () => ({ total: 0, spread: 0 }),
     readerAiPanelContext: (view) => (view.file && view.bookHtml ? { bookFile: view.file, readerView: view } : null),
+    ...extraPorts,
   });
   return { Base, ReaderView };
 }
@@ -156,4 +157,34 @@ test("the toolbar sync mirrors the companion, the highlights dock and the TOC pa
     assert.equal(btn.classes.has("qiaomu-reader-ibtn-on"), false, `${name} releases when closed`);
     assert.equal(btn.attrs["aria-expanded"], "false", `${name} announces its closed state`);
   }
+});
+
+test("a PDF highlight whose page is not rendered still jumps to its page", () => {
+  // 锚点找不回来(目标页已被按需渲染收回去)时,不再只弹「找不到」。
+  const { ReaderView } = build({ resolveHighlightAnchor: () => null });
+  const view = new ReaderView({}, { settings: {} });
+  const highlight = { id: "hl-late", color: "yellow", text: "第4页的正文内容", block: 3, occ: 0, created: 1 };
+  view.file = { path: "Books/论文.pdf", extension: "pdf" };
+  view.plugin = { getHighlights: () => [highlight], saveProgress: () => {} };
+  view.pager = {
+    total: 12,
+    currentBlockIndex: () => 0,
+    // 按需渲染把远处的页收回去之后,flow 里已经没有目标页的文本层,
+    // 锚点找不回来——这时按 block→页 的关系直接跳。
+    flow: { querySelectorAll: () => [] },
+    jumpTo: (spread) => { view.jumped = spread; return [spread, 12]; },
+  };
+  view._pdfLazy = true;
+  view.updateUI = () => {};
+  view.closePanel = () => {};
+  view._flashHighlightLater = () => {};
+  // jsdom 默认不带 requestAnimationFrame;跳页后用它排一次闪烁。
+  const hadRaf = typeof window.requestAnimationFrame === "function";
+  if (!hadRaf) window.requestAnimationFrame = (fn) => { fn(); return 0; };
+  try {
+    view._jumpToHighlightRecord("hl-late");
+  } finally {
+    if (!hadRaf) delete window.requestAnimationFrame;
+  }
+  assert.equal(view.jumped, 3, "block 3 就是第 4 页的 spread");
 });

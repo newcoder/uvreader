@@ -13,6 +13,7 @@ import { svgIcon } from "./reader-icons.js";
 import { pinyinPinFor, renderEnginePins, togglePinyinPin } from "./pinyin-pins.js";
 import { warmWordGlosses } from "./pinyin-annotate.js";
 import { columnDragActive, installColumnDragWatch, onColumnDrag } from "./column-drag.js";
+import { pageForBlock } from "./toc-build.js";
 
 export function createReaderView({
   ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, BookSetupModal, FONTS, InfoModal, ReadSettingsModal, VIEW_TYPE, addBookFileMenu, attachEngineChrome, attachReaderContentClick, attachReaderSwipeNav, bookNoteAction, buildFindPanelFor, buildReaderPageArea, buildReaderPanels, buildReaderSettPanelBody, buildReaderTopBar, buildTocItems, buildTocPanelFor, clearAiSource, clearFoundIn, createPdfPaginator, createPdfZoomControls, currentBookPage, enrichHighlights, ensureSelectedReaderFont, exportHighlightsMenu,   flowSelectionParts, handleReaderWheel, hidePinPopup, hlColorCss, loadReaderDocument, locateHl, markFoundIn, navigateEngineToc, openEngineHighlightPopup, openEnginePinPopup, pageJump, pdfVisiblePageLabel, pdfZoom, persistCurrentReaderPosition, qiaomuReaderClearPaintedSelection, qiaomuReaderLocale, qiaomuReaderRevealWhenSettled, qiaomuReaderTheme, qiaomuReaderTranslate, raiseSelectionPopup, readerAiPanelContext, readerHud, readerIsPdf, readerPaginationMappingCollapsed, readerPdfPages, readerTimer, rememberReaderJump, renderHighlightPanel, renderReaderLoadError, refreshReaderPdfTextLayer, renderVisibleFigures, resolveHighlightAnchor, restoreAiSource, restoreEngineHistory, selectionHud, setReaderTitle, setReadingFocus, settleReader, syncNavigationPanel, syncOpenAiReaderContext, syncOpenAiSelectionContext, syncReaderAiCapability,   unwrapAllHighlights, unwrapAllPins, updateEngineLocation, wireReaderChrome, wrapBlockRange,
@@ -1439,6 +1440,18 @@ export function createReaderView({
     const blocks = this.pager.flow?.querySelectorAll(READER_BLOCK_SELECTOR) || [];
     const anchor = resolveHighlightAnchor(blocks, hl, this.file?.extension === "pdf");
     if (!anchor) {
+      // 固定版式按需渲染:目标页的文本层可能已经被回收,锚点自然找不回来。
+      // PDF 的 block 与页一一对应(面板上的页码也是这么算的),照页跳过去,
+      // 别只弹「找不到这条划线」。
+      const page = this.file?.extension === "pdf"
+        ? (this._pdfLazy ? hl.block + 1 : pageForBlock(this.pager.flow, hl.block))
+        : 0;
+      if (page) {
+        const [current, pages] = this.pager.jumpTo(page - 1);
+        this._commitSpreadJump(current, pages);
+        window.requestAnimationFrame(() => this._flashHighlightLater(id));
+        return;
+      }
       new Notice(qiaomuReaderTranslate("highlight-not-found"));
       return;
     }
