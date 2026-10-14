@@ -103,3 +103,20 @@ test("buildEpub embeds font files with their licenses", async () => {
 test("buildEpub refuses empty chapters", async () => {
   await assert.rejects(buildEpub({ book: { title: "空" }, chapters: [] }, ""), /没有章节可写/);
 });
+
+test("the chapter title is written into the body, not just the nav", async () => {
+  const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "qbr-epub-title-")), "t.epub");
+  await buildEpub({
+    book: { title: "测试书", language: "zh" },
+    chapters: [chapter("集合论的一种公理化 ①", "<p>正文一。</p>"), chapter("", "<p>没有标题的一章。</p>")],
+    fonts: [],
+  }, out);
+  const zip = await JSZip.loadAsync(fs.readFileSync(out));
+  const first = await zip.file("OEBPS/chapter-001.xhtml").async("string");
+  assert.match(first, /<h1 class="chapter-title">集合论的一种公理化 ①<\/h1>/, "标题要在正文里");
+  assert.match(first, /<p>正文一。<\/p>/);
+  const nav = await zip.file("OEBPS/nav.xhtml").async("string");
+  assert.match(nav, /集合论的一种公理化 ①/);
+  const second = await zip.file("OEBPS/chapter-002.xhtml").async("string");
+  assert.match(second, /<h1 class="chapter-title">第 2 章<\/h1>/, "没有标题的章节用「第 N 章」占位(与导航一致)");
+});

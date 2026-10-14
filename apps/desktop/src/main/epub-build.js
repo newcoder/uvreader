@@ -167,7 +167,10 @@ export async function buildEpub({ book = {}, styles = {}, chapters = [], fonts =
   zip.file("META-INF/container.xml", CONTAINER_XML);
   zip.file("OEBPS/styles.css", css);
   files.forEach((chapter) => {
-    zip.file(`OEBPS/${chapter.file}`, xhtmlDocument({ title: chapter.title, body: chapter.html, lang: book.language }));
+    // 章节标题在分章时从正文里「吃掉」了:成书要把它当标题排版写回正文,
+    // 否则标题只出现在导航里、翻到正文反而看不到(用户实测反馈)。
+    const heading = String(chapter.title || "").trim() ? `<h1 class="chapter-title">${escapeXml(chapter.title)}</h1>\n` : "";
+    zip.file(`OEBPS/${chapter.file}`, xhtmlDocument({ title: chapter.title, body: `${heading}${chapter.html}`, lang: book.language }));
   });
   zip.file("OEBPS/nav.xhtml", buildNav(files));
   zip.file("OEBPS/toc.ncx", buildNcx(files, { title, identifier }));
