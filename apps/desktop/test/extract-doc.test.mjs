@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { adoptPdfToolOutputs, extractMarkdown, extractionKind, mergePdfMarkdown, patchMarkdownCaptions, registerExtractRunners, splitMarkdownChapters } from "../src/main/extract-doc.js";
+import { adoptPdfToolOutputs, appendFootnotes, collectPageFootnotes, extractionKind, extractMarkdown, mergePdfMarkdown, patchMarkdownCaptions, registerExtractRunners, splitMarkdownChapters } from "../src/main/extract-doc.js";
 import { unwrapProseFences } from "../src/shared/markdown-fix.js";
 import { createWorkshopQueue } from "../src/main/workshop.js";
 import { waitForTask } from "./wait-for-task.mjs";
@@ -562,4 +562,31 @@ test("the extract probe reports pdf_tool, credentials and DocVortex", async () =
     if (saved === undefined) delete process.env.MINERU_API_KEY;
     else process.env.MINERU_API_KEY = saved;
   }
+});
+
+test("collectPageFootnotes rescues MinerU footnotes with chunk offsets", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-notes-"));
+  const chunk = path.join(dir, "mineru", "chunks", "0201-0400");
+  fs.mkdirSync(chunk, { recursive: true });
+  fs.writeFileSync(path.join(chunk, "x_content_list.json"), JSON.stringify([
+    { type: "text", text: "正文。", page_idx: 0 },
+    { type: "page_footnote", text: "① 原题: An Axiomatization of Set Theory。\n译者注。", page_idx: 1 },
+    { type: "page_footnote", text: "① 原题: An Axiomatization of Set Theory。\n译者注。", page_idx: 1 },
+    { type: "page_footnote", text: "② 参见 Ch. IV.", page_idx: 5 },
+  ]), "utf8");
+  const notes = collectPageFootnotes(dir);
+  assert.equal(notes.length, 2, "重复的脚注只留一条");
+  assert.equal(notes[0].page, 202, "分块目录 0201-0400 的页码要加偏移(page_idx 1 → 第 202 页)");
+  assert.match(notes[0].text, /^① 原题/, "脚注里的换行并成一行");
+  assert.equal(notes[1].page, 206);
+});
+
+test("appendFootnotes adds one 注释 section and stays idempotent", () => {
+  const notes = [{ page: 17, text: "① 原题: An Axiomatization of Set Theory。" }, { page: 0, text: "② 无页码的注解。" }];
+  const once = appendFootnotes("# 第一章\n\n正文。", notes);
+  assert.match(once, /\n## 注释\n/);
+  assert.match(once, /> ① 原题: An Axiomatization of Set Theory。（第 17 页）/);
+  assert.match(once, /> ② 无页码的注解。\s*$/, "没有页码就不写页码");
+  assert.equal(appendFootnotes(once, notes), once, "重复调用不会再加一节");
+  assert.equal(appendFootnotes("正文。", []), "正文。", "没有脚注时原样返回");
 });

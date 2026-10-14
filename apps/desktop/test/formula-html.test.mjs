@@ -132,3 +132,12 @@ test("blocksToHtml walks a Doc v1 payload and keeps relative image sources", () 
   assert.match(html, /<img src="mineru\/images\/fig.jpg"/);
   assert.equal(blocksFromDoc({}).length, 0);
 });
+
+test("page footnotes render as quotes instead of being dropped", () => {
+  const block = { type: "page_footnote", text: "① 原题: An Axiomatization of Set Theory。", page: 17 };
+  const html = blockToHtml(block);
+  assert.match(html, /^<blockquote class="docvortex-footnote">① 原题/);
+  const md = blockToMarkdown(block);
+  assert.match(md, /^> ① 原题: An Axiomatization of Set Theory。（第 17 页）$/);
+  assert.equal(blockToHtml({ type: "page_footnote", text: "   " }), "");
+});

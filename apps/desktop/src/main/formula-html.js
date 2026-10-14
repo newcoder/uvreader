@@ -164,6 +164,11 @@ export function blockToHtml(block, { tableMode = "table" } = {}) {
   }
   if (type === "code") return codeBlockHtml(block);
   if (type === "question") return questionHtml(block);
+  // 脚注(MinerU 的 page_footnote):单独成引用块,别混进正文段落。
+  if (type === "page_footnote" || type === "footnote") {
+    const note = String(block?.text ?? "").trim();
+    return note ? `<blockquote class="docvortex-footnote">${wrapInlineMath(note)}</blockquote>` : "";
+  }
   const text = block?.text ?? block?.content ?? "";
   return String(text).trim() ? `<p>${wrapInlineMath(text)}</p>` : "";
 }
@@ -231,6 +236,13 @@ export function blockToMarkdown(block, { tableMode = "table" } = {}) {
     const caption = blockCaption(block);
     const combined = caption ? [caption, content].filter(Boolean).join("\n") : content;
     return looksLikeProseBlock(combined) ? joinProseLines(combined) : `\`\`\`\n${content}\n\`\`\``;
+  }
+  // 脚注原样保留(引用块),加个页码便于对回原书。
+  if (type === "page_footnote" || type === "footnote") {
+    const note = String(block?.text ?? "").replace(/\s*\n\s*/g, " ").trim();
+    if (!note) return "";
+    const page = Number(block?.page) || 0;
+    return `> ${note}${page ? `（第 ${page} 页）` : ""}`;
   }
   const text = block?.text ?? block?.content ?? "";
   return String(text).trim();

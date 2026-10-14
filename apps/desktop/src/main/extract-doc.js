@@ -64,6 +64,60 @@ function copyDir(from, to) {
 
 // pdf_tool 的产物(<stem>_doc.md / .html / .json / _audit.json + mineru/ 资产)
 // → §7 约定(<源名>.md / .html / .json / .audit.json / <源名>.assets/)。
+// MinerU 的脚注(`page_footnote`)在转成 Doc JSON 时会被上游丢掉,但它的
+// `*_content_list.json` 里还留着。这里把脚注捞回来,附在成品末尾的「注释」一节
+// (正文里的 ①② 标记与这里一一对应,不再丢注解)。
+export function collectPageFootnotes(workDir) {
+  const notes = [];
+  const seen = new Set();
+  const walk = (dir, depth = 0) => {
+    if (depth > 4) return;
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full, depth + 1);
+        continue;
+      }
+      if (!/_content_list\.json$/i.test(entry.name)) continue;
+      let list = [];
+      try {
+        list = JSON.parse(fs.readFileSync(full, "utf8"));
+      } catch {
+        continue;
+      }
+      // 分块目录形如 0001-0200:页码要加上起始偏移(索引从 1 开始)。
+      const chunk = path.basename(path.dirname(full)).match(/^(\d+)-(\d+)$/);
+      const offset = chunk ? Number(chunk[1]) - 1 : 0;
+      for (const block of Array.isArray(list) ? list : []) {
+        if (!/(?:page_)?footnote$/i.test(String(block?.type || ""))) continue;
+        const text = String(block?.text || "").replace(/\s*\n\s*/g, " ").trim();
+        if (!text || seen.has(text)) continue;
+        seen.add(text);
+        notes.push({ page: (Number(block?.page_idx) || 0) + 1 + offset, text });
+      }
+    }
+  };
+  walk(workDir);
+  return notes.sort((a, b) => a.page - b.page);
+}
+
+// 把脚注接到 Markdown 末尾(已有「注释」一节就不重复加)。
+export function appendFootnotes(markdown, notes) {
+  const text = String(markdown || "");
+  const list = Array.isArray(notes) ? notes : [];
+  if (!list.length || /^#{1,6}\s*注释\s*$/m.test(text)) return text;
+  const body = list
+    .map((note) => `> ${String(note.text || "").replace(/\s*\n\s*/g, " ").trim()}${note.page ? `（第 ${note.page} 页）` : ""}`)
+    .join("\n\n");
+  return `${text.replace(/\s*$/, "")}\n\n## 注释\n\n${body}\n`;
+}
+
 export function adoptPdfToolOutputs(outDir, name, { renameAssets = true } = {}) {
   const files = {};
   // caption 补全用的块列表(pdf_tool 的 Doc JSON,读不到就算了)。
@@ -111,6 +165,8 @@ export function adoptPdfToolOutputs(outDir, name, { renameAssets = true } = {}) 
           fixed = unwrapProseFences(fixed);
           // MinerU 按页切块:跨页的程序会变成两段围栏,这里并回一段。
           fixed = joinSplitCodeFences(fixed);
+          // 上游转 Doc JSON 时丢了脚注,从 MinerU 的 content_list 里捞回来。
+          fixed = appendFootnotes(fixed, collectPageFootnotes(outDir));
         }
         if (fixed !== text) fs.writeFileSync(to, fixed, "utf8");
       } catch { /* leave as-is */ }
@@ -307,7 +363,11 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
     // 复用:上次提取的合并稿还在缓存目录(且比 PDF 新)就直接用——MinerU 慢且计费。
     if (!refresh && fresh(mergedPath) && docCandidates.some(fresh)) {
       log("extract: reuse cached merged markdown", mergedPath);
-      return { ok: true, markdown: fs.readFileSync(mergedPath, "utf8"), path: mergedPath };
+      const cachedRaw = fs.readFileSync(mergedPath, "utf8");
+      // 老缓存里没有脚注(上游 Doc JSON 丢了这个类型):复用顺手补上,缓存自愈。
+      const cachedText = appendFootnotes(cachedRaw, collectPageFootnotes(workDir));
+      if (cachedText !== cachedRaw) fs.writeFileSync(mergedPath, cachedText, "utf8");
+      return { ok: true, markdown: cachedText, path: mergedPath };
     }
     const cachedDoc = docCandidates.find(fresh);
     if (!cachedDoc) {
@@ -349,8 +409,10 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
       log,
     });
     if (merged) {
-      fs.writeFileSync(mergedPath, merged, "utf8");
-      return { ok: true, markdown: merged, path: mergedPath };
+      // 脚注在上面两步里都不会出现(上游 Doc JSON 丢了这个类型):写完合并稿再补。
+      const withNotes = appendFootnotes(merged, collectPageFootnotes(workDir));
+      fs.writeFileSync(mergedPath, withNotes, "utf8");
+      return { ok: true, markdown: withNotes, path: mergedPath };
     }
     return { ok: true, markdown: readMarkdown(files.md), path: files.md };
   }
