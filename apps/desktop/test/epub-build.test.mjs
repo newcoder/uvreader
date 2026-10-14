@@ -6,7 +6,7 @@ import test from "node:test";
 
 import JSZip from "jszip";
 
-import { BOOK_STYLE_DEFAULTS, buildEpub, buildNcx, normalizeBookStyles, renderBookCss } from "../src/main/epub-build.js";
+import { BOOK_STYLE_DEFAULTS, buildEpub, buildNav, buildNcx, normalizeBookStyles, renderBookCss } from "../src/main/epub-build.js";
 
 const chapter = (title, html) => ({ title, html });
 
@@ -119,4 +119,20 @@ test("the chapter title is written into the body, not just the nav", async () =>
   assert.match(nav, /集合论的一种公理化 ①/);
   const second = await zip.file("OEBPS/chapter-002.xhtml").async("string");
   assert.match(second, /<h1 class="chapter-title">第 2 章<\/h1>/, "没有标题的章节用「第 N 章」占位(与导航一致)");
+});
+
+test("buildNav nests levels instead of flattening them", () => {
+  const nav = buildNav([
+    { title: "第一章", file: "chapter-001.xhtml", level: 1 },
+    { title: "1.1 小节", file: "chapter-002.xhtml", level: 2 },
+    { title: "第二章", file: "chapter-003.xhtml", level: 1 },
+  ]);
+  assert.match(nav, /<li><a href="chapter-001\.xhtml">第一章<\/a><\/li>/);
+  assert.match(nav, /<ol>\s*<li><a href="chapter-002\.xhtml">1\.1 小节<\/a><\/li>\s*<\/ol>/, "二级条目嵌在 <ol> 里");
+  assert.equal((nav.match(/<ol>/g) || []).length, 2, "外层 + 一层嵌套");
+  const ncx = buildNcx([
+    { title: "第一章", file: "chapter-001.xhtml", level: 1 },
+    { title: "1.1 小节", file: "chapter-002.xhtml", level: 2 },
+  ], { title: "书", identifier: "urn:x" });
+  assert.equal((ncx.match(/<navPoint/g) || []).length, 4, "NCX 也要有分组与条目");
 });

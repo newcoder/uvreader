@@ -69,22 +69,56 @@ ${body}
 }
 
 export function buildNav(chapters, title = "目录") {
-  const items = chapters
-    .map((chapter) => `      <li><a href="${chapter.file}">${escapeXml(chapter.title)}</a></li>`)
-    .join("\n");
+  const list = (Array.isArray(chapters) ? chapters : []).map((chapter) => ({ ...chapter, level: Math.min(Math.max(Number(chapter?.level) || 1, 1), 3) }));
+  const lines = [];
+  let depth = 1; // 模板里已经有一个外层 <ol>
+  for (const chapter of list) {
+    while (depth < chapter.level) {
+      lines.push(`${"      ".repeat(depth)}<ol>`);
+      depth += 1;
+    }
+    while (depth > chapter.level) {
+      depth -= 1;
+      lines.push(`${"      ".repeat(depth)}</ol>`);
+    }
+    lines.push(`${"      ".repeat(depth)}<li><a href="${chapter.file}">${escapeXml(chapter.title)}</a></li>`);
+  }
+  while (depth > 1) {
+    depth -= 1;
+    lines.push(`${"      ".repeat(depth)}</ol>`);
+  }
   return xhtmlDocument({
     title,
-    body: `<nav epub:type="toc" id="toc">\n      <h1>${escapeXml(title)}</h1>\n      <ol>\n${items}\n      </ol>\n    </nav>`,
+    body: `<nav epub:type="toc" id="toc">\n      <h1>${escapeXml(title)}</h1>\n      <ol>\n${lines.join("\n")}\n      </ol>\n    </nav>`,
   });
 }
 
 export function buildNcx(chapters, { title, identifier }) {
-  const points = chapters
-    .map((chapter, index) => `    <navPoint id="navPoint-${index + 1}" playOrder="${index + 1}">
-      <navLabel><text>${escapeXml(chapter.title)}</text></navLabel>
-      <content src="${chapter.file}"/>
-    </navPoint>`)
-    .join("\n");
+  // NCX 也要支持层级(EPUB2 阅读器):按 level 生成嵌套 navPoint。
+  const list = (Array.isArray(chapters) ? chapters : []).map((chapter) => ({ ...chapter, level: Math.min(Math.max(Number(chapter?.level) || 1, 1), 3) }));
+  const points = [];
+  let depth = 0;
+  let order = 0;
+  const indent = (value) => "  ".repeat(value + 1);
+  for (const chapter of list) {
+    order += 1;
+    while (depth < chapter.level) {
+      points.push(`${indent(depth)}<navPoint id="navGroup-${depth}-${order}" playOrder="${order}">`);
+      depth += 1;
+    }
+    while (depth > chapter.level) {
+      depth -= 1;
+      points.push(`${indent(depth)}</navPoint>`);
+    }
+    points.push(`${indent(depth)}<navPoint id="navPoint-${order}" playOrder="${order}">`);
+    points.push(`${indent(depth + 1)}<navLabel><text>${escapeXml(chapter.title)}</text></navLabel>`);
+    points.push(`${indent(depth + 1)}<content src="${chapter.file}"/>`);
+    points.push(`${indent(depth)}</navPoint>`);
+  }
+  while (depth > 0) {
+    depth -= 1;
+    points.push(`${indent(depth)}</navPoint>`);
+  }
   return `<?xml version="1.0" encoding="UTF-8"?>
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
   <head>
@@ -92,7 +126,7 @@ export function buildNcx(chapters, { title, identifier }) {
   </head>
   <docTitle><text>${escapeXml(title)}</text></docTitle>
   <navMap>
-${points}
+${points.join("\n")}
   </navMap>
 </ncx>
 `;
@@ -148,7 +182,7 @@ export const CONTAINER_XML = `<?xml version="1.0" encoding="UTF-8"?>
 `;
 
 // 生成 EPUB(zip);fonts: [{ path, family, fileName, licenseText, licenseName }]。
-export async function buildEpub({ book = {}, styles = {}, chapters = [], fonts = [], cover = null, images = [], colophon = "" } = {}, out) {
+export async function buildEpub({ book = {}, styles = {}, chapters = [], fonts = [], cover = null, images = [], colophon = "", nav = null } = {}, out) {
   if (!chapters.length) throw new Error("没有章节可写");
   const title = String(book.title || "未命名");
   const identifier = String(book.identifier || `urn:qbr:${Date.now().toString(36)}`);
@@ -172,8 +206,9 @@ export async function buildEpub({ book = {}, styles = {}, chapters = [], fonts =
     const heading = String(chapter.title || "").trim() ? `<h1 class="chapter-title">${escapeXml(chapter.title)}</h1>\n` : "";
     zip.file(`OEBPS/${chapter.file}`, xhtmlDocument({ title: chapter.title, body: `${heading}${chapter.html}`, lang: book.language }));
   });
-  zip.file("OEBPS/nav.xhtml", buildNav(files));
-  zip.file("OEBPS/toc.ncx", buildNcx(files, { title, identifier }));
+  const navItems = Array.isArray(nav) && nav.length ? nav : files;
+  zip.file("OEBPS/nav.xhtml", buildNav(navItems));
+  zip.file("OEBPS/toc.ncx", buildNcx(navItems, { title, identifier }));
 
   const manifestFiles = [];
   for (const image of images) {

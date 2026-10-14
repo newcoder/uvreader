@@ -11,7 +11,7 @@ import { extractMarkdown, extractionKind, splitMarkdownChapters } from "./extrac
 import { createMathRenderer, shareFormulaHtml } from "./math-render.js";
 import { createTextLayerReader } from "./text-layer.js";
 import { cleanChapterTitle, joinInlineFragment, looksLikeHeadingTitle, unwrapProseFences } from "../shared/markdown-fix.js";
-import { stripPrintedToc } from "../shared/printed-toc.js";
+import { buildNavPlan, isPrintedTocChapter, normalizeNavLevels, parsePrintedTocEntries, stripPrintedToc } from "../shared/printed-toc.js";
 import { collectChars, createFontSubsetter, ensureFont, ensureFontLicense, findPairing, FONT_FAMILIES } from "./workshop-fonts.js";
 import { pairingStacks } from "../shared/book-fonts.js";
 import { convertPath } from "../shared/workshop-names.js";
@@ -301,6 +301,23 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       if (signal.aborted) throw new Error("任务已取消");
     }
     const renderMath = mathMap ? (latex, display) => shareFormulaHtml(mathMap.get(mathKey(latex)), display) : null;
+    // 导航来源:有印刷目录就用它(条目→正文匹配),否则按章节标题(与旧行为一致)。
+    const tocText = normalized.chapters.filter((chapter) => isPrintedTocChapter(chapter)).map((chapter) => chapter.text).join("\n");
+    let navItems = null;
+    if (tocText) {
+      const plan = buildNavPlan({ chapters: bookChapters, tocEntries: parsePrintedTocEntries(tocText) });
+      if (plan) {
+        navItems = normalizeNavLevels(plan.items).map((item) => ({
+          title: item.title,
+          file: `chapter-${String(item.chapterIndex + 1).padStart(3, "0")}.xhtml`,
+          level: item.level,
+        }));
+        log("book build nav from printed toc", plan.matched, "entries", plan.dropped.length, "dropped");
+      } else {
+        log("book build nav from printed toc skipped", "matched too few entries");
+      }
+    }
+
     const chaptersWithHtml = bookChapters.map((chapter) => ({
       title: chapter.title,
       text: chapter.text,
@@ -361,13 +378,15 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       fonts,
       images,
       cover,
+      // 印刷目录匹配出来的导航(为空时 buildEpub 按章节标题生成,与旧行为一致)。
+      nav: navItems,
       colophon: String(payload?.colophon || "由 UV Reader 书坊生成"),
     }, out);
     if (signal.aborted) throw new Error("任务已取消");
     const formulaCount = mathMap ? [...mathMap.values()].filter(Boolean).length : 0;
     return {
       output: out,
-      detail: `EPUB · ${result.chapters} 章 · ${Math.round(result.bytes / 1024)} KB${fonts.length ? ` · ${fonts.length} 款字体` : ""}${images.length ? ` · ${images.length} 图` : ""}${formulaCount ? ` · ${formulaCount} 公式` : ""}${tocStrip.dropped ? ` · 去印刷目录 ${tocStrip.dropped} 章` : ""}${normalized.dropped ? ` · 去重复页眉 ${normalized.dropped} 章` : ""}${unrendered ? ` · 未渲染 ${unrendered}` : ""}`,
+      detail: `EPUB · ${result.chapters} 章 · ${Math.round(result.bytes / 1024)} KB${fonts.length ? ` · ${fonts.length} 款字体` : ""}${images.length ? ` · ${images.length} 图` : ""}${formulaCount ? ` · ${formulaCount} 公式` : ""}${tocStrip.dropped ? ` · 去印刷目录 ${tocStrip.dropped} 章` : ""}${navItems ? ` · 目录来自印刷目录 ${navItems.length} 条` : ""}${normalized.dropped ? ` · 去重复页眉 ${normalized.dropped} 章` : ""}${unrendered ? ` · 未渲染 ${unrendered}` : ""}`,
     };
   });
 }

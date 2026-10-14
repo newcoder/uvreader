@@ -80,7 +80,137 @@ export function stripTocBlock(text) {
   return { text: out.join("\n"), removed };
 }
 
-// 章节数组 → 去掉印刷目录。返回 { chapters, dropped, removedLines }。
+import { cleanChapterTitle } from "./markdown-fix.js";
+
+// 解析印刷目录条目:把「1.1 开场白 …… 11」这类行拆成 { label, key, page, level }。
+// label 保留原样(带编号,读者习惯看编号);key 去掉编号/点线/空白,用于和正文标题比对;
+// level 由编号推断(第 N 章 / Chapter N → 1;N.M(.K…) → 深度 + 1;§ 或其它 → 2)。
+export function parsePrintedTocEntries(text) {
+  const entries = [];
+  for (const raw of String(text || "").split(/\r?\n/)) {
+    const line = raw.replace(/\s+$/, "").trim();
+    if (!line || /^#{1,6}\s/.test(line)) continue;
+    if (!looksLikeTocEntry(line)) continue;
+    const page = Number((line.match(/(\d{1,4})\s*$/) || [])[1] || 0);
+    const label = line
+      .replace(/(?:\.{2,}|…{2,}|·{2,}|_{2,}|-{2,})\s*\d{1,4}\s*$/, "")
+      .replace(/\s+\d{1,4}\s*$/, "")
+      .trim();
+    if (!label) continue;
+    const key = tocKey(label);
+    if (!key) continue;
+    entries.push({ label, key, page, level: tocLevel(label) });
+  }
+  // 同一标题只留第一次出现(有的目录重复列小节)。
+  const seen = new Set();
+  return entries.filter((entry) => (seen.has(entry.key) ? false : (seen.add(entry.key), true)));
+}
+
+// 匹配用的键:去掉编号与**所有标点**(全角/半角、括号、点线),只留字母/数字/汉字,
+// 这样「关于 EDVAC 报告的第一份草稿(节译)」与「…（节译）」也能对上。
+export function tocKey(label) {
+  return String(label || "")
+    .replace(/^第\s*[0-9〇零一二三四五六七八九十百]{1,4}\s*[章节篇卷部讲]\s*/, "")
+    .replace(/^(?:chapter|part|section)\s+[0-9ivxlc]+[.、:]?\s*/i, "")
+    .replace(/^[0-9]{1,3}(?:\.[0-9]{1,3})*[.、]?\s*/, "")
+    .replace(/^§\s*[0-9]{1,3}[.、]?\s*/, "")
+    .replace(/[^\p{L}\p{N}]/gu, "")
+    .toLowerCase();
+}
+
+// 层级:靠编号推断(印刷目录的缩进在纯文本里已经丢了)。**没有编号就按 1 级**,
+// 宁可是平铺的目录,也不要猜错层级;上游给 toc_entries(带 level)时以它为准。
+export function tocLevel(label) {
+  const value = String(label || "").trim();
+  if (/^第\s*[0-9〇零一二三四五六七八九十百]{1,4}\s*[章节篇卷部讲]/.test(value)) return 1;
+  if (/^(?:chapter|part)\s+[0-9ivxlc]+/i.test(value)) return 1;
+  if (/^§/.test(value)) return 2; // § N 是节,不是章
+  const numbered = value.match(/^([0-9]{1,3}(?:\.[0-9]{1,3})*)/);
+  if (numbered) return Math.min(1 + (numbered[1].split(".").length - 1), 3);
+  return 1;
+}
+
+// 章节标题 → 键(与 tocKey 同一套清洗,便于比对)。
+export function chapterKey(title) {
+  return tocKey(cleanChapterTitle(title));
+}
+
+// 标题相似度(二元组 Dice 系数,0~1):OCR 噪声下比全等更稳。
+export function titleSimilarity(a, b) {
+  const left = String(a || "");
+  const right = String(b || "");
+  if (!left || !right) return 0;
+  if (left === right) return 1;
+  if (left.includes(right) || right.includes(left)) return Math.min(left.length, right.length) / Math.max(left.length, right.length) + 0.25;
+  const bigrams = (value) => {
+    const out = new Set();
+    for (let index = 0; index < value.length - 1; index += 1) out.add(value.slice(index, index + 2));
+    return out;
+  };
+  const one = bigrams(left);
+  const two = bigrams(right);
+  let shared = 0;
+  for (const gram of one) if (two.has(gram)) shared += 1;
+  return (2 * shared) / (one.size + two.size || 1);
+}
+
+// 印刷目录条目 → 导航计划:按顺序在章节里找最佳匹配(单调前进,防止错位),
+// 匹配不到的条目保守丢弃;目录之外的「前言/注释」这类章节保留在两端。
+export function buildNavPlan({ chapters = [], tocEntries = [], minSimilarity = 0.6 } = {}) {
+  const list = (Array.isArray(chapters) ? chapters : []).map((chapter, index) => ({
+    index,
+    title: String(chapter?.title || ""),
+    key: chapterKey(chapter?.title || ""),
+  }));
+  const items = [];
+  const dropped = [];
+  const matchedIndexes = new Set();
+  let cursor = 0;
+  for (const entry of Array.isArray(tocEntries) ? tocEntries : []) {
+    let best = null;
+    for (let index = cursor; index < list.length; index += 1) {
+      const candidate = list[index];
+      if (!candidate.key) continue;
+      const score = candidate.key === entry.key
+        ? 1
+        : Math.max(titleSimilarity(candidate.key, entry.key), candidate.key.startsWith(entry.key) || entry.key.startsWith(candidate.key) ? 0.8 : 0);
+      if (score >= minSimilarity && (!best || score > best.score)) best = { index, score };
+      if (score === 1) break;
+    }
+    if (!best) {
+      dropped.push(entry.label);
+      continue;
+    }
+    matchedIndexes.add(best.index);
+    items.push({ title: entry.label, chapterIndex: best.index, level: entry.level });
+    cursor = best.index;
+  }
+  if (items.length < 2) return null; // 匹配太少就别用印刷目录,交回标题分章
+  // 目录覆盖范围之外、且在两端的前言/附录:补进导航,免得整章从目录里消失。
+  const first = items[0].chapterIndex;
+  const last = items[items.length - 1].chapterIndex;
+  const before = list.filter((chapter) => chapter.index < first && !matchedIndexes.has(chapter.index));
+  const after = list.filter((chapter) => chapter.index > last && !matchedIndexes.has(chapter.index));
+  const plan = [
+    ...before.map((chapter) => ({ title: chapter.title, chapterIndex: chapter.index, level: 1 })),
+    ...items,
+    ...after.map((chapter) => ({ title: chapter.title, chapterIndex: chapter.index, level: 1 })),
+  ];
+  return { items: plan, matched: items.length, dropped };
+}
+
+// 把导航计划的层级拍平(第一个条目必须是 1 级,层级跳跃不超过 1)。
+export function normalizeNavLevels(items) {
+  let previous = 0;
+  return (Array.isArray(items) ? items : []).map((item, index) => {
+    let level = Math.min(Math.max(Number(item?.level) || 1, 1), 3);
+    if (index === 0) level = 1;
+    else if (level > previous + 1) level = previous + 1;
+    previous = level;
+    return { ...item, level };
+  });
+}
+
 export function stripPrintedToc(chapters, { enabled = true } = {}) {
   const list = Array.isArray(chapters) ? chapters : [];
   if (!enabled) return { chapters: list, dropped: 0, removedLines: 0 };

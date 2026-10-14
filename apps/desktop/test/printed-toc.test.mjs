@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { isPrintedTocChapter, looksLikeTocEntry, stripPrintedToc, stripTocBlock, tocRatio } from "../src/shared/printed-toc.js";
+import { buildNavPlan, isPrintedTocChapter, looksLikeTocEntry, normalizeNavLevels, parsePrintedTocEntries, stripPrintedToc, stripTocBlock, tocRatio } from "../src/shared/printed-toc.js";
 
 const tocText = [
   "第 1 章 光学简史 …… 1",
@@ -66,4 +66,56 @@ test("stripPrintedToc can be switched off and never empties the book", () => {
   assert.equal(stripPrintedToc(chapters, { enabled: false }).dropped, 0);
   assert.equal(stripPrintedToc(chapters).chapters.length, 1, "全掉光时还原");
   assert.equal(stripPrintedToc(chapters).dropped, 0);
+});
+
+test("parsePrintedTocEntries keeps labels and infers levels", () => {
+  const text = [
+    "第 1 章 光学简史 …… 1",
+    "1.1 开场白 ……… 11",
+    "1.1.1 微分波动方程 …… 15",
+    "§ 2 关于公理化的一般评论 …… 9",
+    "形式主义的数学基础 …… 43",
+  ].join("\n");
+  const entries = parsePrintedTocEntries(text);
+  assert.deepEqual(entries.map((entry) => entry.label), [
+    "第 1 章 光学简史", "1.1 开场白", "1.1.1 微分波动方程", "§ 2 关于公理化的一般评论", "形式主义的数学基础",
+  ]);
+  assert.deepEqual(entries.map((entry) => entry.level), [1, 2, 3, 2, 1], "无编号的条目按 1 级(宁可平铺,不猜层级)");
+  assert.deepEqual(entries.map((entry) => entry.page), [1, 11, 15, 9, 43]);
+});
+
+test("buildNavPlan matches in order, drops what it cannot find, keeps the ends", () => {
+  const chapters = [
+    { title: "译者序" },
+    { title: "第一章 光学简史" },
+    { title: "1.1 开场白" },
+    { title: "1.2 初始时期" },
+    { title: "第二章 波动" },
+    { title: "注释" },
+  ];
+  const tocEntries = parsePrintedTocEntries([
+    "第一章 光学简史 …… 1",
+    "1.1 开场白 …… 11",
+    "找不到的一节 …… 20",
+    "第二章 波动 …… 12",
+  ].join("\n"));
+  const plan = buildNavPlan({ chapters, tocEntries });
+  assert.equal(plan.matched, 3);
+  assert.deepEqual(plan.dropped, ["找不到的一节"]);
+  assert.deepEqual(plan.items.map((item) => item.title), ["译者序", "第一章 光学简史", "1.1 开场白", "第二章 波动", "注释"], "两端的前言/附录保留,匹配不上的中间条目丢弃");
+  assert.equal(plan.items.find((item) => item.title === "1.1 开场白").level, 2);
+});
+
+test("normalizeNavLevels never jumps more than one level", () => {
+  const items = normalizeNavLevels([
+    { title: "a", level: 3 },
+    { title: "b", level: 3 },
+    { title: "c", level: 1 },
+  ]);
+  assert.deepEqual(items.map((item) => item.level), [1, 2, 1]);
+});
+
+test("buildNavPlan returns null when too little matches", () => {
+  const plan = buildNavPlan({ chapters: [{ title: "甲" }, { title: "乙" }], tocEntries: parsePrintedTocEntries("丙 …… 3") });
+  assert.equal(plan, null, "匹配太少时交回按标题分章");
 });
