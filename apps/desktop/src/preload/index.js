@@ -93,6 +93,7 @@ window.qbrDesktop = {
     ensure: (settings) => ipcRenderer.invoke("qbr:mineru:ensure", settings),
     stop: () => ipcRenderer.invoke("qbr:mineru:stop"),
     clearCaches: (settings) => ipcRenderer.invoke("qbr:mineru:clear-cache", settings),
+    path: (settings) => ipcRenderer.invoke("qbr:mineru:path", settings),
   },
   // 设置页里的链路探测:直接返回结果,不入任务队列。
   probe: {

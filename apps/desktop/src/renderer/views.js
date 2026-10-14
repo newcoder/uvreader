@@ -409,6 +409,14 @@ export function createSettingsView(leaf, options) {
     const save = (text) => {
       notice(text);
     };
+    // 边打边存:点检测/启动时不需要先让输入框失焦。
+    const bind = (input, key, message) => {
+      input.addEventListener("input", () => persist(key, input.value.trim()));
+      input.addEventListener("change", () => {
+        persist(key, input.value.trim());
+        save(message);
+      });
+    };
     // 链路探测:直接在原地显示结果(不再入任务队列)。
     const runProbe = async (status, label, run) => {
       status.setText(`${label}检测中…`);
@@ -454,18 +462,12 @@ export function createSettingsView(leaf, options) {
     sidecarRow.createSpan({ cls: "qbr-workshop-hint", text: "pdf_tool 目录" });
     const sidecarDir = sidecarRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "含 pdf_tool/reader/server.py 的目录,如 D:\\projects\\auto_chat" } });
     sidecarDir.value = String(settings.ocrSidecarDir || "");
-    sidecarDir.addEventListener("change", () => {
-      persist("ocrSidecarDir", sidecarDir.value.trim());
-      save("pdf_tool 目录已保存;新任务生效。");
-    });
+    bind(sidecarDir, "ocrSidecarDir", "pdf_tool 目录已保存;新任务生效。");
     const pythonRow = ocrCard.createDiv("qbr-workshop-row");
     pythonRow.createSpan({ cls: "qbr-workshop-hint", text: "Python" });
     const pythonInput = pythonRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空用 python(PATH 上的)" } });
     pythonInput.value = String(settings.ocrPython || "");
-    pythonInput.addEventListener("change", () => {
-      persist("ocrPython", pythonInput.value.trim());
-      save("Python 路径已保存。");
-    });
+    bind(pythonInput, "ocrPython", "Python 路径已保存。");
     const ocrTools = ocrCard.createDiv("qbr-workshop-row");
     const ocrProbe = ocrTools.createEl("button", { text: "检测文字层链路" });
     const ocrStatus = ocrTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
@@ -479,26 +481,17 @@ export function createSettingsView(leaf, options) {
     tokenRow.createSpan({ cls: "qbr-workshop-hint", text: "MinerU 凭据" });
     const tokenInput = tokenRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "云端 token;留空用环境变量 MINERU_API_KEY" } });
     tokenInput.value = String(settings.mineruToken || "");
-    tokenInput.addEventListener("change", () => {
-      persist("mineruToken", tokenInput.value.trim());
-      save("MinerU 凭据已保存;新任务生效。");
-    });
+    bind(tokenInput, "mineruToken", "MinerU 凭据已保存;新任务生效。");
     const localRow = mineruCard.createDiv("qbr-workshop-row");
     localRow.createSpan({ cls: "qbr-workshop-hint", text: "本地 MinerU 服务" });
     const localInput = localRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "如 http://127.0.0.1:8123;留空走云端" } });
     localInput.value = String(settings.mineruLocalUrl || "");
-    localInput.addEventListener("change", () => {
-      persist("mineruLocalUrl", localInput.value.trim());
-      save("本地 MinerU 服务地址已保存;新任务生效。");
-    });
+    bind(localInput, "mineruLocalUrl", "本地 MinerU 服务地址已保存;新任务生效。");
     const exeRow = mineruCard.createDiv("qbr-workshop-row");
     exeRow.createSpan({ cls: "qbr-workshop-hint", text: "本地 MinerU 程序" });
-    const exeInput = exeRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "如 D:\\mineru_env\\Scripts\\mineru-kit.exe;留空按 MINERU_LOCAL_CMD / 同目录 python 找" } });
+    const exeInput = exeRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空自动查找(常见位置 / MINERU_LOCAL_CMD / 同目录 python);也可手填完整路径" } });
     exeInput.value = String(settings.mineruLocalExe || "");
-    exeInput.addEventListener("change", () => {
-      persist("mineruLocalExe", exeInput.value.trim());
-      save("本地 MinerU 程序已保存。");
-    });
+    bind(exeInput, "mineruLocalExe", "本地 MinerU 程序已保存。");
     const autoStartRow = mineruCard.createDiv("qbr-workshop-row");
     const autoStartLabel = autoStartRow.createEl("label", { cls: "qbr-workshop-opt" });
     const autoStartInput = autoStartLabel.createEl("input", { attr: { type: "checkbox" } });
@@ -566,6 +559,19 @@ export function createSettingsView(leaf, options) {
       }
     });
     void runMineru(false);
+    // 程序路径为空时自动找一次并填入(让「启动服务」开箱可用,不用手抄路径)。
+    if (!exeInput.value && bridge?.mineru?.path) {
+      void Promise.resolve(bridge.mineru.path(mineruSettings()))
+        .then((found) => {
+          const value = String(found?.path || "").trim();
+          if (!value || exeInput.value) return;
+          exeInput.value = value;
+          persist("mineruLocalExe", value);
+          notice(`已自动找到本地 MinerU:${value}`);
+          void runMineru(false);
+        })
+        .catch(() => {});
+    }
 
     // 4. DocVortex(本地解析 / 公式优先的渲染端)
     const docvortexCard = root.createDiv("qbr-workshop-card");
@@ -574,10 +580,7 @@ export function createSettingsView(leaf, options) {
     dvRow.createSpan({ cls: "qbr-workshop-hint", text: "DocVortex 路径" });
     const dvPath = dvRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空自动检测(PATH / python -m docvortex)" } });
     dvPath.value = String(settings.docvortexPath || "");
-    dvPath.addEventListener("change", () => {
-      persist("docvortexPath", dvPath.value.trim());
-      save("DocVortex 路径已保存。");
-    });
+    bind(dvPath, "docvortexPath", "DocVortex 路径已保存。");
     const dvTools = docvortexCard.createDiv("qbr-workshop-row");
     const dvProbe = dvTools.createEl("button", { text: "检测 DocVortex" });
     const dvStatus = dvTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
@@ -593,10 +596,7 @@ export function createSettingsView(leaf, options) {
     calibreRow.createSpan({ cls: "qbr-workshop-hint", text: "Calibre 路径" });
     const calibrePath = calibreRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空自动检测(常见安装位置 / PATH)" } });
     calibrePath.value = String(settings.calibrePath || "");
-    calibrePath.addEventListener("change", () => {
-      persist("calibrePath", calibrePath.value.trim());
-      save("Calibre 路径已保存。");
-    });
+    bind(calibrePath, "calibrePath", "Calibre 路径已保存。");
     const calibreTools = calibreCard.createDiv("qbr-workshop-row");
     const calibreProbe = calibreTools.createEl("button", { text: "检测 Calibre" });
     const calibreStatus = calibreTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });

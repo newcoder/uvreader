@@ -10,7 +10,7 @@ import { createCalibre } from "./calibre.js";
 import { createCoverRenderer } from "./cover-render.js";
 import { createDocvortex, registerDocvortexRunners } from "./docvortex.js";
 import { registerExtractRunners } from "./extract-doc.js";
-import { clearMineruCaches, createMineruLocalService, resolveLocalBackend } from "./mineru-local.js";
+import { clearMineruCaches, createMineruLocalService, resolveLocalBackend, resolveMineruKit } from "./mineru-local.js";
 import { registerTextConvertRunner } from "./pdf-text.js";
 import { createFormulaChain, pdfToolScriptCommand, registerFormulaRunners, resolveMineruToken } from "./workshop-formula.js";
 import { registerBookRunners } from "./workshop-book.js";
@@ -408,6 +408,7 @@ ipcMain.handle("qbr:launch-file", () => launchFile);
 ipcMain.handle("qbr:mineru:status", (_event, settings) => mineruLocal.status(settings || {}));
 ipcMain.handle("qbr:mineru:ensure", (_event, settings) => mineruLocal.ensure(settings || {}));
 ipcMain.handle("qbr:mineru:stop", () => mineruLocal.stop());
+ipcMain.handle("qbr:mineru:path", (_event, settings = {}) => ({ path: resolveMineruKit(settings || {}) }));
 // 直接在设置页里跑的链路探测(不入队):文字层 / DocVortex / 公式 / Calibre。
 ipcMain.handle("qbr:probe:ocr", (_event, settings = {}) => pdfOcr.probe(settings || {}, OCR_PROBE_TIMEOUT));
 ipcMain.handle("qbr:probe:docvortex", (_event, settings = {}) => docvortex.probe(settings || {}));

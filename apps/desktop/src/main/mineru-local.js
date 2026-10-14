@@ -38,7 +38,7 @@ export function servicePort(url) {
 }
 
 // mineru-kit 的候选路径:设置 → 环境变量 → sidecar python 的同目录 → pdf_tool 目录下常见的 venv 布局。
-export function mineruKitCandidates(settings = {}, { env = process.env } = {}) {
+export function mineruKitCandidates(settings = {}, { env = process.env, exists = fs.existsSync, home = "", drives = null } = {}) {
   const list = [];
   const add = (value) => {
     const trimmed = String(value || "").trim();
@@ -52,6 +52,26 @@ export function mineruKitCandidates(settings = {}, { env = process.env } = {}) {
   if (pythonDir && pythonDir !== ".") {
     add(path.join(pythonDir, "mineru-kit.exe"));
     add(path.join(pythonDir, "mineru-kit"));
+  }
+  // 常见安装位置:用户目录下的 mineru 环境、各盘根目录的 mineru_env(用户常见的 venv 布局)。
+  const base = String(home || os.homedir() || "");
+  if (base) {
+    for (const name of [".mineru_env", "mineru_env", "mineru-venv"]) {
+      add(path.join(base, name, "Scripts", "mineru-kit.exe"));
+      add(path.join(base, name, "bin", "mineru-kit"));
+    }
+  }
+  const letters = Array.isArray(drives) ? drives : "CDEFGHIJ".split("");
+  for (const letter of letters) {
+    const root = `${letter}:\\`;
+    try {
+      if (!exists(root)) continue;
+    } catch {
+      continue;
+    }
+    for (const name of ["mineru_env", "mineru-venv"]) {
+      add(path.join(root, name, "Scripts", "mineru-kit.exe"));
+    }
   }
   const sidecar = String(settings.ocrSidecarDir || "").trim();
   if (sidecar) {

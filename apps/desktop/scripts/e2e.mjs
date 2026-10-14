@@ -2419,6 +2419,14 @@ async function runWorkshopScenario() {
       const bodyTab = document.querySelector(".qiaomu-reader-set-body")?.dataset?.tab || "";
       const body = document.querySelector(".qiaomu-reader-set-body");
       const tab = activeTab === "书坊" ? { textContent: activeTab } : null;
+      // 现场打一条假路径:不带失焦(input 事件)也要进设置,并出现在「已试」里。
+      const exeRow = [...(body?.querySelectorAll(".qbr-workshop-row") || [])]
+        .find((row) => (row.textContent || "").includes("本地 MinerU 程序"));
+      const exeField = exeRow?.querySelector("input");
+      if (exeField) {
+        exeField.value = "C:\\no-such-dir\\mineru-kit.exe";
+        exeField.dispatchEvent(new Event("input", { bubbles: true }));
+      }
       const button = [...(body?.querySelectorAll("button") || [])].find((b) => b.textContent === "检测本地 MinerU");
       button?.click();
       await wait(1600);
@@ -2429,7 +2437,7 @@ async function runWorkshopScenario() {
       await wait(2500);
       const ocrText = ocrButton?.closest(".qbr-workshop-row")?.querySelector(".qbr-mineru-status")?.textContent || "";
       document.querySelector('[data-route="workshop"]')?.click();
-      return { link: Boolean(link), tab: Boolean(tab), activeTab, tabLabels, wrapped, tabFlag, bodyTab, found: Boolean(button), text, ocrFound: Boolean(ocrButton), ocrText };
+      return { link: Boolean(link), tab: Boolean(tab), activeTab, tabLabels, wrapped, tabFlag, bodyTab, found: Boolean(button), text, ocrFound: Boolean(ocrButton), ocrText, typedSaved: String(window.__qbrPlugin?.settings?.mineruLocalExe || "") };
     });
     if (!mineru.link || !mineru.tab) throw new Error(`「打开 设置 → 书坊」应跳到书坊 tab:${JSON.stringify(mineru)}`);
     if (!mineru.found) throw new Error(`书坊 tab 里应该有「检测本地 MinerU」:${JSON.stringify(mineru)}`);
@@ -2438,6 +2446,9 @@ async function runWorkshopScenario() {
     }
     if (!mineru.ocrFound || /未检测|检测中|已入队/.test(mineru.ocrText)) {
       throw new Error(`检测文字层链路 should report inline: ${JSON.stringify(mineru)}`);
+    }
+    if (mineru.typedSaved !== "C:\\no-such-dir\\mineru-kit.exe") {
+      throw new Error(`刚输入的路径应立刻进设置(不用失焦):${JSON.stringify(mineru.typedSaved)}`);
     }
     console.log("settings: 书坊 tab reports local MinerU —", mineru.text, "· text layer —", mineru.ocrText);
     // The nav route returns home and the workshop remembers the last tool.

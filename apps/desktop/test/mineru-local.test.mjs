@@ -52,12 +52,11 @@ test("resolveMineruKit prefers the setting, then the environment", () => {
   assert.equal(resolveMineruKit({ mineruLocalExe: "D:/nope.exe" }, { exists }), "", "a stale path counts as unset");
   assert.equal(resolveMineruKit({}, { exists, env: { MINERU_LOCAL_CMD: "D:/kit/mineru-kit.exe" } }), "D:/kit/mineru-kit.exe");
   assert.equal(resolveMineruKit({}, { exists, env: {} }), "");
-  assert.deepEqual(mineruKitCandidates({ ocrPython: "python" }), [], "a bare python name yields no candidates");
-  assert.deepEqual(
-    mineruKitCandidates({ ocrPython: "D:\\mineru_env\\Scripts\\python.exe" }),
-    ["D:\\mineru_env\\Scripts\\mineru-kit.exe", "D:\\mineru_env\\Scripts\\mineru-kit"],
-    "a venv python points at the mineru-kit next to it",
-  );
+  // 候选现在包含「常见安装位置」(用户目录 / 各盘 mineru_env),所以按包含关系断言。
+  const candidates = mineruKitCandidates({ ocrPython: "python" });
+  assert.ok(!candidates.includes("mineru-kit.exe") && !candidates.includes("mineru-kit"), "裸名 python 不产生裸名候选");
+  const venv = mineruKitCandidates({ ocrPython: "D:\\mineru_env\\Scripts\\python.exe" });
+  assert.ok(venv.includes("D:\\mineru_env\\Scripts\\mineru-kit.exe"), "venv python → 同目录 mineru-kit");
 });
 
 test("status probes /v1/health and never starts anything", async () => {
@@ -96,12 +95,16 @@ test("ensure starts the service and waits until health is ok", async () => {
     startTimeoutMs: 4000,
     fetchImpl: async () => (healthy ? jsonResponse({ status: "ok", version: "4.0.12" }) : jsonResponse({}, false, 503)),
   });
-  const result = await service.ensure({ mineruLocalExe: "D:/kit/mineru-kit.exe", mineruLocalUrl: "http://127.0.0.1:9000" });
+  // 用真实存在的文件当 stub:自动查找现在会命中机器上真装的 mineru-kit,非存在的路径会被越过。
+  const exeDir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-kit-"));
+  const exePath = path.join(exeDir, "mineru-kit.exe");
+  fs.writeFileSync(exePath, "stub");
+  const result = await service.ensure({ mineruLocalExe: exePath, mineruLocalUrl: "http://127.0.0.1:9000" });
   assert.equal(result.status, "running", JSON.stringify(result));
   assert.equal(result.version, "4.0.12");
   assert.equal(result.managed, true);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].command, "D:/kit/mineru-kit.exe");
+  assert.equal(calls[0].command, exePath);
   assert.equal(calls[0].args[calls[0].args.indexOf("--port") + 1], "9000");
   assert.equal(calls[0].args[calls[0].args.indexOf("--upload-dir") + 1], "D:/tmp/mineru");
   assert.equal(service.stop(), true);
