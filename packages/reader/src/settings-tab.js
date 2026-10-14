@@ -120,8 +120,7 @@ export function createSettingsTab({
       about: (host) => this._tabAbout(host),
     };
     (drawers[this._tab] || drawers.about)(body);
-  }
-  _statsCard(c) {
+  }  _statsCard(c) {
     const st = readingStats(this.plugin.settings.readingLog, this.plugin.settings.lifetimeSeconds, readerTodayKey());
     const card = c.createDiv({ cls: "qiaomu-reader-stats" });
 
@@ -1012,9 +1011,6 @@ export function createSettingsTab({
     if (settings.syncMode === "cloud") {
       c.createEl("div", { cls: "qiaomu-reader-set-note", text: tx("cloud-folders-icloud-drive-update-with-a-delay-if-you-only-read") });
     }
-
-    // Scanned PDFs sit with the storage settings, not inside the cleanup rows.
-    this._ocrSettings(this._settingsDisclosure(dataRoot, "scanned-pdf-text-layer"));
 
     c = this._settingsDisclosure(dataRoot, "cleanup");
     const thumbSet = new Setting(c).setName(tx("cover-cache")).setDesc(tx("saved-0-2", Object.keys(this.plugin.thumbCache).length)).addButton((b) => b.setButtonText(tx("clear")).onClick(async () => {

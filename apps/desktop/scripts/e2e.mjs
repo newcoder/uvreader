@@ -2404,23 +2404,27 @@ async function runWorkshopScenario() {
       throw new Error(`the panel should follow the preset: ${JSON.stringify(imgPreset)}`);
     }
     console.log("workshop: preset switches the panel (图片 → PDF hides format/parse, button says 打包为 PDF)");
-    // 「检测本地 MinerU」必须真的走到 qbrDesktop.mineru(曾经误用 workshop bridge,
-    // 点了没反应、状态行还显示「这个宿主不支持本地服务检测」)。
+    // 「检测本地 MinerU」在「设置 → 书坊」里(与存储与同步同级);点过去验证它能给出真实状态。
     const mineru = await page.evaluate(async () => {
-      const panel = document.querySelector(".qbr-workshop-panel[data-tool='convert']");
-      const button = [...panel.querySelectorAll("button")].find((b) => b.textContent === "检测本地 MinerU");
+      const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      document.querySelector('[data-route="settings"]')?.click();
+      await wait(900);
+      const tab = [...document.querySelectorAll(".qiaomu-reader-set-tab")].find((b) => b.textContent === "书坊");
+      tab?.click();
+      await wait(700);
+      const body = document.querySelector(".qiaomu-reader-set-body");
+      const button = [...(body?.querySelectorAll("button") || [])].find((b) => b.textContent === "检测本地 MinerU");
       button?.click();
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      return {
-        found: Boolean(button),
-        text: panel.querySelector(".qbr-mineru-status")?.textContent || "",
-      };
+      await wait(1600);
+      const text = button?.closest(".qbr-workshop-row")?.querySelector(".qbr-mineru-status")?.textContent || "";
+      document.querySelector('[data-route="workshop"]')?.click();
+      return { tab: Boolean(tab), found: Boolean(button), text };
     });
-    if (!mineru.found) throw new Error("the convert panel should offer 检测本地 MinerU");
+    if (!mineru.tab || !mineru.found) throw new Error(`设置里应该有「书坊」tab 与「检测本地 MinerU」:${JSON.stringify(mineru)}`);
     if (/不支持/.test(mineru.text) || /检测中/.test(mineru.text) || /未检测/.test(mineru.text)) {
       throw new Error(`检测本地 MinerU should reach the bridge and report a real state: ${mineru.text}`);
     }
-    console.log("workshop: local MinerU detection reports", mineru.text);
+    console.log("settings: 书坊 tab reports local MinerU —", mineru.text);
     // The nav route returns home and the workshop remembers the last tool.
     await page.click('[data-route="home"]');
     await page.waitForSelector(".qbr-home-view", { timeout: 10_000 });

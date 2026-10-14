@@ -357,8 +357,245 @@ export function createTocView(leaf, options) {
   return new TocView(leaf);
 }
 
+// 本地 MinerU 状态 → 面板/设置里的一行文案(书坊面板与设置页共用)。
+export function describeMineruStatus(result) {
+  const url = String(result?.url || "");
+  const version = result?.version ? ` · 版本 ${result.version}` : "";
+  const detail = result?.detail ? ` · ${result.detail}` : "";
+  switch (String(result?.status || "")) {
+    case "running": return `运行中${version}(${url}${detail})`;
+    case "starting": return "启动中…首次加载模型约 10–15 秒";
+    case "external": return `外部服务(${url})，不由应用管理`;
+    case "missing": return String(result?.detail || "没找到 mineru-kit:在设置 → 书坊里填程序路径");
+    case "error": return `启动失败:${String(result?.detail || "未知错误")}`;
+    default: return `未运行(${url || "http://127.0.0.1:8123"})；点「启动服务」拉起`;
+  }
+}
+
 export function createSettingsView(leaf, options) {
   const { plugin } = options;
+
+  // 「书坊」设置 tab:书坊 / pdf_tool / MinerU / DocVortex / Calibre 的全局配置与链路检测
+  // 都集中在这里(与「存储与同步」同级),各工具面板只做每次任务的选项。
+  function drawWorkshopSettings(host) {
+    const settings = plugin?.settings || {};
+    const persist = (key, value) => {
+      if (!plugin?.settings) return;
+      plugin.settings[key] = value;
+      void plugin.saveAll?.();
+    };
+    const bridge = typeof window !== "undefined" ? window.qbrDesktop : null;
+    const notice = (text) => new Notice(text);
+    const save = (text) => {
+      notice(text);
+    };
+
+    const root = host.createDiv("qbr-workshop-settings");
+
+    // 1. 书坊开关
+    const toggleCard = root.createDiv("qbr-workshop-card");
+    toggleCard.createEl("h3", { text: "书坊" });
+    const switchRow = toggleCard.createDiv("qbr-workshop-row");
+    const switchLabel = switchRow.createEl("label", { cls: "qbr-workshop-opt" });
+    const switchInput = switchLabel.createEl("input", { attr: { type: "checkbox" } });
+    switchInput.checked = settings.workshopEnabled !== false;
+    switchLabel.createSpan({ text: "在导航里显示「书坊」(关闭后隐藏整页,便于回退)" });
+    switchInput.addEventListener("change", () => {
+      persist("workshopEnabled", Boolean(switchInput.checked));
+      save("书坊开关已保存;导航立即生效。");
+    });
+    toggleCard.createDiv({ cls: "qbr-workshop-hint", text: "书坊负责:文字层与可搜索 PDF、格式转换、内容提取、电子书制作、发送到 Kindle。下面的配置对全部工具生效。" });
+
+    // 2. 文字层 / 扫描版 PDF(pdf_tool sidecar)
+    const ocrCard = root.createDiv("qbr-workshop-card");
+    ocrCard.createEl("h3", { text: "扫描版 PDF 文字层" });
+    ocrCard.createDiv({ cls: "qbr-workshop-hint", text: "本地 OCR sidecar(pdf_tool/reader/server.py)给扫描页加一层看不见的文字:阅读器里能选中 / 搜索 / 划线,原件不变。" });
+    const autoRow = ocrCard.createDiv("qbr-workshop-row");
+    const autoLabel = autoRow.createEl("label", { cls: "qbr-workshop-opt" });
+    const autoInput = autoLabel.createEl("input", { attr: { type: "checkbox" } });
+    autoInput.checked = settings.ocrScannedPdf !== false;
+    autoLabel.createSpan({ text: "打开扫描版 PDF 时自动生成文字层" });
+    autoInput.addEventListener("change", () => {
+      persist("ocrScannedPdf", Boolean(autoInput.checked));
+      save("文字层设置已保存;下次打开生效。");
+    });
+    const sidecarRow = ocrCard.createDiv("qbr-workshop-row");
+    sidecarRow.createSpan({ cls: "qbr-workshop-hint", text: "pdf_tool 目录" });
+    const sidecarDir = sidecarRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "含 pdf_tool/reader/server.py 的目录,如 D:\\projects\\auto_chat" } });
+    sidecarDir.value = String(settings.ocrSidecarDir || "");
+    sidecarDir.addEventListener("change", () => {
+      persist("ocrSidecarDir", sidecarDir.value.trim());
+      save("pdf_tool 目录已保存;新任务生效。");
+    });
+    const pythonRow = ocrCard.createDiv("qbr-workshop-row");
+    pythonRow.createSpan({ cls: "qbr-workshop-hint", text: "Python" });
+    const pythonInput = pythonRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空用 python(PATH 上的)" } });
+    pythonInput.value = String(settings.ocrPython || "");
+    pythonInput.addEventListener("change", () => {
+      persist("ocrPython", pythonInput.value.trim());
+      save("Python 路径已保存。");
+    });
+    const ocrTools = ocrCard.createDiv("qbr-workshop-row");
+    const ocrProbe = ocrTools.createEl("button", { text: "检测文字层链路" });
+    const ocrStatus = ocrTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
+    ocrProbe.addEventListener("click", () => {
+      ocrStatus.setText("检测中…");
+      void bridge?.workshop?.start({ kind: "probe", title: "检测文字层", payload: { settings } })
+        .then(() => ocrStatus.setText("已入队:结果看「书坊 → 任务」"))
+        .catch((error) => ocrStatus.setText(`检测失败:${String(error?.message || error)}`));
+    });
+
+    // 3. 本地 MinerU(公式优先 / 内容提取共用)
+    const mineruCard = root.createDiv("qbr-workshop-card");
+    mineruCard.createEl("h3", { text: "MinerU(公式优先 / 内容提取)" });
+    mineruCard.createDiv({ cls: "qbr-workshop-hint", text: "公式优先与内容提取的 MinerU 链路都用这里的配置:填了本地服务地址就优先本地(不出网、免凭据),否则用云端凭据。" });
+    const tokenRow = mineruCard.createDiv("qbr-workshop-row");
+    tokenRow.createSpan({ cls: "qbr-workshop-hint", text: "MinerU 凭据" });
+    const tokenInput = tokenRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "云端 token;留空用环境变量 MINERU_API_KEY" } });
+    tokenInput.value = String(settings.mineruToken || "");
+    tokenInput.addEventListener("change", () => {
+      persist("mineruToken", tokenInput.value.trim());
+      save("MinerU 凭据已保存;新任务生效。");
+    });
+    const localRow = mineruCard.createDiv("qbr-workshop-row");
+    localRow.createSpan({ cls: "qbr-workshop-hint", text: "本地 MinerU 服务" });
+    const localInput = localRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "如 http://127.0.0.1:8123;留空走云端" } });
+    localInput.value = String(settings.mineruLocalUrl || "");
+    localInput.addEventListener("change", () => {
+      persist("mineruLocalUrl", localInput.value.trim());
+      save("本地 MinerU 服务地址已保存;新任务生效。");
+    });
+    const exeRow = mineruCard.createDiv("qbr-workshop-row");
+    exeRow.createSpan({ cls: "qbr-workshop-hint", text: "本地 MinerU 程序" });
+    const exeInput = exeRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "如 D:\\mineru_env\\Scripts\\mineru-kit.exe;留空按 MINERU_LOCAL_CMD / 同目录 python 找" } });
+    exeInput.value = String(settings.mineruLocalExe || "");
+    exeInput.addEventListener("change", () => {
+      persist("mineruLocalExe", exeInput.value.trim());
+      save("本地 MinerU 程序已保存。");
+    });
+    const autoStartRow = mineruCard.createDiv("qbr-workshop-row");
+    const autoStartLabel = autoStartRow.createEl("label", { cls: "qbr-workshop-opt" });
+    const autoStartInput = autoStartLabel.createEl("input", { attr: { type: "checkbox" } });
+    autoStartInput.checked = settings.mineruLocalAutoStart !== false;
+    autoStartLabel.createSpan({ text: "启动应用时自动开启本地 MinerU 服务(退出时只关自己拉起的那个)" });
+    autoStartInput.addEventListener("change", () => {
+      persist("mineruLocalAutoStart", Boolean(autoStartInput.checked));
+      save("自动开启设置已保存。");
+    });
+    const mineruTools = mineruCard.createDiv("qbr-workshop-row");
+    const mineruStatus = mineruTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
+    const mineruSettings = () => ({
+      exe: String(plugin?.settings?.mineruLocalExe || ""),
+      url: String(plugin?.settings?.mineruLocalUrl || ""),
+      autoStart: plugin?.settings?.mineruLocalAutoStart !== false,
+      ocrPython: String(plugin?.settings?.ocrPython || ""),
+      ocrSidecarDir: String(plugin?.settings?.ocrSidecarDir || ""),
+    });
+    const runMineru = async (start) => {
+      if (!bridge?.mineru) {
+        mineruStatus.setText("这个宿主不支持本地服务检测");
+        return;
+      }
+      mineruStatus.setText(start ? "启动中…" : "检测中…");
+      try {
+        const result = start ? await bridge.mineru.ensure(mineruSettings()) : await bridge.mineru.status(mineruSettings());
+        mineruStatus.setText(describeMineruStatus(result));
+      } catch (error) {
+        mineruStatus.setText(`检测失败:${String(error?.message || error)}`);
+      }
+    };
+    const checkMineru = mineruTools.createEl("button", { text: "检测本地 MinerU" });
+    checkMineru.addEventListener("click", () => void runMineru(false));
+    const startMineru = mineruTools.createEl("button", { text: "启动服务" });
+    startMineru.addEventListener("click", () => void runMineru(true));
+    const clearMineru = mineruTools.createEl("button", { text: "清理 MinerU 缓存" });
+    clearMineru.addEventListener("click", async () => {
+      if (!bridge?.mineru?.clearCaches) {
+        notice("这个宿主不支持清理 MinerU 缓存");
+        return;
+      }
+      try {
+        const result = await bridge.mineru.clearCaches(mineruSettings());
+        const total = Number(result?.totalBytes) || 0;
+        const size = total >= 1024 * 1024 ? `${(total / 1024 / 1024).toFixed(1)} MB` : `${Math.max(0, Math.round(total / 1024))} KB`;
+        const parts = [result?.cleared?.length ? `已清理 ${size}` : "没有可清理的缓存"];
+        if (result?.skippedService) parts.push("服务在运行,上传目录已跳过");
+        mineruStatus.setText(parts.join(" · "));
+        notice(`MinerU 缓存:${parts.join(";")}`);
+      } catch (error) {
+        notice(`清理失败:${String(error?.message || error)}`);
+      }
+    });
+    void runMineru(false);
+
+    // 4. DocVortex(本地解析 / 公式优先的渲染端)
+    const docvortexCard = root.createDiv("qbr-workshop-card");
+    docvortexCard.createEl("h3", { text: "DocVortex(格式转换 / 内容提取)" });
+    const dvRow = docvortexCard.createDiv("qbr-workshop-row");
+    dvRow.createSpan({ cls: "qbr-workshop-hint", text: "DocVortex 路径" });
+    const dvPath = dvRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空自动检测(PATH / python -m docvortex)" } });
+    dvPath.value = String(settings.docvortexPath || "");
+    dvPath.addEventListener("change", () => {
+      persist("docvortexPath", dvPath.value.trim());
+      save("DocVortex 路径已保存。");
+    });
+    const dvTools = docvortexCard.createDiv("qbr-workshop-row");
+    const dvProbe = dvTools.createEl("button", { text: "检测 DocVortex" });
+    const dvStatus = dvTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
+    dvProbe.addEventListener("click", () => {
+      dvStatus.setText("检测中…");
+      void bridge?.workshop?.start({ kind: "docvortex-probe", title: "检测 DocVortex", payload: { settings } })
+        .then(() => dvStatus.setText("已入队:结果看「书坊 → 任务」"))
+        .catch((error) => dvStatus.setText(`检测失败:${String(error?.message || error)}`));
+    });
+    const formulaProbe = dvTools.createEl("button", { text: "检测公式链路" });
+    const formulaStatus = dvTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "" });
+    formulaProbe.addEventListener("click", () => {
+      formulaStatus.setText("检测中…");
+      void bridge?.workshop?.start({ kind: "formula-probe", title: "检测公式链路", payload: { settings } })
+        .then(() => formulaStatus.setText("已入队:结果看「书坊 → 任务」"))
+        .catch((error) => formulaStatus.setText(`检测失败:${String(error?.message || error)}`));
+    });
+
+    // 5. Calibre(电子书互转 / 图片打包)
+    const calibreCard = root.createDiv("qbr-workshop-card");
+    calibreCard.createEl("h3", { text: "Calibre(电子书制作)" });
+    const calibreRow = calibreCard.createDiv("qbr-workshop-row");
+    calibreRow.createSpan({ cls: "qbr-workshop-hint", text: "Calibre 路径" });
+    const calibrePath = calibreRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空自动检测(常见安装位置 / PATH)" } });
+    calibrePath.value = String(settings.calibrePath || "");
+    calibrePath.addEventListener("change", () => {
+      persist("calibrePath", calibrePath.value.trim());
+      save("Calibre 路径已保存。");
+    });
+    const calibreTools = calibreCard.createDiv("qbr-workshop-row");
+    const calibreProbe = calibreTools.createEl("button", { text: "检测 Calibre" });
+    const calibreStatus = calibreTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
+    calibreProbe.addEventListener("click", () => {
+      calibreStatus.setText("检测中…");
+      void bridge?.workshop?.start({ kind: "calibre-probe", title: "检测 Calibre", payload: { settings } })
+        .then(() => calibreStatus.setText("已入队:结果看「书坊 → 任务」"))
+        .catch((error) => calibreStatus.setText(`检测失败:${String(error?.message || error)}`));
+    });
+
+    // 6. 一键自检:四条链路各入队一个检测任务,顺带刷新本地 MinerU 状态。
+    const selfCheckRow = root.createDiv("qbr-workshop-row");
+    const selfCheck = selfCheckRow.createEl("button", { cls: "mod-cta", text: "书坊链路自检" });
+    selfCheck.addEventListener("click", () => {
+      const kinds = [
+        ["probe", "检测文字层"],
+        ["docvortex-probe", "检测 DocVortex"],
+        ["formula-probe", "检测公式链路"],
+        ["calibre-probe", "检测 Calibre"],
+      ];
+      for (const [kind, title] of kinds) {
+        void bridge?.workshop?.start({ kind, title, payload: { settings } }).catch((error) => notice(`${title} 失败:${String(error?.message || error)}`));
+      }
+      void runMineru(false);
+      notice("已把 4 条链路的检测入队;结果在「书坊 → 任务」里看。");
+    });
+    selfCheckRow.createSpan({ cls: "qbr-workshop-hint", text: "一次把文字层 / DocVortex / 公式 / Calibre 四个检测入队,并刷新本地 MinerU 状态。" });
+  }
 
   class SettingsView extends ItemView {
     getViewType() {
@@ -380,6 +617,21 @@ export function createSettingsView(leaf, options) {
       if (!tab?.containerEl) {
         host.createDiv({ cls: "qbr-note-empty", text: "设置不可用。" });
         return;
+      }
+      // 往插件的设置 tab 里挂一个桌面专属的「书坊」页(与「存储与同步」同级);
+      // 这样书坊 / pdf_tool / MinerU / DocVortex / Calibre 的配置与检测集中在一处。
+      if (typeof tab._settingsTabs === "function" && typeof tab._drawSettingsTab === "function" && !tab._qbrWorkshopTab) {
+        const originalTabs = tab._settingsTabs.bind(tab);
+        const originalDraw = tab._drawSettingsTab.bind(tab);
+        tab._settingsTabs = () => [...originalTabs(), { id: "workshop", label: "书坊" }];
+        tab._drawSettingsTab = (body) => {
+          if (tab._tab === "workshop") {
+            drawWorkshopSettings(body);
+            return;
+          }
+          originalDraw(body);
+        };
+        tab._qbrWorkshopTab = true;
       }
       host.appendChild(tab.containerEl);
       tab.containerEl.addClass("qbr-settings-embedded");
@@ -1713,81 +1965,17 @@ export function createWorkshopView(leaf, options) {
         this.syncConvertTokenRow();
       });
       optionCard.createDiv({ cls: "qbr-workshop-hint", text: "怎么选:有数学公式的论文 / 教材 → 公式优先;试卷 / 公文 / 讲义(文字为主、符号少)→ 文本型(本地,不会把「A. C++」这类文字裁成图片);Office / HTML / EPUB 等文档 → 本地解析。" });
-      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "公式优先:PDF 先经 MinerU 提取(公式转 LaTeX),再交 DocVortex 生成真公式 DOCX / PDF;要 EPUB 走「电子书制作」。云端需要 MinerU 凭据(下面填写或环境变量),首次较慢。" });
-      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "公式优先(本地):交给本机 MinerU 常驻服务,不出网、免凭据。先在下面填服务地址,启动一次:mineru-kit api-server --host 127.0.0.1 --port 8123 --tier standard --upload-dir <临时目录>。" });
-      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "文本型:本地 PyMuPDF 确定性提取(先清页眉页脚 / 页码 / 水印,跨页代码块合并),不跑 OCR、不需要凭据、秒级;没有 LaTeX 公式(公式按原文)。" });
-      this._convertTokenRow = optionCard.createDiv("qbr-workshop-row");
-      this._convertTokenRow.createSpan({ cls: "qbr-workshop-hint", text: "MinerU 凭据" });
-      this._convertToken = this._convertTokenRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空用环境变量 MINERU_API_KEY" } });
-      this._convertToken.value = String(plugin?.settings?.mineruToken || "");
-      this._convertToken.addEventListener("change", () => {
-        if (!plugin?.settings) return;
-        plugin.settings.mineruToken = this._convertToken.value.trim();
-        void plugin.saveAll?.();
-        new Notice("MinerU 凭据已保存；新任务生效。");
+      // 全局配置与链路检测集中在「设置 → 书坊」(MinerU / pdf_tool / DocVortex / Calibre);
+      // 这个面板只留每次任务要选的:预设、文件、目标格式、解析方式。
+      const settingsRow = optionCard.createDiv("qbr-workshop-row");
+      const openSettings = settingsRow.createEl("button", { text: "打开 设置 → 书坊" });
+      openSettings.addEventListener("click", () => {
+        document.querySelector('[data-route="settings"]')?.click();
       });
-      this._convertTokenRow.createSpan({ cls: "qbr-workshop-hint", text: "填一次长期生效；用环境变量的话，设完需重启应用。" });
-      this._convertLocalRow = optionCard.createDiv("qbr-workshop-row");
-      this._convertLocalRow.createSpan({ cls: "qbr-workshop-hint", text: "本地 MinerU 服务" });
-      this._convertLocal = this._convertLocalRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "如 http://127.0.0.1:8123；留空走云端" } });
-      this._convertLocal.value = String(plugin?.settings?.mineruLocalUrl || "");
-      this._convertLocal.addEventListener("change", () => {
-        if (!plugin?.settings) return;
-        plugin.settings.mineruLocalUrl = this._convertLocal.value.trim();
-        void plugin.saveAll?.();
-        new Notice("本地 MinerU 服务地址已保存；新任务生效。");
-      });
-      this._convertLocalRow.createSpan({ cls: "qbr-workshop-hint", text: "填了它，MinerU 链路（公式优先 / 内容提取）优先走本地，即使机器上有云端凭据；本地不可用时报错，不会静默换云端。" });
-      this._convertLocalExeRow = optionCard.createDiv("qbr-workshop-row");
-      this._convertLocalExeRow.createSpan({ cls: "qbr-workshop-hint", text: "本地 MinerU 程序" });
-      this._convertLocalExe = this._convertLocalExeRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "如 D:\\mineru_env\\Scripts\\mineru-kit.exe；留空按 MINERU_LOCAL_CMD / PATH 找" } });
-      this._convertLocalExe.value = String(plugin?.settings?.mineruLocalExe || "");
-      this._convertLocalExe.addEventListener("change", () => {
-        if (!plugin?.settings) return;
-        plugin.settings.mineruLocalExe = this._convertLocalExe.value.trim();
-        void plugin.saveAll?.();
-      });
-      const autoRow = optionCard.createDiv("qbr-workshop-row");
-      const autoLabel = autoRow.createEl("label", { cls: "qbr-workshop-opt" });
-      this._convertLocalAuto = autoLabel.createEl("input", { attr: { type: "checkbox" } });
-      this._convertLocalAuto.checked = plugin?.settings?.mineruLocalAutoStart !== false;
-      autoLabel.createSpan({ text: "启动应用时自动开启本地 MinerU 服务（退出时只关自己拉起的那个）" });
-      this._convertLocalAuto.addEventListener("change", () => {
-        if (!plugin?.settings) return;
-        plugin.settings.mineruLocalAutoStart = Boolean(this._convertLocalAuto.checked);
-        void plugin.saveAll?.();
-      });
-      this._convertLocalTools = optionCard.createDiv("qbr-workshop-row");
-      const checkLocal = this._convertLocalTools.createEl("button", { text: "检测本地 MinerU" });
-      checkLocal.addEventListener("click", () => this.checkMineruLocal());
-      const startLocal = this._convertLocalTools.createEl("button", { text: "启动服务" });
-      startLocal.addEventListener("click", () => this.checkMineruLocal({ start: true }));
-      const clearLocal = this._convertLocalTools.createEl("button", { text: "清理 MinerU 缓存" });
-      clearLocal.addEventListener("click", () => this.clearMineruCaches());
-      this._convertLocalStatus = this._convertLocalTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
-      this.syncConvertTokenRow();
-      void this.checkMineruLocal();
-      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "扫描件由 DocVortex 自带 OCR 识别（首次会下载约 220MB 模型）；数学公式与上下标识别有限。" });
-      const detectRow = optionCard.createDiv("qbr-workshop-row");
-      const detect = detectRow.createEl("button", { text: "检测 DocVortex" });
-      detect.addEventListener("click", () => this.probeDocvortex());
-      this._convertStatus = detectRow.createSpan({ cls: "qbr-workshop-hint", text: "未检测" });
-      const detectFormula = detectRow.createEl("button", { text: "检测公式链路" });
-      detectFormula.addEventListener("click", () => this.probeFormulaChain());
-      this._formulaStatus = detectRow.createSpan({ cls: "qbr-workshop-hint", text: "" });
-      const pathRow = optionCard.createDiv("qbr-workshop-row");
-      pathRow.createSpan({ cls: "qbr-workshop-hint", text: "DocVortex 路径" });
-      this._convertPath = pathRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空自动检测(PATH / python -m docvortex)" } });
-      this._convertPath.value = String(plugin?.settings?.docvortexPath || "");
-      this._convertPath.addEventListener("change", () => {
-        if (!plugin?.settings) return;
-        plugin.settings.docvortexPath = this._convertPath.value.trim();
-        void plugin.saveAll?.();
-      });
+      settingsRow.createSpan({ cls: "qbr-workshop-hint", text: "MinerU 凭据 / 本地服务、DocVortex 路径、Calibre 路径与各链路检测都在那里(对所有工具生效)。" });
+
       // 预设决定后续操作:图片 → PDF 只用「选图片 + 打包」,目标格式 / 解析方式 / MinerU
       // 那些控件与它无关 —— 收集起来按预设显隐(渐进披露)。
-      this._convertDetectRow = detectRow;
-      this._convertPathRow = pathRow;
       this._convertHints = [...optionCard.querySelectorAll("div.qbr-workshop-hint")];
       this._convertImgHint = optionCard.createDiv({ cls: "qbr-workshop-hint", text: "图片 → PDF:选中的每张图片合成一页(PNG / JPG / WebP / GIF / BMP / TIFF / JP2;页面按 150dpi 换算),产物是 PDF,落在首图旁边(同名加序号)。不经过 DocVortex、不需要凭据、秒级。" });
       this._convertImgHint.hidden = true;
