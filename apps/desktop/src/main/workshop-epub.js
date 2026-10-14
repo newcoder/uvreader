@@ -229,6 +229,8 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     const workRoot = path.join(cacheRoot, "work", `${path.basename(source).replace(/[^\w.-]+/g, "_").slice(0, 40)}-${workKey}`);
     let text = "";
     let baseDir = path.dirname(source);
+    // 上游(pdf_tool)给的目录条目:有就优先用(比从 md 文本兜底解析准)。
+    let upstreamToc = [];
     let rawChapters;
     if (provided.length) {
       rawChapters = provided
@@ -265,6 +267,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       if (signal.aborted) throw new Error("任务已取消");
       if (!extracted.ok) throw new Error(String(extracted.error || "内容提取失败"));
       text = extracted.markdown;
+      upstreamToc = Array.isArray(extracted.tocEntries) ? extracted.tocEntries : [];
       baseDir = path.dirname(extracted.path || source);
       const found = splitMarkdownChapters(text, { bookTitle: title });
       rawChapters = (found.length
@@ -304,17 +307,20 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     // 导航来源:有印刷目录就用它(条目→正文匹配),否则按章节标题(与旧行为一致)。
     const tocText = normalized.chapters.filter((chapter) => isPrintedTocChapter(chapter)).map((chapter) => chapter.text).join("\n");
     let navItems = null;
-    if (tocText) {
-      const plan = buildNavPlan({ chapters: bookChapters, tocEntries: parsePrintedTocEntries(tocText) });
+    let navDropped = 0;
+    if (upstreamToc.length || tocText) {
+      const entries = upstreamToc.length ? upstreamToc : parsePrintedTocEntries(tocText);
+      const plan = buildNavPlan({ chapters: bookChapters, tocEntries: entries });
       if (plan) {
         navItems = normalizeNavLevels(plan.items).map((item) => ({
           title: item.title,
           file: `chapter-${String(item.chapterIndex + 1).padStart(3, "0")}.xhtml`,
           level: item.level,
         }));
-        log("book build nav from printed toc", plan.matched, "entries", plan.dropped.length, "dropped");
+        navDropped = plan.dropped.length;
+        log("book build nav from toc", upstreamToc.length ? "upstream" : "printed", plan.matched, "entries", navDropped, "dropped");
       } else {
-        log("book build nav from printed toc skipped", "matched too few entries");
+        log("book build nav from toc skipped", "matched too few entries");
       }
     }
 
@@ -386,7 +392,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     const formulaCount = mathMap ? [...mathMap.values()].filter(Boolean).length : 0;
     return {
       output: out,
-      detail: `EPUB · ${result.chapters} 章 · ${Math.round(result.bytes / 1024)} KB${fonts.length ? ` · ${fonts.length} 款字体` : ""}${images.length ? ` · ${images.length} 图` : ""}${formulaCount ? ` · ${formulaCount} 公式` : ""}${tocStrip.dropped ? ` · 去印刷目录 ${tocStrip.dropped} 章` : ""}${navItems ? ` · 目录来自印刷目录 ${navItems.length} 条` : ""}${normalized.dropped ? ` · 去重复页眉 ${normalized.dropped} 章` : ""}${unrendered ? ` · 未渲染 ${unrendered}` : ""}`,
+      detail: `EPUB · ${result.chapters} 章 · ${Math.round(result.bytes / 1024)} KB${fonts.length ? ` · ${fonts.length} 款字体` : ""}${images.length ? ` · ${images.length} 图` : ""}${formulaCount ? ` · ${formulaCount} 公式` : ""}${tocStrip.dropped ? ` · 去印刷目录 ${tocStrip.dropped} 章` : ""}${navItems ? ` · 目录${upstreamToc.length ? "来自上游" : "来自印刷目录"} ${navItems.length} 条${navDropped ? `(丢弃 ${navDropped})` : ""}` : ""}${normalized.dropped ? ` · 去重复页眉 ${normalized.dropped} 章` : ""}${unrendered ? ` · 未渲染 ${unrendered}` : ""}`,
     };
   });
 }

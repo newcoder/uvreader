@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { adoptPdfToolOutputs, appendFootnotes, collectPageFootnotes, extractionKind, extractMarkdown, mergePdfMarkdown, patchMarkdownCaptions, registerExtractRunners, splitMarkdownChapters } from "../src/main/extract-doc.js";
+import { adoptPdfToolOutputs, appendFootnotes, collectPageFootnotes, collectUpstreamTocEntries, extractionKind, extractMarkdown, mergePdfMarkdown, patchMarkdownCaptions, registerExtractRunners, splitMarkdownChapters } from "../src/main/extract-doc.js";
 import { unwrapProseFences } from "../src/shared/markdown-fix.js";
 import { createWorkshopQueue } from "../src/main/workshop.js";
 import { waitForTask } from "./wait-for-task.mjs";
@@ -640,4 +640,25 @@ test("extractMarkdown refresh bypasses the cached merged markdown", async () => 
   });
   assert.equal(calls.length, 1, "refresh 时必须真的重跑上游");
   assert.match(refreshed.markdown, /重跑的稿子/, "返回的是这次的新产物");
+});
+
+test("collectUpstreamTocEntries reads pdf_tool's toc pages", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-upstream-toc-"));
+  const docPath = path.join(dir, "论文_doc.json");
+  fs.writeFileSync(docPath, JSON.stringify({
+    schema_version: 1,
+    pages: [
+      { page: 8, page_role: "toc", toc_entries: [
+        { title: "第一章 光学简史", page: 1, level: 1 },
+        { title: "1.1 开场白", page: 11, level: 2 },
+        { title: "   " },
+      ] },
+      { page: 9, blocks: [{ type: "text", text: "正文。" }] },
+    ],
+  }), "utf8");
+  const entries = collectUpstreamTocEntries(docPath);
+  assert.deepEqual(entries.map((entry) => entry.label), ["第一章 光学简史", "1.1 开场白"], "空标题丢掉");
+  assert.deepEqual(entries.map((entry) => entry.level), [1, 2], "上游给了层级就用它");
+  assert.equal(entries[1].key, "开场白", "key 走同一套清洗,便于和正文标题比对");
+  assert.deepEqual(collectUpstreamTocEntries(path.join(dir, "不存在.json")), [], "读不到就是空数组");
 });

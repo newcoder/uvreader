@@ -473,3 +473,50 @@ test("a fragment title in the chapter list is merged into the previous chapter",
   assert.match(result.chapters[0].text, /的努力？\s*惠更斯原理。/, "碎片标题的文字接回上一章、正文不丢");
   assert.equal(result.dropped, 1);
 });
+
+test("upstream toc entries win over the printed page", async () => {
+  const vault = tempDir("qbr-epub-upstream-toc-");
+  const source = path.join(vault, "论文.pdf");
+  fs.writeFileSync(source, "%PDF-1.4");
+  // 缓存命中时不该跑上游,但 pdf_tool 的解析在缓存判定之前,所以给个 stub checkout。
+  fs.mkdirSync(path.join(vault, "pdf_tool"), { recursive: true });
+  fs.writeFileSync(path.join(vault, "pdf_tool", "pdf_to_doc.py"), "# stub\n");
+  const workRoot = path.join(vault, "work");
+  fs.mkdirSync(workRoot, { recursive: true });
+  // 上游给的目录:条目标题与正文标题不完全一致(带编号),仍应匹配上。
+  const docJson = path.join(workRoot, "论文_doc.json");
+  fs.writeFileSync(docJson, JSON.stringify({
+    schema_version: 1,
+    pages: [{ page: 1, page_role: "toc", toc_entries: [
+      { title: "第一章 起点", page: 1, level: 1 },
+      { title: "第二章 终点", page: 2, level: 1 },
+    ] }],
+  }), "utf8");
+  const merged = path.join(workRoot, "merged.md");
+  fs.writeFileSync(merged, "# 第一章 起点\n\n正文一。\n\n# 第二章 终点\n\n正文二。\n", "utf8");
+  // 让缓存判定成立:产物比源文件新。
+  const now = Date.now() / 1000 + 5;
+  fs.utimesSync(merged, now, now);
+  fs.utimesSync(docJson, now, now);
+
+  const queue = createWorkshopQueue({ file: path.join(vault, "tasks.json"), onState: () => {}, log: { warn() {} } });
+  const cacheRoot = path.join(vault, "cache");
+  registerEpubRunners(queue, { vaultRoot: vault, cacheRoot, subsetter: null, docvortex: null, spawnImpl: () => { throw new Error("不该跑上游"); } });
+  // 缓存目录由 runner 自己按「源路径+大小+mtime」算,这里直接把产物放进它的 work 目录。
+  const crypto = await import("node:crypto");
+  const stat = fs.statSync(source);
+  const key = crypto.createHash("sha1").update(`${source}\n${stat.size}\n${stat.mtimeMs}`).digest("hex").slice(0, 8);
+  const extractDir = path.join(cacheRoot, "work", `${path.basename(source).replace(/[^\w.-]+/g, "_").slice(0, 40)}-${key}`, "extract");
+  fs.mkdirSync(extractDir, { recursive: true });
+  fs.copyFileSync(merged, path.join(extractDir, "merged.md"));
+  fs.copyFileSync(docJson, path.join(extractDir, "论文_doc.json"));
+
+  const id = queue.start({ kind: "book-build", title: "生成电子书", payload: { source, settings: { ocrSidecarDir: vault }, title: "测试书" } });
+  const task = await waitForTask(queue, id);
+  assert.equal(task.status, "done", task.error);
+  assert.match(task.detail, /目录来自上游 2 条/);
+  const zip = await JSZip.loadAsync(fs.readFileSync(task.output));
+  const nav = await zip.file("OEBPS/nav.xhtml").async("string");
+  assert.match(nav, /第一章 起点/);
+  assert.match(nav, /第二章 终点/);
+});

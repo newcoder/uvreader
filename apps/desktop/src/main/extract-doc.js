@@ -9,6 +9,7 @@ import path from "node:path";
 
 import { EXTRACT_MODES, IMAGE_INPUTS, extractionKind } from "../shared/extract-formats.js";
 import { joinSplitCodeFences, splitMarkdownChapters, unwrapProseFences } from "../shared/markdown-fix.js";
+import { tocKey, tocLevel } from "../shared/printed-toc.js";
 import { blocksFromDoc, blocksToMarkdown } from "./formula-html.js";
 import { buildTextDoc, createPdfTextReader, writeTextProducts } from "./pdf-text.js";
 import { mergeBlocksWithTextLayer } from "./text-merge.js";
@@ -126,6 +127,33 @@ export function appendFootnotes(markdown, notes) {
     .map((note) => `> ${String(note.text || "").replace(/\s*\n\s*/g, " ").trim()}${note.page ? `（第 ${note.page} 页）` : ""}`)
     .join("\n\n");
   return `${text.replace(/\s*$/, "")}\n\n## 注释\n\n${body}\n`;
+}
+
+// 上游(pdf_tool)给的目录条目:Doc JSON 里带 page_role:"toc" 的页 + toc_entries。
+// 有就用它(比我们从 md 文本兜底解析准),没有返回空数组。
+export function collectUpstreamTocEntries(docPath) {
+  try {
+    if (!docPath || !fs.existsSync(docPath)) return [];
+    const doc = JSON.parse(fs.readFileSync(docPath, "utf8"));
+    const entries = [];
+    for (const page of Array.isArray(doc?.pages) ? doc.pages : []) {
+      const list = Array.isArray(page?.toc_entries) ? page.toc_entries : null;
+      if (!list) continue;
+      for (const item of list) {
+        const label = String(item?.title ?? item?.label ?? "").trim();
+        if (!label) continue;
+        entries.push({
+          label,
+          key: tocKey(label),
+          page: Number(item?.page) || 0,
+          level: Number(item?.level) > 0 ? Math.min(Number(item.level), 3) : tocLevel(label),
+        });
+      }
+    }
+    return entries;
+  } catch {
+    return [];
+  }
 }
 
 export function adoptPdfToolOutputs(outDir, name, { renameAssets = true } = {}) {
@@ -377,7 +405,7 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
       // 老缓存里没有脚注(上游 Doc JSON 丢了这个类型):复用顺手补上,缓存自愈。
       const cachedText = appendFootnotes(cachedRaw, collectPageFootnotes(workDir));
       if (cachedText !== cachedRaw) fs.writeFileSync(mergedPath, cachedText, "utf8");
-      return { ok: true, markdown: cachedText, path: mergedPath };
+      return { ok: true, markdown: cachedText, path: mergedPath, tocEntries: collectUpstreamTocEntries(docCandidates.find(fresh)) };
     }
     // refresh = 忽略缓存重新提取:连 Doc JSON 也不复用,真的再跑一次上游。
     const cachedDoc = refresh ? undefined : docCandidates.find(fresh);
@@ -423,9 +451,9 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
       // 脚注在上面两步里都不会出现(上游 Doc JSON 丢了这个类型):写完合并稿再补。
       const withNotes = appendFootnotes(merged, collectPageFootnotes(workDir));
       fs.writeFileSync(mergedPath, withNotes, "utf8");
-      return { ok: true, markdown: withNotes, path: mergedPath };
+      return { ok: true, markdown: withNotes, path: mergedPath, tocEntries: collectUpstreamTocEntries(files.json || cachedDoc) };
     }
-    return { ok: true, markdown: readMarkdown(files.md), path: files.md };
+    return { ok: true, markdown: readMarkdown(files.md), path: files.md, tocEntries: collectUpstreamTocEntries(files.json || cachedDoc) };
   }
   if (!docvortex) return { ok: false, error: "DocVortex 不可用" };
   fs.mkdirSync(workDir, { recursive: true });
