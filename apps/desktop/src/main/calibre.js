@@ -18,6 +18,12 @@ export function calibreCandidates(settings = {}) {
   if (process.platform === "darwin") {
     list.push({ command: "/Applications/calibre.app/Contents/MacOS/ebook-convert", args: [], kind: "common" });
   }
+  if (process.platform === "linux") {
+    // Calibre 的官方 Linux 安装脚本落在 /opt/calibre,snap 包在 /snap/bin
+    // (发行版包管理器装的直接进 PATH)。
+    list.push({ command: "/opt/calibre/ebook-convert", args: [], kind: "common" });
+    list.push({ command: "/snap/bin/ebook-convert", args: [], kind: "common" });
+  }
   list.push({ command: "ebook-convert", args: [], kind: "path" });
   return list;
 }

@@ -283,15 +283,17 @@ test("prepare surfaces a failing pdf_tool exit and cancels cleanly", async () =>
     child.stderr.emit("data", "mineru: 缺少 token");
     child.emit("close", 2);
   });
-  const chain = createFormulaChain({ spawnImpl: failing.spawnImpl });
-  const failed = await chain.prepare({ settings: { ocrSidecarDir: dir }, source: "a.pdf", workDir });
+  // 凭据固定成「有」,免得用例跟着跑测机器的环境变量走(CI 上没有凭据,
+  // 会先在凭据检查那一步返回,走不到 pdf_tool 的失败分支)。
+  const chain = createFormulaChain({ spawnImpl: failing.spawnImpl, readEnv: () => "" });
+  const failed = await chain.prepare({ settings: { ocrSidecarDir: dir, mineruToken: "tk" }, source: "a.pdf", workDir });
   assert.equal(failed.ok, false);
   assert.match(failed.error, /缺少 token/);
 
   const hanging = fakeSpawn(() => {});
   const controller = new AbortController();
-  const pending = createFormulaChain({ spawnImpl: hanging.spawnImpl }).prepare({
-    settings: { ocrSidecarDir: dir },
+  const pending = createFormulaChain({ spawnImpl: hanging.spawnImpl, readEnv: () => "" }).prepare({
+    settings: { ocrSidecarDir: dir, mineruToken: "tk" },
     source: "a.pdf",
     workDir,
     signal: controller.signal,

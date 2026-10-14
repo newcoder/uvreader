@@ -55,8 +55,9 @@ test("resolveMineruKit prefers the setting, then the environment", () => {
   // 候选现在包含「常见安装位置」(用户目录 / 各盘 mineru_env),所以按包含关系断言。
   const candidates = mineruKitCandidates({ ocrPython: "python" });
   assert.ok(!candidates.includes("mineru-kit.exe") && !candidates.includes("mineru-kit"), "裸名 python 不产生裸名候选");
-  const venv = mineruKitCandidates({ ocrPython: "D:\\mineru_env\\Scripts\\python.exe" });
-  assert.ok(venv.includes("D:\\mineru_env\\Scripts\\mineru-kit.exe"), "venv python → 同目录 mineru-kit");
+  const venvPython = `D:${path.sep}mineru_env${path.sep}Scripts${path.sep}python.exe`;
+  const venv = mineruKitCandidates({ ocrPython: venvPython });
+  assert.ok(venv.includes(path.join(path.dirname(venvPython), "mineru-kit.exe")), "venv python → 同目录 mineru-kit");
 });
 
 test("status probes /v1/health and never starts anything", async () => {
