@@ -372,6 +372,9 @@ export function describeMineruStatus(result) {
   }
 }
 
+// 授权码在 SecretStorage 里的 id(与主进程约定)。
+const KINDLE_SECRET_ID = "kindle-smtp";
+
 // 面板里指向「设置 → 书坊」的入口:全局配置与链路检测都集中在那里。
 function addSettingsLink(row, text) {
   const button = row.createEl("button", { text: "打开 设置 → 书坊" });
@@ -602,7 +605,46 @@ export function createSettingsView(leaf, options) {
     const calibreStatus = calibreTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
     calibreProbe.addEventListener("click", () => void runProbe(calibreStatus, "", () => bridge?.probe?.calibre(settings)));
 
-    // 6. 一键自检:四条链路各入队一个检测任务,顺带刷新本地 MinerU 状态。
+    // 6. 发送到 Kindle:SMTP 与收件地址(授权码只进 SecretStorage)。
+    const kindleCard = root.createDiv("qbr-workshop-card");
+    kindleCard.createEl("h3", { text: "发送到 Kindle" });
+    kindleCard.createDiv({ cls: "qbr-workshop-hint", text: "把 EPUB / PDF / DOCX 发到 Kindle 邮箱(地址在 Amazon「个人文档设置」里);发件地址要先加入已批准列表。" });
+    const kindleRows = [
+      ["kindleEmail", "Kindle 收件地址", "name_xxxx@kindle.com"],
+      ["smtpHost", "SMTP 服务器", "如 smtp.qq.com"],
+      ["smtpPort", "SMTP 端口", "465(SSL)或 587(STARTTLS)"],
+      ["smtpUser", "SMTP 账号", "你的邮箱地址"],
+      ["smtpFrom", "发件地址", "留空用 SMTP 账号"],
+    ];
+    const kindleInputs = {};
+    for (const [key, label, placeholder] of kindleRows) {
+      const row = kindleCard.createDiv("qbr-workshop-row");
+      row.createSpan({ cls: "qbr-workshop-hint", text: label });
+      const input = row.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder } });
+      input.value = String(plugin?.settings?.[key] || "");
+      bind(input, key, `${label}已保存。`);
+      kindleInputs[key] = input;
+    }
+    const secretRow = kindleCard.createDiv("qbr-workshop-row");
+    secretRow.createSpan({ cls: "qbr-workshop-hint", text: "授权码" });
+    const secretInput = secretRow.createEl("input", { cls: "qbr-workshop-input", attr: { type: "password", placeholder: "邮箱授权码 / 应用专用密码(不是登录密码)" } });
+    const secretState = secretRow.createSpan({ cls: "qbr-workshop-hint", text: "" });
+    void Promise.resolve(bridge?.secrets?.getSecret?.(KINDLE_SECRET_ID))
+      .then((stored) => secretState.setText(stored ? "已保存;留空不修改" : "未保存"))
+      .catch(() => {});
+    secretInput.addEventListener("input", () => {
+      const value = secretInput.value.trim();
+      if (!value) return;
+      void bridge?.secrets?.setSecret?.(KINDLE_SECRET_ID, value);
+      secretState.setText("已保存(SecretStorage)");
+    });
+    const kindleTools = kindleCard.createDiv("qbr-workshop-row");
+    const kindleProbe = kindleTools.createEl("button", { text: "检测 SMTP" });
+    const kindleStatus = kindleTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
+    const kindleSettings = () => Object.fromEntries(Object.entries(kindleInputs).map(([key, entry]) => [key, entry.value.trim()]));
+    kindleProbe.addEventListener("click", () => void runProbe(kindleStatus, "SMTP ", () => bridge?.kindle?.probe(kindleSettings())));
+
+    // 7. 一键自检:四条链路各入队一个检测任务,顺带刷新本地 MinerU 状态。
     const selfCheckRow = root.createDiv("qbr-workshop-row");
     const selfCheck = selfCheckRow.createEl("button", { cls: "mod-cta", text: "书坊链路自检" });
     selfCheck.addEventListener("click", () => {
@@ -717,6 +759,7 @@ const WORKSHOP_KIND_LABELS = {
   "book-build": "成书",
   "extract-probe": "检测",
   "extract-pdf": "提取",
+  "kindle-send": "发送",
   "extract-docvortex": "提取",
 };
 
@@ -858,6 +901,8 @@ export function createWorkshopView(leaf, options) {
           this.renderExtractPanel(panel);
         } else if (tool.id === "book") {
           this.renderBookPanel(panel);
+        } else if (tool.id === "kindle") {
+          this.renderKindlePanel(panel);
         } else {
           const card = panel.createDiv("qbr-workshop-card");
           card.createDiv({ cls: "qbr-workshop-soon", text: "该工具将在后续阶段接入(实施计划 docs/workshop-implementation.md)。" });
@@ -1063,6 +1108,61 @@ export function createWorkshopView(leaf, options) {
         });
       }
       return matrix;
+    }
+
+    // 发送到 Kindle(EPUB / PDF / DOCX → 邮箱)─────────────────────
+    renderKindlePanel(panel) {
+      const root = panel.createDiv("qbr-workshop-tool");
+      const inputCard = root.createDiv("qbr-workshop-card");
+      inputCard.createEl("h3", { text: "选择要发送的书" });
+      inputCard.createDiv({ cls: "qbr-workshop-hint", text: "书库里的 EPUB / PDF / DOCX 直接勾选;本地文件用「打开本地文件…」。多个文件会先打包成 ZIP(Amazon 单封上限 50MB)。" });
+      const pickRow = inputCard.createDiv("qbr-workshop-row");
+      const pickLocal = pickRow.createEl("button", { text: "打开本地文件…" });
+      const sendButton = pickRow.createEl("button", { cls: "mod-cta", text: "发送到 Kindle" });
+      this._kindleList = inputCard.createDiv("qbr-workshop-booklist");
+      this._kindleSelection ||= [];
+      const wanted = ["epub", "pdf", "docx", "mobi", "azw3"];
+      const files = (app?.vault?.getFiles?.() || [])
+        .filter((file) => wanted.includes(String(file?.extension || "").toLowerCase()))
+        .sort((a, b) => String(a.basename).localeCompare(String(b.basename), "ru"));
+      if (!files.length) {
+        this._kindleList.createDiv({ cls: "qbr-workshop-hint", text: "书库里还没有 EPUB / PDF / DOCX。" });
+      }
+      for (const file of files) {
+        const row = this._kindleList.createEl("label", { cls: "qbr-workshop-book" });
+        const box = row.createEl("input", { attr: { type: "checkbox" } });
+        box.checked = this._kindleSelection.includes(file.path);
+        box.addEventListener("change", () => {
+          this._kindleSelection = box.checked
+            ? [...new Set([...this._kindleSelection, file.path])]
+            : this._kindleSelection.filter((item) => item !== file.path);
+        });
+        row.createSpan({ text: file.basename });
+      }
+      pickLocal.addEventListener("click", async () => {
+        const picked = await bridge?.pickFiles?.();
+        if (Array.isArray(picked) && picked.length) {
+          this._kindleSelection = [...new Set([...this._kindleSelection, ...picked])];
+          new Notice(`已加入 ${picked.length} 个文件`);
+        }
+      });
+      sendButton.addEventListener("click", () => {
+        const selection = [...this._kindleSelection];
+        if (!selection.length) {
+          new Notice("请先选择要发送的文件");
+          return;
+        }
+        void bridge?.start?.({
+          kind: "kindle-send",
+          title: "发送到 Kindle",
+          detail: `${selection.length} 个文件`,
+          payload: { files: selection, settings: plugin?.settings || {} },
+        }).catch((error) => new Notice(String(error?.message || error)));
+        this.selectTool("tasks");
+      });
+      const optionCard = root.createDiv("qbr-workshop-card");
+      optionCard.createEl("h3", { text: "发送设置" });
+      addSettingsLink(optionCard.createDiv("qbr-workshop-row"), "SMTP 服务器 / 账号 / 授权码与 Kindle 收件地址都在「设置 → 书坊」;授权码只存进 SecretStorage。");
     }
 
     // ── 内容提取(PDF / Office / OFD / 图片 → 内容,W1-0)──────────────

@@ -95,6 +95,10 @@ window.qbrDesktop = {
     clearCaches: (settings) => ipcRenderer.invoke("qbr:mineru:clear-cache", settings),
     path: (settings) => ipcRenderer.invoke("qbr:mineru:path", settings),
   },
+  kindle: {
+    probe: (settings) => ipcRenderer.invoke("qbr:kindle:probe", settings),
+    send: (payload) => ipcRenderer.invoke("qbr:kindle:send", payload),
+  },
   // 设置页里的链路探测:直接返回结果,不入任务队列。
   probe: {
     ocr: (settings) => ipcRenderer.invoke("qbr:probe:ocr", settings),

@@ -2433,11 +2433,12 @@ async function runWorkshopScenario() {
       const text = button?.closest(".qbr-workshop-row")?.querySelector(".qbr-mineru-status")?.textContent || "";
       // 链路探测要原地出结果(不再「已入队」跳到书坊任务)。
       const ocrButton = [...(body?.querySelectorAll("button") || [])].find((b) => b.textContent === "检测文字层链路");
+      const smtpButton = [...(body?.querySelectorAll("button") || [])].find((b) => b.textContent === "检测 SMTP");
       ocrButton?.click();
       await wait(2500);
       const ocrText = ocrButton?.closest(".qbr-workshop-row")?.querySelector(".qbr-mineru-status")?.textContent || "";
       document.querySelector('[data-route="workshop"]')?.click();
-      return { link: Boolean(link), tab: Boolean(tab), activeTab, tabLabels, wrapped, tabFlag, bodyTab, found: Boolean(button), text, ocrFound: Boolean(ocrButton), ocrText, typedSaved: String(window.__qbrPlugin?.settings?.mineruLocalExe || "") };
+      return { link: Boolean(link), tab: Boolean(tab), activeTab, tabLabels, wrapped, tabFlag, bodyTab, found: Boolean(button), text, ocrFound: Boolean(ocrButton), smtpFound: Boolean(smtpButton), ocrText, typedSaved: String(window.__qbrPlugin?.settings?.mineruLocalExe || "") };
     });
     if (!mineru.link || !mineru.tab) throw new Error(`「打开 设置 → 书坊」应跳到书坊 tab:${JSON.stringify(mineru)}`);
     if (!mineru.found) throw new Error(`书坊 tab 里应该有「检测本地 MinerU」:${JSON.stringify(mineru)}`);
@@ -2449,6 +2450,9 @@ async function runWorkshopScenario() {
     }
     if (mineru.typedSaved !== "C:\\no-such-dir\\mineru-kit.exe") {
       throw new Error(`刚输入的路径应立刻进设置(不用失焦):${JSON.stringify(mineru.typedSaved)}`);
+    }
+    if (!mineru.smtpFound) {
+      throw new Error(`书坊设置里应该有「发送到 Kindle」的 SMTP 段:${JSON.stringify(mineru)}`);
     }
     console.log("settings: 书坊 tab reports local MinerU —", mineru.text, "· text layer —", mineru.ocrText);
     // The nav route returns home and the workshop remembers the last tool.
