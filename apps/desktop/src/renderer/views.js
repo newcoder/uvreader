@@ -1896,6 +1896,9 @@ export function createWorkshopView(leaf, options) {
       if (isMarkdown || isPlain) {
         const text = await readVault(rel ? app?.vault?.getAbstractFileByPath?.(rel) : null);
         note = isMarkdown ? "预览:书稿开头(Markdown 已渲染)" : "预览:书稿开头";
+        // 预览跑在渲染层,调不到 Python(LaTeX → MathML),公式这里只显示原文;
+        // 免得用户以为成品也这样,先说清楚。
+        if (isMarkdown && /\$|\\\(|\\\[/.test(text.slice(0, 6000))) note += ";预览不渲染公式,生成时才会转成 MathML";
         body = text.trim()
           ? (isMarkdown ? markdownToHtml(unwrapProseFences(text).slice(0, 6000)) : bookSampleHtml(text))
           : bookSampleHtml("");
