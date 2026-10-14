@@ -787,7 +787,7 @@ function workshopTaskState(task, now = Date.now()) {
   }
   if (task.status === "queued") return "排队中";
   if (task.status === "done") return "已完成";
-  if (task.status === "cancelled") return "已取消";
+  if (task.status === "cancelled") return "已取消(上游释放资源约需 10–20 秒,稍候再试)";
   return "失败";
 }
 
