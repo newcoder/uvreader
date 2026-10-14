@@ -8,6 +8,7 @@ import test from "node:test";
 import { adoptPdfToolOutputs, extractMarkdown, extractionKind, mergePdfMarkdown, patchMarkdownCaptions, registerExtractRunners, splitMarkdownChapters } from "../src/main/extract-doc.js";
 import { unwrapProseFences } from "../src/shared/markdown-fix.js";
 import { createWorkshopQueue } from "../src/main/workshop.js";
+import { waitForTask } from "./wait-for-task.mjs";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -156,7 +157,7 @@ test("the pdf runner drives pdf_tool and adopts its products next to the source"
     payload: { source, mode: "mineru", settings: { ocrSidecarDir: vault } },
   });
   await sleep(60);
-  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  const task = await waitForTask(queue, id);
   assert.equal(task.status, "done", task.error);
   assert.equal(task.output, path.join(vault, "试卷.md"));
   assert.ok(fs.existsSync(path.join(vault, "试卷.json")));
@@ -186,7 +187,7 @@ test("the pdf runner hands the local MinerU program to pdf_tool and blocks dead 
     payload: { source, mode: "mineru", settings: { ocrSidecarDir: vault, mineruLocalExe: exe, mineruLocalUrl: "http://127.0.0.1:8123" } },
   });
   await sleep(80);
-  const task = queue.snapshot().tasks.find((row) => row.id === id);
+  const task = await waitForTask(queue, id);
   assert.equal(task.status, "done", task.error);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].options.env.MINERU_LOCAL_CMD, exe, "程序路径交给 pdf_tool(helper 靠它找 venv python)");
@@ -207,7 +208,7 @@ test("the images-pdf runner packs pictures into one PDF next to the first", asyn
   const { queue } = makeQueue({ probe: async () => ({ ok: true }), convert: async () => ({ ok: true }) }, spawnImpl);
   const id = queue.start({ kind: "images-pdf", title: "图片 → PDF", payload: { images: files } });
   await sleep(80);
-  const task = queue.snapshot().tasks.find((row) => row.id === id);
+  const task = await waitForTask(queue, id);
   assert.equal(task.status, "done", task.error);
   assert.equal(path.basename(task.output), "a.pdf", "产物落在首图旁边,用首图名");
   assert.deepEqual(calls[0].args.slice(2), [task.output, ...files], "输出文件在前,图片按顺序在后");
@@ -229,7 +230,7 @@ test("the docvortex runner writes markdown, html and json next to the source", a
   const { queue } = makeQueue(docvortex);
   const id = queue.start({ kind: "extract-docvortex", title: "内容提取", payload: { source, settings: {} } });
   await sleep(60);
-  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  const task = await waitForTask(queue, id);
   assert.equal(task.status, "done", task.error);
   assert.deepEqual(calls, ["markdown", "html", "structured_content"]);
   assert.equal(fs.readFileSync(path.join(vault, "讲义.md"), "utf8"), "内容:markdown");
@@ -260,7 +261,7 @@ test("the docvortex runner turns images into a temporary PDF and asks for OCR", 
   const { queue } = makeQueue(docvortex, spawnImpl);
   const id = queue.start({ kind: "extract-docvortex", title: "内容提取", payload: { source, settings: {} } });
   await sleep(80);
-  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  const task = await waitForTask(queue, id);
   assert.equal(task.status, "done", task.error);
   assert.ok(fs.existsSync(path.join(vault, "照片.md")));
   assert.ok(!fs.existsSync(path.join(vault, "照片.html")));
@@ -354,7 +355,7 @@ test("the pdf runner writes the merged markdown when the text layer is available
   });
   const id = queue.start({ kind: "extract-pdf", title: "内容提取", payload: { source, mode: "mineru", settings: { ocrSidecarDir: vault } } });
   await sleep(80);
-  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  const task = await waitForTask(queue, id);
   assert.equal(task.status, "done", task.error);
   const md = fs.readFileSync(path.join(vault, "论文.md"), "utf8");
   assert.match(md, /In the experiments, the wafer was spun at the speed of 3000 rpm for 30 s to promote adhesion/, "正文取文字层并补回丢字");
@@ -404,17 +405,17 @@ test("the pdf runner reuses existing products instead of parsing the cloud again
   const payload = { source, mode: "mineru", settings: { ocrSidecarDir: vault } };
   const first = queue.start({ kind: "extract-pdf", title: "内容提取", payload });
   await sleep(80);
-  assert.equal(queue.snapshot().tasks.find((row) => row.id === first).status, "done");
+  assert.equal((await waitForTask(queue, first)).status, "done");
   assert.equal(calls.length, 1);
   const second = queue.start({ kind: "extract-pdf", title: "内容提取", payload });
   await sleep(80);
-  const again = queue.snapshot().tasks.find((row) => row.id === second);
+  const again = await waitForTask(queue, second);
   assert.equal(again.status, "done", again.error);
   assert.equal(calls.length, 1, "第二次复用已有产物,不再调用 pdf_tool");
   assert.match(fs.readFileSync(again.output, "utf8"), /MinerU 的 Markdown/);
   const third = queue.start({ kind: "extract-pdf", title: "内容提取", payload: { ...payload, mode: "vision" } });
   await sleep(80);
-  assert.equal(queue.snapshot().tasks.find((row) => row.id === third).status, "done");
+  assert.equal((await waitForTask(queue, third)).status, "done");
   assert.equal(calls.length, 2, "换模式要重新解析");
 });
 
@@ -467,13 +468,13 @@ test("re-extracting a text-mode product reuses it unchanged", async () => {
   const payload = { source, mode: "text", settings: {} };
   const first = queue.start({ kind: "extract-pdf", title: "内容提取", payload });
   await sleep(80);
-  const task = queue.snapshot().tasks.find((row) => row.id === first);
+  const task = await waitForTask(queue, first);
   assert.equal(task.status, "done", task.error);
   const before = fs.readFileSync(task.output, "utf8");
   assert.match(before, /（CSP-J1）入门级C\+\+语言试题/, "全角括号原样保留");
   const second = queue.start({ kind: "extract-pdf", title: "内容提取", payload });
   await sleep(80);
-  const again = queue.snapshot().tasks.find((row) => row.id === second);
+  const again = await waitForTask(queue, second);
   assert.equal(again.status, "done", again.error);
   assert.equal(fs.readFileSync(again.output, "utf8"), before, "复用产物时不再合并文字层");
   assert.equal(reads, 1, "复用不再跑本地提取");
@@ -507,7 +508,7 @@ test("the text-mode runner writes figure crops next to the source", async () => 
   });
   const task = queue.start({ kind: "extract-pdf", title: "内容提取", payload: { source, mode: "text", settings: {} } });
   await sleep(80);
-  const row = queue.snapshot().tasks.find((entry) => entry.id === task);
+  const row = await waitForTask(queue, task);
   assert.equal(row.status, "done", row.error);
   assert.match(fs.readFileSync(row.output, "utf8"), /试卷\.assets\/fig-p1-1\.png/);
   assert.equal(fs.readFileSync(path.join(vault, "试卷.assets", "fig-p1-1.png"), "utf8"), "png-bytes");
@@ -532,7 +533,7 @@ test("text mode extracts locally without pdf_tool or the cloud", async () => {
   });
   const id = queue.start({ kind: "extract-pdf", title: "内容提取", payload: { source, mode: "text", settings: {} } });
   await sleep(80);
-  const task = queue.snapshot().tasks.find((row) => row.id === id);
+  const task = await waitForTask(queue, id);
   assert.equal(task.status, "done", task.error);
   assert.equal(calls.length, 0, "文本型完全本地,不调 pdf_tool");
   const markdown = fs.readFileSync(task.output, "utf8");
@@ -549,7 +550,7 @@ test("the extract probe reports pdf_tool, credentials and DocVortex", async () =
   try {
     const id = queue.start({ kind: "extract-probe", title: "检测提取链路", payload: { settings: { ocrSidecarDir: "D:/pt" } } });
     await sleep(40);
-    const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+    const task = await waitForTask(queue, id);
     if (task.status === "failed") {
       // 没有 pdf_tool checkout 的机器:报错要可操作。
       assert.match(task.error, /pdf_tool/);

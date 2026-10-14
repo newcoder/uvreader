@@ -7,6 +7,7 @@ import test from "node:test";
 
 import { convertArgs, createDocvortex, docvortexCandidates, registerDocvortexRunners } from "../src/main/docvortex.js";
 import { createWorkshopQueue } from "../src/main/workshop.js";
+import { waitForTask } from "./wait-for-task.mjs";
 import { convertPath } from "../src/shared/workshop-names.js";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -157,7 +158,7 @@ test("the convert runner resolves the vault path and lands the output", async ()
     payload: { source: "Books/报告.docx", format: "markdown", out: "Books/报告.md" },
   });
   await sleep(40);
-  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  const task = await waitForTask(queue, id);
   assert.equal(task.status, "done");
   assert.equal(task.output, path.join("D:/vault", "Books", "报告.md"));
   assert.equal(calls[0].source, path.join("D:/vault", "Books", "报告.docx"));
@@ -184,7 +185,7 @@ test("the convert runner numbers the output when it already exists", async () =>
   });
   const id = queue.start({ kind: "docvortex-convert", title: "文档互转", payload: { source: "Books/报告.docx", format: "markdown" } });
   await sleep(40);
-  const task = queue.snapshot().tasks.find((row) => row.id === id);
+  const task = await waitForTask(queue, id);
   assert.equal(task.status, "done", task.error);
   assert.equal(task.output, path.join(vault, "Books", "报告 (1).md"), "同名加序号,不覆盖已有产物");
   assert.equal(calls[0].out, task.output);
@@ -218,11 +219,11 @@ test("the convert runner cleans PDF furniture before DocVortex sees the file", a
   });
   const first = queue.start({ kind: "docvortex-convert", title: "文档互转", payload: { source: "试卷.pdf", format: "markdown", settings: {} } });
   await sleep(40);
-  assert.equal(queue.snapshot().tasks.find((row) => row.id === first).status, "done");
+  assert.equal((await waitForTask(queue, first)).status, "done");
   assert.equal(calls[0].source, cleanedPath, "PDF 先清理再交给 DocVortex(这条链路不经过 pdf_tool)");
   const second = queue.start({ kind: "docvortex-convert", title: "文档互转", payload: { source: "讲义.docx", format: "markdown", settings: {} } });
   await sleep(40);
-  assert.equal(queue.snapshot().tasks.find((row) => row.id === second).status, "done");
+  assert.equal((await waitForTask(queue, second)).status, "done");
   assert.equal(calls[1].source, path.join(dir, "讲义.docx"), "非 PDF 原样交给 DocVortex");
 });
 
@@ -233,7 +234,7 @@ test("the probe runner fails the task when docvortex is missing", async () => {
   });
   const id = queue.start({ kind: "docvortex-probe", title: "检测 DocVortex", payload: {} });
   await sleep(40);
-  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  const task = await waitForTask(queue, id);
   assert.equal(task.status, "failed");
   assert.match(task.error, /pip install docvortex/);
 });

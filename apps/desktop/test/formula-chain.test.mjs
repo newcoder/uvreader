@@ -19,6 +19,18 @@ import {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// 队列串行 drain;固定 sleep 在慢机器上会翻车(CI 上就这么翻过),等到任务收尾。
+async function waitForTask(queue, id, timeoutMs = 3000) {
+  const terminal = new Set(["done", "failed", "cancelled"]);
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+    if (task && terminal.has(task.status)) return task;
+    if (Date.now() > deadline) return task;
+    await sleep(10);
+  }
+}
+
 function fakeSpawn(handler) {
   const calls = [];
   const spawnImpl = (command, args, options) => {
@@ -343,8 +355,7 @@ test("the formula runner chains pdf_tool output into DocVortex", async () => {
     title: "公式文档",
     payload: { source: "Books/试卷.pdf", format: "docx", out: "Books/试卷.docx", settings: { ocrSidecarDir: dir } },
   });
-  await sleep(40);
-  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  const task = await waitForTask(queue, id);
   assert.equal(task.status, "done");
   assert.equal(task.output, path.join("D:/vault", "Books", "试卷.docx"));
   assert.equal(calls[0].source.endsWith("bridge.html"), true);
@@ -362,8 +373,7 @@ test("the formula probe reports a missing MinerU credential", async () => {
   delete process.env.MINERU_TOKEN;
   try {
     const id = queue.start({ kind: "formula-probe", title: "检测公式链路", payload: { settings: { ocrSidecarDir: dir } } });
-    await sleep(40);
-    const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+    const task = await waitForTask(queue, id);
     assert.equal(task.status, "failed");
     assert.match(task.error, /MINERU_API_KEY/);
   } finally {
@@ -382,8 +392,7 @@ test("the formula probe passes when pdf_tool, credential and DocVortex are prese
   process.env.MINERU_API_KEY = "tk";
   try {
     const id = queue.start({ kind: "formula-probe", title: "检测公式链路", payload: { settings: { ocrSidecarDir: dir } } });
-    await sleep(40);
-    const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+    const task = await waitForTask(queue, id);
     assert.equal(task.status, "done");
     assert.match(task.output, /MinerU \+ DocVortex/);
   } finally {

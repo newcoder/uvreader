@@ -6,6 +6,7 @@ import test from "node:test";
 
 import { createWorkshopQueue } from "../src/main/workshop.js";
 import { registerBookRunners } from "../src/main/workshop-book.js";
+import { waitForTask } from "./wait-for-task.mjs";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -23,7 +24,7 @@ test("the calibre probe reports the detected command", async () => {
   });
   const id = queue.start({ kind: "calibre-probe", title: "检测 Calibre", payload: {} });
   await sleep(40);
-  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  const task = await waitForTask(queue, id);
   assert.equal(task.status, "done");
   assert.match(task.output, /calibre 9\.15\.0/);
   assert.match(task.detail, /ebook-convert\.exe/);
@@ -36,7 +37,7 @@ test("the probe fails with the actionable hint when Calibre is missing", async (
   });
   const id = queue.start({ kind: "calibre-probe", title: "检测 Calibre", payload: {} });
   await sleep(40);
-  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  const task = await waitForTask(queue, id);
   assert.equal(task.status, "failed");
   assert.match(task.error, /未找到 Calibre/);
 });
@@ -56,7 +57,7 @@ test("ebook-convert resolves the vault path and lands the target format", async 
     payload: { source: "Books/示例书库/Alice in Wonderland.epub", format: "azw3", out: "Books/示例书库/Alice in Wonderland.azw3" },
   });
   await sleep(40);
-  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  const task = await waitForTask(queue, id);
   assert.equal(task.status, "done");
   assert.equal(task.output, path.join("D:/vault", "Books", "示例书库", "Alice in Wonderland.azw3"));
   assert.equal(calls[0].source, path.join("D:/vault", "Books", "示例书库", "Alice in Wonderland.epub"));
@@ -72,7 +73,7 @@ test("images-cbz packs images next to their folder", async () => {
     payload: { images: [path.join(dir, "1.jpg").replace(/\\/g, "/"), path.join(dir, "2.jpg").replace(/\\/g, "/")], format: "cbz" },
   });
   await sleep(80);
-  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  const task = await waitForTask(queue, id);
   assert.equal(task.status, "done");
   const out = path.join(path.dirname(dir), `${path.basename(dir)}.cbz`);
   assert.equal(task.output, out);
@@ -98,7 +99,7 @@ test("images-epub packs a CBZ first and hands it to Calibre", async () => {
     payload: { images: [path.join(dir, "1.png").replace(/\\/g, "/")], format: "epub" },
   });
   await sleep(80);
-  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  const task = await waitForTask(queue, id);
   assert.equal(task.status, "done");
   assert.match(task.output, /\.epub$/);
   assert.match(calls[0].source, /\.cbz$/);

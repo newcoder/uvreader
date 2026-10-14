@@ -10,8 +10,7 @@ import JSZip from "jszip";
 import { createWorkshopQueue } from "../src/main/workshop.js";
 import { findPairing } from "../src/main/workshop-fonts.js";
 import { prepareFonts, registerEpubRunners } from "../src/main/workshop-epub.js";
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+import { waitForTask } from "./wait-for-task.mjs";
 
 function tempDir(prefix = "qbr-epub-run-") {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -115,8 +114,7 @@ test("the book-build runner turns a txt into a readable EPUB", async () => {
     title: "生成电子书",
     payload: { source, settings: {}, styles: { theme: "warm", fontSize: 18 } },
   });
-  await sleep(80);
-  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  const task = await waitForTask(queue, id);
   assert.equal(task.status, "done");
   const out = path.join(vault, "我的小说.epub");
   assert.equal(task.output.replace(/\\/g, "/"), out.replace(/\\/g, "/"));
@@ -148,8 +146,7 @@ test("the book-build runner honours chapters edited in the panel", async () => {
       ],
     },
   });
-  await sleep(80);
-  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  const task = await waitForTask(queue, id);
   assert.equal(task.status, "done");
   const zip = await JSZip.loadAsync(fs.readFileSync(task.output));
   const nav = await zip.file("OEBPS/nav.xhtml").async("string");
@@ -174,8 +171,7 @@ test("the book-build runner extracts office sources before building the epub", a
   const queue = createWorkshopQueue({ file: path.join(dir, "tasks.json"), onState: () => {}, log: { warn() {} } });
   registerEpubRunners(queue, { vaultRoot: "D:/vault", cacheRoot: path.join(dir, "cache"), subsetter: null, docvortex, log: () => {} });
   const id = queue.start({ kind: "book-build", title: "生成电子书", payload: { source, settings: {} } });
-  await sleep(80);
-  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  const task = await waitForTask(queue, id);
   assert.equal(task.status, "done");
   assert.ok(fs.existsSync(path.join(vault, "讲义.epub")));
   const zip = await JSZip.loadAsync(fs.readFileSync(task.output));
@@ -205,8 +201,7 @@ test("the book-build runner extracts pdf sources with the pdf_tool checkout", as
     title: "生成电子书",
     payload: { source, settings: { ocrSidecarDir: vault }, title: "标准" },
   });
-  await sleep(80);
-  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  const task = await waitForTask(queue, id);
   assert.equal(task.status, "done", task.error);
   assert.equal(calls.length, 1, "pdf_tool runs once, the wizard never shells out twice");
   assert.equal(calls[0].options.cwd, vault, "the checkout dir from the settings is used");
@@ -233,8 +228,7 @@ test("the book-build runner embeds subsetted fonts", async () => {
     title: "生成电子书",
     payload: { source, settings: {}, fonts: { files: [{ path: fontPath, family: "Test Font" }] } },
   });
-  await sleep(80);
-  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  const task = await waitForTask(queue, id);
   assert.equal(task.status, "done");
   const zip = await JSZip.loadAsync(fs.readFileSync(task.output));
   const opf = await zip.file("OEBPS/content.opf").async("string");
@@ -276,8 +270,7 @@ test("the book-build runner embeds local images and renders formulas as MathML",
   };
   const { queue } = makeQueue(tempDir("qbr-epub-cache6-"), null, { mathRenderer });
   const id = queue.start({ kind: "book-build", title: "生成电子书", payload: { source, settings: {} } });
-  await sleep(80);
-  const task = queue.snapshot().tasks.find((entry) => entry.id === id);
+  const task = await waitForTask(queue, id);
   assert.equal(task.status, "done", task.error);
   assert.deepEqual([...batches[0]].sort(), ["E = mc^2", "a^2 + b^2 = c^2"].sort(), "both formulas go out in one batch");
   const zip = await JSZip.loadAsync(fs.readFileSync(task.output));
