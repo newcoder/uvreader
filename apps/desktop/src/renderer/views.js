@@ -375,7 +375,19 @@ export function describeMineruStatus(result) {
 // 面板里指向「设置 → 书坊」的入口:全局配置与链路检测都集中在那里。
 function addSettingsLink(row, text) {
   const button = row.createEl("button", { text: "打开 设置 → 书坊" });
-  button.addEventListener("click", () => document.querySelector('[data-route="settings"]')?.click());
+  button.addEventListener("click", () => {
+    // 目标 tab 记在 window 上:设置视图首次 onOpen 时会在 display() 之前应用;
+    // 已经打开的情况直接重绘到那一页(不依赖 DOM 时序)。
+    window.__qbrSettingsTab = "workshop";
+    const settingsTab = window.__qbrPlugin?.settingsTab;
+    if (settingsTab) {
+      settingsTab._tab = "workshop";
+      try {
+        if (settingsTab.containerEl?.isConnected) settingsTab.display();
+      } catch { /* 还没挂载就算了,onOpen 会用上面的标记 */ }
+    }
+    document.querySelector('[data-route="settings"]')?.click();
+  });
   row.createSpan({ cls: "qbr-workshop-hint", text });
   return button;
 }
@@ -498,13 +510,25 @@ export function createSettingsView(leaf, options) {
     });
     const mineruTools = mineruCard.createDiv("qbr-workshop-row");
     const mineruStatus = mineruTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
-    const mineruSettings = () => ({
-      exe: String(plugin?.settings?.mineruLocalExe || ""),
-      url: String(plugin?.settings?.mineruLocalUrl || ""),
-      autoStart: plugin?.settings?.mineruLocalAutoStart !== false,
-      ocrPython: String(plugin?.settings?.ocrPython || ""),
-      ocrSidecarDir: String(plugin?.settings?.ocrSidecarDir || ""),
-    });
+    // 以输入框当前值为准(用户可能打完路径没失焦就点检测),先落盘再传给主进程。
+    const mineruSettings = () => {
+      const live = {
+        exe: exeInput.value.trim(),
+        url: localInput.value.trim(),
+        autoStart: Boolean(autoStartInput.checked),
+        ocrPython: pythonInput.value.trim(),
+        ocrSidecarDir: sidecarDir.value.trim(),
+      };
+      if (plugin?.settings) {
+        plugin.settings.mineruLocalExe = live.exe;
+        plugin.settings.mineruLocalUrl = live.url;
+        plugin.settings.mineruLocalAutoStart = live.autoStart;
+        plugin.settings.ocrPython = live.ocrPython;
+        plugin.settings.ocrSidecarDir = live.ocrSidecarDir;
+        void plugin.saveAll?.();
+      }
+      return live;
+    };
     const runMineru = async (start) => {
       if (!bridge?.mineru) {
         mineruStatus.setText("这个宿主不支持本地服务检测");
@@ -513,7 +537,8 @@ export function createSettingsView(leaf, options) {
       mineruStatus.setText(start ? "启动中…" : "检测中…");
       try {
         const result = start ? await bridge.mineru.ensure(mineruSettings()) : await bridge.mineru.status(mineruSettings());
-        mineruStatus.setText(describeMineruStatus(result));
+        const tried = Array.isArray(result?.tried) && result.tried.length ? `(已试:${result.tried.slice(0, 4).join("、")})` : "";
+        mineruStatus.setText(`${describeMineruStatus(result)}${tried}`);
       } catch (error) {
         mineruStatus.setText(`检测失败:${String(error?.message || error)}`);
       }
@@ -621,6 +646,7 @@ export function createSettingsView(leaf, options) {
       if (typeof tab._settingsTabs === "function" && typeof tab._drawSettingsTab === "function" && !tab._qbrWorkshopTab) {
         const originalTabs = tab._settingsTabs.bind(tab);
         const originalDraw = tab._drawSettingsTab.bind(tab);
+        const originalRender = typeof tab._render === "function" ? tab._render.bind(tab) : null;
         tab._settingsTabs = () => [...originalTabs(), { id: "workshop", label: "书坊" }];
         tab._drawSettingsTab = (body) => {
           if (tab._tab === "workshop") {
@@ -629,6 +655,16 @@ export function createSettingsView(leaf, options) {
           }
           originalDraw(body);
         };
+        // 「打开 设置 → 书坊」留下的目标 tab:在**每次渲染之前**应用(首次 open、重绘都覆盖)。
+        if (originalRender) {
+          tab._render = (root) => {
+            if (window.__qbrSettingsTab) {
+              tab._tab = window.__qbrSettingsTab;
+              window.__qbrSettingsTab = "";
+            }
+            originalRender(root);
+          };
+        }
         tab._qbrWorkshopTab = true;
       }
       host.appendChild(tab.containerEl);
@@ -1951,11 +1987,7 @@ export function createWorkshopView(leaf, options) {
       // 全局配置与链路检测集中在「设置 → 书坊」(MinerU / pdf_tool / DocVortex / Calibre);
       // 这个面板只留每次任务要选的:预设、文件、目标格式、解析方式。
       const settingsRow = optionCard.createDiv("qbr-workshop-row");
-      const openSettings = settingsRow.createEl("button", { text: "打开 设置 → 书坊" });
-      openSettings.addEventListener("click", () => {
-        document.querySelector('[data-route="settings"]')?.click();
-      });
-      settingsRow.createSpan({ cls: "qbr-workshop-hint", text: "MinerU 凭据 / 本地服务、DocVortex 路径、Calibre 路径与各链路检测都在那里(对所有工具生效)。" });
+      addSettingsLink(settingsRow, "MinerU 凭据 / 本地服务、DocVortex 路径、Calibre 路径与各链路检测都在那里(对所有工具生效)。");
 
       // 预设决定后续操作:图片 → PDF 只用「选图片 + 打包」,目标格式 / 解析方式 / MinerU
       // 那些控件与它无关 —— 收集起来按预设显隐(渐进披露)。

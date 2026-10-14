@@ -2404,15 +2404,21 @@ async function runWorkshopScenario() {
       throw new Error(`the panel should follow the preset: ${JSON.stringify(imgPreset)}`);
     }
     console.log("workshop: preset switches the panel (图片 → PDF hides format/parse, button says 打包为 PDF)");
-    // 「检测本地 MinerU」在「设置 → 书坊」里(与存储与同步同级);点过去验证它能给出真实状态。
+    // 「打开 设置 → 书坊」应当直接落在书坊 tab 上,并在那里原地给检测结果。
     const mineru = await page.evaluate(async () => {
       const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-      document.querySelector('[data-route="settings"]')?.click();
-      await wait(900);
-      const tab = [...document.querySelectorAll(".qiaomu-reader-set-tab")].find((b) => b.textContent === "书坊");
-      tab?.click();
-      await wait(700);
+      const link = [...document.querySelectorAll(".qbr-workshop-panel[data-tool='convert'] button")]
+        .find((b) => b.textContent === "打开 设置 → 书坊");
+      link?.click();
+      await wait(2200);
+      const activeTab = [...document.querySelectorAll(".qiaomu-reader-set-tab")]
+        .find((b) => b.classList.contains("qiaomu-reader-set-tab-on"))?.textContent || "";
+      const tabLabels = [...document.querySelectorAll(".qiaomu-reader-set-tab")].map((b) => (b.textContent || "").trim());
+      const wrapped = Boolean(window.__qbrPlugin?.settingsTab?._qbrWorkshopTab);
+      const tabFlag = String(window.__qbrPlugin?.settingsTab?._tab || "");
+      const bodyTab = document.querySelector(".qiaomu-reader-set-body")?.dataset?.tab || "";
       const body = document.querySelector(".qiaomu-reader-set-body");
+      const tab = activeTab === "书坊" ? { textContent: activeTab } : null;
       const button = [...(body?.querySelectorAll("button") || [])].find((b) => b.textContent === "检测本地 MinerU");
       button?.click();
       await wait(1600);
@@ -2423,9 +2429,10 @@ async function runWorkshopScenario() {
       await wait(2500);
       const ocrText = ocrButton?.closest(".qbr-workshop-row")?.querySelector(".qbr-mineru-status")?.textContent || "";
       document.querySelector('[data-route="workshop"]')?.click();
-      return { tab: Boolean(tab), found: Boolean(button), text, ocrFound: Boolean(ocrButton), ocrText };
+      return { link: Boolean(link), tab: Boolean(tab), activeTab, tabLabels, wrapped, tabFlag, bodyTab, found: Boolean(button), text, ocrFound: Boolean(ocrButton), ocrText };
     });
-    if (!mineru.tab || !mineru.found) throw new Error(`设置里应该有「书坊」tab 与「检测本地 MinerU」:${JSON.stringify(mineru)}`);
+    if (!mineru.link || !mineru.tab) throw new Error(`「打开 设置 → 书坊」应跳到书坊 tab:${JSON.stringify(mineru)}`);
+    if (!mineru.found) throw new Error(`书坊 tab 里应该有「检测本地 MinerU」:${JSON.stringify(mineru)}`);
     if (/不支持/.test(mineru.text) || /检测中/.test(mineru.text) || /未检测/.test(mineru.text)) {
       throw new Error(`检测本地 MinerU should reach the bridge and report a real state: ${mineru.text}`);
     }
