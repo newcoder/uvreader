@@ -199,13 +199,13 @@
 
 **应用内设计**:
 
-- 入口:书坊 →「发送到 Kindle」;书库书卡右键「发送到 Kindle…」;电子书制作完成后可一键发送。
-- 面板:选择文件(书库/本地,就地处理)→ 收件 Kindle 地址(可多个,逗号分隔)→ 显示 SMTP 配置状态(未配置则「去设置」)→「发送」;结果进任务队列,显示 Amazon 受理状态。
-- 设置(设置 → 发送到 Kindle):SMTP 服务器、端口(465 SSL / 587 STARTTLS)、用户名(完整邮箱)、**授权码/应用专用密码**(非登录密码,如 QQ/163 授权码、Gmail 应用密码)、发件人显示名、默认 Kindle 地址;「测试连接」(SMTP `verify`,不发信)与「发送测试文件」。
-- 密码用桌面壳的 **safeStorage/SecretStorage** 保存(与 AI 密钥同一机制),不落明文设置。
+- 入口:书坊 →「发送到 Kindle」(已落地);书库书卡右键「发送到 Kindle…」与「电子书制作完成后一键发送」后续再加。
+- 面板:选择文件(书库勾选 / 本地文件,就地处理)→「发送到 Kindle」;结果进任务队列(任务行显示送达地址与附件名)。多个文件自动打包 ZIP(Amazon 会自动解压),打包后仍 >50MB 直接拒发并说明。
+- 设置(统一在 **设置 → 书坊** 的「发送到 Kindle」段):Kindle 收件地址、SMTP 服务器、端口(465 SSL / 587 STARTTLS)、账号(完整邮箱)、发件地址(留空用账号);**「检测 SMTP」**走 `transporter.verify()`(只建连认证,不发信,结果原地显示)。收件地址目前单个(多地址分割后续再补)。
+- 密码用桌面壳的 **safeStorage/SecretStorage** 保存(与 AI 密钥同一机制),**不落明文设置**:设置页密码框「已保存;留空不修改」,发送/检测时由主进程从密文里读。
 - 失败处理:把 SMTP 错误翻译成可读提示(认证失败/授权码、连接被拒、大小超限、附件格式不支持);提示检查「已批准发件人列表」。
 
-**实现**:主进程 `apps/desktop/src/main/kindle-send.js` + `nodemailer`(纯 JS,Electron 主进程可用);IPC `qbr:kindle:{verify,send}`;复用任务队列与 toast;非桌面宿主不提供(桌面壳专有)。
+**实现**:主进程 `apps/desktop/src/main/kindle-send.js` + `nodemailer`(纯 JS,Electron 主进程可用);IPC `qbr:kindle:probe` / `qbr:kindle:send`(直连,设置页检测用)+ 任务队列 runner `kindle-send`(面板发送用,`qbr:workshop:start`);非桌面宿主不提供(桌面壳专有)。单测用真实 SMTP mock 服务器跑完整会话(单附件原字节、多文件 ZIP 解包核对、超限拒发、错误映射、检测)。
 
 **两条路都保留**:① **邮件直发 EPUB**(推荐,最省事,本功能);② **EPUB → AZW3/MOBI**(Calibre,给 USB 拷贝、其它阅读器或离线场景)。直发不依赖 Calibre,转换功能也照常提供。
 
