@@ -287,6 +287,41 @@ test("the book-build runner embeds local images and renders formulas as MathML",
   assert.match(task.detail, /2 公式/);
 });
 
+test("consecutive display blocks all render", async () => {
+  // 中间稿里单行 $$…$$ 与成对行混用,旧收集方式会跨块错配,导致大段公式回退成原文。
+  const vault = tempDir("qbr-epub-mathblocks-");
+  const source = path.join(vault, "连续公式.md");
+  fs.writeFileSync(source, [
+    "# 第一章",
+    "",
+    "$$a^2 + b^2 = c^2$$",
+    "",
+    "$$",
+    "\\frac {1}{f} = (1. 5 4 - 1) \\left(\\frac {1}{1 0 0} - \\frac {1}{- 2 0 . 0}\\right)",
+    "$$",
+    "",
+    "$$c^2 = a^2 + b^2$$",
+    "",
+    "行内 $s_{o}=70\\ cm$ 收尾。",
+  ].join("\n"), "utf8");
+  const mathRenderer = {
+    renderMap: async (latexes) => ({
+      ok: true,
+      map: Object.fromEntries(latexes.map((latex) => [latex, `<math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><mn>${latex.length}</mn></math>`])),
+    }),
+  };
+  const { queue } = makeQueue(tempDir("qbr-epub-mathblocks-"), null, { mathRenderer });
+  const id = queue.start({ kind: "book-build", title: "生成电子书", payload: { source, settings: {} } });
+  const task = await waitForTask(queue, id);
+  assert.equal(task.status, "done", task.error);
+  const zip = await JSZip.loadAsync(fs.readFileSync(task.output));
+  const chapter = await zip.file("OEBPS/chapter-001.xhtml").async("string");
+  assert.equal((chapter.match(/<math\b/g) || []).length, 4, "三条行间公式 + 一条行内公式都要渲染");
+  assert.ok(!chapter.includes("$$"), "不能留下原始 $$ 公式");
+  assert.ok(!chapter.includes("\\tag"), "\\tag 也不该出现在成品里");
+  assert.match(chapter, /<p>行内 <math [^>]*>.*?<\/math> 收尾。<\/p>/, "行内公式仍在段落里");
+});
+
 test("a multi-line display formula still finds its MathML", async () => {
   // MinerU 的 $$…$$ 基本都跨行;段落在成书前会把换行压成空格,查公式表要归一化,
   // 否则整条公式查不中、回退成原始 LaTeX(实测《光学》2542 条全中招)。

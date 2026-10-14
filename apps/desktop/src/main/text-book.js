@@ -118,6 +118,22 @@ function inlineWithMath(text, renderMath) {
   });
 }
 
+// 收集要送去渲染的公式:直接拿 markdownToHtml 跑一遍、把它请求的公式记下来,
+// 这样「送去渲染的字符串」与「成书时查表的字符串」必然是同一批。
+// 为什么必须这么做:中间稿里 `$$` 块有单行也有成对行两种写法,纯正则扫描会跨块
+// 错配(把两个公式拼成一条怪物串),于是公式表里存的键和成书时查的键对不上,
+// 上千条公式查不中、回退成原始 LaTeX(实测《光学》)。
+export function collectMathFromMarkdown(markdown) {
+  const seen = [];
+  const collect = (latex) => {
+    const value = String(latex ?? "").trim();
+    if (value && !seen.includes(value)) seen.push(value);
+    return "";
+  };
+  markdownToHtml(markdown, { renderMath: collect });
+  return seen;
+}
+
 // 纯文本段落 → HTML(空行分段,单换行并成一行)。
 export function textToHtml(text) {
   const blocks = String(text || "").replace(/\r\n?/g, "\n").split(/\n{2,}/);

@@ -6,18 +6,22 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 
 import { buildEpub, BOOK_STYLE_DEFAULTS, collectBookImages } from "./epub-build.js";
-import { markdownToHtml, textToChapters, textToHtml } from "./text-book.js";
+import { collectMathFromMarkdown, markdownToHtml, textToChapters, textToHtml } from "./text-book.js";
 import { extractMarkdown, extractionKind, splitMarkdownChapters } from "./extract-doc.js";
-import { collectLatex, createMathRenderer, shareFormulaHtml } from "./math-render.js";
+import { createMathRenderer, shareFormulaHtml } from "./math-render.js";
 import { createTextLayerReader } from "./text-layer.js";
 import { unwrapProseFences } from "../shared/markdown-fix.js";
 import { collectChars, createFontSubsetter, ensureFont, ensureFontLicense, findPairing, FONT_FAMILIES } from "./workshop-fonts.js";
 import { pairingStacks } from "../shared/book-fonts.js";
 import { convertPath } from "../shared/workshop-names.js";
 
-// 公式表的键:跨行的 $$…$$ 在成书前会把换行压成空格(段落合并),查表必须用同一套
-// 归一化;否则整条公式查不中、回退成原始 LaTeX(实测《光学》2542 条跨行公式全中招)。
-export const mathKey = (latex) => String(latex || "").replace(/\s+/g, " ").trim();
+// 公式表的键:同一道公式在中间稿里有多种写法(MinerU 的 `s _ {o} = f` 与文字层
+// 合并后的 `s_o=f`;`\tag{…}` 有时还会是被截断的 `\tag{5.16`),而渲染时编号本来就
+// 会被去掉。键统一成「去掉 \tag + 忽略全部空白」,两侧用同一套(实测《光学》有
+// 2542 条跨行公式、上千条两种写法,不归一会成片回退成原始 LaTeX)。
+export const mathKey = (latex) => String(latex || "")
+  .replace(/\\tag\{[^}]*\}?/g, "")
+  .replace(/\s+/g, "");
 
 export function normalizeMathMap(map) {
   const normalized = new Map();
@@ -226,7 +230,9 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     if (!rawChapters.length) throw new Error("没有可写的内容");
 
     // 公式(LaTeX → MathML)与图片(收进 EPUB):预览与成品都靠这两步。
-    const latexes = collectLatex(rawChapters.map((chapter) => chapter.text).join("\n"));
+    // 公式清单必须与下面 markdownToHtml 的请求完全一致:用同一个渲染器收集。
+    const markdownChapters = rawChapters.filter((chapter) => chapter.markdown);
+    const latexes = collectMathFromMarkdown(markdownChapters.map((chapter) => chapter.text).join("\n"));
     let mathMap = null;
     if (latexes.length && mathRenderer) {
       report({ label: `渲染公式（${latexes.length}）` });
