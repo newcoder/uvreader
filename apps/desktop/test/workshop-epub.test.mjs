@@ -10,7 +10,7 @@ import JSZip from "jszip";
 import { createWorkshopQueue } from "../src/main/workshop.js";
 import { countRawFormulas } from "../src/main/text-book.js";
 import { findPairing } from "../src/main/workshop-fonts.js";
-import { prepareFonts, registerEpubRunners } from "../src/main/workshop-epub.js";
+import { normalizeBookChapters, prepareFonts, registerEpubRunners } from "../src/main/workshop-epub.js";
 import { waitForTask } from "./wait-for-task.mjs";
 
 function tempDir(prefix = "qbr-epub-run-") {
@@ -286,6 +286,49 @@ test("the book-build runner embeds local images and renders formulas as MathML",
   assert.ok(!chapter.includes("missing.png"), "missing images are dropped instead of breaking");
   assert.match(task.detail, /1 图/);
   assert.match(task.detail, /2 公式/);
+});
+
+test("normalizeBookChapters cleans titles and drops title pages", () => {
+  const long = "数学是数与形的艺术。".repeat(20); // ≥ 200 字,像真章节
+  const chapters = [
+    { title: "读读大师 走近数学", text: "——《数学家思想文库》总序" }, // 短:扉页
+    { title: "**重点** 一章", text: "正文。" },
+    { title: "读读大师 走近数学", text: long }, // 长:真章节
+    { title: "数学在科学和社会中的作用", text: "扉页文字。" }, // 书名页
+    { title: "集合论的一种公理化 $^{①}$", text: "正文。" },
+  ];
+  const result = normalizeBookChapters(chapters, "数学在科学和社会中的作用");
+  assert.equal(result.dropped, 2, "短扉页与书名页都丢掉");
+  assert.deepEqual(result.chapters.map((chapter) => chapter.title), ["重点 一章", "读读大师 走近数学", "集合论的一种公理化 ①"]);
+});
+
+test("the nav drops repeated headers and cleans formula markers in titles", async () => {
+  const vault = tempDir("qbr-epub-nav-");
+  const source = path.join(vault, "页眉重复.md");
+  fs.writeFileSync(source, [
+    "# 读读大师 走近数学",
+    "",
+    "——《数学家思想文库》总序",
+    "",
+    "# 读读大师 走近数学",
+    "",
+    "数学是数与形的艺术。数学家们的创造性思维是鲜活的,既不会墨守成规,也不可能作为被生搬硬套的教条。学习了解数学家的数学思想,",
+    "对理解数学本身、对理解科学方法都很有帮助,这也正是这套文库想要传达的东西。数学史上有许多值得一读再读的文字,",
+    "它们把抽象的思想讲成了可以亲近的故事,读者由此看到数学是怎样长出来的。",
+    "",
+    "# 集合论的一种公理化 $^{①}$",
+    "",
+    "正文。",
+  ].join("\n"), "utf8");
+  const { queue } = makeQueue(tempDir("qbr-epub-nav-"), null, {});
+  const id = queue.start({ kind: "book-build", title: "生成电子书", payload: { source, settings: {}, title: "数学在科学和社会中的作用" } });
+  const task = await waitForTask(queue, id);
+  assert.equal(task.status, "done", task.error);
+  const zip = await JSZip.loadAsync(fs.readFileSync(task.output));
+  const nav = await zip.file("OEBPS/nav.xhtml").async("string");
+  assert.match(nav, /集合论的一种公理化 ①/, "标题里的 $^{①}$ 清成 ①");
+  assert.ok(!nav.includes("$"), "导航里不该再出现 $ 之类符号");
+  assert.equal((nav.match(/读读大师/g) || []).length, 1, "重复页眉只保留一次");
 });
 
 test("the printed table of contents is dropped by default", async () => {

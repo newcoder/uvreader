@@ -60,6 +60,14 @@ export function moveChapter(chapters, index, delta) {
   return next;
 }
 
+// 删掉一章(面板里遇到页眉/扉页这类不该成章的,直接删;最后一章不允许删空)。
+export function removeChapter(chapters, index) {
+  const next = normalizeChapters(chapters);
+  if (next.length <= 1 || index < 0 || index >= next.length) return next;
+  next.splice(index, 1);
+  return next;
+}
+
 export function chapterStats(chapters) {
   const list = normalizeChapters(chapters);
   return { chapters: list.length, chars: list.reduce((sum, chapter) => sum + chapter.text.length, 0) };

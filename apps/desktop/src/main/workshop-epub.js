@@ -10,7 +10,7 @@ import { collectMathFromMarkdown, countRawFormulas, markdownToHtml, textToChapte
 import { extractMarkdown, extractionKind, splitMarkdownChapters } from "./extract-doc.js";
 import { createMathRenderer, shareFormulaHtml } from "./math-render.js";
 import { createTextLayerReader } from "./text-layer.js";
-import { unwrapProseFences } from "../shared/markdown-fix.js";
+import { cleanChapterTitle, unwrapProseFences } from "../shared/markdown-fix.js";
 import { stripPrintedToc } from "../shared/printed-toc.js";
 import { collectChars, createFontSubsetter, ensureFont, ensureFontLicense, findPairing, FONT_FAMILIES } from "./workshop-fonts.js";
 import { pairingStacks } from "../shared/book-fonts.js";
@@ -31,6 +31,43 @@ export function normalizeMathMap(map) {
     if (key && !normalized.has(key)) normalized.set(key, mathml);
   }
   return normalized;
+}
+
+// 章节标题去噪 + 去掉「页眉/扉页」造成的重复短章:
+//   - 标题清成纯文本(脚注标记 $^{①}$ 之类不进导航);
+//   - 标题重复且正文很短(扉页/页眉/版权页)→ 丢掉;标题等于书名的也丢(书名页);
+//   - 标题重复但正文够长 → 保留(真章节同名是可能的)。
+export function normalizeBookChapters(chapters, bookTitle = "") {
+  const book = cleanChapterTitle(bookTitle).replace(/\s+/g, "").toLowerCase();
+  const list = Array.isArray(chapters) ? chapters : [];
+  const clean = list.map((chapter) => ({ chapter, title: cleanChapterTitle(chapter?.title || "") }));
+  // 同名章节里「又有短页又有长章」的:短的那页是扉页/重复标题页,丢掉。
+  const lengths = new Map();
+  for (const { title, chapter } of clean) {
+    const key = title.replace(/\s+/g, "").toLowerCase();
+    if (!key) continue;
+    const list = lengths.get(key) || [];
+    list.push(String(chapter?.text || "").length);
+    lengths.set(key, list);
+  }
+  const seen = new Set();
+  const out = [];
+  let dropped = 0;
+  for (const { chapter, title } of clean) {
+    const key = title.replace(/\s+/g, "").toLowerCase();
+    const text = String(chapter?.text || "");
+    const group = key ? lengths.get(key) || [] : [];
+    const titlePage = key && group.length > 1 && text.trim().length < 200 && group.some((length) => length >= 200);
+    if (titlePage || (book && key === book)) {
+      dropped += 1;
+      continue;
+    }
+    if (key) seen.add(key);
+    out.push({ ...chapter, title });
+  }
+  // 全掉光就还原(宁可留着难看,也不能出空书)。
+  if (!out.length) return { chapters: list, dropped: 0 };
+  return { chapters: out, dropped };
 }
 
 // 组装要嵌入的字体:pairing(下载字库)或 files(本机/导入字体)。
@@ -201,7 +238,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       // 提取工具写出的 .md 里可能有「假代码块」(正文被包进围栏),先还原成段落。
       if (markdown) text = unwrapProseFences(text);
       // Markdown 有标题层级时按标题分章(与 PDF/Office 提取路径一致),否则按章节行 / 长度分。
-      const found = markdown ? splitMarkdownChapters(text) : [];
+      const found = markdown ? splitMarkdownChapters(text, { bookTitle: title }) : [];
       rawChapters = (found.length >= 2
         ? found.map((chapter, index) => ({ title: chapter.title || `第 ${index + 1} 章`, text: chapter.text }))
         : textToChapters(text, { markdown, title }).map((chapter) => ({ title: chapter.title, text: chapter.text })))
@@ -222,7 +259,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       if (!extracted.ok) throw new Error(String(extracted.error || "内容提取失败"));
       text = extracted.markdown;
       baseDir = path.dirname(extracted.path || source);
-      const found = splitMarkdownChapters(text);
+      const found = splitMarkdownChapters(text, { bookTitle: title });
       rawChapters = (found.length
         ? found.map((chapter, index) => ({ title: chapter.title || `第 ${index + 1} 章`, text: chapter.text }))
         : textToChapters(text, { markdown: true, title }).map((chapter) => ({ title: chapter.title, text: chapter.text })))
@@ -230,12 +267,15 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     }
     if (!rawChapters.length) throw new Error("没有可写的内容");
 
-    // 书里那几页印刷目录(「目录 …… 12」):电子书自带导航,重复且格式乱，默认去掉。
-    const tocStrip = stripPrintedToc(rawChapters, { enabled: payload?.dropPrintedToc !== false });
+    // 标题去噪 + 去掉页眉/扉页重复短章(提供的章节也照办:面板传过来的标题可能带
+    // 脚注标记 $^{①}$,导航里就会看到这些符号)。
+    const normalized = normalizeBookChapters(rawChapters, title);
+    const tocStrip = stripPrintedToc(normalized.chapters, { enabled: payload?.dropPrintedToc !== false });
     const bookChapters = tocStrip.chapters;
     if (tocStrip.dropped || tocStrip.removedLines) {
       log("book build printed toc dropped", tocStrip.dropped, "章", tocStrip.removedLines, "行");
     }
+    if (normalized.dropped) log("book build repeated headers dropped", normalized.dropped, "章");
 
     // 公式(LaTeX → MathML)与图片(收进 EPUB):预览与成品都靠这两步。
     // 公式清单必须与下面 markdownToHtml 的请求完全一致:用同一个渲染器、按同样的
@@ -320,7 +360,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     const formulaCount = mathMap ? [...mathMap.values()].filter(Boolean).length : 0;
     return {
       output: out,
-      detail: `EPUB · ${result.chapters} 章 · ${Math.round(result.bytes / 1024)} KB${fonts.length ? ` · ${fonts.length} 款字体` : ""}${images.length ? ` · ${images.length} 图` : ""}${formulaCount ? ` · ${formulaCount} 公式` : ""}${tocStrip.dropped ? ` · 去印刷目录 ${tocStrip.dropped} 章` : ""}${unrendered ? ` · 未渲染 ${unrendered}` : ""}`,
+      detail: `EPUB · ${result.chapters} 章 · ${Math.round(result.bytes / 1024)} KB${fonts.length ? ` · ${fonts.length} 款字体` : ""}${images.length ? ` · ${images.length} 图` : ""}${formulaCount ? ` · ${formulaCount} 公式` : ""}${tocStrip.dropped ? ` · 去印刷目录 ${tocStrip.dropped} 章` : ""}${normalized.dropped ? ` · 去重复页眉 ${normalized.dropped} 章` : ""}${unrendered ? ` · 未渲染 ${unrendered}` : ""}`,
     };
   });
 }

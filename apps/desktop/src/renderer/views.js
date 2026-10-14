@@ -5,7 +5,7 @@ import { DOCVORTEX_FORMATS, DOCVORTEX_INPUTS, EBOOK_TARGETS, IMAGE_BOOK_TARGETS,
 import { BOOK_STYLE_DEFAULTS, BOOK_THEMES, COVER_PALETTES, renderBookCss } from "../shared/book-styles.js";
 import { FONT_PAIRINGS, findPairing, pairingStacks } from "../shared/book-fonts.js";
 import { coverHtml } from "../shared/cover-template.js";
-import { chapterStats, mergeChapters, moveChapter, renameChapter, splitChapter } from "../shared/book-chapters.js";
+import { chapterStats, mergeChapters, moveChapter, removeChapter, renameChapter, splitChapter } from "../shared/book-chapters.js";
 import { markdownToHtml, splitTextChapters } from "../main/text-book.js";
 import { EXTRACT_MODES, IMAGE_INPUTS, extractionKind } from "../shared/extract-formats.js";
 import { splitMarkdownChapters, unwrapProseFences } from "../shared/markdown-fix.js";
@@ -1841,7 +1841,7 @@ export function createWorkshopView(leaf, options) {
       const text = await app.vault.read(file).catch(() => "");
       const isMarkdown = /\.(md|markdown)$/i.test(rel);
       const cleaned = isMarkdown ? unwrapProseFences(text) : text;
-      const found = isMarkdown ? splitMarkdownChapters(cleaned) : [];
+      const found = isMarkdown ? splitMarkdownChapters(cleaned, { bookTitle: this._bookTitle?.value || "" }) : [];
       this._bookChapters = found.length >= 2
         ? found.map((chapter, index) => ({ title: chapter.title || `第 ${index + 1} 章`, text: chapter.text }))
         : splitTextChapters(cleaned).map((chapter) => ({ title: chapter.title, text: chapter.body }));
@@ -1879,6 +1879,13 @@ export function createWorkshopView(leaf, options) {
         const split = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "拆分" });
         split.addEventListener("click", () => {
           this._bookChapters = splitChapter(this._bookChapters, index);
+          void this.renderBookChapters();
+        });
+        // 页眉/扉页这类不该成章的直接删(生成时也会自动清一遍)。
+        const remove = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "删除" });
+        remove.disabled = this._bookChapters.length <= 1;
+        remove.addEventListener("click", () => {
+          this._bookChapters = removeChapter(this._bookChapters, index);
           void this.renderBookChapters();
         });
       });

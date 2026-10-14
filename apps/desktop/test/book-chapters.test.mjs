@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { chapterStats, mergeChapters, moveChapter, normalizeChapters, renameChapter, splitChapter } from "../src/shared/book-chapters.js";
+import { chapterStats, mergeChapters, moveChapter, normalizeChapters, removeChapter, renameChapter, splitChapter } from "../src/shared/book-chapters.js";
 
 const sample = () => [
   { title: "第一章 起风了", text: "第一段。\n\n第二段。" },
@@ -57,4 +57,14 @@ test("chapterStats reports counts and characters", () => {
   const stats = chapterStats(sample());
   assert.equal(stats.chapters, 3);
   assert.equal(stats.chars, sample().reduce((sum, chapter) => sum + chapter.text.length, 0));
+});
+
+test("removeChapter drops one chapter but never empties the book", () => {
+  const chapters = sample();
+  const after = removeChapter(chapters, 0);
+  assert.equal(after.length, chapters.length - 1);
+  assert.equal(after[0].title, chapters[1].title);
+  const single = [{ title: "唯一一章", text: "正文。" }];
+  assert.equal(removeChapter(single, 0).length, 1, "最后一章不允许删空");
+  assert.equal(removeChapter(chapters, 99).length, chapters.length, "越界不动");
 });

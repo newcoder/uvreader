@@ -97,10 +97,28 @@ export function joinSplitCodeFences(markdown) {
   return lines.filter((_line, index) => !drop.has(index)).join("\n");
 }
 
+// 章节标题去噪:PDF 提取出的标题常带脚注标记与行内标记,例如
+// 「集合论的一种公理化 $^{①}$」「论大规模计算机器的原理 $^{①②}$」。
+// 导航目录用的是标题纯文本,不清掉就会在目录里看到 $ ^ { } 这些符号。
+export function cleanChapterTitle(value) {
+  let title = String(value || "");
+  title = title.replace(/`([^`]*)`/g, "$1");
+  title = title.replace(/\*\*([^*]+)\*\*/g, "$1").replace(/\*([^*\n]+)\*/g, "$1").replace(/__([^_]+)__/g, "$1");
+  title = title.replace(/\\\(([\s\S]*?)\\\)/g, "$1").replace(/\$([^$]*)\$/g, "$1");
+  title = title.replace(/\\[a-zA-Z]+\s*/g, " ");
+  title = title.replace(/[\^_]\s*\{([^{}]*)\}/g, "$1");
+  title = title.replace(/[{}]/g, "").replace(/[\^_]/g, " ");
+  return title.replace(/\s+/g, " ").trim();
+}
+
 // 提取出的 Markdown → 章节:按 1–3 级标题分;标题缺失时交给调用方按长度分块。
-export function splitMarkdownChapters(markdown) {
+// 两个去噪规则(用户反馈「目录有点乱」):
+//   ① 标题清成纯文本(见 cleanChapterTitle);
+//   ② 连续的重复标题不当新章(页眉/书名在每页重复,提取出来会变成一串同名章节)。
+export function splitMarkdownChapters(markdown, { bookTitle = "" } = {}) {
   const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
   const chapters = [];
+  const book = cleanChapterTitle(bookTitle).replace(/\s+/g, "").toLowerCase();
   let current = { title: "", lines: [] };
   let inFence = false;
   const push = () => {
@@ -112,8 +130,15 @@ export function splitMarkdownChapters(markdown) {
     if (/^```/.test(line.trim())) inFence = !inFence;
     const heading = !inFence && line.match(/^(#{1,3})\s+(.+?)\s*$/);
     if (heading) {
+      const title = cleanChapterTitle(heading[2]).slice(0, 80);
+      if (!title) continue;
+      const key = title.replace(/\s+/g, "").toLowerCase();
+      const last = chapters.length ? chapters[chapters.length - 1] : null;
+      const previous = current.title ? current.title.replace(/\s+/g, "").toLowerCase() : (last ? last.title.replace(/\s+/g, "").toLowerCase() : "");
+      // 页眉/书名重复出现的标题:并进上一章,不另开一章(标题行本身也丢掉)。
+      if (key === previous || (book && key === book)) continue;
       push();
-      current.title = heading[2].replace(/[#*`]/g, "").trim().slice(0, 80);
+      current.title = title;
       continue;
     }
     current.lines.push(line);

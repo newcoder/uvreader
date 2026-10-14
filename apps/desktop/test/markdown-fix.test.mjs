@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { isProseFence, joinSplitCodeFences, looksLikeProseBlock, unwrapProseFences } from "../src/shared/markdown-fix.js";
+import { cleanChapterTitle, isProseFence, joinSplitCodeFences, looksLikeProseBlock, splitMarkdownChapters, unwrapProseFences } from "../src/shared/markdown-fix.js";
 
 test("a program split across a page break is joined back into one fence", () => {
   const md = [
@@ -86,4 +86,44 @@ test("unclosed prose fences are unwrapped and the rest of the text survives", ()
   assert.match(fixed, /这是一段被围栏吞掉的正文/);
   assert.ok(fixed.startsWith("正文一。"), "the earlier text is untouched");
   assert.equal(unwrapProseFences("没有围栏的文本。"), "没有围栏的文本。");
+});
+
+test("cleanChapterTitle strips footnote markers and inline noise", () => {
+  assert.equal(cleanChapterTitle("集合论的一种公理化 $^{①}$"), "集合论的一种公理化 ①");
+  assert.equal(cleanChapterTitle("论大规模计算机器的原理 $^{①②}$"), "论大规模计算机器的原理 ①②");
+  assert.equal(cleanChapterTitle("**重点** `代码` 与 \\alpha"), "重点 代码 与");
+  assert.equal(cleanChapterTitle("  "), "");
+});
+
+test("splitMarkdownChapters merges repeated running heads and the book title", () => {
+  const md = [
+    "# THE ROLE OF MATHEMATICS",
+    "",
+    "# THE ROLE OF MATHEMATICS",
+    "",
+    "正文甲。",
+    "",
+    "# 读读大师",
+    "",
+    "序言。",
+    "",
+    "# 读读大师",
+    "",
+    "序言二。",
+    "",
+    "# 独立一章",
+    "",
+    "正文乙。",
+  ].join("\n");
+  const chapters = splitMarkdownChapters(md, { bookTitle: "THE ROLE OF MATHEMATICS" });
+  // 书名标题被并掉后,它下面的正文成了一章「无题」(运行时按「第 N 章」命名,面板里可删)。
+  assert.deepEqual(chapters.map((chapter) => chapter.title), ["", "读读大师", "独立一章"], "连续重名与书名标题都并掉");
+  assert.match(chapters[0].text, /正文甲。/);
+  assert.match(chapters[1].text, /序言二。/, "重复标题下的正文并进上一章");
+});
+
+test("splitMarkdownChapters keeps a genuinely repeated section title with content", () => {
+  const md = ["# 参考文献", "", "甲。", "", "# 参考文献", "", "乙。"].join("\n");
+  const chapters = splitMarkdownChapters(md);
+  assert.equal(chapters.length, 1, "连续重名会并成一章(由面板的删除按钮处理)");
 });
