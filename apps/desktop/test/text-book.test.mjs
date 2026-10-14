@@ -168,3 +168,18 @@ test("textToChapters maps both plain text and markdown inputs", () => {
   assert.equal(md[0].title, "第一章");
   assert.equal(md[0].html, "<p><strong>重点</strong>内容。</p>");
 });
+
+test("page anchor comments from pdf_tool are dropped from the text", () => {
+  const html = markdownToHtml([
+    "<!--page:16-->",
+    "上文。",
+    "",
+    "<!-- page:17 -->",
+    "",
+    "下文。",
+  ].join("\n"));
+  assert.match(html, /<p>上文。<\/p>/);
+  assert.match(html, /<p>下文。<\/p>/);
+  assert.ok(!html.includes("page:16") && !html.includes("page:17"), "锚点不进成品");
+  assert.ok(!/<p>\s*<\/p>/.test(html), "不留空段落");
+});

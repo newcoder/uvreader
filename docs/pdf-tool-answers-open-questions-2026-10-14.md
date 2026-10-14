@@ -80,3 +80,15 @@ reader 会**优先读 Doc JSON 的 `toc_entries`**,读不到时从 md 文本里�
 ## 维护约定
 
 新增待确认项请追加到你们那份清单;本文件是 reader 侧的答复记录,后续有变化我们会在这里补一节「变更」。
+
+## 交付验证(2026-10-14,de0fc7f + b958c1b)
+
+已核验:
+
+- **结构交付 `de0fc7f`**:`doc.pages[i].page_role = "toc"` + `toc_entries[{title, page, level}]`、文本块 `continuation: true`、md 每页插入 `<!--page:N-->` 锚点、`--no-structure` / `"structure": false` 关闭开关 —— **形状与 reader 侧的消费代码一致**(`collectUpstreamTocEntries` 读的就是这套);reader 侧已把页锚点注释在渲染时丢弃(不进成品);
+- **目录层级 `b958c1b`**:几何优先(fitz 行框 / 扫描件 OCR 行框 + 页码-标题同行配对 + x0 聚类)、匹配不足 60% 整页退回编号规则、每页 `toc_level_source`、stats 里 `toc_levels` —— 正是 Q1 要的口径;
+- **他们的结构测试**:`pytest tests/test_pdf_tool_structure.py` **8/8 通过**(本机复跑);
+- 文档三件(答复归档、reply §9、结构需求状态指引)已更新,并把我们改的那处「68 条 → 10 条」保留并修正了引用。
+
+**Q6(bank 导出器):同意开工**,映射无异议,唯一建议:在我们 schema 里**加一个 `program` 类型**(程序题不等于计算题),你们直接输出 `program` 即可,其余映射(`multiple_choice_single → single_choice`、`program → calculation`、图片内联+汇总、answer/analysis 空串不猜、`source.page` 有则填、`output/{stem}/{stem}_bank.json`)按你们列的假设执行。
+

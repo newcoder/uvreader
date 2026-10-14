@@ -662,3 +662,24 @@ test("collectUpstreamTocEntries reads pdf_tool's toc pages", () => {
   assert.equal(entries[1].key, "开场白", "key 走同一套清洗,便于和正文标题比对");
   assert.deepEqual(collectUpstreamTocEntries(path.join(dir, "不存在.json")), [], "读不到就是空数组");
 });
+
+test("collectUpstreamTocEntries accepts pdf_tool's delivered shape", () => {
+  // pdf_tool de0fc7f 交付的形状:doc.pages[i].page_role = "toc" + toc_entries{title,page,level}。
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-upstream-shape-"));
+  const docPath = path.join(dir, "书_doc.json");
+  fs.writeFileSync(docPath, JSON.stringify({
+    schema_version: 1,
+    pages: [
+      { page: 16, page_role: "toc", toc_entries: [
+        { title: "集合论的一种公理化", page: 1, level: 1 },
+        { title: "经济学中的数学方法", page: 52, level: 1 },
+      ] },
+      { page: 17, blocks: [{ type: "text", text: "正文。", continuation: true }] },
+    ],
+  }), "utf8");
+  const entries = collectUpstreamTocEntries(docPath);
+  assert.deepEqual(entries.map((entry) => [entry.label, entry.page, entry.level]), [
+    ["集合论的一种公理化", 1, 1],
+    ["经济学中的数学方法", 52, 1],
+  ]);
+});
