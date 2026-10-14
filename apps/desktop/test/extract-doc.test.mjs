@@ -603,3 +603,41 @@ test("appendFootnotes does not duplicate notes pdf_tool already wrote", () => {
   assert.ok(!/① 原题: An Axiomatization/.test(onlyMissing.split("## 注释")[1] || ""), "上游写过的不再重复");
   assert.equal(appendFootnotes(upstream + "\n> ② 参见 Ch. IV.（第 202 页）\n", notes), upstream + "\n> ② 参见 Ch. IV.（第 202 页）\n", "两条都在时一个字都不动");
 });
+
+test("extractMarkdown refresh bypasses the cached merged markdown", async () => {
+  // 上游(pdf_tool)更新过提取行为后,老缓存不会自己更新:界面上勾「忽略缓存重新提取」
+  // 就是走这一条,期望真的再跑一次上游。
+  const vault = tempDir("qbr-extract-refresh-");
+  fs.mkdirSync(path.join(vault, "pdf_tool"), { recursive: true });
+  fs.writeFileSync(path.join(vault, "pdf_tool", "pdf_to_doc.py"), "# stub\n");
+  const source = path.join(vault, "论文.pdf");
+  fs.writeFileSync(source, "%PDF-1.4");
+  const workDir = path.join(vault, "work");
+  fs.mkdirSync(workDir, { recursive: true });
+  fs.writeFileSync(path.join(workDir, "论文_doc.json"), JSON.stringify({ schema_version: 1, pages: [] }));
+  fs.writeFileSync(path.join(workDir, "merged.md"), "# 缓存的合并稿\n\n正文 $x$。");
+
+  const { spawnImpl, calls } = fakeSpawn((call, child) => {
+    // 假 pdf_tool:把这次「新提取」的产物写出来。
+    const outIndex = call.args.indexOf("--out-dir");
+    const outDir = outIndex >= 0 ? call.args[outIndex + 1] : path.dirname(source);
+    fs.writeFileSync(path.join(outDir, "论文_doc.json"), JSON.stringify({ schema_version: 1, pages: [] }));
+    fs.writeFileSync(path.join(outDir, "论文_doc.md"), "# 重跑的稿子\n\n脚注 ① 也在。");
+    child.stdout.emit("data", "ok\n");
+    child.emit("close", 0);
+  });
+  const settings = { ocrSidecarDir: vault };
+  const cached = await extractMarkdown(source, {
+    kind: "pdf", settings, workDir, spawnImpl, log: () => {},
+    textLayer: { read: async () => ({ ok: false, error: "no layer" }) },
+  });
+  assert.match(cached.markdown, /缓存的合并稿/, "默认复用缓存");
+  assert.equal(calls.length, 0);
+
+  const refreshed = await extractMarkdown(source, {
+    kind: "pdf", settings, workDir, refresh: true, spawnImpl, log: () => {},
+    textLayer: { read: async () => ({ ok: false, error: "no layer" }) },
+  });
+  assert.equal(calls.length, 1, "refresh 时必须真的重跑上游");
+  assert.match(refreshed.markdown, /重跑的稿子/, "返回的是这次的新产物");
+});

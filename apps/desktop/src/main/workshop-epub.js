@@ -254,6 +254,8 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
         log,
         spawnImpl,
         textLayer,
+        // 勾了「忽略缓存重新提取」就重跑上游(MinerU),否则复用缓存。
+        refresh: payload?.refresh === true,
       });
       if (signal.aborted) throw new Error("任务已取消");
       if (!extracted.ok) throw new Error(String(extracted.error || "内容提取失败"));

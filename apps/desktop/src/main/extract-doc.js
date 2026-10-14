@@ -379,7 +379,8 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
       if (cachedText !== cachedRaw) fs.writeFileSync(mergedPath, cachedText, "utf8");
       return { ok: true, markdown: cachedText, path: mergedPath };
     }
-    const cachedDoc = docCandidates.find(fresh);
+    // refresh = 忽略缓存重新提取:连 Doc JSON 也不复用,真的再跑一次上游。
+    const cachedDoc = refresh ? undefined : docCandidates.find(fresh);
     if (!cachedDoc) {
       // 交给 pdf_tool 前先去掉页眉页脚 / 页码 / 水印。
       const args = pdfToolArgs(target.script, { source, outDir: workDir, model: String(settings.mineruModel || "").trim() || "vlm" });
@@ -407,7 +408,7 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
       log("extract: reuse cached doc json", cachedDoc);
     }
     const files = adoptPdfToolOutputs(workDir, stem, { renameAssets: false });
-    if (!files.md && !cachedDoc) return { ok: false, error: "提取完成但没有找到 Markdown 产物" };
+    if (!files.md) return { ok: false, error: "提取完成但没有找到 Markdown 产物" };
     // 文字层互补:正文逐字取 PDF 文字层(补 MinerU 丢的字),公式仍是 LaTeX。
     const merged = await mergePdfMarkdown({
       docPath: files.json || cachedDoc,
@@ -479,7 +480,8 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", ca
     const stat = fs.statSync(source);
     // 复用:同一份源 + 同样的模式 / 模型已有产物就直接用(MinerU 慢且计费,重跑不再等云端)。
     const cached = readExtractMark(cacheRoot, source, { mode, model, stat });
-    if (cached) {
+    // 「忽略缓存重新提取」时跳过复用(上游改了提取行为、脚注/表格修复要用新版跑一遍)。
+    if (cached && payload?.refresh !== true) {
       report({ label: "复用已有的提取产物" });
       log("extract: reuse products", cached.md);
       const mergedCache = await mergePdfMarkdown({

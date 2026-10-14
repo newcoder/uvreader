@@ -1208,6 +1208,12 @@ export function createWorkshopView(leaf, options) {
       const detectRow = optionCard.createDiv("qbr-workshop-row");
       addSettingsLink(detectRow, "提取链路的检测(pdf_tool / DocVortex / MinerU)与全局配置都在「设置 → 书坊」。");
 
+      // 上游修好提取行为(脚注、表格等)后老缓存不会自动更新,这里显式重跑一次。
+      const refreshRow = optionCard.createEl("label", { cls: "qbr-workshop-book" });
+      this._extractRefresh = refreshRow.createEl("input", { attr: { type: "checkbox" } });
+      this._extractRefresh.checked = false;
+      refreshRow.createSpan({ text: "忽略缓存重新提取(PDF 会重跑一次 MinerU,较慢且计费)" });
+
       const startRow = root.createDiv("qbr-workshop-row");
       const start = startRow.createEl("button", { cls: "mod-cta", text: "开始提取" });
       start.addEventListener("click", () => this.startExtractTasks());
@@ -1315,7 +1321,7 @@ export function createWorkshopView(leaf, options) {
           kind: kind === "pdf" ? "extract-pdf" : "extract-docvortex",
           title: "内容提取",
           detail: rel,
-          payload: { settings, source: rel, mode },
+          payload: { settings, source: rel, mode, refresh: this._extractRefresh?.checked === true },
         }).catch((error) => new Notice(String(error?.message || error)));
       }
       this.selectTool("tasks");
@@ -1380,8 +1386,7 @@ export function createWorkshopView(leaf, options) {
 
       // ① 内容
       const sourceStep = this.bookStep(controls, "1", "内容", "书稿来源");
-      const sourceRow = sourceStep.createDiv("qbr-workshop-row");
-      const pickSource = sourceRow.createEl("button", { text: "选择书稿…" });
+      const sourceRow = sourceStep.createDiv("qbr-workshop-row");      const pickSource = sourceRow.createEl("button", { text: "选择书稿…" });
       pickSource.addEventListener("click", () => this.toggleBookSourceList());
       const pickSourceLocal = sourceRow.createEl("button", { text: "打开本地文件…" });
       pickSourceLocal.addEventListener("click", () => void this.pickLocalBookSources());
@@ -1389,6 +1394,11 @@ export function createWorkshopView(leaf, options) {
       this._bookSourceList = sourceStep.createDiv("qbr-workshop-booklist");
       this._bookSourceList.hidden = true;
       this._bookSourceChips = sourceStep.createDiv("qbr-workshop-chips");
+      // 上游(pdf_tool / DocVortex)修好提取行为后,老缓存不会自动更新:需要时重跑一次。
+      const refreshRow = sourceStep.createEl("label", { cls: "qbr-workshop-book" });
+      this._bookRefresh = refreshRow.createEl("input", { attr: { type: "checkbox" } });
+      this._bookRefresh.checked = false;
+      refreshRow.createSpan({ text: "忽略缓存重新提取(PDF / Office 会重跑上游,较慢;上游更新过提取行为时才需要)" });
 
       // ② 目录(自动分章,可编辑)
       const chapterStep = this.bookStep(controls, "2", "目录", "自动分章");
@@ -2056,6 +2066,8 @@ export function createWorkshopView(leaf, options) {
             : undefined,
           // 书里那几页印刷目录(与电子书导航重复):默认去掉,面板里可关。
           dropPrintedToc: this._bookDropToc ? Boolean(this._bookDropToc.checked) : true,
+          // 忽略缓存重新提取(上游更新过提取行为时用)。
+          refresh: this._bookRefresh ? Boolean(this._bookRefresh.checked) : false,
         },
       }).catch((error) => new Notice(String(error?.message || error)));
       this.selectTool("tasks");
