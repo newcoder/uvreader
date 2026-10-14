@@ -32,6 +32,23 @@ if (!password) {
 
 const sender = createKindleSender({ log: () => {} });
 const settings = { smtpHost: host, smtpPort: port, smtpUser: user, smtpFrom: argOf("from") };
+
+// 先把「实际要发出去的东西」摊开:字段填错时,一眼就能看出来(不打印授权码本身)。
+const numericPort = Number(port) || 465;
+const secure = numericPort !== 587;
+console.log(`将使用:${host}:${numericPort} ${secure ? "SSL" : "STARTTLS"} · 账号="${user}" · 授权码 ${password.length} 位`);
+if (password.includes("@")) {
+  console.log("  ⚠ 授权码里出现 @:看着像把邮箱地址填进授权码了");
+} else if (password.length !== 16) {
+  console.log(`  ⚠ QQ / 163 的授权码是 16 位字母,当前是 ${password.length} 位:可能填成了登录密码,或复制时多了/少了字符`);
+}
+if (!user.includes("@")) {
+  console.log("  ⚠ 账号不是完整邮箱地址(QQ 要写 xxx@qq.com;企业邮箱是 xxx@公司域名)");
+}
+if (host === "smtp.qq.com" && user.includes("@") && !user.endsWith("@qq.com")) {
+  console.log("  ⚠ 账号不是 @qq.com 时注意:QQ 企业邮箱要用 smtp.exmail.qq.com");
+}
+
 const started = Date.now();
 const result = await sender.probe(settings, { password });
 

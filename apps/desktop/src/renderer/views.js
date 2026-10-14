@@ -375,6 +375,14 @@ export function describeMineruStatus(result) {
 // 授权码在 SecretStorage 里的 id(与主进程约定)。
 const KINDLE_SECRET_ID = "kindle-smtp";
 
+// 授权码状态文案:带上位数(QQ / 163 是 16 位字母),填错东西时一眼能看出来。
+function savedCodeLabel(stored) {
+  const value = String(stored || "");
+  if (!value) return "未保存";
+  if (value.includes("@")) return "已保存(看着像邮箱地址,不是授权码);留空不修改";
+  return `已保存(${value.length} 位);留空不修改`;
+}
+
 // 面板里指向「设置 → 书坊」的入口:全局配置与链路检测都集中在那里。
 function addSettingsLink(row, text) {
   const button = row.createEl("button", { text: "打开 设置 → 书坊" });
@@ -630,14 +638,15 @@ export function createSettingsView(leaf, options) {
     secretRow.createSpan({ cls: "qbr-workshop-hint", text: "授权码" });
     const secretInput = secretRow.createEl("input", { cls: "qbr-workshop-input", attr: { type: "password", placeholder: "邮箱授权码 / 应用专用密码(不是登录密码)" } });
     const secretState = secretRow.createSpan({ cls: "qbr-workshop-hint", text: "" });
+    // 显示位数:16 位是 QQ / 163 授权码的长度,填错东西(比如登录密码)一眼能看出来。
     void Promise.resolve(bridge?.secrets?.getSecret?.(KINDLE_SECRET_ID))
-      .then((stored) => secretState.setText(stored ? "已保存;留空不修改" : "未保存"))
+      .then((stored) => secretState.setText(savedCodeLabel(stored)))
       .catch(() => {});
     secretInput.addEventListener("input", () => {
       const value = secretInput.value.trim();
       if (!value) return;
       void bridge?.secrets?.setSecret?.(KINDLE_SECRET_ID, value);
-      secretState.setText("已保存(SecretStorage)");
+      secretState.setText(`已保存(${value.length} 位)`);
     });
     const kindleTools = kindleCard.createDiv("qbr-workshop-row");
     const kindleProbe = kindleTools.createEl("button", { text: "检测 SMTP" });
