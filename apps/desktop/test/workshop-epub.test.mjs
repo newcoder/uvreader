@@ -288,6 +288,47 @@ test("the book-build runner embeds local images and renders formulas as MathML",
   assert.match(task.detail, /2 公式/);
 });
 
+test("the printed table of contents is dropped by default", async () => {
+  const vault = tempDir("qbr-epub-toc-");
+  const source = path.join(vault, "带目录.md");
+  fs.writeFileSync(source, [
+    "# 目录",
+    "",
+    "第 1 章 起点 …… 1",
+    "第 2 章 终点 …… 12",
+    "2.1 中途 …… 12",
+    "2.2 岔路 …… 14",
+    "2.3 归途 …… 20",
+    "",
+    "# 第 1 章 起点",
+    "",
+    "正文一。",
+    "",
+    "# 第 2 章 终点",
+    "",
+    "正文二。",
+  ].join("\n"), "utf8");
+  const { queue } = makeQueue(tempDir("qbr-epub-toc-"), null, {});
+  const id = queue.start({ kind: "book-build", title: "生成电子书", payload: { source, settings: {}, title: "测试书" } });
+  const task = await waitForTask(queue, id);
+  assert.equal(task.status, "done", task.error);
+  assert.match(task.detail, /去印刷目录 1 章/);
+  const zip = await JSZip.loadAsync(fs.readFileSync(task.output));
+  const nav = await zip.file("OEBPS/nav.xhtml").async("string");
+  assert.ok(!nav.includes("……"), "导航里不该有印刷目录的条目");
+  assert.equal((nav.match(/<li>/g) || []).length, 2, "导航只剩两章");
+  assert.match(nav, /第 1 章 起点/);
+  assert.match(nav, /第 2 章 终点/);
+
+  // 关掉开关就保留(用户可能想留着做对照)。
+  const second = queue.start({ kind: "book-build", title: "生成电子书", payload: { source, settings: {}, title: "测试书", dropPrintedToc: false } });
+  const kept = await waitForTask(queue, second);
+  assert.equal(kept.status, "done", kept.error);
+  const keptZip = await JSZip.loadAsync(fs.readFileSync(kept.output));
+  const keptChapter = await keptZip.file("OEBPS/chapter-001.xhtml").async("string");
+  assert.match(keptChapter, /第 1 章 起点 …… 1/, "关掉开关时印刷目录会留着");
+});
+
 test("countRawFormulas ignores code blocks and flags leftovers", () => {
   assert.equal(countRawFormulas("<p><math></math></p><pre><code>$$\n a $$\n</code></pre>"), 0, "代码块里的 $$ 是刻意保留的");
   assert.equal(countRawFormulas("<p>$$a^2$$</p>"), 2, "一条未渲染的行间公式记 2(开合各一个 $$)");

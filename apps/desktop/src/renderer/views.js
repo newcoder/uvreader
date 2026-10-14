@@ -1393,6 +1393,11 @@ export function createWorkshopView(leaf, options) {
       // ② 目录(自动分章,可编辑)
       const chapterStep = this.bookStep(controls, "2", "目录", "自动分章");
       this._bookChaptersHost = chapterStep.createDiv("qbr-workshop-chapters");
+      // 书里那几页印刷目录(「目录 …… 12」)与电子书导航重复且格式乱,默认去掉。
+      const tocRow = chapterStep.createEl("label", { cls: "qbr-workshop-book" });
+      this._bookDropToc = tocRow.createEl("input", { attr: { type: "checkbox" } });
+      this._bookDropToc.checked = true;
+      tocRow.createSpan({ text: "去掉书里的印刷目录(与电子书导航重复的那几页)" });
 
       // ③ 书名与封面
       const metaStep = this.bookStep(controls, "3", "书名与封面", "写进扉页、目录与封面");
@@ -2042,6 +2047,8 @@ export function createWorkshopView(leaf, options) {
           chapters: (this._bookChapters || []).length
             ? (this._bookChapters || []).map((chapter) => ({ title: chapter.title, text: chapter.text }))
             : undefined,
+          // 书里那几页印刷目录(与电子书导航重复):默认去掉,面板里可关。
+          dropPrintedToc: this._bookDropToc ? Boolean(this._bookDropToc.checked) : true,
         },
       }).catch((error) => new Notice(String(error?.message || error)));
       this.selectTool("tasks");

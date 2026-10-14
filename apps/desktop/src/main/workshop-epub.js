@@ -11,6 +11,7 @@ import { extractMarkdown, extractionKind, splitMarkdownChapters } from "./extrac
 import { createMathRenderer, shareFormulaHtml } from "./math-render.js";
 import { createTextLayerReader } from "./text-layer.js";
 import { unwrapProseFences } from "../shared/markdown-fix.js";
+import { stripPrintedToc } from "../shared/printed-toc.js";
 import { collectChars, createFontSubsetter, ensureFont, ensureFontLicense, findPairing, FONT_FAMILIES } from "./workshop-fonts.js";
 import { pairingStacks } from "../shared/book-fonts.js";
 import { convertPath } from "../shared/workshop-names.js";
@@ -229,10 +230,17 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     }
     if (!rawChapters.length) throw new Error("没有可写的内容");
 
+    // 书里那几页印刷目录(「目录 …… 12」):电子书自带导航,重复且格式乱，默认去掉。
+    const tocStrip = stripPrintedToc(rawChapters, { enabled: payload?.dropPrintedToc !== false });
+    const bookChapters = tocStrip.chapters;
+    if (tocStrip.dropped || tocStrip.removedLines) {
+      log("book build printed toc dropped", tocStrip.dropped, "章", tocStrip.removedLines, "行");
+    }
+
     // 公式(LaTeX → MathML)与图片(收进 EPUB):预览与成品都靠这两步。
     // 公式清单必须与下面 markdownToHtml 的请求完全一致:用同一个渲染器、按同样的
     // 「逐章」粒度收集(合并成一段收集会多出跨章边界的串,反而对不上)。
-    const markdownChapters = rawChapters.filter((chapter) => chapter.markdown);
+    const markdownChapters = bookChapters.filter((chapter) => chapter.markdown);
     const latexes = [...new Set(markdownChapters.flatMap((chapter) => collectMathFromMarkdown(chapter.text)))];
     let mathMap = null;
     if (latexes.length && mathRenderer) {
@@ -246,7 +254,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       if (signal.aborted) throw new Error("任务已取消");
     }
     const renderMath = mathMap ? (latex, display) => shareFormulaHtml(mathMap.get(mathKey(latex)), display) : null;
-    const chaptersWithHtml = rawChapters.map((chapter) => ({
+    const chaptersWithHtml = bookChapters.map((chapter) => ({
       title: chapter.title,
       text: chapter.text,
       html: chapter.markdown ? markdownToHtml(chapter.text, { renderMath }) : textToHtml(chapter.text),
@@ -312,7 +320,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     const formulaCount = mathMap ? [...mathMap.values()].filter(Boolean).length : 0;
     return {
       output: out,
-      detail: `EPUB · ${result.chapters} 章 · ${Math.round(result.bytes / 1024)} KB${fonts.length ? ` · ${fonts.length} 款字体` : ""}${images.length ? ` · ${images.length} 图` : ""}${formulaCount ? ` · ${formulaCount} 公式` : ""}${unrendered ? ` · 未渲染 ${unrendered}` : ""}`,
+      detail: `EPUB · ${result.chapters} 章 · ${Math.round(result.bytes / 1024)} KB${fonts.length ? ` · ${fonts.length} 款字体` : ""}${images.length ? ` · ${images.length} 图` : ""}${formulaCount ? ` · ${formulaCount} 公式` : ""}${tocStrip.dropped ? ` · 去印刷目录 ${tocStrip.dropped} 章` : ""}${unrendered ? ` · 未渲染 ${unrendered}` : ""}`,
     };
   });
 }
