@@ -100,6 +100,28 @@ test("markdownToHtml falls back to the escaped LaTeX when a formula fails to ren
   assert.match(html, /结果是 \$\\frac\{1\}\{2\}\$ 的。/);
 });
 
+test("a figure caption with formulas keeps its image", () => {
+  // 实测《光学》1798 张图里有 169 张的图注带公式,修好前全被丢掉。
+  const math = (latex, display) => `<math data-display="${display}">${latex}</math>`;
+  const html = markdownToHtml("![图 2.5 $\\psi$ 对 $t$ 的变化](mineru/chunks/0001-0200/images/a.jpg)", { renderMath: math });
+  assert.match(html, /<img src="mineru\/chunks\/0001-0200\/images\/a\.jpg"/);
+  assert.match(html, /alt="图 2\.5 \$\\psi\$ 对 \$t\$ 的变化"/, "alt 里放纯 LaTeX,不塞 MathML");
+  assert.ok(!/alt="[^"]*<math/.test(html), "MathML 不能进属性");
+});
+
+test("emphasis and links survive formulas in the middle", () => {
+  const math = (latex) => `<math>${latex}</math>`;
+  const html = markdownToHtml("**动能 $E_k$ 的推导** 与 [见 $\\alpha$ 节](u.html)", { renderMath: math });
+  assert.match(html, /<strong>动能 <math>E_k<\/math> 的推导<\/strong>/);
+  assert.match(html, /<a href="u.html">见 <math>\\alpha<\/math> 节<\/a>/);
+});
+
+test("a caption with brackets in the alt keeps its image", () => {
+  const html = markdownToHtml("![(b) [五] 衍射](mineru/chunks/0201-0400/images/b.jpg)");
+  assert.match(html, /<img src="mineru\/chunks\/0201-0400\/images\/b\.jpg"/);
+  assert.match(html, /alt="\(b\) \[五\] 衍射"/);
+});
+
 test("markdownToHtml renders pipe tables as real tables", () => {
   const html = markdownToHtml([
     "| Item | Qty | Note |",

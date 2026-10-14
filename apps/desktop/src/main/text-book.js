@@ -67,8 +67,9 @@ function escapeHtml(value) {
 
 function inlineMarkdown(text) {
   let html = escapeHtml(text);
-  html = html.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_m, alt, src) => `<img src="${src}" alt="${alt}"/>`);
-  html = html.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_m, label, href) => `<a href="${href}">${label}</a>`);
+  // 图注/链接文字里常带方括号(「!(b) [五]」「[引自 A. B. …]」),允许一层嵌套的 [ ]。
+  html = html.replace(/!\[((?:[^[\]]|\[[^[\]]*\])*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_m, alt, src) => `<img src="${src}" alt="${alt}"/>`);
+  html = html.replace(/\[((?:[^[\]]|\[[^[\]]*\])*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_m, label, href) => `<a href="${href}">${label}</a>`);
   html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
   html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/__([^_]+)__/g, "<strong>$1</strong>");
@@ -87,23 +88,34 @@ export function isMathSegment(text) {
   return new RegExp(`^(?:${MATH_SEGMENT_RE.source})$`).test(raw);
 }
 
+// 公式占位符用私用区字符:它不会出现在正文里,也不会被 Markdown 语法吃掉。
+const MATH_SLOT = "\uE000";
+
 function inlineWithMath(text, renderMath) {
   const raw = String(text ?? "");
   if (!renderMath || !raw.includes("$") && !raw.includes("\\(") && !raw.includes("\\[")) {
     return inlineMarkdown(raw);
   }
-  let out = "";
-  let last = 0;
-  for (const match of raw.matchAll(MATH_SEGMENT_RE)) {
-    out += inlineMarkdown(raw.slice(last, match.index));
-    const latex = String(match[1] ?? match[2] ?? match[3] ?? match[4] ?? "").trim();
-    const display = match[1] !== undefined || match[2] !== undefined;
-    const rendered = latex ? renderMath(latex, display) : "";
-    out += rendered || escapeHtml(match[0]);
-    last = match.index + match[0].length;
-  }
-  out += inlineMarkdown(raw.slice(last));
-  return out;
+  // 图片 / 链接 / 强调都可能横跨公式,比如「![图 2.5 $\psi$ 对 $t$ 的变化](a.jpg)」。
+  // 先把公式换成占位符、整行照常解析 Markdown,最后再把公式换回来;否则这类图片
+  // 会被切成 `![图 2.5 ` + 公式 + ` 的变化](a.jpg)` 三段,图片引用直接消失。
+  const rendered = [];
+  const latexOnly = [];
+  const masked = raw.replace(MATH_SEGMENT_RE, (whole, displayDollar, displayBracket, inlineDollar, inlineParen) => {
+    const latex = String(displayDollar ?? displayBracket ?? inlineDollar ?? inlineParen ?? "").trim();
+    const display = displayDollar !== undefined || displayBracket !== undefined;
+    rendered.push((latex && renderMath(latex, display)) || escapeHtml(whole));
+    latexOnly.push(escapeHtml(whole));
+    return `${MATH_SLOT}${rendered.length - 1}${MATH_SLOT}`;
+  });
+  const html = inlineMarkdown(masked);
+  // 属性值(alt / title)里放纯 LaTeX:MathML 塞进属性会把标签写坏。
+  return html.replace(/alt="([^"]*)"|title="([^"]*)"|\uE000(\d+)\uE000/g, (whole, alt, title, index) => {
+    if (index !== undefined) return rendered[Number(index)] || "";
+    const value = alt ?? title ?? "";
+    const name = alt !== undefined ? "alt" : "title";
+    return `${name}="${value.replace(/\uE000(\d+)\uE000/g, (_slot, slot) => latexOnly[Number(slot)] || "")}"`;
+  });
 }
 
 // 纯文本段落 → HTML(空行分段,单换行并成一行)。
