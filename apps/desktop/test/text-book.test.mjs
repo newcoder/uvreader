@@ -122,6 +122,26 @@ test("a caption with brackets in the alt keeps its image", () => {
   assert.match(html, /alt="\(b\) \[五\] 衍射"/);
 });
 
+test("a display block whose $$ fences sit on their own lines renders", () => {
+  // MinerU 偶尔写成 $$ / 空行 / 公式 / 空行 / $$ —— 空行不该结束公式块。
+  const math = (latex, display) => `<math data-display="${display}">${latex}</math>`;
+  const html = markdownToHtml([
+    "上文。",
+    "",
+    "$$",
+    "",
+    "\\frac {1}{f} = (1. 5 4 - 1) \\left(\\frac {1}{1 0 0} - \\frac {1}{- 2 0 . 0}\\right)",
+    "",
+    "$$",
+    "",
+    "下文。",
+  ].join("\n"), { renderMath: math });
+  assert.match(html, /<math data-display="true">\\frac \{1\}\{f\}/, "带空行的行间公式也要渲染");
+  assert.ok(!html.includes("$$"), "不留原始 $$ 分隔符");
+  assert.match(html, /<p>上文。<\/p>/);
+  assert.match(html, /<p>下文。<\/p>/);
+});
+
 test("markdownToHtml renders pipe tables as real tables", () => {
   const html = markdownToHtml([
     "| Item | Qty | Note |",

@@ -6,7 +6,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 
 import { buildEpub, BOOK_STYLE_DEFAULTS, collectBookImages } from "./epub-build.js";
-import { collectMathFromMarkdown, markdownToHtml, textToChapters, textToHtml } from "./text-book.js";
+import { collectMathFromMarkdown, countRawFormulas, markdownToHtml, textToChapters, textToHtml } from "./text-book.js";
 import { extractMarkdown, extractionKind, splitMarkdownChapters } from "./extract-doc.js";
 import { createMathRenderer, shareFormulaHtml } from "./math-render.js";
 import { createTextLayerReader } from "./text-layer.js";
@@ -230,9 +230,10 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     if (!rawChapters.length) throw new Error("没有可写的内容");
 
     // 公式(LaTeX → MathML)与图片(收进 EPUB):预览与成品都靠这两步。
-    // 公式清单必须与下面 markdownToHtml 的请求完全一致:用同一个渲染器收集。
+    // 公式清单必须与下面 markdownToHtml 的请求完全一致:用同一个渲染器、按同样的
+    // 「逐章」粒度收集(合并成一段收集会多出跨章边界的串,反而对不上)。
     const markdownChapters = rawChapters.filter((chapter) => chapter.markdown);
-    const latexes = collectMathFromMarkdown(markdownChapters.map((chapter) => chapter.text).join("\n"));
+    const latexes = [...new Set(markdownChapters.flatMap((chapter) => collectMathFromMarkdown(chapter.text)))];
     let mathMap = null;
     if (latexes.length && mathRenderer) {
       report({ label: `渲染公式（${latexes.length}）` });
@@ -252,6 +253,9 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     }));
     const { chapters, images } = collectBookImages(chaptersWithHtml, { baseDir, log });
     if (signal.aborted) throw new Error("任务已取消");
+    // 自报「有没有公式漏渲染」:成书后还剩多少原始 LaTeX,不用等用户翻书才发现。
+    const unrendered = chapters.reduce((sum, chapter) => sum + countRawFormulas(chapter.html), 0);
+    if (unrendered) log("book build raw formulas", unrendered, "个公式没能渲染成 MathML(成品里会显示 LaTeX 原文)");
     log("book build", source, "→", out, `${chapters.length} 章`);
 
     report({ label: "准备字体" });
@@ -308,7 +312,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     const formulaCount = mathMap ? [...mathMap.values()].filter(Boolean).length : 0;
     return {
       output: out,
-      detail: `EPUB · ${result.chapters} 章 · ${Math.round(result.bytes / 1024)} KB${fonts.length ? ` · ${fonts.length} 款字体` : ""}${images.length ? ` · ${images.length} 图` : ""}${formulaCount ? ` · ${formulaCount} 公式` : ""}`,
+      detail: `EPUB · ${result.chapters} 章 · ${Math.round(result.bytes / 1024)} KB${fonts.length ? ` · ${fonts.length} 款字体` : ""}${images.length ? ` · ${images.length} 图` : ""}${formulaCount ? ` · ${formulaCount} 公式` : ""}${unrendered ? ` · 未渲染 ${unrendered}` : ""}`,
     };
   });
 }

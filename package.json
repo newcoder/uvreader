@@ -8,6 +8,7 @@
     "test": "node --test tests/*.test.mjs",
     "test:shim": "node --test packages/host-shim/test/*.test.mjs",
     "test:desktop": "node --test apps/desktop/test/*.test.mjs",
+    "check:epub": "node apps/desktop/scripts/check-epub.mjs",
     "check:i18n": "node scripts/check-i18n.mjs",
     "build:books": "node scripts/build-starter-books.mjs",
     "desktop:install": "npm --prefix apps/desktop install",

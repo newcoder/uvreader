@@ -134,6 +134,15 @@ export function collectMathFromMarkdown(markdown) {
   return seen;
 }
 
+// 成品里还有多少公式没渲染成 MathML(用来判断「有没有漏」)。
+// 代码块里的 $$ 是刻意保留的原文,不算漏;$$ / \tag{ / \( / \[ 都是漏渲染的信号。
+export function countRawFormulas(html) {
+  const prose = String(html || "")
+    .replace(/<pre[\s\S]*?<\/pre>/gi, "")
+    .replace(/<code[\s\S]*?<\/code>/gi, "");
+  return (prose.match(/\$\$|\\tag\{|\\\(|\\\[/g) || []).length;
+}
+
 // 纯文本段落 → HTML(空行分段,单换行并成一行)。
 export function textToHtml(text) {
   const blocks = String(text || "").replace(/\r\n?/g, "\n").split(/\n{2,}/);
@@ -154,6 +163,7 @@ export function markdownToHtml(markdown, options = {}) {
   let list = null; // "ul" | "ol"
   let fence = null;
   let table = null; // { head: string[] | null, rows: string[][] }
+  let displayQuote = null; // $$ 单独成行时的收集缓冲
 
   const flushParagraph = () => {
     if (!paragraph.length) return;
@@ -193,9 +203,26 @@ export function markdownToHtml(markdown, options = {}) {
     if (!match) return null;
     return match[1].split("|").map((value) => value.trim());
   };
+  // $$ 单独成行的行间公式(中间可能夹着空行):渲染失败时把原文包回去,别丢内容。
+  const pushDisplayMath = (latex) => {
+    const value = String(latex || "").trim();
+    if (!value) return;
+    const rendered = renderMath ? renderMath(value, true) : "";
+    out.push(rendered || `<p>${escapeHtml(`$$${value}$$`)}</p>`);
+  };
 
   for (const raw of lines) {
     const line = raw.replace(/\s+$/, "");
+    if (displayQuote) {
+      // $$ 单独成行时,行间的空行不该结束公式块(MinerU 会写成 $$ / 空行 / 公式 / 空行 / $$)。
+      if (/^\s*\$\$\s*$/.test(line)) {
+        pushDisplayMath(displayQuote.join(" "));
+        displayQuote = null;
+      } else if (line.trim()) {
+        displayQuote.push(line.trim());
+      }
+      continue;
+    }
     if (fence) {
       if (/^```/.test(line.trim())) {
         out.push(`<pre><code>${escapeHtml(fence.lines.join("\n"))}</code></pre>`);
@@ -220,6 +247,14 @@ export function markdownToHtml(markdown, options = {}) {
       flushParagraph();
       closeList();
       fence = { lines: [] };
+      continue;
+    }
+    if (/^\s*\$\$\s*$/.test(line)) {
+      // $$ 单独一行:开始收行间公式,直到下一个 $$ 行(空行不算结束)。
+      flushParagraph();
+      closeList();
+      closeTable();
+      displayQuote = [];
       continue;
     }
     if (!line.trim()) {
@@ -264,6 +299,7 @@ export function markdownToHtml(markdown, options = {}) {
     paragraph.push(line.trim());
   }
   if (fence) out.push(`<pre><code>${escapeHtml(fence.lines.join("\n"))}</code></pre>`);
+  if (displayQuote) pushDisplayMath(displayQuote.join(" "));
   flushParagraph();
   closeList();
   closeTable();

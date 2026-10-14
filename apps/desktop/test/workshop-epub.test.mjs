@@ -8,6 +8,7 @@ import test from "node:test";
 import JSZip from "jszip";
 
 import { createWorkshopQueue } from "../src/main/workshop.js";
+import { countRawFormulas } from "../src/main/text-book.js";
 import { findPairing } from "../src/main/workshop-fonts.js";
 import { prepareFonts, registerEpubRunners } from "../src/main/workshop-epub.js";
 import { waitForTask } from "./wait-for-task.mjs";
@@ -285,6 +286,29 @@ test("the book-build runner embeds local images and renders formulas as MathML",
   assert.ok(!chapter.includes("missing.png"), "missing images are dropped instead of breaking");
   assert.match(task.detail, /1 图/);
   assert.match(task.detail, /2 公式/);
+});
+
+test("countRawFormulas ignores code blocks and flags leftovers", () => {
+  assert.equal(countRawFormulas("<p><math></math></p><pre><code>$$\n a $$\n</code></pre>"), 0, "代码块里的 $$ 是刻意保留的");
+  assert.equal(countRawFormulas("<p>$$a^2$$</p>"), 2, "一条未渲染的行间公式记 2(开合各一个 $$)");
+  assert.equal(countRawFormulas("<p>…\\tag{5.16}$$</p>"), 2);
+  assert.equal(countRawFormulas("<p>行内 \\(x\\) 与 \\[y\\]</p>"), 2);
+});
+
+test("the build report says when formulas could not be rendered", async () => {
+  const vault = tempDir("qbr-epub-unrendered-");
+  const source = path.join(vault, "漏渲染.md");
+  fs.writeFileSync(source, "# 第一章\n\n剩下 $x^2$ 与\n\n$$y^2$$\n\n都没渲染。", "utf8");
+  // 渲染器整个失败(比如 python 不在):成品里会留下 LaTeX 原文,报告要如实说。
+  const mathRenderer = { renderMap: async () => ({ ok: false, error: "python 不在" }) };
+  const { queue } = makeQueue(tempDir("qbr-epub-unrendered-"), null, { mathRenderer });
+  const id = queue.start({ kind: "book-build", title: "生成电子书", payload: { source, settings: {} } });
+  const task = await waitForTask(queue, id);
+  assert.equal(task.status, "done", task.error);
+  assert.match(task.detail, /未渲染 \d+/, "漏渲染要写在任务结果里");
+  const zip = await JSZip.loadAsync(fs.readFileSync(task.output));
+  const chapter = await zip.file("OEBPS/chapter-001.xhtml").async("string");
+  assert.ok(countRawFormulas(chapter) > 0, "这份成品确实留着原始 LaTeX");
 });
 
 test("consecutive display blocks all render", async () => {
