@@ -1402,6 +1402,12 @@ async function runCjkPdfPinScenario() {
         });
         view._renderFlowHighlights();
         const settle = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        // Diagnostics for the failure message: if the flow dropped page 4's text
+        // layer while the click was in flight, the anchor has nothing to match.
+        const liveCount = (countAll) => {
+          const live = [...view.pager.flow.querySelectorAll("p,h1,h2,h3,h4,.qiaomu-reader-pdf-text-layer")];
+          return countAll ? live.length : live.filter((el) => el.textContent.includes(needle)).length;
+        };
         const clickEntry = () => items[items.length - 1]?.click();
         const before = view.pager.currentPdfPageNumber();
         view.togglePanel("highlights");
@@ -1418,7 +1424,7 @@ async function runCjkPdfPinScenario() {
           after = view.pager.currentPdfPageNumber();
           if (after === before && attempt === 14) clickEntry();
         }
-        return { before, after, items: items.length, entryText };
+        return { before, after, items: items.length, entryText, needleLive: liveCount(), flowBlocks: liveCount(true) };
       });
       if (jumped.error) throw new Error(jumped.error);
       if (!/^\[第 4 页\]/.test(jumped.entryText)) throw new Error(`the entry has no page prefix: ${jumped.entryText}`);
