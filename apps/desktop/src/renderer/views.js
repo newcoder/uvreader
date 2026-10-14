@@ -372,6 +372,14 @@ export function describeMineruStatus(result) {
   }
 }
 
+// 面板里指向「设置 → 书坊」的入口:全局配置与链路检测都集中在那里。
+function addSettingsLink(row, text) {
+  const button = row.createEl("button", { text: "打开 设置 → 书坊" });
+  button.addEventListener("click", () => document.querySelector('[data-route="settings"]')?.click());
+  row.createSpan({ cls: "qbr-workshop-hint", text });
+  return button;
+}
+
 export function createSettingsView(leaf, options) {
   const { plugin } = options;
 
@@ -1052,9 +1060,7 @@ export function createWorkshopView(leaf, options) {
       optionCard.createDiv({ cls: "qbr-workshop-hint", text: "在「设置 → 书坊」填了「本地 MinerU 服务」地址后,MinerU 模式优先走本机服务(不出网、免凭据,热请求快很多)。" });
       optionCard.createDiv({ cls: "qbr-workshop-hint", text: "输出 <源名>.md / .html / .json(+ 体检报告),落在源文件旁;PDF 走 pdf_tool(模式可切 MinerU),Office / OFD / HTML / 图片走 DocVortex;题库等 schema 模板后续阶段。" });
       const detectRow = optionCard.createDiv("qbr-workshop-row");
-      const detect = detectRow.createEl("button", { text: "检测提取链路" });
-      detect.addEventListener("click", () => this.probeExtract());
-      this._extractStatus = detectRow.createSpan({ cls: "qbr-workshop-hint", text: "未检测" });
+      addSettingsLink(detectRow, "提取链路的检测(pdf_tool / DocVortex / MinerU)与全局配置都在「设置 → 书坊」。");
 
       const startRow = root.createDiv("qbr-workshop-row");
       const start = startRow.createEl("button", { cls: "mod-cta", text: "开始提取" });
@@ -1365,21 +1371,8 @@ export function createWorkshopView(leaf, options) {
       imgStart.addEventListener("click", () => this.startImageTasks());
       imgStartRow.createSpan({ cls: "qbr-workshop-hint", text: "输出:图片目录旁「目录名.cbz」;只有输出 EPUB 时才需要 Calibre" });
 
-      const calibre = toolsCard.createEl("details", { cls: "qbr-workshop-advanced" });
-      calibre.createEl("summary", { text: "Calibre 设置(换 AZW3 / MOBI、图片转 EPUB 时用)" });
-      const detectRow = calibre.createDiv("qbr-workshop-row");
-      const detect = detectRow.createEl("button", { text: "检测 Calibre" });
-      detect.addEventListener("click", () => this.probeCalibre());
-      this._bookStatus = detectRow.createSpan({ cls: "qbr-workshop-hint", text: "未检测" });
-      const pathRow = calibre.createDiv("qbr-workshop-row");
-      pathRow.createSpan({ cls: "qbr-workshop-hint", text: "Calibre 路径" });
-      this._bookPath = pathRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空自动检测(常见位置 / PATH)" } });
-      this._bookPath.value = String(plugin?.settings?.calibrePath || "");
-      this._bookPath.addEventListener("change", () => {
-        if (!plugin?.settings) return;
-        plugin.settings.calibrePath = this._bookPath.value.trim();
-        void plugin.saveAll?.();
-      });
+      const calibreRow = toolsCard.createDiv("qbr-workshop-row");
+      addSettingsLink(calibreRow, "Calibre 路径与检测(换 AZW3 / MOBI、图片转 EPUB 时用)在「设置 → 书坊」。");
 
       this._bookRecent = root.createDiv("qbr-workshop-recent");
       this.renderBookChips();
