@@ -2382,6 +2382,28 @@ async function runWorkshopScenario() {
       throw new Error(`the convert preset should show a visible selected state: ${JSON.stringify(preset)}`);
     }
     console.log("workshop: extract is plain 内容提取 (no preset matrix); convert preset selected:", preset.label);
+    // 选「图片 → PDF」后,转换专用控件要让位;切回「文档互转」再回来(预设决定后续操作)。
+    const imgPreset = await page.evaluate(() => {
+      const panel = document.querySelector(".qbr-workshop-panel[data-tool='convert']");
+      const cards = [...panel.querySelectorAll(".qbr-workshop-preset")];
+      const find = (text) => cards.find((card) => (card.querySelector("b")?.textContent || "").includes(text));
+      const rows = [...panel.querySelectorAll(".qbr-workshop-row")];
+      const hidden = (text) => rows.filter((row) => (row.textContent || "").includes(text)).every((row) => row.hidden);
+      const labelOf = () => [...panel.querySelectorAll("button")].find((b) => /打包为 PDF|开始转换/.test(b.textContent || ""))?.textContent || "";
+      find("图片")?.click();
+      const imgLabel = labelOf();
+      const formatHidden = hidden("目标格式");
+      const parseHidden = hidden("解析方式");
+      find("文档互转")?.click();
+      return { formatHidden, parseHidden, imgLabel, formatBack: !hidden("目标格式"), docLabel: labelOf() };
+    });
+    if (!imgPreset.formatHidden || !imgPreset.parseHidden) {
+      throw new Error(`图片 → PDF should hide the conversion-only rows: ${JSON.stringify(imgPreset)}`);
+    }
+    if (imgPreset.imgLabel !== "打包为 PDF" || !imgPreset.formatBack || imgPreset.docLabel !== "开始转换") {
+      throw new Error(`the panel should follow the preset: ${JSON.stringify(imgPreset)}`);
+    }
+    console.log("workshop: preset switches the panel (图片 → PDF hides format/parse, button says 打包为 PDF)");
     // 「检测本地 MinerU」必须真的走到 qbrDesktop.mineru(曾经误用 workshop bridge,
     // 点了没反应、状态行还显示「这个宿主不支持本地服务检测」)。
     const mineru = await page.evaluate(async () => {

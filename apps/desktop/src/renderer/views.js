@@ -754,7 +754,7 @@ export function createWorkshopView(leaf, options) {
     }
 
     // 预设卡片矩阵:ready 的选中(有可见选中态),其余标「后续阶段」并提示归属。
-    renderPresetMatrix(host, presets, { selected = "" } = {}) {
+    renderPresetMatrix(host, presets, { selected = "", onSelect = null } = {}) {
       const matrix = host.createDiv("qbr-workshop-matrix");
       const cards = [];
       for (const preset of presets) {
@@ -773,7 +773,7 @@ export function createWorkshopView(leaf, options) {
             return;
           }
           for (const entry of cards) entry.classList.toggle("is-selected", entry === card);
-          if (preset.onSelect) preset.onSelect(preset.id);
+          if (typeof onSelect === "function") onSelect(preset.id);
         });
       }
       return matrix;
@@ -1674,7 +1674,7 @@ export function createWorkshopView(leaf, options) {
       this.renderPresetMatrix(presetCard, [
         { id: "convert", label: "文档互转(DocVortex)", hint: "保持内容与版式:Office/ODF/HTML/EPUB/OFD → md / html / docx / pdf / latex", ready: true },
         { id: "img", label: "图片 → PDF", hint: "打包成 PDF:照片成书、扫描页合成(每张一页)", ready: true },
-      ], { selected: this._convertPreset, onSelect: (id) => { this._convertPreset = id; } });
+      ], { selected: this._convertPreset, onSelect: (id) => { this._convertPreset = id; this.syncConvertPreset(); } });
 
       const inputCard = root.createDiv("qbr-workshop-card");
       inputCard.createEl("h3", { text: "选择文件" });
@@ -1691,6 +1691,7 @@ export function createWorkshopView(leaf, options) {
       const optionCard = root.createDiv("qbr-workshop-card");
       optionCard.createEl("h3", { text: "转换设置" });
       const formatRow = optionCard.createDiv("qbr-workshop-row");
+      this._convertFormatRow = formatRow;
       formatRow.createSpan({ cls: "qbr-workshop-hint", text: "目标格式" });
       this._convertFormat = formatRow.createEl("select", { cls: "qbr-workshop-select" });
       for (const format of DOCVORTEX_FORMATS) {
@@ -1698,6 +1699,7 @@ export function createWorkshopView(leaf, options) {
       }
       optionCard.createDiv({ cls: "qbr-workshop-hint", text: "输出与源文件同目录,用目标扩展名;同名自动加序号。" });
       const parseRow = optionCard.createDiv("qbr-workshop-row");
+      this._convertParseRow = parseRow;
       parseRow.createSpan({ cls: "qbr-workshop-hint", text: "解析方式" });
       this._convertParse = parseRow.createEl("select", { cls: "qbr-workshop-select" });
       this._convertParse.createEl("option", { attr: { value: "local" }, text: "本地解析(DocVortex,通用)" });
@@ -1782,11 +1784,20 @@ export function createWorkshopView(leaf, options) {
         plugin.settings.docvortexPath = this._convertPath.value.trim();
         void plugin.saveAll?.();
       });
+      // 预设决定后续操作:图片 → PDF 只用「选图片 + 打包」,目标格式 / 解析方式 / MinerU
+      // 那些控件与它无关 —— 收集起来按预设显隐(渐进披露)。
+      this._convertDetectRow = detectRow;
+      this._convertPathRow = pathRow;
+      this._convertHints = [...optionCard.querySelectorAll("div.qbr-workshop-hint")];
+      this._convertImgHint = optionCard.createDiv({ cls: "qbr-workshop-hint", text: "图片 → PDF:选中的每张图片合成一页(PNG / JPG / WebP / GIF / BMP / TIFF / JP2;页面按 150dpi 换算),产物是 PDF,落在首图旁边(同名加序号)。不经过 DocVortex、不需要凭据、秒级。" });
+      this._convertImgHint.hidden = true;
 
       const startRow = root.createDiv("qbr-workshop-row");
       const start = startRow.createEl("button", { cls: "mod-cta", text: "开始转换" });
+      this._convertStart = start;
       start.addEventListener("click", () => this.startConvertTasks());
       startRow.createSpan({ cls: "qbr-workshop-hint", text: "批量:可一次选多本,逐个入队。" });
+      this.syncConvertPreset();
 
       this._convertRecent = root.createDiv("qbr-workshop-recent");
       this.renderConvertChips();
@@ -1899,11 +1910,24 @@ export function createWorkshopView(leaf, options) {
     // 凭据 / 本地服务地址只在 MinerU 相关模式露出(渐进披露)。
     syncConvertTokenRow() {
       const mode = String(this._convertParse?.value || "local");
-      const mineru = mode === "mineru" || mode === "mineru-local";
+      const mineru = this._convertPreset !== "img" && (mode === "mineru" || mode === "mineru-local");
       if (this._convertTokenRow) this._convertTokenRow.hidden = !mineru;
       if (this._convertLocalRow) this._convertLocalRow.hidden = !mineru;
       if (this._convertLocalExeRow) this._convertLocalExeRow.hidden = !mineru;
       if (this._convertLocalTools) this._convertLocalTools.hidden = !mineru;
+    }
+
+    // 预设不同,后续操作不同:图片 → PDF 只需选图片;文档互转才用目标格式 / 解析方式 / MinerU。
+    syncConvertPreset() {
+      const img = this._convertPreset === "img";
+      if (this._convertFormatRow) this._convertFormatRow.hidden = img;
+      if (this._convertParseRow) this._convertParseRow.hidden = img;
+      for (const hint of this._convertHints || []) hint.hidden = img;
+      if (this._convertImgHint) this._convertImgHint.hidden = !img;
+      if (this._convertDetectRow) this._convertDetectRow.hidden = img;
+      if (this._convertPathRow) this._convertPathRow.hidden = img;
+      if (this._convertStart) this._convertStart.setText(img ? "打包为 PDF" : "开始转换");
+      this.syncConvertTokenRow();
     }
 
     // 本地 MinerU:检测 = 如实探测 /v1/health(不会偷偷拉起服务);「启动服务」才启动。
