@@ -15,6 +15,19 @@ import { collectChars, createFontSubsetter, ensureFont, ensureFontLicense, findP
 import { pairingStacks } from "../shared/book-fonts.js";
 import { convertPath } from "../shared/workshop-names.js";
 
+// 公式表的键:跨行的 $$…$$ 在成书前会把换行压成空格(段落合并),查表必须用同一套
+// 归一化;否则整条公式查不中、回退成原始 LaTeX(实测《光学》2542 条跨行公式全中招)。
+export const mathKey = (latex) => String(latex || "").replace(/\s+/g, " ").trim();
+
+export function normalizeMathMap(map) {
+  const normalized = new Map();
+  for (const [latex, mathml] of Object.entries(map || {})) {
+    const key = mathKey(latex);
+    if (key && !normalized.has(key)) normalized.set(key, mathml);
+  }
+  return normalized;
+}
+
 // 组装要嵌入的字体:pairing(下载字库)或 files(本机/导入字体)。
 export async function prepareFonts({
   cacheDir,
@@ -221,11 +234,11 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
         python: String(settings.ocrPython || "").trim() || "python",
         workDir: path.join(workRoot, "math"),
       });
-      if (rendered.ok) mathMap = rendered.map;
+      if (rendered.ok) mathMap = normalizeMathMap(rendered.map);
       else log("math render skipped", rendered.error);
       if (signal.aborted) throw new Error("任务已取消");
     }
-    const renderMath = mathMap ? (latex, display) => shareFormulaHtml(mathMap[latex], display) : null;
+    const renderMath = mathMap ? (latex, display) => shareFormulaHtml(mathMap.get(mathKey(latex)), display) : null;
     const chaptersWithHtml = rawChapters.map((chapter) => ({
       title: chapter.title,
       text: chapter.text,
@@ -286,7 +299,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       colophon: String(payload?.colophon || "由 UV Reader 书坊生成"),
     }, out);
     if (signal.aborted) throw new Error("任务已取消");
-    const formulaCount = mathMap ? Object.values(mathMap).filter(Boolean).length : 0;
+    const formulaCount = mathMap ? [...mathMap.values()].filter(Boolean).length : 0;
     return {
       output: out,
       detail: `EPUB · ${result.chapters} 章 · ${Math.round(result.bytes / 1024)} KB${fonts.length ? ` · ${fonts.length} 款字体` : ""}${images.length ? ` · ${images.length} 图` : ""}${formulaCount ? ` · ${formulaCount} 公式` : ""}`,
