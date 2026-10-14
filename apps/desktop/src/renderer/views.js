@@ -389,6 +389,17 @@ export function createSettingsView(leaf, options) {
     const save = (text) => {
       notice(text);
     };
+    // 链路探测:直接在原地显示结果(不再入任务队列)。
+    const runProbe = async (status, label, run) => {
+      status.setText(`${label}检测中…`);
+      try {
+        const result = await run();
+        const detail = String(result?.detail || "").trim();
+        status.setText(result?.ok ? `可用${detail ? ` · ${detail}` : ""}` : `不可用:${detail || "没有返回原因"}`);
+      } catch (error) {
+        status.setText(`检测失败:${String(error?.message || error)}`);
+      }
+    };
 
     const root = host.createDiv("qbr-workshop-settings");
 
@@ -438,12 +449,7 @@ export function createSettingsView(leaf, options) {
     const ocrTools = ocrCard.createDiv("qbr-workshop-row");
     const ocrProbe = ocrTools.createEl("button", { text: "检测文字层链路" });
     const ocrStatus = ocrTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
-    ocrProbe.addEventListener("click", () => {
-      ocrStatus.setText("检测中…");
-      void bridge?.workshop?.start({ kind: "probe", title: "检测文字层", payload: { settings } })
-        .then(() => ocrStatus.setText("已入队:结果看「书坊 → 任务」"))
-        .catch((error) => ocrStatus.setText(`检测失败:${String(error?.message || error)}`));
-    });
+    ocrProbe.addEventListener("click", () => void runProbe(ocrStatus, "", () => bridge?.probe?.ocr(settings)));
 
     // 3. 本地 MinerU(公式优先 / 内容提取共用)
     const mineruCard = root.createDiv("qbr-workshop-card");
@@ -542,20 +548,10 @@ export function createSettingsView(leaf, options) {
     const dvTools = docvortexCard.createDiv("qbr-workshop-row");
     const dvProbe = dvTools.createEl("button", { text: "检测 DocVortex" });
     const dvStatus = dvTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
-    dvProbe.addEventListener("click", () => {
-      dvStatus.setText("检测中…");
-      void bridge?.workshop?.start({ kind: "docvortex-probe", title: "检测 DocVortex", payload: { settings } })
-        .then(() => dvStatus.setText("已入队:结果看「书坊 → 任务」"))
-        .catch((error) => dvStatus.setText(`检测失败:${String(error?.message || error)}`));
-    });
+    dvProbe.addEventListener("click", () => void runProbe(dvStatus, "", () => bridge?.probe?.docvortex(settings)));
     const formulaProbe = dvTools.createEl("button", { text: "检测公式链路" });
     const formulaStatus = dvTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "" });
-    formulaProbe.addEventListener("click", () => {
-      formulaStatus.setText("检测中…");
-      void bridge?.workshop?.start({ kind: "formula-probe", title: "检测公式链路", payload: { settings } })
-        .then(() => formulaStatus.setText("已入队:结果看「书坊 → 任务」"))
-        .catch((error) => formulaStatus.setText(`检测失败:${String(error?.message || error)}`));
-    });
+    formulaProbe.addEventListener("click", () => void runProbe(formulaStatus, "", () => bridge?.probe?.formula(settings)));
 
     // 5. Calibre(电子书互转 / 图片打包)
     const calibreCard = root.createDiv("qbr-workshop-card");
@@ -571,28 +567,22 @@ export function createSettingsView(leaf, options) {
     const calibreTools = calibreCard.createDiv("qbr-workshop-row");
     const calibreProbe = calibreTools.createEl("button", { text: "检测 Calibre" });
     const calibreStatus = calibreTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
-    calibreProbe.addEventListener("click", () => {
-      calibreStatus.setText("检测中…");
-      void bridge?.workshop?.start({ kind: "calibre-probe", title: "检测 Calibre", payload: { settings } })
-        .then(() => calibreStatus.setText("已入队:结果看「书坊 → 任务」"))
-        .catch((error) => calibreStatus.setText(`检测失败:${String(error?.message || error)}`));
-    });
+    calibreProbe.addEventListener("click", () => void runProbe(calibreStatus, "", () => bridge?.probe?.calibre(settings)));
 
     // 6. 一键自检:四条链路各入队一个检测任务,顺带刷新本地 MinerU 状态。
     const selfCheckRow = root.createDiv("qbr-workshop-row");
     const selfCheck = selfCheckRow.createEl("button", { cls: "mod-cta", text: "书坊链路自检" });
     selfCheck.addEventListener("click", () => {
-      const kinds = [
-        ["probe", "检测文字层"],
-        ["docvortex-probe", "检测 DocVortex"],
-        ["formula-probe", "检测公式链路"],
-        ["calibre-probe", "检测 Calibre"],
-      ];
-      for (const [kind, title] of kinds) {
-        void bridge?.workshop?.start({ kind, title, payload: { settings } }).catch((error) => notice(`${title} 失败:${String(error?.message || error)}`));
+      for (const [status, label, run] of [
+        [ocrStatus, "文字层", () => bridge?.probe?.ocr(settings)],
+        [dvStatus, "DocVortex", () => bridge?.probe?.docvortex(settings)],
+        [formulaStatus, "公式", () => bridge?.probe?.formula(settings)],
+        [calibreStatus, "Calibre", () => bridge?.probe?.calibre(settings)],
+      ]) {
+        void runProbe(status, label, run);
       }
       void runMineru(false);
-      notice("已把 4 条链路的检测入队;结果在「书坊 → 任务」里看。");
+      notice("四条链路的探测已开始,结果就在下面各自的状态行里。");
     });
     selfCheckRow.createSpan({ cls: "qbr-workshop-hint", text: "一次把文字层 / DocVortex / 公式 / Calibre 四个检测入队,并刷新本地 MinerU 状态。" });
   }

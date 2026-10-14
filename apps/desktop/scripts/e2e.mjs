@@ -2417,14 +2417,22 @@ async function runWorkshopScenario() {
       button?.click();
       await wait(1600);
       const text = button?.closest(".qbr-workshop-row")?.querySelector(".qbr-mineru-status")?.textContent || "";
+      // 链路探测要原地出结果(不再「已入队」跳到书坊任务)。
+      const ocrButton = [...(body?.querySelectorAll("button") || [])].find((b) => b.textContent === "检测文字层链路");
+      ocrButton?.click();
+      await wait(2500);
+      const ocrText = ocrButton?.closest(".qbr-workshop-row")?.querySelector(".qbr-mineru-status")?.textContent || "";
       document.querySelector('[data-route="workshop"]')?.click();
-      return { tab: Boolean(tab), found: Boolean(button), text };
+      return { tab: Boolean(tab), found: Boolean(button), text, ocrFound: Boolean(ocrButton), ocrText };
     });
     if (!mineru.tab || !mineru.found) throw new Error(`设置里应该有「书坊」tab 与「检测本地 MinerU」:${JSON.stringify(mineru)}`);
     if (/不支持/.test(mineru.text) || /检测中/.test(mineru.text) || /未检测/.test(mineru.text)) {
       throw new Error(`检测本地 MinerU should reach the bridge and report a real state: ${mineru.text}`);
     }
-    console.log("settings: 书坊 tab reports local MinerU —", mineru.text);
+    if (!mineru.ocrFound || /未检测|检测中|已入队/.test(mineru.ocrText)) {
+      throw new Error(`检测文字层链路 should report inline: ${JSON.stringify(mineru)}`);
+    }
+    console.log("settings: 书坊 tab reports local MinerU —", mineru.text, "· text layer —", mineru.ocrText);
     // The nav route returns home and the workshop remembers the last tool.
     await page.click('[data-route="home"]');
     await page.waitForSelector(".qbr-home-view", { timeout: 10_000 });

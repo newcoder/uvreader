@@ -94,6 +94,13 @@ window.qbrDesktop = {
     stop: () => ipcRenderer.invoke("qbr:mineru:stop"),
     clearCaches: (settings) => ipcRenderer.invoke("qbr:mineru:clear-cache", settings),
   },
+  // 设置页里的链路探测:直接返回结果,不入任务队列。
+  probe: {
+    ocr: (settings) => ipcRenderer.invoke("qbr:probe:ocr", settings),
+    docvortex: (settings) => ipcRenderer.invoke("qbr:probe:docvortex", settings),
+    formula: (settings) => ipcRenderer.invoke("qbr:probe:formula", settings),
+    calibre: (settings) => ipcRenderer.invoke("qbr:probe:calibre", settings),
+  },
   workshop: {
     list: () => ipcRenderer.invoke("qbr:workshop:list"),
     start: (request) => ipcRenderer.invoke("qbr:workshop:start", request),

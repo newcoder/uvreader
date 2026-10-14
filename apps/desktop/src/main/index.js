@@ -10,9 +10,9 @@ import { createCalibre } from "./calibre.js";
 import { createCoverRenderer } from "./cover-render.js";
 import { createDocvortex, registerDocvortexRunners } from "./docvortex.js";
 import { registerExtractRunners } from "./extract-doc.js";
-import { clearMineruCaches, createMineruLocalService } from "./mineru-local.js";
+import { clearMineruCaches, createMineruLocalService, resolveLocalBackend } from "./mineru-local.js";
 import { registerTextConvertRunner } from "./pdf-text.js";
-import { createFormulaChain, registerFormulaRunners } from "./workshop-formula.js";
+import { createFormulaChain, pdfToolScriptCommand, registerFormulaRunners, resolveMineruToken } from "./workshop-formula.js";
 import { registerBookRunners } from "./workshop-book.js";
 import { registerEpubRunners } from "./workshop-epub.js";
 import { createPdfOcr, OCR_PROBE_TIMEOUT, resolveOcrOutput } from "./pdf-ocr.js";
@@ -408,6 +408,24 @@ ipcMain.handle("qbr:launch-file", () => launchFile);
 ipcMain.handle("qbr:mineru:status", (_event, settings) => mineruLocal.status(settings || {}));
 ipcMain.handle("qbr:mineru:ensure", (_event, settings) => mineruLocal.ensure(settings || {}));
 ipcMain.handle("qbr:mineru:stop", () => mineruLocal.stop());
+// 直接在设置页里跑的链路探测(不入队):文字层 / DocVortex / 公式 / Calibre。
+ipcMain.handle("qbr:probe:ocr", (_event, settings = {}) => pdfOcr.probe(settings || {}, OCR_PROBE_TIMEOUT));
+ipcMain.handle("qbr:probe:docvortex", (_event, settings = {}) => docvortex.probe(settings || {}));
+ipcMain.handle("qbr:probe:calibre", (_event, settings = {}) => calibre.probe(settings || {}));
+ipcMain.handle("qbr:probe:formula", async (_event, settings = {}) => {
+  const value = settings || {};
+  const target = pdfToolScriptCommand(value);
+  if (target.error) return { ok: false, detail: target.error };
+  const backend = await resolveLocalBackend(value);
+  const token = resolveMineruToken(value, {});
+  if (!backend.url && !token && !backend.exe) {
+    return { ok: false, detail: "没有找到 MinerU 凭据或本地 MinerU:在「设置 → 书坊」里填。" };
+  }
+  const probe = await docvortex.probe(value);
+  if (!probe.ok) return { ok: false, detail: `DocVortex 不可用:${String(probe.detail || "").slice(0, 120)}` };
+  const backendText = backend.url ? `本地服务 ${backend.url}` : backend.exe ? "本地 CLI" : "云端凭据";
+  return { ok: true, detail: `pdf_tool 就绪 · ${backendText} · DocVortex 可用` };
+});
 ipcMain.handle("qbr:mineru:clear-cache", async (_event, settings = {}) => {
   const running = (await mineruLocal.status(settings || {})).status === "running";
   const formulaCache = path.join(userData, "formula-cache");
