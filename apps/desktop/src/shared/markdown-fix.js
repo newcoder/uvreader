@@ -111,6 +111,35 @@ export function cleanChapterTitle(value) {
   return title.replace(/\s+/g, " ").trim();
 }
 
+// 把被误判成标题的半句接回上一行:中文直接接;任一侧是拉丁字符时补一个空格。
+export function joinInlineFragment(text, fragment) {
+  const head = String(text ?? "").replace(/\s+$/, "");
+  const tail = String(fragment ?? "").trim();
+  if (!head) return tail;
+  if (!tail) return head;
+  const needSpace = /[A-Za-z0-9]$/.test(head) || /^[A-Za-z0-9]/.test(tail);
+  return `${head}${needSpace ? " " : ""}${tail}`;
+}
+
+// 标题合理性:提取工具会把「页首/页尾被截断的半句」误判成标题(用户实测:一句的
+// 最后三个字「的努力？」成了子标题)。这些规则只用来判断「不像标题」,命中就把那行
+// 当回正文,接进上一章。
+const HEADING_PARTICLE_START = /^[的地得着吗呢吧啊呀]\s*/;
+const HEADING_MID_PUNCT_END = /[，、；：,;:]$/;
+const HEADING_SHORT_SENTENCE = /^.{0,6}[。？！?!]$/;
+const HEADING_LOWERCASE_START = /^[a-z][a-z0-9'’-]*(\s|$)/;
+
+export function looksLikeHeadingTitle(value) {
+  const title = String(value || "").trim();
+  if (!title) return false;
+  if (HEADING_PARTICLE_START.test(title)) return false;
+  if (HEADING_MID_PUNCT_END.test(title)) return false;
+  if (HEADING_SHORT_SENTENCE.test(title)) return false;
+  // 纯英文里的小写开头多半是上一句的续写;含中文的标题(如「iPhone 使用指南」)照旧。
+  if (!/[\u3400-\u9fff]/.test(title) && HEADING_LOWERCASE_START.test(title)) return false;
+  return true;
+}
+
 // 提取出的 Markdown → 章节:按 1–3 级标题分;标题缺失时交给调用方按长度分块。
 // 两个去噪规则(用户反馈「目录有点乱」):
 //   ① 标题清成纯文本(见 cleanChapterTitle);
@@ -131,7 +160,17 @@ export function splitMarkdownChapters(markdown, { bookTitle = "" } = {}) {
     const heading = !inFence && line.match(/^(#{1,3})\s+(.+?)\s*$/);
     if (heading) {
       const title = cleanChapterTitle(heading[2]).slice(0, 80);
+      // 半句碎片(如页首的「的努力？」)不是标题:去掉井号,接回上一行末尾。
       if (!title) continue;
+      if (!looksLikeHeadingTitle(title)) {
+        let at = current.lines.length - 1;
+        while (at >= 0 && !String(current.lines[at]).trim()) at -= 1;
+        const last = at >= 0 ? String(current.lines[at]).trim() : "";
+        // 上一行是图片/表格/标题时不要往上粘,单独成行更安全。
+        if (at >= 0 && !/^[!|#>`]/.test(last)) current.lines[at] = joinInlineFragment(current.lines[at], heading[2]);
+        else current.lines.push(heading[2].trim());
+        continue;
+      }
       const key = title.replace(/\s+/g, "").toLowerCase();
       const last = chapters.length ? chapters[chapters.length - 1] : null;
       const previous = current.title ? current.title.replace(/\s+/g, "").toLowerCase() : (last ? last.title.replace(/\s+/g, "").toLowerCase() : "");

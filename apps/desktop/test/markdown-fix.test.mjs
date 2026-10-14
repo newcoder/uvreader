@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { cleanChapterTitle, isProseFence, joinSplitCodeFences, looksLikeProseBlock, splitMarkdownChapters, unwrapProseFences } from "../src/shared/markdown-fix.js";
+import { cleanChapterTitle, isProseFence, joinSplitCodeFences, looksLikeHeadingTitle, looksLikeProseBlock, splitMarkdownChapters, unwrapProseFences } from "../src/shared/markdown-fix.js";
 
 test("a program split across a page break is joined back into one fence", () => {
   const md = [
@@ -126,4 +126,24 @@ test("splitMarkdownChapters keeps a genuinely repeated section title with conten
   const md = ["# 参考文献", "", "甲。", "", "# 参考文献", "", "乙。"].join("\n");
   const chapters = splitMarkdownChapters(md);
   assert.equal(chapters.length, 1, "连续重名会并成一章(由面板的删除按钮处理)");
+});
+
+test("looksLikeHeadingTitle rejects sentence fragments", () => {
+  assert.equal(looksLikeHeadingTitle("的努力？"), false, "句尾被截断的碎片");
+  assert.equal(looksLikeHeadingTitle("真的吗？"), false, "很短且以句末标点结尾");
+  assert.equal(looksLikeHeadingTitle("与此相反，"), false, "以逗号结尾");
+  assert.equal(looksLikeHeadingTitle("he efforts of the committee"), false, "纯英文小写开头");
+  assert.equal(looksLikeHeadingTitle("我们能在技术条件下劫后余生吗？"), true, "书名式长标点句仍然是标题");
+  assert.equal(looksLikeHeadingTitle("§ 1 有关集合论公理化的基本原则"), true);
+  assert.equal(looksLikeHeadingTitle("1. 导引公理"), true);
+  assert.equal(looksLikeHeadingTitle("iPhone 使用指南"), true, "含中文的英文开头标题保留");
+  assert.equal(looksLikeHeadingTitle(""), false);
+});
+
+test("a fragment at the top of a page stays in the text instead of becoming a chapter", () => {
+  const md = ["# 第一章 绪论", "", "光线的传播遵从", "### 的努力？", "惠更斯原理。", "", "# 第二章 波动", "", "正文。"].join("\n");
+  const chapters = splitMarkdownChapters(md);
+  assert.deepEqual(chapters.map((chapter) => chapter.title), ["第一章 绪论", "第二章 波动"]);
+  assert.match(chapters[0].text, /遵从\s*的努力？/, "碎片留在正文里(接到上一行)");
+  assert.ok(!chapters[0].text.includes("###"), "井号去掉,不再当标题");
 });

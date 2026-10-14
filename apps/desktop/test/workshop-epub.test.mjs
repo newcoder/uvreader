@@ -462,3 +462,14 @@ test("a multi-line display formula still finds its MathML", async () => {
   assert.ok(!chapter.includes("$$"), "不能留下原始 $$ 公式");
   assert.ok(!chapter.includes("\\tag"), "\\tag 也不该出现在成品里");
 });
+
+test("a fragment title in the chapter list is merged into the previous chapter", () => {
+  const result = normalizeBookChapters([
+    { title: "第一章 绪论", text: "光线的传播遵从" },
+    { title: "的努力？", text: "惠更斯原理。" },
+    { title: "第二章 波动", text: "正文。" },
+  ], "测试书");
+  assert.deepEqual(result.chapters.map((chapter) => chapter.title), ["第一章 绪论", "第二章 波动"]);
+  assert.match(result.chapters[0].text, /的努力？\s*惠更斯原理。/, "碎片标题的文字接回上一章、正文不丢");
+  assert.equal(result.dropped, 1);
+});

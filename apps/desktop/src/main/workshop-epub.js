@@ -10,7 +10,7 @@ import { collectMathFromMarkdown, countRawFormulas, markdownToHtml, textToChapte
 import { extractMarkdown, extractionKind, splitMarkdownChapters } from "./extract-doc.js";
 import { createMathRenderer, shareFormulaHtml } from "./math-render.js";
 import { createTextLayerReader } from "./text-layer.js";
-import { cleanChapterTitle, unwrapProseFences } from "../shared/markdown-fix.js";
+import { cleanChapterTitle, joinInlineFragment, looksLikeHeadingTitle, unwrapProseFences } from "../shared/markdown-fix.js";
 import { stripPrintedToc } from "../shared/printed-toc.js";
 import { collectChars, createFontSubsetter, ensureFont, ensureFontLicense, findPairing, FONT_FAMILIES } from "./workshop-fonts.js";
 import { pairingStacks } from "../shared/book-fonts.js";
@@ -50,7 +50,6 @@ export function normalizeBookChapters(chapters, bookTitle = "") {
     list.push(String(chapter?.text || "").length);
     lengths.set(key, list);
   }
-  const seen = new Set();
   const out = [];
   let dropped = 0;
   for (const { chapter, title } of clean) {
@@ -62,7 +61,13 @@ export function normalizeBookChapters(chapters, bookTitle = "") {
       dropped += 1;
       continue;
     }
-    if (key) seen.add(key);
+    // 半句碎片当标题(旧缓存/面板里可能还留着):标题文字接回上一章末尾,正文另起一段。
+    if (title && !looksLikeHeadingTitle(title) && out.length) {
+      const previous = out[out.length - 1];
+      previous.text = `${joinInlineFragment(previous.text, title)}\n\n${text}`.trim();
+      dropped += 1;
+      continue;
+    }
     out.push({ ...chapter, title });
   }
   // 全掉光就还原(宁可留着难看,也不能出空书)。
