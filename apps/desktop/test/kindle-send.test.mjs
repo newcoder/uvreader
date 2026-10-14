@@ -8,7 +8,7 @@ import test from "node:test";
 
 import JSZip from "jszip";
 
-import { KINDLE_MAX_BYTES, createKindleSender, kindleConfig, kindleErrorHint } from "../src/main/kindle-send.js";
+import { KINDLE_MAX_BYTES, createKindleSender, kindleConfig, kindleErrorDetail, kindleErrorHint } from "../src/main/kindle-send.js";
 
 // 最小 SMTP 服务器:EHELO / AUTH PLAIN / MAIL / RCPT / DATA / QUIT,捕获整封邮件。
 // 测试只连回环地址的真实端口,走 nodemailer 的真实协议实现。
@@ -182,8 +182,29 @@ test("probe verifies the SMTP login and maps a rejected password", async () => {
 test("send asks for the missing pieces instead of throwing", async () => {
   const sender = createKindleSender({ log: () => {} });
   assert.match((await sender.send({}, { files: [] })).error, /SMTP 服务器/);
-  const noTo = await sender.send({ smtpHost: "127.0.0.1" }, { files: [] });
+  const noLogin = await sender.send({ smtpHost: "127.0.0.1", smtpUser: "me@qq.com" }, { files: [] });
+  assert.match(noLogin.error, /授权码/, "空授权码先说要填授权码,别去连服务器");
+  const noTo = await sender.send({ smtpHost: "127.0.0.1", smtpUser: "me@qq.com", kindleEmail: "" }, { files: [], password: "code" });
   assert.match(noTo.error, /Kindle 收件地址/);
-  const noFiles = await sender.send({ smtpHost: "127.0.0.1", kindleEmail: "a@kindle.com" }, { files: [] });
+  const noFiles = await sender.send({ smtpHost: "127.0.0.1", smtpUser: "me@qq.com", kindleEmail: "a@kindle.com" }, { files: [], password: "code" });
   assert.match(noFiles.error, /没有可发送的文件/);
+});
+
+test("probe names the missing account or code before dialling", async () => {
+  const sender = createKindleSender({ log: () => {} });
+  const noUser = await sender.probe({ smtpHost: "smtp.qq.com" }, { password: "code" });
+  assert.match(noUser.detail, /SMTP 账号/, "没账号就别连");
+  const noCode = await sender.probe({ smtpHost: "smtp.qq.com", smtpUser: "me@qq.com" }, {});
+  assert.match(noCode.detail, /授权码/, "没授权码时直接说要授权码");
+});
+
+test("failures carry the server line next to the hint", () => {
+  // QQ 的真实回应:四种可能原因都写在服务器那一行里。
+  const qq = kindleErrorDetail({ response: "535 Login fail. Account is abnormal, service is not open, password is incorrect" });
+  assert.match(qq, /授权码/);
+  assert.match(qq, /\(服务器:535 Login fail/, "服务器原话要带上");
+  const connect = kindleErrorDetail({ message: "connect ECONNREFUSED 127.0.0.1:465" });
+  assert.match(connect, /连不上 SMTP/);
+  assert.match(connect, /ECONNREFUSED/);
+  assert.equal(kindleErrorDetail(""), "发送失败");
 });

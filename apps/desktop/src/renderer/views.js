@@ -609,6 +609,7 @@ export function createSettingsView(leaf, options) {
     const kindleCard = root.createDiv("qbr-workshop-card");
     kindleCard.createEl("h3", { text: "发送到 Kindle" });
     kindleCard.createDiv({ cls: "qbr-workshop-hint", text: "把 EPUB / PDF / DOCX 发到 Kindle 邮箱(地址在 Amazon「个人文档设置」里);发件地址要先加入已批准列表。" });
+    kindleCard.createDiv({ cls: "qbr-workshop-hint", text: "QQ / 163 邮箱:先去网页版「设置 → 账户」开启 SMTP 服务并生成授权码(16 位),账号填完整邮箱;检测只验证登录,不发信。" });
     const kindleRows = [
       ["kindleEmail", "Kindle 收件地址", "name_xxxx@kindle.com"],
       ["smtpHost", "SMTP 服务器", "如 smtp.qq.com"],

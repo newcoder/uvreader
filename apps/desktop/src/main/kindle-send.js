@@ -45,6 +45,16 @@ export function kindleErrorHint(error) {
   return raw.split("\n")[0].slice(0, 200) || "发送失败";
 }
 
+// 检测 / 发送的失败文案:可操作提示,后面跟上服务器原话。QQ 的 535 原话里
+// 就写着「服务没开 / 授权码不对 / 登录频率受限 / 系统忙」四种可能,丢掉它
+// 用户只能看到我们猜的那一种。
+export function kindleErrorDetail(error) {
+  const hint = kindleErrorHint(error);
+  const raw = String(error?.response || error?.message || error || "").split("\n")[0].trim().slice(0, 160);
+  if (!raw || raw === hint || hint.includes(raw)) return hint;
+  return `${hint}(服务器:${raw})`;
+}
+
 function baseName(file) {
   return path.basename(String(file || "")) || "book";
 }
@@ -68,22 +78,28 @@ export function createKindleSender({
     });
   }
 
-  // 「检测 SMTP」:只做 verify(),不发信。
+  // 「检测 SMTP」:只做 verify(),不发信。缺什么先说清楚,别让用户对着一句
+  // 「认证失败」猜是网络、账号还是授权码。
   async function probe(settings = {}, { password = "" } = {}) {
     const config = kindleConfig(settings, { password });
-    if (!config.host) return { ok: false, detail: "还没填 SMTP 服务器" };
+    if (!config.host) return { ok: false, detail: "还没填 SMTP 服务器(如 smtp.qq.com)" };
+    if (!config.user) return { ok: false, detail: "还没填 SMTP 账号:要写完整邮箱地址(如 you@qq.com)" };
+    if (!config.password) {
+      return { ok: false, detail: "还没保存授权码:先在下面「授权码」框里粘上邮箱生成的授权码 / 应用专用密码(QQ / 163 不是登录密码),再点检测" };
+    }
     try {
       await transport(config).verify();
       return { ok: true, detail: `SMTP 可用 · ${config.host}:${config.port}${config.secure ? " SSL" : " STARTTLS"}` };
     } catch (error) {
-      return { ok: false, detail: kindleErrorHint(error) };
+      return { ok: false, detail: kindleErrorDetail(error) };
     }
   }
 
   // 发送:单个文件且不超限就直接附;多个文件或超限先打包成 zip(仍超限则拒发并说明)。
   async function send(settings = {}, { files = [], password = "", subject = "", note = "" } = {}) {
     const config = kindleConfig(settings, { password });
-    if (!config.host) return { ok: false, error: "还没填 SMTP 服务器(设置 → 发送到 Kindle)" };
+    if (!config.host) return { ok: false, error: "还没填 SMTP 服务器(设置 → 书坊 → 发送到 Kindle)" };
+    if (!config.user || !config.password) return { ok: false, error: "SMTP 账号或授权码没填(设置 → 书坊 → 发送到 Kindle)" };
     if (!config.to) return { ok: false, error: "还没填 Kindle 收件地址(形如 name_xxxx@kindle.com)" };
     const targets = (Array.isArray(files) ? files : []).map((file) => String(file || "")).filter((file) => file && fsImpl.existsSync(file));
     if (!targets.length) return { ok: false, error: "没有可发送的文件" };
@@ -115,7 +131,7 @@ export function createKindleSender({
       log("sent", config.to, attachments.map((item) => item.filename).join(", "), zipped ? "(zipped)" : "");
       return { ok: true, zipped, count: attachments.length, attachment: attachments[0].filename, messageId: String(info?.messageId || "") };
     } catch (error) {
-      return { ok: false, error: kindleErrorHint(error) };
+      return { ok: false, error: kindleErrorDetail(error) };
     }
   }
 
