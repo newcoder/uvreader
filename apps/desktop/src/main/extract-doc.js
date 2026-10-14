@@ -181,6 +181,32 @@ export function imageToPdf(source, outPath, { python = "python", signal, log = (
   });
 }
 
+// 多张图片 → 一个 PDF(格式转换的「图片 → PDF」预设):每张图一页,尺寸按 150dpi 换算
+// (不重采样,只影响页面物理尺寸,3000px 的扫描页≈10 英寸)。
+export const IMAGES_TO_PDF_SCRIPT = `import sys
+from PIL import Image
+out = sys.argv[1]
+pages = []
+for path in sys.argv[2:]:
+    im = Image.open(path)
+    if im.mode != "RGB":
+        im = im.convert("RGB")
+    im.info["dpi"] = (150, 150)
+    pages.append(im)
+if not pages:
+    raise SystemExit("no images to pack")
+pages[0].save(out, "PDF", save_all=True, append_images=pages[1:], dpi=(150, 150), resolution=150.0)
+`;
+
+export function imagesToPdf(images, outPath, { python = "python", signal, log = () => {}, spawnImpl = spawn } = {}) {
+  return runExtractCommand(python, ["-c", IMAGES_TO_PDF_SCRIPT, outPath, ...images.map((file) => String(file))], {
+    signal,
+    log,
+    timeoutMs: 120_000,
+    spawnImpl,
+  });
+}
+
 // 提取产物的复用标记(MinerU 慢且计费):源文件 + 模式 + 模型一致才复用。
 // 文本型再多比一个产物版本:提取器行为变了(如新增图的裁剪)就别复用旧产物。
 const EXTRACT_VERSION = 2;
@@ -505,6 +531,26 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", ca
     }
     if (!outputs.md) throw new Error("提取完成但没有找到 Markdown 产物");
     return { output: outputs.md, detail: `Markdown · ${Math.round(fs.statSync(outputs.md).size / 1024)} KB`, outputs };
+  });
+
+  // 图片 → PDF(格式转换的「图片 → PDF」预设):多张图各占一页,产物落在首图旁边。
+  workshop.register("images-pdf", async ({ payload, report, signal }) => {
+    const settings = payload?.settings || {};
+    const images = (Array.isArray(payload?.images) ? payload.images : [])
+      .map(absolute)
+      .filter((file) => file && fs.existsSync(file));
+    if (!images.length) throw new Error("请先选择图片(PNG / JPG / WebP / BMP / TIFF)");
+    const first = images[0];
+    const out = uniquePath(payload?.out
+      ? absolute(payload.out)
+      : path.join(path.dirname(first), `${path.basename(first).replace(/\.[^.]+$/, "")}.pdf`));
+    report({ label: `合成 ${images.length} 张图片`, total: images.length });
+    log("images → pdf", images.length, "→", out);
+    const result = await imagesToPdf(images, out, { python: docvortexPython(settings), signal, log, spawnImpl });
+    if (signal.aborted) throw new Error("任务已取消");
+    if (!result.ok) throw new Error(String(result.error || "合成 PDF 失败"));
+    report({ done: images.length, total: images.length });
+    return { output: out, detail: `PDF · ${images.length} 页 · ${path.basename(out)}` };
   });
 
   return { adoptPdfToolOutputs, splitMarkdownChapters };

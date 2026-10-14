@@ -196,6 +196,23 @@ test("the pdf runner hands the local MinerU program to pdf_tool and blocks dead 
   assert.equal(calls[0].options.env.PYTHONUTF8, "1");
 });
 
+test("the images-pdf runner packs pictures into one PDF next to the first", async () => {
+  const vault = tempDir("qbr-images-pdf-");
+  const files = ["a.png", "b.png"].map((name) => path.join(vault, name));
+  for (const file of files) fs.writeFileSync(file, "png");
+  const { spawnImpl, calls } = fakeSpawn((call, child) => {
+    fs.writeFileSync(call.args[2], "%PDF-1.4 packed");
+    child.emit("close", 0);
+  });
+  const { queue } = makeQueue({ probe: async () => ({ ok: true }), convert: async () => ({ ok: true }) }, spawnImpl);
+  const id = queue.start({ kind: "images-pdf", title: "图片 → PDF", payload: { images: files } });
+  await sleep(80);
+  const task = queue.snapshot().tasks.find((row) => row.id === id);
+  assert.equal(task.status, "done", task.error);
+  assert.equal(path.basename(task.output), "a.pdf", "产物落在首图旁边,用首图名");
+  assert.deepEqual(calls[0].args.slice(2), [task.output, ...files], "输出文件在前,图片按顺序在后");
+});
+
 test("the docvortex runner writes markdown, html and json next to the source", async () => {
   const vault = tempDir("qbr-extract-vault2-");
   const source = path.join(vault, "讲义.docx");

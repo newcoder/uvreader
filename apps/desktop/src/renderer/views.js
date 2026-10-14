@@ -1673,7 +1673,7 @@ export function createWorkshopView(leaf, options) {
       this._convertPreset = "convert";
       this.renderPresetMatrix(presetCard, [
         { id: "convert", label: "文档互转(DocVortex)", hint: "保持内容与版式:Office/ODF/HTML/EPUB/OFD → md / html / docx / pdf / latex", ready: true },
-        { id: "img", label: "图片 → PDF", hint: "打包成 PDF:照片成书、扫描页合成", ready: false },
+        { id: "img", label: "图片 → PDF", hint: "打包成 PDF:照片成书、扫描页合成(每张一页)", ready: true },
       ], { selected: this._convertPreset, onSelect: (id) => { this._convertPreset = id; } });
 
       const inputCard = root.createDiv("qbr-workshop-card");
@@ -1978,6 +1978,22 @@ export function createWorkshopView(leaf, options) {
       const files = [...this._convertSelection];
       if (!files.length) {
         new Notice("请先选择文件");
+        return;
+      }
+      // 「图片 → PDF」预设:选中的图片合成一个 PDF(W1-5),不经过 DocVortex。
+      if (this._convertPreset === "img") {
+        const images = files.filter((rel) => /\.(png|jpe?g|webp|gif|bmp|tiff?|jp2)$/i.test(rel));
+        if (!images.length) {
+          new Notice("图片 → PDF 需要图片文件(PNG / JPG / WebP / BMP / TIFF)");
+          return;
+        }
+        void bridge.start({
+          kind: "images-pdf",
+          title: "图片 → PDF",
+          detail: `${images.length} 张`,
+          payload: { images, settings: this.docvortexSettings() },
+        }).catch((error) => new Notice(String(error?.message || error)));
+        this.selectTool("tasks");
         return;
       }
       const format = String(this._convertFormat?.value || "markdown");

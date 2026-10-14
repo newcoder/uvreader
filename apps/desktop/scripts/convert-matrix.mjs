@@ -192,6 +192,7 @@ async function checkProduct(file, marker, { kind = "text" } = {}) {
     if (kind === "binary") {
       return size >= 1024 ? "" : `产物太小(${size}B)`;
     }
+    if (kind === "file") return "";
     if (kind === "pdf") {
       const read = await createPdfTextReader().read(file, { python: process.env.QBR_OCR_PYTHON || "python" });
       if (!read.ok) return `PDF 读不出文字:${read.error}`;
@@ -301,6 +302,17 @@ async function extraction() {
     fs.writeFileSync(file, PNG_1PX);
     return file;
   });
+  // 图片 → PDF(格式转换的「图片 → PDF」预设):每张一页。
+  const pack = path.join(srcDir, "out3", "pages.pdf");
+  fs.mkdirSync(path.dirname(pack), { recursive: true });
+  const packStarted = Date.now();
+  const packTask = await runTask({ kind: "images-pdf", title: "images → pdf", payload: { images, out: pack } });
+  if (packTask.status !== "done") {
+    record("images-pdf", "图片 → PDF", "FAIL", String(packTask.error || packTask.status).slice(0, 120), Date.now() - packStarted);
+  } else {
+    const problem = await checkProduct(packTask.output, "", { kind: "file" });
+    record("images-pdf", "图片 → PDF", problem ? "FAIL" : "PASS", problem || `${Math.round(fs.statSync(packTask.output).size / 1024)}KB`, Date.now() - packStarted);
+  }
   const cbz = path.join(srcDir, "out3", "pages.cbz");
   fs.mkdirSync(path.dirname(cbz), { recursive: true });
   const started = Date.now();
