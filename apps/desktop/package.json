@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.85.1",
-    "marked": "^18.0.13"
+    "marked": "^18.0.13",
+    "nodemailer": "^10.1.0"
   }
 }

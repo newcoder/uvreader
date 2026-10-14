@@ -47,7 +47,7 @@
 | W1-1 | Calibre 集成:检测(自定义→常见路径→PATH)、`ebook-convert`/`ebook-meta` 调用、下载引导 | `main/calibre.js`、设置段 | 检测到本机 9.15;路径可覆盖 | 单测(检测/命令) | S ✅ 已完成 |
 | W1-2 | EPUB 构建器:Doc/**TXT**/MD/图片→章节 HTML+CSS+封面+元数据+nav/NCX;**字体按需下载(乔木封面字库,`index.json` SHA-256 校验,缓存 `userData/font-cache`)+ 子集化嵌入(`pyftsubset`→TTF,子集改名 `QBR …`,OFL 随包;不可子集字体只用于封面;需 Python 的 fontTools(+brotli 读 WOFF2),缺失时回退嵌原文件/系统字体)**;**非文本源(PDF/Office)自动走提取/转换,用户无感**;封面模板渲染(offscreen 截图→JPG);EbookLib 兜底 | `main/epub-build.js`、`main/workshop-fonts.js`、`main/text-book.js`、`main/workshop-epub.js`、`main/cover-render.js` | 生成 EPUB 可在阅读器打开;字体嵌入正确、体积可控;元数据/封面/目录正确 | 单测 + e2e(打开生成物、校验嵌字与许可) | L ✅ 构建器与字体子系统已完成(封面/向导 UI 待 W1-3) |
 | W1-3 | 向导 UI + 实时预览:**快速成书面板已完成**(书稿选择 txt/md、书名/作者、12 套搭配、字号/行距/边距/主题 + 高级折叠、**正文 iframe 实时预览 + 模板封面缩略图预览**、**目录编辑:改名/合并/拆分/排序**、生成走队列;样式持久化);封面三模式与离线渲染亦完成;其余源(PDF/Office/图片)后续 | `views.js`、`base.css`、`main/cover-render.js`、`shared/book-chapters.js` | 样式改动即时可见;生成走队列 | e2e(向导→封面→目录改名→生成→打开) | L 部分完成 |
-| W1-4 | 发送到 Kindle:nodemailer、SMTP 设置、授权码 SecretStorage、≤50MB ZIP、错误映射、三处入口 | `main/kindle-send.js`、`preload`、`settings-tab.js`、书库右键 | 本地 SMTP mock 收到附件;错误提示可读 | 单测 + e2e(SMTP mock) | M |
+| W1-4 | 发送到 Kindle:nodemailer、SMTP 设置、授权码 SecretStorage、≤50MB ZIP、错误映射、三处入口 | `main/kindle-send.js`、`preload`、`settings-tab.js`、书库右键 | 本地 SMTP mock 收到附件;错误提示可读 | 单测 + e2e(SMTP mock) | M 🟡 核心完成(`kindle-send.js` + 真 SMTP 会话测试:单附件 / 多文件 ZIP / 打包后仍超限拒发 / 错误映射 / 检测;设置段、书库右键与 i18n 接着做) |
 | W1-5 | 图片→PDF(格式转换,后续);**EPUB→AZW3/MOBI、图片→CBZ/EPUB(电子书制作)✅**;PDF→EPUB(随向导) | `main/calibre.js`、`main/cbz.js`、`main/workshop-book.js`、`views.js` | 各产物可在阅读器/系统打开 | 单测 + e2e | M 部分完成 |
 | W1-6 | 收口:i18n、门禁、文档、发布说明 | 全仓 | 同 W0-6 | CI | S |
 
