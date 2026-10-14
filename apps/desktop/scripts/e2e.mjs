@@ -1401,15 +1401,24 @@ async function runCjkPdfPinScenario() {
           pre: full.slice(Math.max(0, at - 24), at), post: full.slice(at + needle.length, at + needle.length + 24), created: Date.now(),
         });
         view._renderFlowHighlights();
+        const settle = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const clickEntry = () => items[items.length - 1]?.click();
         const before = view.pager.currentPdfPageNumber();
         view.togglePanel("highlights");
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await settle(500);
         const items = [...document.querySelectorAll(".qiaomu-reader-hl-item")];
         const entry = items[items.length - 1]?.querySelector(".qiaomu-reader-hl-text");
         const entryText = entry?.textContent || "";
-        items[items.length - 1]?.click();
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        return { before, after: view.pager.currentPdfPageNumber(), items: items.length, entryText };
+        clickEntry();
+        // Under load the first click can land before the reader is ready, so poll
+        // for the page change and click once more rather than trusting one sleep.
+        let after = view.pager.currentPdfPageNumber();
+        for (let attempt = 0; attempt < 25 && after === before; attempt += 1) {
+          await settle(200);
+          after = view.pager.currentPdfPageNumber();
+          if (after === before && attempt === 14) clickEntry();
+        }
+        return { before, after, items: items.length, entryText };
       });
       if (jumped.error) throw new Error(jumped.error);
       if (!/^\[第 4 页\]/.test(jumped.entryText)) throw new Error(`the entry has no page prefix: ${jumped.entryText}`);
