@@ -241,7 +241,7 @@ export function createMineruLocalService({
           tried,
           tail: tail.slice(-200),
           detail: missing
-            ? `没找到 ${exe}:在「转换设置 → 本地 MinerU 程序」里填完整路径(例如 <venv>\\Scripts\\mineru-kit.exe),或设环境变量 MINERU_LOCAL_CMD`
+            ? `没找到 ${exe}:在「设置 → 书坊 → 本地 MinerU 程序」里填完整路径(例如 <venv>\\Scripts\\mineru-kit.exe),或设环境变量 MINERU_LOCAL_CMD`
             : String(error?.message || error),
         };
         child = null;

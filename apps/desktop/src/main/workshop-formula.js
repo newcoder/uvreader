@@ -58,7 +58,7 @@ export { resolveMineruLocalUrl } from "./mineru-local.js";
 export function friendlyPdfToolError(text) {
   const raw = String(text || "");
   if (/mineru_token|MinerU token/i.test(raw)) {
-    return "没有找到 MinerU 凭据：在「转换设置 → MinerU 凭据」填写，或设置环境变量 MINERU_API_KEY / MINERU_TOKEN（设置后需重启应用）";
+    return "没有找到 MinerU 凭据：在「设置 → 书坊 → MinerU 凭据」填写，或设置环境变量 MINERU_API_KEY / MINERU_TOKEN（设置后需重启应用）";
   }
   const lines = raw.split("\n").map((line) => line.trim()).filter(Boolean);
   return (lines[lines.length - 1] || raw).slice(0, 300);
@@ -170,10 +170,10 @@ export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000,
       const token = resolveMineruToken(settings, { readEnv });
       const backend = await resolveLocalBackend(settings, { fetchImpl, readEnv });
       if (!token && !backend.wantLocal) {
-        return { ok: false, error: "没有找到 MinerU 凭据:在「转换设置 → MinerU 凭据」里填,或配置环境变量 MINERU_API_KEY / MINERU_TOKEN;也可以启动本地 MinerU 服务并填「本地 MinerU 服务」地址。" };
+        return { ok: false, error: "没有找到 MinerU 凭据:在「设置 → 书坊 → MinerU 凭据」里填,或配置环境变量 MINERU_API_KEY / MINERU_TOKEN;也可以启动本地 MinerU 服务并填「本地 MinerU 服务」地址。" };
       }
       if (backend.wantLocal && !backend.url && !backend.exe) {
-        return { ok: false, error: "选了本地 MinerU,但服务没在跑、也找不到 mineru-kit:在「转换设置 → 本地 MinerU 程序」里填完整路径(或点「启动服务」)。" };
+        return { ok: false, error: "选了本地 MinerU,但服务没在跑、也找不到 mineru-kit:在「设置 → 书坊 → 本地 MinerU 程序」里填完整路径(或点「启动服务」)。" };
       }
       report?.({ label: backend.url ? "本地 MinerU 服务解析" : backend.exe && backend.wantLocal ? "本地 MinerU(CLI)解析" : "MinerU 云端解析" });
       log("formula chain: pdf_tool", target.command, target.script);
@@ -239,7 +239,7 @@ export function registerFormulaRunners(workshop, { chain, docvortex, vaultRoot =
     if (!resolveMineruToken(settings, { readEnv })
       && !resolveMineruLocalUrl(settings, { readEnv })
       && String(settings.mineruSource || "") !== "local") {
-      throw new Error("没有找到 MinerU 凭据或本地服务:在「转换设置 → MinerU 凭据」填写,或设置环境变量 MINERU_API_KEY / MINERU_TOKEN;本地服务填「本地 MinerU 服务」地址(设置后需重启应用)");
+      throw new Error("没有找到 MinerU 凭据或本地服务:在「设置 → 书坊 → MinerU 凭据」填写,或设置环境变量 MINERU_API_KEY / MINERU_TOKEN;本地服务填「本地 MinerU 服务」地址(设置后需重启应用)");
     }
     const result = await docvortex.probe(settings);
     if (signal.aborted) throw new Error("任务已取消");
