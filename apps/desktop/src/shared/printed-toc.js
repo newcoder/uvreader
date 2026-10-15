@@ -202,9 +202,15 @@ export function buildNavPlan({ chapters = [], tocEntries = [], pages = [], minSi
   }
   if (items.length < 2) return null; // 匹配太少就别用印刷目录,交回标题分章
   // 目录覆盖范围之外、且在两端的前言/附录:补进导航,免得整章从目录里消失。
+  // 但封面类碎片(无标题 / 纯括号版次如「(第五版)」)不进导航 —— 正文里照旧保留。
+  const coverish = (chapter) => {
+    const title = String(chapter.title || "").trim();
+    if (!title) return true;
+    return /^[（(][^）)]{1,14}[）)]$/.test(title);
+  };
   const first = items[0].chapterIndex;
   const last = items[items.length - 1].chapterIndex;
-  const before = list.filter((chapter) => chapter.index < first && !matchedIndexes.has(chapter.index));
+  const before = list.filter((chapter) => chapter.index < first && !matchedIndexes.has(chapter.index) && !coverish(chapter));
   const after = list.filter((chapter) => chapter.index > last && !matchedIndexes.has(chapter.index));
   const plan = [
     ...before.map((chapter) => ({ title: chapter.title, chapterIndex: chapter.index, level: 1 })),

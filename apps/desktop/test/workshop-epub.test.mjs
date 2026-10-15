@@ -520,3 +520,20 @@ test("upstream toc entries win over the printed page", async () => {
   assert.match(nav, /第一章 起点/);
   assert.match(nav, /第二章 终点/);
 });
+
+test("a cover fragment at the very start is dropped, a real short chapter is not", () => {
+  const result = normalizeBookChapters([
+    { title: "(第五版)", text: "<!--page:1 printed:1-->" },
+    { title: "第1章 光学简史", text: "正文。".repeat(20) },
+    { title: "1.1 开场白", text: "正文。".repeat(20) },
+    { title: "序", text: "这是很长的序言正文。".repeat(20) },
+  ], "光学");
+  assert.deepEqual(result.chapters.map((chapter) => chapter.title), ["第1章 光学简史", "1.1 开场白", "序"]);
+  assert.equal(result.frontMatter, 1);
+  // 书首之外的短小章节不动(可能是真章节,如「序」「附录」)。
+  const kept = normalizeBookChapters([
+    { title: "第1章 开头", text: "正文。".repeat(20) },
+    { title: "序", text: "短。" },
+  ], "书");
+  assert.deepEqual(kept.chapters.map((chapter) => chapter.title), ["第1章 开头", "序"]);
+});

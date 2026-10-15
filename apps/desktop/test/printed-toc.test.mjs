@@ -144,3 +144,19 @@ test("a page hint rescues an entry whose title OCR mangled", () => {
   assert.equal(withHint.matched, 3, "标题被 OCR 弄花也能靠页码命中");
   assert.equal(withoutHint.matched <= withHint.matched, true);
 });
+
+test("cover-ish chapters never lead the nav", () => {
+  const chapters = [
+    { title: "" },
+    { title: "(第五版)" },
+    { title: "Optics Fifth Edition" },
+    { title: "译者序" },
+    { title: "第一章 光学简史" },
+    { title: "第二章 波动" },
+  ];
+  const tocEntries = parsePrintedTocEntries(["第一章 光学简史 …… 1", "第二章 波动 …… 12"].join("\n"));
+  const plan = buildNavPlan({ chapters, tocEntries });
+  assert.deepEqual(plan.items.map((item) => item.title), ["Optics Fifth Edition", "译者序", "第一章 光学简史", "第二章 波动"]);
+  assert.ok(!plan.items.some((item) => /^[（(]/.test(item.title)), "括号版次条目不进导航");
+  assert.ok(!plan.items.some((item) => !item.title), "无标题章节也不进导航");
+});

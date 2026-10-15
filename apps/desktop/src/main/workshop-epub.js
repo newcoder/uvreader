@@ -33,6 +33,17 @@ export function normalizeMathMap(map) {
   return normalized;
 }
 
+// 章节的「正文量」:去掉页锚点注释、图片、Markdown 标记后的字数。
+function bodyChars(text) {
+  return String(text || "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/[#*`>|\s]/g, "").length;
+}
+
+// 版次/出版信息这类封面碎片(如「(第五版)」「第 2 版」「版权所有」):书首才有,别的地方别碰。
+const FRONT_MATTER_TITLE = /^[（(][^）)]{1,12}[）)]$|第\s*\d+\s*版|版次|印刷|出版|ISBN|定价|版权|开本|字数|书号/i;
+
 // 章节标题去噪 + 去掉「页眉/扉页」造成的重复短章:
 //   - 标题清成纯文本(脚注标记 $^{①}$ 之类不进导航);
 //   - 标题重复且正文很短(扉页/页眉/版权页)→ 丢掉;标题等于书名的也丢(书名页);
@@ -52,13 +63,19 @@ export function normalizeBookChapters(chapters, bookTitle = "") {
   }
   const out = [];
   let dropped = 0;
+  let frontMatter = 0;
+  let index = 0;
   for (const { chapter, title } of clean) {
     const key = title.replace(/\s+/g, "").toLowerCase();
     const text = String(chapter?.text || "");
     const group = key ? lengths.get(key) || [] : [];
     const titlePage = key && group.length > 1 && text.trim().length < 200 && group.some((length) => length >= 200);
-    if (titlePage || (book && key === book)) {
+    // 封面/版次这类碎片:书首前 3 章里、标题看着像版次/出版信息、且正文几乎没内容(如「(第五版)」)。
+    const junkFront = index < 3 && FRONT_MATTER_TITLE.test(title) && bodyChars(text) < 60;
+    if (titlePage || (book && key === book) || junkFront) {
       dropped += 1;
+      if (junkFront) frontMatter += 1;
+      index += 1;
       continue;
     }
     // 半句碎片当标题(旧缓存/面板里可能还留着):标题文字接回上一章末尾,正文另起一段。
@@ -66,13 +83,15 @@ export function normalizeBookChapters(chapters, bookTitle = "") {
       const previous = out[out.length - 1];
       previous.text = `${joinInlineFragment(previous.text, title)}\n\n${text}`.trim();
       dropped += 1;
+      index += 1;
       continue;
     }
     out.push({ ...chapter, title });
+    index += 1;
   }
   // 全掉光就还原(宁可留着难看,也不能出空书)。
-  if (!out.length) return { chapters: list, dropped: 0 };
-  return { chapters: out, dropped };
+  if (!out.length) return { chapters: list, dropped: 0, frontMatter: 0 };
+  return { chapters: out, dropped, frontMatter };
 }
 
 // 组装要嵌入的字体:pairing(下载字库)或 files(本机/导入字体)。
@@ -286,6 +305,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       log("book build printed toc dropped", tocStrip.dropped, "章", tocStrip.removedLines, "行");
     }
     if (normalized.dropped) log("book build repeated headers dropped", normalized.dropped, "章");
+    if (normalized.frontMatter) log("book build cover fragments dropped", normalized.frontMatter, "章");
 
     // 公式(LaTeX → MathML)与图片(收进 EPUB):预览与成品都靠这两步。
     // 公式清单必须与下面 markdownToHtml 的请求完全一致:用同一个渲染器、按同样的
