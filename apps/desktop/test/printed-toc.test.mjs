@@ -238,6 +238,40 @@ test("page markers in the outline are not a table of contents", () => {
   assert.equal(real.entries.length, 3);
 });
 
+test("front-matter entries with no chapter land at the front, not mid-book", () => {
+  // 实测《数学在科学和社会中的作用》:这本书的提取没有页锚点,「版权/前言/目录」在正文里
+  // 也没有对应标题,于是按「全书相对位置」扑到了第一篇论文的中间(版权 → 1.导引公理)。
+  // 它们的页码在所有能对上的条目之前 → 属于前置页,应该落在书首。
+  const chapters = [
+    { title: "译者序" },
+    { title: "集合论的一种公理化" },
+    { title: "I. 公理系统" },
+    { title: "§1 基本原则" },
+    { title: "形式主义的数学基础" },
+    { title: "经济学家" },
+  ];
+  const pages = [0, 0, 0, 0, 0, 0]; // 这本书没有页锚点:章节页码全 0
+  const tocEntries = [
+    { label: "封面", key: "封面", page: 1, level: 1 },
+    { label: "书名", key: "书名", page: 2, level: 1 },
+    { label: "版权", key: "版权", page: 3, level: 1 },
+    { label: "前言", key: "前言", page: 4, level: 1 },
+    { label: "目录", key: "目录", page: 16, level: 1 },
+    { label: "集合论的一种公理化", key: "集合论的一种公理化", page: 17, level: 1 },
+    { label: "形式主义的数学基础", key: "形式主义的数学基础", page: 59, level: 1 },
+    { label: "经济学家", key: "经济学家", page: 68, level: 1 },
+  ];
+  const plan = buildNavPlan({ chapters, tocEntries, pages, pageTolerance: 2, pageFirst: true, orderFallback: true });
+  const target = (label) => plan.items.find((item) => item.title === label)?.chapterIndex;
+  assert.equal(target("集合论的一种公理化"), 1);
+  assert.equal(target("形式主义的数学基础"), 4, "正文有同名标题 → 精确命中");
+  assert.equal(target("经济学家"), 5);
+  // 前置页条目:都落在书首的空章上(≤ 第一篇论文那一章),不会扑到论文中间。
+  for (const label of ["封面", "书名", "版权", "前言", "目录"]) {
+    assert.ok(target(label) <= 1, `${label} 落在书首(实际 ${target(label)})`);
+  }
+});
+
 test("chaptersToNavItems keeps the heading hierarchy and anchors the outline titles", () => {
   const chapters = [
     { title: "红的自传", level: 2, text: "正文" },
@@ -341,7 +375,7 @@ test("an entry with a missing or bogus page lands by relative position", () => {
     { label: "第一章", key: "第一章", page: 10, level: 1 },
     { label: "第二章", key: "第二章", page: 20, level: 1 },
     { label: "补遗", key: "补遗", page: 0, level: 1 },
-    { label: "附录", key: "附录", page: 5, level: 1 }, // 页码是错的(实际在中间)
+    { label: "附录", key: "附录", page: 25, level: 1 }, // 页码写错了(实际在两章之间)
     { label: "第四章", key: "第四章", page: 40, level: 1 },
   ];
   const plan = buildNavPlan({ chapters, tocEntries, pages, pageTolerance: 2, pageFirst: true, orderFallback: true });

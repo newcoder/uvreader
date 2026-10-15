@@ -128,6 +128,25 @@ test("splitMarkdownChapters keeps a genuinely repeated section title with conten
   assert.equal(chapters.length, 1, "连续重名会并成一章(由面板的删除按钮处理)");
 });
 
+test("splitMarkdownChapters keeps a title-only chapter when the toc asks for it", () => {
+  // 《数学在科学和社会中的作用》:「形式主义的数学基础 ① (1931)」后面紧跟「I」,
+  // 中间没有正文 → 空章被丢掉 → 目录条目找不到落点(实测跳到「III」)。目录点名的
+  // 标题(keepTitle)要保留成章,就是它的标题页。
+  const markdown = [
+    "# 形式主义的数学基础 $^{①}$ (1931)",
+    "# I",
+    "第一节的正文。",
+    "# 别的标题",
+  ].join("\n");
+  const plain = splitMarkdownChapters(markdown);
+  assert.deepEqual(plain.map((chapter) => chapter.title), ["I"], "默认仍然丢掉空章(末尾那个没正文的标题也一样)");
+  const kept = splitMarkdownChapters(markdown, { keepTitle: (title) => title.startsWith("形式主义的数学基础") });
+  assert.deepEqual(kept.map((chapter) => chapter.title), ["形式主义的数学基础 ① (1931)", "I"]);
+  assert.equal(kept[0].text, "", "标题页没有正文,但要留在章节表里当落点");
+  const levels = splitMarkdownChapters("# 第一章 光学简史\n正文一\n## 1.1 开场白\n正文二", {});
+  assert.deepEqual(levels.map((chapter) => chapter.level), [1, 2], "标题层级带出来(h1 → 1、h2 → 2)");
+});
+
 test("looksLikeHeadingTitle rejects sentence fragments", () => {
   assert.equal(looksLikeHeadingTitle("的努力？"), false, "句尾被截断的碎片");
   assert.equal(looksLikeHeadingTitle("真的吗？"), false, "很短且以句末标点结尾");

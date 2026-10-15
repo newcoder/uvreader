@@ -447,6 +447,20 @@ export function buildNavPlan({ chapters = [], tocEntries = [], pages = [], minSi
     // 其余对不上的条目:**在相邻两个锚点之间的间隙里**落位(前一条已对齐的目录 →
     // 后一条已对齐的目录之间的那些章节),再按页码/相对位置挑最近的。这样它只会
     // 落在「它本来就该在的那一段」,不会跑到书的另一头。
+    // 先记下已对齐条目的页码范围:在它之前/之后的条目属于前置页/后置页。
+    let anchoredLow = 0;
+    let anchoredHigh = 0;
+    let firstAssigned = -1;
+    let lastAssigned = -1;
+    for (let index = 0; index < entries.length; index += 1) {
+      if (assigned[index] < 0) continue;
+      if (firstAssigned < 0 || assigned[index] < firstAssigned) firstAssigned = assigned[index];
+      if (assigned[index] > lastAssigned) lastAssigned = assigned[index];
+      const page = Number(entries[index].page) || 0;
+      if (!(page > 0)) continue;
+      if (!anchoredLow || page < anchoredLow) anchoredLow = page;
+      if (page > anchoredHigh) anchoredHigh = page;
+    }
     for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
       if (assigned[entryIndex] >= 0) continue;
       let lowerEntry = -1;
@@ -458,6 +472,33 @@ export function buildNavPlan({ chapters = [], tocEntries = [], pages = [], minSi
       // 落点参考用「相对位置」:由相邻两个已对齐条目把页码插值出来(页码偏移在插值里
       // 抵消),而不是拿条目自己的绝对页码去比 —— 原书目录的页码常常整体偏、顺序却是对的。
       const target = interpolatePage(entries, entryIndex, lowerEntry, upperEntry);
+      // 前置页/后置页条目(封面/书名/版权/前言/目录、或封底/索引/答案):正文里常常根本
+      // 没有对应标题,页码又在所有能对上的条目之外。这时**不能**按「第一块空地」占 ——
+      // 那会占掉正文条目要用的章(实测:版权→「1.导引公理」)。规则:只落在自己那一侧、
+      // 且在第一条/最后一条已对齐条目**之前/之后**的空章上;没有空章就与最靠边的已对齐
+      // 条目共用一个落点(读者点「版权」只会到书首,不会落到论文中间)。
+      if (target > 0 && anchoredLow > 0 && target < anchoredLow) {
+        let pickIndex = -1;
+        for (const candidate of list) {
+          if (used.has(candidate.index)) continue;
+          if (firstAssigned >= 0 && candidate.index >= firstAssigned) break;
+          pickIndex = candidate.index;
+          break;
+        }
+        claim(entryIndex, pickIndex >= 0 ? pickIndex : firstAssigned);
+        continue;
+      }
+      if (target > 0 && anchoredHigh > 0 && target > anchoredHigh) {
+        let pickIndex = -1;
+        for (let index = list.length - 1; index >= 0; index -= 1) {
+          if (used.has(list[index].index)) continue;
+          if (lastAssigned >= 0 && list[index].index <= lastAssigned) break;
+          pickIndex = list[index].index;
+          break;
+        }
+        claim(entryIndex, pickIndex >= 0 ? pickIndex : lastAssigned);
+        continue;
+      }
       const distanceOf = (candidate) => {
         if (target > 0 && candidate.page > 0) return Math.abs(candidate.page - target);
         return Math.abs(candidate.index - expectedOf(entryIndex)) * (pageTolerance + 1);

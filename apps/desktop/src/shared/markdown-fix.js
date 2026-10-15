@@ -167,15 +167,19 @@ export function looksLikeHeadingTitle(value) {
 // 两个去噪规则(用户反馈「目录有点乱」):
 //   ① 标题清成纯文本(见 cleanChapterTitle);
 //   ② 连续的重复标题不当新章(页眉/书名在每页重复,提取出来会变成一串同名章节)。
-export function splitMarkdownChapters(markdown, { bookTitle = "" } = {}) {
+export function splitMarkdownChapters(markdown, { bookTitle = "", keepTitle = null } = {}) {
   const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
   const chapters = [];
   const book = cleanChapterTitle(bookTitle).replace(/\s+/g, "").toLowerCase();
-  let current = { title: "", lines: [] };
+  let current = { title: "", lines: [], level: 1 };
   let inFence = false;
   const push = () => {
     const text = current.lines.join("\n").trim();
-    if (text) chapters.push({ title: current.title, text, level: current.level || 1 });
+    // 标题后面紧跟下一级标题时,这一章是「空的」——但目录条目(如文章标题
+    // 《形式主义的数学基础》《关于 EDVAC 报告的第一份草稿》)指的就是这里,丢了它
+    // 目录条目就找不到落点。所以目录点名要的标题,空章也保留(就是它的标题页)。
+    const keepEmpty = !text && current.title && typeof keepTitle === "function" && keepTitle(current.title) === true;
+    if (text || keepEmpty) chapters.push({ title: current.title, text, level: current.level || 1 });
     current = { title: "", lines: [], level: 1 };
   };
   for (let index = 0; index < lines.length; index += 1) {

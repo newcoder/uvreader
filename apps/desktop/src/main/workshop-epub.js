@@ -329,7 +329,22 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       text = extracted.markdown;
       upstreamToc = Array.isArray(extracted.tocEntries) ? extracted.tocEntries : [];
       baseDir = path.dirname(extracted.path || source);
-      const found = splitMarkdownChapters(text, { bookTitle: title });
+      const found = splitMarkdownChapters(text, {
+        bookTitle: title,
+        // 目录点名的标题(如文章标题)即使正文为空也保留成章 —— 否则条目没有落点。
+        // 判据与导航对齐一致:标题键相同、或标题键是目录键的超集(「形式主义的数学基础
+        // ① (1931)」 vs 目录里的「形式主义的数学基础」)。
+        keepTitle: (value) => {
+          const key = chapterKey(String(value || ""));
+          if (!key) return false;
+          for (const outlineKey of outlineEntryKeys) {
+            if (!outlineKey) continue;
+            if (key === outlineKey) return true;
+            if (key.startsWith(outlineKey) && outlineKey.length >= Math.max(3, key.length * 0.5)) return true;
+          }
+          return false;
+        },
+      });
       rawChapters = (found.length
         ? found.map((chapter, index) => ({ title: chapter.title || `第 ${index + 1} 章`, text: chapter.text }))
         : textToChapters(text, { markdown: true, title }).map((chapter) => ({ title: chapter.title, text: chapter.text })))
@@ -366,7 +381,8 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
 
     // 标题去噪 + 去掉页眉/扉页重复短章(提供的章节也照办:面板传过来的标题可能带
     // 脚注标记 $^{①}$,导航里就会看到这些符号)。
-    const normalized = normalizeBookChapters(rawChapters, title, { keepKeys: new Set(outlineEntries.map((entry) => entry.key)) });
+    const outlineEntryKeys = new Set(outlineEntries.map((entry) => entry.key));
+    const normalized = normalizeBookChapters(rawChapters, title, { keepKeys: outlineEntryKeys });
     const tocStrip = stripPrintedToc(normalized.chapters, { enabled: payload?.dropPrintedToc !== false });
     const bookChapters = tocStrip.chapters;
     if (tocStrip.dropped || tocStrip.removedLines) {
