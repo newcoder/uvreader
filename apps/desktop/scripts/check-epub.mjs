@@ -10,6 +10,7 @@ import path from "node:path";
 import JSZip from "jszip";
 
 import { countRawFormulas } from "../src/main/text-book.js";
+import { auditNav } from "../src/shared/epub-nav-audit.js";
 
 const file = process.argv[2];
 const asJson = process.argv.includes("--json");
@@ -61,14 +62,27 @@ for (const page of pages) {
   }
 }
 
-const ok = report.unresolved === 0 && report.rawFormulas === 0;
+// 导航目录审计:链接指得着吗、层级合法吗、nav 与 NCX 一致吗。
+const navName = names.find((name) => /nav\.xhtml$/i.test(name));
+const ncxName = names.find((name) => /toc\.ncx$/i.test(name));
+const chapters = names.filter((name) => /chapter-[^/]+\.x?html$/i.test(name));
+const navAudit = auditNav({
+  nav: navName ? await zip.file(navName).async("string") : "",
+  ncx: ncxName ? await zip.file(ncxName).async("string") : "",
+  fileNames: names,
+  chapterFiles: chapters,
+});
+
+const ok = report.unresolved === 0 && report.rawFormulas === 0 && navAudit.ok;
 if (asJson) {
-  console.log(JSON.stringify({ ...report, ok }, null, 2));
+  console.log(JSON.stringify({ ...report, nav: navAudit, ok }, null, 2));
 } else {
   console.log(`${ok ? "✓" : "✗"} ${report.file}  ${(report.bytes / 1024 / 1024).toFixed(1)}MB`);
   console.log(`  章节 ${report.chapters} · 图片 ${report.images}(断链 ${report.unresolved}) · 字体 ${report.fonts}`);
   console.log(`  MathML ${report.mathml}(行内 ${report.inlineMath}) · 未渲染公式 ${report.rawFormulas}`);
+  console.log(`  导航 ${navAudit.stats.entries} 条(最大层级 ${navAudit.stats.maxDepth} · 覆盖章节 ${navAudit.stats.linkedChapters} · 未进导航 ${navAudit.stats.unlinkedChapters} · 重复标题 ${navAudit.stats.duplicateLabels})`);
   for (const sample of report.missingImages) console.log(`  断链: ${sample}`);
   for (const sample of report.rawSamples) console.log(`  未渲染: ${sample}`);
+  for (const problem of navAudit.problems.slice(0, 6)) console.log(`  导航: ${problem}`);
 }
 process.exit(ok ? 0 : 1);
