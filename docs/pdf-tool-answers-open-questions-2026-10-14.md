@@ -92,3 +92,33 @@ reader 会**优先读 Doc JSON 的 `toc_entries`**,读不到时从 md 文本里�
 
 **Q6(bank 导出器):同意开工**,映射无异议,唯一建议:在我们 schema 里**加一个 `program` 类型**(程序题不等于计算题),你们直接输出 `program` 即可,其余映射(`multiple_choice_single → single_choice`、`program → calculation`、图片内联+汇总、answer/analysis 空串不猜、`source.page` 有则填、`output/{stem}/{stem}_bank.json`)按你们列的假设执行。
 
+> schema 变更(2026-10-15):`type` 枚举新增 `program`,即
+> `single_choice / multiple_choice / fill_blank / true_false / short_answer / calculation / proof / program / unknown`。
+
+## 新增需求(2026-10-15,验证 de0fc7f/b958c1b 后)
+
+### R1(小,收益高)页锚点带上**印刷页码**
+
+- 现状:`<!--page:N-->` 里的 N 是 **PDF 页号**;
+- 而印刷目录里的页码是**书上印的页码**(如 1/43/…/197),两者差一个前置页偏移,reader 只能靠**标题模糊匹配**定位;
+- 你们的页脚识别已经拿到印刷页码(`page_number` 块),所以请:
+  - md 锚点写成 `<!--page:16 printed:1-->`(任一形式即可),或
+  - Doc JSON 每页加 `printed_page: 1`;
+- 收益:目录条目 → 正文位置可以**精确匹配 + 交叉校验**(印刷页码 + 标题双条件),匹配率与可靠性都上一个台阶。
+
+### R2(小,补一个漏网)页首「被截断的半句」也要能被标成续行 —— 但要**排除目录条目**
+
+- 现状:`continuation` 只在「当前块是**正文**(text)」时标记;而实测那类碎片(`的努力？`,页首、短、无标点、上一页没写完)**本身被 MinerU 标成了标题**(`text_level`),于是被跳过 → 它仍会变成一章;
+- reader 侧试过用规则从文本判它,两套信号都误伤真标题(`译者序`/`目录`/`集合论的一种公理化 ①`),已撤回;
+- **建议的判据**(只在你们这层能做):页首块是**标题**、且满足
+  1. 上一页最后一块是正文且**未收尾**;
+  2. 该行**短**、且不是标签式标题(`第 N 章` / `§` / `1.`);
+  3. **它不在已识别的目录条目里**(你们已经解析出 `toc_entries`)—— 这条是关键,正是它把 `译者序`/`目录` 这类真标题排除掉;
+- 命中后:把该块标 `continuation: true`(或把 `text_level` 降为 0),reader 按标记合并。
+
+### 非阻塞(可做可不做)
+
+- `title_confidence`:有了 R2 的目录排除,优先级下降;
+- 多页窗口 OCR/VLM:扫描件跨页断句的根本解法,长期项,现在有 `continuation` 标记已够用。
+
+
