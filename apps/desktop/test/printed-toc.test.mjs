@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildNavPlan, chapterNumber, chapterStartPages, estimatePageOffset, fillPageGaps, interpolatePage, isPrintedTocChapter, lastPdfPageOf, lastPrintedPageOf, looksLikeTocEntry, normalizeNavLevels, parsePrintedTocEntries, printedPageOf, stripPrintedToc, stripTocBlock, tocRatio } from "../src/shared/printed-toc.js";
+import { buildNavPlan, chapterNumber, chapterStartPages, estimatePageOffset, fillPageGaps, interpolatePage, isPrintedTocChapter, lastPdfPageOf, lastPrintedPageOf, looksLikeTocEntry, normalizeNavLevels, parsePrintedTocEntries, printedPageOf, stripPageMarkers, stripPrintedToc, stripTocBlock, tocRatio } from "../src/shared/printed-toc.js";
+import { chaptersToNavItems } from "../src/main/workshop-epub.js";
 import { outlineToTocEntries } from "../src/main/pdf-outline.js";
 
 const tocText = [
@@ -207,6 +208,53 @@ test("outlineToTocEntries keeps the PDF's own levels", () => {
     ["1.1.1 细节", 18, 3],
   ]);
   assert.equal(entries[0].key, "光学简史");
+});
+
+test("page markers in the outline are not a table of contents", () => {
+  // 《安妮·卡森诗选》的书签:作品名 + 每 20 页一个「001/020/…」页码书签。
+  const entries = [
+    { label: "封面", page: 1, level: 1 },
+    { label: "红的自传", page: 2, level: 1 },
+    { label: "001", page: 2, level: 2 },
+    { label: "020", page: 21, level: 2 },
+    { label: "040", page: 41, level: 2 },
+    { label: "丈夫之美", page: 226, level: 1 },
+    { label: "001", page: 226, level: 2 },
+    { label: "020", page: 245, level: 2 },
+    { label: "040", page: 265, level: 2 },
+  ];
+  const stripped = stripPageMarkers(entries);
+  assert.equal(stripped.ruler, true, "标尺占多数 → 整份大纲不是目录");
+  assert.deepEqual(stripped.entries.map((entry) => entry.label), ["封面", "红的自传", "丈夫之美"]);
+  assert.equal(stripped.dropped, 6);
+  // 真正的大纲(标题+页码)不受影响:数字只要不是页码标尺就不动。
+  const real = stripPageMarkers([
+    { label: "第一章 光学简史", page: 17, level: 1 },
+    { label: "1.1 开场白", page: 17, level: 2 },
+    { label: "第二章 波动", page: 29, level: 1 },
+  ]);
+  assert.equal(real.ruler, false);
+  assert.equal(real.dropped, 0);
+  assert.equal(real.entries.length, 3);
+});
+
+test("chaptersToNavItems keeps the heading hierarchy and anchors the outline titles", () => {
+  const chapters = [
+    { title: "红的自传", level: 2, text: "正文" },
+    { title: "I 革律翁", level: 2, text: "正文" },
+    { title: "红肉：斯特西克洛斯改变了什么？", level: 1, text: "正文" },
+    { title: "附录A", level: 2, text: "正文" },
+  ];
+  const items = chaptersToNavItems(chapters, {
+    anchors: [{ label: "红的自传", page: 2, level: 1 }, { label: "丈夫之美", page: 226, level: 1 }],
+    pages: [2, 5, 10, 400],
+  });
+  // 「红的自传」正文有同名标题 → 提为 1 级;「丈夫之美」正文没有 → 按页码相对位置
+  // (226 在 2..400 里约 56%)落到第 3 章之前,同样是 1 级;h1/h2 层级原样保留。
+  assert.deepEqual(items.map((item) => `${item.title}@${item.level}`), [
+    "红的自传@1", "I 革律翁@2", "红肉：斯特西克洛斯改变了什么？@1", "丈夫之美@1", "附录A@2",
+  ]);
+  assert.equal(items.find((item) => item.title === "丈夫之美").file, "chapter-003.xhtml", "没有同名标题的作品名按页码相对位置落位");
 });
 
 test("chapterStartPages takes the page the chapter starts on", () => {

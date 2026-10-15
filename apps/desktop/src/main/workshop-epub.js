@@ -11,7 +11,7 @@ import { extractMarkdown, extractionKind, splitMarkdownChapters } from "./extrac
 import { createMathRenderer, shareFormulaHtml } from "./math-render.js";
 import { createTextLayerReader } from "./text-layer.js";
 import { cleanChapterTitle, joinInlineFragment, looksLikeHeadingTitle, unwrapProseFences } from "../shared/markdown-fix.js";
-import { buildNavPlan, chapterStartPages, fillPageGaps, isPrintedTocChapter, lastPrintedPageOf, normalizeNavLevels, parsePrintedTocEntries, printedPageOf, stripPrintedToc } from "../shared/printed-toc.js";
+import { buildNavPlan, chapterKey, chapterStartPages, fillPageGaps, isPrintedTocChapter, lastPrintedPageOf, normalizeNavLevels, parsePrintedTocEntries, printedPageOf, stripPageMarkers, stripPrintedToc, tocKey } from "../shared/printed-toc.js";
 import { outlineToTocEntries } from "./pdf-outline.js";
 import { collectChars, createFontSubsetter, ensureFont, ensureFontLicense, findPairing, FONT_FAMILIES } from "./workshop-fonts.js";
 import { pairingStacks } from "../shared/book-fonts.js";
@@ -165,6 +165,43 @@ export function firstMarkdownImage(text, sourceDir) {
 }
 
 // 封面:指定图片 / 自动首图 / 模板生成(缺图时回退模板)。
+// 没有可用目录(无大纲,或大纲只是页码标尺)时用正文标题当导航:mardown 的标题层级
+// (h1/h2)就是导航层级。大纲里的顶层条目(作品名)当锚点:正文有同名标题就把它提为 1 级;
+// 没有(如第二部作品名只在书签里)就按页码的**相对位置**插到对应章节 —— 页码顺序是对的,
+// 相对位置可以信(用户口径)。《安妮·卡森诗选》正是这种:书签是页码标尺,正文标题才是目录。
+export function chaptersToNavItems(chapters, { anchors = [], pages = [] } = {}) {
+  const list = Array.isArray(chapters) ? chapters : [];
+  const items = [];
+  list.forEach((chapter, index) => {
+    const title = String(chapter?.title || "").trim();
+    if (!title) return;
+    items.push({ title, chapterIndex: index, level: Math.min(3, Math.max(1, Number(chapter?.level) || 1)) });
+  });
+  const known = (Array.isArray(pages) ? pages : []).filter((value) => value > 0);
+  for (const anchor of Array.isArray(anchors) ? anchors : []) {
+    const label = String(anchor?.label || "").trim();
+    if (!label) continue;
+    const key = tocKey(label);
+    const hit = items.find((item) => chapterKey(item.title) === key);
+    if (hit) {
+      hit.level = 1;
+      continue;
+    }
+    const page = Number(anchor?.page) || 0;
+    if (!(page > 0) || known.length < 4 || !list.length) continue;
+    const ratio = known[known.length - 1] > known[0] ? (page - known[0]) / (known[known.length - 1] - known[0]) : 1;
+    const index = Math.min(list.length - 1, Math.max(0, Math.round(ratio * (list.length - 1))));
+    items.push({ title: label, chapterIndex: index, level: 1 });
+  }
+  return items
+    .sort((a, b) => a.chapterIndex - b.chapterIndex || a.level - b.level)
+    .map((item) => ({
+      title: item.title,
+      file: `chapter-${String(item.chapterIndex + 1).padStart(3, "0")}.xhtml`,
+      level: item.level,
+    }));
+}
+
 export async function resolveCover({ payload = {}, title = "", author = "", markdownText = "", sourceDir = "", pairing = null, cacheDir = "", coverRenderer = null, loadImage = null, log = () => {} } = {}) {
   const cover = payload.cover || {};
   const mode = String(cover.mode || "none");
@@ -302,17 +339,30 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
 
     // 目录优先级第一步:**PDF 自带大纲**(作者给的三级结构)。先读它,好让后面的章节过滤
     // 不至于误删「目录认领过的章节」(用户实测的缺章就是这么来的)。
+    // 有的书(如《安妮·卡森诗选》)的 PDF 书签只是「每 20 页一个」的**页码标尺**,
+    // 标题就是 001/020/…:那不是目录,过滤掉并改用正文标题(否则导航是一串数字)。
     let outlineEntries = [];
+    let outlineIsPageRuler = false;
     if (outlineReader && /\.pdf$/i.test(String(source))) {
       const outline = await outlineReader.read(source, {
         python: String(settings.ocrPython || "").trim() || "python",
         workDir: path.join(workRoot, "outline"),
         signal,
       });
-      if (outline.ok) outlineEntries = outlineToTocEntries(outline.outline);
-      else log("book build pdf outline skipped", outline.error);
+      if (outline.ok) {
+        const stripped = stripPageMarkers(outlineToTocEntries(outline.outline));
+        outlineEntries = stripped.entries;
+        outlineIsPageRuler = stripped.ruler;
+        if (stripped.dropped) log("book build outline page markers dropped", stripped.dropped, "条", stripped.ruler ? "(整份大纲是页码标尺)" : "");
+      } else {
+        log("book build pdf outline skipped", outline.error);
+      }
       if (signal.aborted) throw new Error("任务已取消");
     }
+    // 大纲只剩两三条(或本来就是页码标尺)时,它撑不起导航 —— 留着当「顶层锚点」,
+    // 让正文标题来当目录(作品名 → 各节)。
+    const outlineAnchors = outlineEntries.length >= 2 && outlineEntries.length <= 8 ? outlineEntries : [];
+    if (outlineIsPageRuler || outlineEntries.length < 4) outlineEntries = [];
 
     // 标题去噪 + 去掉页眉/扉页重复短章(提供的章节也照办:面板传过来的标题可能带
     // 脚注标记 $^{①}$,导航里就会看到这些符号)。
@@ -346,6 +396,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     const tocText = normalized.chapters.filter((chapter) => isPrintedTocChapter(chapter)).map((chapter) => chapter.text).join("\n");
     const tocSource = outlineEntries.length ? "outline" : upstreamToc.length ? "upstream" : tocText ? "printed" : "";
     let navItems = null;
+    let navSource = "";
     let navDropped = 0;
     if (tocSource) {
       const entries = tocSource === "outline" ? outlineEntries : tocSource === "upstream" ? upstreamToc : parsePrintedTocEntries(tocText);
@@ -372,11 +423,21 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
           if (current.length <= 2 && item.title) chapter.title = item.title;
         }
         navDropped = plan.dropped.length;
+        navSource = tocSource;
         log("book build nav from toc", tocSource, plan.matched, "entries", navDropped, "dropped");
         if (plan.dropped.length) log("book build nav dropped", plan.dropped.slice(0, 10).map((label) => String(label).slice(0, 30)).join(" / "));
       } else {
         log("book build nav from toc skipped", "matched too few entries");
       }
+    }
+    // 没有可用目录(没有大纲 / 大纲只是页码标尺 / 大纲对不上正文):用正文标题当导航,
+    // 大纲剩下的顶层条目(作品名)当锚点。这样《安妮·卡森诗选》这类书得到的是
+    // 「作品 → 各节」的目录,而不是一串页码。
+    if (!navItems) {
+      const pdfPages = fillPageGaps(chapterStartPages(normalized.chapters).filter((_page, index) => tocStrip.keptIndexes.has(index)));
+      navItems = normalizeNavLevels(chaptersToNavItems(bookChapters, { anchors: outlineAnchors, pages: pdfPages }));
+      navSource = "headings";
+      log("book build nav from headings", navItems.length, "条", outlineAnchors.length ? `(另用大纲顶层 ${outlineAnchors.length} 条当锚点)` : "");
     }
 
     const chaptersWithHtml = bookChapters.map((chapter) => ({
@@ -447,7 +508,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     const formulaCount = mathMap ? [...mathMap.values()].filter(Boolean).length : 0;
     return {
       output: out,
-      detail: `EPUB · ${result.chapters} 章 · ${Math.round(result.bytes / 1024)} KB${fonts.length ? ` · ${fonts.length} 款字体` : ""}${images.length ? ` · ${images.length} 图` : ""}${formulaCount ? ` · ${formulaCount} 公式` : ""}${tocStrip.dropped ? ` · 去印刷目录 ${tocStrip.dropped} 章` : ""}${navItems ? ` · 目录${tocSource === "outline" ? "来自 PDF 大纲" : tocSource === "upstream" ? "来自上游" : "来自印刷目录"} ${navItems.length} 条${navDropped ? `(丢弃 ${navDropped})` : ""}` : ""}${normalized.dropped ? ` · 去重复页眉 ${normalized.dropped} 章` : ""}${unrendered ? ` · 未渲染 ${unrendered}` : ""}`,
+      detail: `EPUB · ${result.chapters} 章 · ${Math.round(result.bytes / 1024)} KB${fonts.length ? ` · ${fonts.length} 款字体` : ""}${images.length ? ` · ${images.length} 图` : ""}${formulaCount ? ` · ${formulaCount} 公式` : ""}${tocStrip.dropped ? ` · 去印刷目录 ${tocStrip.dropped} 章` : ""}${navItems ? ` · 目录${navSource === "outline" ? "来自 PDF 大纲" : navSource === "upstream" ? "来自上游" : navSource === "printed" ? "来自印刷目录" : "来自正文标题"} ${navItems.length} 条${navDropped ? `(丢弃 ${navDropped})` : ""}` : ""}${normalized.dropped ? ` · 去重复页眉 ${normalized.dropped} 章` : ""}${unrendered ? ` · 未渲染 ${unrendered}` : ""}`,
     };
   });
 }

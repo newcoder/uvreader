@@ -133,7 +133,7 @@ test("a printed toc drives the nav and a fragment never reaches it", async () =>
 
 test("without a printed toc the nav comes from the chapter titles", async () => {
   const { nav, audit, task } = await buildFromMarkdown(body);
-  assert.ok(!/目录来自/.test(task.detail), "没有目录页时结果里不写导航来源");
+  assert.match(task.detail, /目录来自正文标题/, "没有目录页时写明导航来自正文标题");
   const labels = parseNav(nav).entries.map((entry) => entry.label);
   assert.ok(labels.includes("第一章 光学简史"));
   assert.ok(labels.includes("第二章 波动"));

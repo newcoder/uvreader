@@ -289,6 +289,52 @@ export function estimatePageOffset(list, entries, pairs) {
   return deltas[Math.floor(deltas.length / 2)];
 }
 
+// 大纲里的「页码标尺」条目:《安妮·卡森诗选》的 PDF 书签就是每 20 页一个,标题写着
+// 001 / 020 / …(各作品从头编号),它们是 PDF 阅读器的翻页书签,**不是目录条目**。
+// 判据:标题纯数字、同一节里按固定步长递增、且与自己页码的差在同节里基本恒定。
+export function isPageMarkerEntry(entry) {
+  return /^\d{1,4}$/.test(String(entry?.label || "").trim());
+}
+
+export function stripPageMarkers(entries) {
+  const list = Array.isArray(entries) ? entries : [];
+  const markers = [];
+  let section = -1;
+  for (let index = 0; index < list.length; index += 1) {
+    const entry = list[index];
+    if (!isPageMarkerEntry(entry)) {
+      if ((Number(entry?.level) || 1) === 1) section += 1;
+      continue;
+    }
+    markers.push({ index, section, label: Number(String(entry.label).trim()), page: Number(entry.page) || 0 });
+  }
+  // 每节里检查「标签递增 + 页码跟着递增 + 差值恒定」。
+  const bySection = new Map();
+  for (const marker of markers) {
+    if (!bySection.has(marker.section)) bySection.set(marker.section, []);
+    bySection.get(marker.section).push(marker);
+  }
+  const plain = new Set();
+  let rulerSections = 0;
+  for (const [, group] of bySection) {
+    const ordered = [...group].sort((a, b) => a.label - b.label);
+    const pagesKnown = ordered.every((marker) => marker.page > 0);
+    let consistent = ordered.length >= 2;
+    for (let index = 1; consistent && index < ordered.length; index += 1) {
+      const deltaLabel = ordered[index].label - ordered[index - 1].label;
+      if (deltaLabel <= 0) consistent = false;
+      else if (pagesKnown && Math.abs((ordered[index].page - ordered[index - 1].page) - deltaLabel) > 3) consistent = false;
+    }
+    if (!consistent) continue;
+    rulerSections += 1;
+    for (const marker of ordered) plain.add(marker.index);
+  }
+  if (!rulerSections) return { entries: list, dropped: 0, ruler: false };
+  const kept = list.filter((_entry, index) => !plain.has(index));
+  // 「标尺占绝大多数」时,整份大纲都不是目录(只有作品名 + 页码),该改用正文标题。
+  return { entries: kept, dropped: plain.size, ruler: plain.size >= list.length * 0.5 };
+}
+
 // 目录条目 ↔ 正文章节 的**全局最优单调对齐**(动态规划,思路同序列比对 / diff)。
 //
 // 为什么不能逐条贪心:目录和正文都是读书顺序,真实的对应关系必然**单调**(第 i 条

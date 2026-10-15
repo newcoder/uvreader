@@ -175,8 +175,8 @@ export function splitMarkdownChapters(markdown, { bookTitle = "" } = {}) {
   let inFence = false;
   const push = () => {
     const text = current.lines.join("\n").trim();
-    if (text) chapters.push({ title: current.title, text });
-    current = { title: "", lines: [] };
+    if (text) chapters.push({ title: current.title, text, level: current.level || 1 });
+    current = { title: "", lines: [], level: 1 };
   };
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
@@ -213,6 +213,7 @@ export function splitMarkdownChapters(markdown, { bookTitle = "" } = {}) {
       if (key === previous || (book && key === book)) continue;
       push();
       current.title = title;
+      current.level = Math.min(3, heading[1].length); // h1/h2/h3 → 导航层级
       continue;
     }
     current.lines.push(line);
