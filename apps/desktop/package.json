@@ -11,6 +11,7 @@
     "dev": "node build.mjs --watch",
     "start": "electron .",
     "smoke": "node scripts/smoke.mjs",
+    "check:scroll": "node scripts/check-scroll-stack.mjs",
     "smoke:packaged": "node scripts/smoke-packaged.mjs",
     "build:logo": "electron scripts/import-logo.cjs",
     "e2e": "node build.mjs && node scripts/e2e.mjs",
