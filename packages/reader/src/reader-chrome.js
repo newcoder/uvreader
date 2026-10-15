@@ -79,9 +79,11 @@ export function createReaderChrome({
     doc.addEventListener("wheel", (event) => handleReaderWheel(view, event), { passive: false });
   }
 
-  // Wheel paging: in paged layout any wheel gesture turns the page; in scrolling
-  // layout the wheel scrolls normally and only turns once the reader reaches the
-  // top or bottom edge of the current screen.
+  // Wheel paging: in paged layout any wheel gesture turns the page. In scrolling
+  // layout the wheel must stay a scroll: hijacking it the moment the scroller
+  // reports an edge made the reader jump a whole section mid-read (the section
+  // list keeps growing as more sections mount, so "at the end" is not the end of
+  // the book). Chapter turns stay on the toolbar and the page keys.
   const WHEEL_TURN_COOLDOWN_MS = 450;
   function engineWheelScroller(doc) {
     try {
@@ -91,6 +93,10 @@ export function createReaderChrome({
       return null;
     }
   }
+  function readerWheelIsScrolled(view) {
+    if (view?.engine) return view.plugin?.settings?.readMode === "scroll";
+    return view?.pager?.scrollMode === true;
+  }
 
   function handleReaderWheel(view, event) {
     if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || !event.deltaY) return;
@@ -98,20 +104,10 @@ export function createReaderChrome({
     if (view.panelOpen || view._selectionMenuOpen || view._commentEditing) return;
     if (view.hlPopup?.classList.contains("qiaomu-reader-hl-popup-on")) return;
     if (event.target?.closest?.(".qiaomu-reader-panel,.qiaomu-reader-hl-popup,.menu,.modal-container")) return;
+    // 滚动模式:滚轮永远只是滚动 —— 不抢手势去翻页/翻章。否则一旦滚动容器报告
+    // 「到底了」(分节还在陆续挂载,这个「底」并不是书的底),就会整节跳过去。
+    if (readerWheelIsScrolled(view)) return;
     const dir = event.deltaY > 0 ? "next" : "prev";
-    const scrolled = view.engine
-      ? view.plugin.settings.readMode === "scroll"
-      : view.pager?.scrollMode === true;
-    if (scrolled) {
-      const scroller = view.engine
-        ? engineWheelScroller(event.target?.ownerDocument || docOf(view.areaEl))
-        : view.pager?.clip;
-      if (!scroller) return;
-      const atEnd = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2;
-      const atStart = scroller.scrollTop <= 2;
-      if ((dir === "next" && !atEnd) || (dir === "prev" && !atStart)) return;
-      event.preventDefault();
-    }
     const now = Date.now();
     if (view._wheelTurnAt && now - view._wheelTurnAt < WHEEL_TURN_COOLDOWN_MS) {
       event.preventDefault();

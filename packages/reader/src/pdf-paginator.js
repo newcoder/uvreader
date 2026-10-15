@@ -172,10 +172,14 @@ export function createPdfPaginatorClass({
   _bookStyleCss(cfg, geo) {
     const innerH = geo.innerHeight;
     return [
-      // The page is its own zoom/pan scroller. Its scrollbars are hidden (they
-      // would otherwise take width and force a second, horizontal bar); wheel
-      // and drag panning still work.
-      ".qiaomu-reader-flow .qiaomu-reader-pdf-page-break{width:100%;height:100%;box-sizing:border-box;display:flex;align-items:flex-start;justify-content:flex-start;overflow:auto;overscroll-behavior:contain;break-inside:avoid;-webkit-column-break-inside:avoid;scrollbar-width:none}",
+      // Paged layout: the page is its own zoom/pan scroller (scrollbars hidden —
+      // they would take width and force a second, horizontal bar).
+      // Scrolling layout: pages keep their natural height and never take the
+      // wheel themselves, so the flow stays one smooth scroll and two pages can
+      // share a screen when they are shorter than the viewport.
+      this.scrollMode
+        ? ".qiaomu-reader-flow .qiaomu-reader-pdf-page-break{width:100%;height:auto;box-sizing:border-box;overflow-x:auto;overflow-y:visible;overscroll-behavior-x:contain;break-inside:avoid;-webkit-column-break-inside:avoid;scrollbar-width:none}"
+        : ".qiaomu-reader-flow .qiaomu-reader-pdf-page-break{width:100%;height:100%;box-sizing:border-box;display:flex;align-items:flex-start;justify-content:flex-start;overflow:auto;overscroll-behavior:contain;break-inside:avoid;-webkit-column-break-inside:avoid;scrollbar-width:none}",
       ".qiaomu-reader-flow .qiaomu-reader-pdf-page-break::-webkit-scrollbar{display:none}",
       ".qiaomu-reader-flow .qiaomu-reader-pdf-page-break:not(.qiaomu-reader-pdf-last-page){break-after:column;-webkit-column-break-after:always}",
       ".qiaomu-reader-flow .qiaomu-reader-pdf-native-page{flex:none;margin:auto;padding:0;max-width:none;max-height:none;text-align:center;position:relative;"
