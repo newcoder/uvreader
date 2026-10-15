@@ -111,6 +111,29 @@ export function cleanChapterTitle(value) {
   return title.replace(/\s+/g, " ").trim();
 }
 
+// R2:把上游标了 continuation 的半句接回上一行(pdf_tool 只在页首、且不像标题时才标)。
+export function joinContinuationLines(markdown, texts) {
+  const wanted = new Set(
+    (Array.isArray(texts) ? texts : []).map((text) => String(text || "").replace(/\s+/g, " ").trim()).filter(Boolean),
+  );
+  if (!wanted.size) return String(markdown || "");
+  const out = [];
+  for (const line of String(markdown || "").split(/\r?\n/)) {
+    const value = line.replace(/\s+/g, " ").trim();
+    if (!value || !wanted.has(value)) {
+      out.push(line);
+      continue;
+    }
+    let at = out.length - 1;
+    while (at >= 0 && !out[at].trim()) at -= 1;
+    const last = at >= 0 ? out[at].trim() : "";
+    if (at >= 0 && !/^[!|#>`]/.test(last)) out[at] = joinInlineFragment(out[at], value);
+    else out.push(line);
+    wanted.delete(value);
+  }
+  return out.join("\n");
+}
+
 // 把被误判成标题的半句接回上一行:中文直接接;任一侧是拉丁字符时补一个空格。
 export function joinInlineFragment(text, fragment) {
   const head = String(text ?? "").replace(/\s+$/, "");

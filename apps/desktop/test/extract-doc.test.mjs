@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { adoptPdfToolOutputs, appendFootnotes, collectPageFootnotes, collectUpstreamTocEntries, extractionKind, extractMarkdown, mergePdfMarkdown, patchMarkdownCaptions, registerExtractRunners, splitMarkdownChapters } from "../src/main/extract-doc.js";
+import { adoptPdfToolOutputs, appendFootnotes, collectContinuations, collectPageFootnotes, collectUpstreamTocEntries, extractionKind, extractMarkdown, mergePdfMarkdown, patchMarkdownCaptions, registerExtractRunners, splitMarkdownChapters } from "../src/main/extract-doc.js";
 import { unwrapProseFences } from "../src/shared/markdown-fix.js";
 import { createWorkshopQueue } from "../src/main/workshop.js";
 import { waitForTask } from "./wait-for-task.mjs";
@@ -682,4 +682,21 @@ test("collectUpstreamTocEntries accepts pdf_tool's delivered shape", () => {
     ["集合论的一种公理化", 1, 1],
     ["经济学中的数学方法", 52, 1],
   ]);
+});
+
+test("collectContinuations reads the blocks pdf_tool marked", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-continuations-"));
+  const docPath = path.join(dir, "书_doc.json");
+  fs.writeFileSync(docPath, JSON.stringify({
+    schema_version: 1,
+    pages: [
+      { page: 177, blocks: [
+        { type: "text", text: "什么样的考虑支配和指引着他" },
+        { type: "text", text: "的努力？", continuation: true },
+        { type: "text", text: "正文。" },
+      ] },
+    ],
+  }), "utf8");
+  assert.deepEqual(collectContinuations(docPath), ["的努力？"]);
+  assert.deepEqual(collectContinuations(path.join(dir, "没有.json")), []);
 });

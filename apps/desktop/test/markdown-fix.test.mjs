@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { cleanChapterTitle, isProseFence, joinSplitCodeFences, looksLikeHeadingTitle, looksLikeProseBlock, splitMarkdownChapters, unwrapProseFences } from "../src/shared/markdown-fix.js";
+import { cleanChapterTitle, isProseFence, joinContinuationLines, joinSplitCodeFences, looksLikeHeadingTitle, looksLikeProseBlock, splitMarkdownChapters, unwrapProseFences } from "../src/shared/markdown-fix.js";
 
 test("a program split across a page break is joined back into one fence", () => {
   const md = [
@@ -146,4 +146,17 @@ test("a fragment at the top of a page stays in the text instead of becoming a ch
   assert.deepEqual(chapters.map((chapter) => chapter.title), ["第一章 绪论", "第二章 波动"]);
   assert.match(chapters[0].text, /遵从\s*的努力？/, "碎片留在正文里(接到上一行)");
   assert.ok(!chapters[0].text.includes("###"), "井号去掉,不再当标题");
+});
+
+test("joinContinuationLines puts an upstream continuation back into the sentence", () => {
+  const md = ["什么样的考虑支配和指引着他", "", "的努力？", "", "那么, 就让我们看一看。"].join("\n");
+  const joined = joinContinuationLines(md, ["的努力？"]);
+  assert.match(joined, /指引着他的努力？/, "半句接回上一句");
+  assert.ok(!/^的努力？$/m.test(joined), "独立那行不再留着");
+  assert.match(joined, /那么, 就让我们看一看。/);
+  assert.equal(joinContinuationLines(md, []), md, "没有标记时原样返回");
+  const english = joinContinuationLines(["the crystal surface was", "", "flat and clean"].join("\n"), ["flat and clean"]);
+  assert.match(english, /was flat and clean/, "拉丁文字之间补空格");
+  const guarded = joinContinuationLines(["![插图](a.jpg)", "", "flat and clean"].join("\n"), ["flat and clean"]);
+  assert.match(guarded, /\n\nflat and clean/, "上一行是图片时不往上粘");
 });

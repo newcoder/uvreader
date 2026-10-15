@@ -11,7 +11,7 @@ import { extractMarkdown, extractionKind, splitMarkdownChapters } from "./extrac
 import { createMathRenderer, shareFormulaHtml } from "./math-render.js";
 import { createTextLayerReader } from "./text-layer.js";
 import { cleanChapterTitle, joinInlineFragment, looksLikeHeadingTitle, unwrapProseFences } from "../shared/markdown-fix.js";
-import { buildNavPlan, isPrintedTocChapter, normalizeNavLevels, parsePrintedTocEntries, stripPrintedToc } from "../shared/printed-toc.js";
+import { buildNavPlan, isPrintedTocChapter, normalizeNavLevels, parsePrintedTocEntries, printedPageOf, stripPrintedToc } from "../shared/printed-toc.js";
 import { collectChars, createFontSubsetter, ensureFont, ensureFontLicense, findPairing, FONT_FAMILIES } from "./workshop-fonts.js";
 import { pairingStacks } from "../shared/book-fonts.js";
 import { convertPath } from "../shared/workshop-names.js";
@@ -310,7 +310,9 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     let navDropped = 0;
     if (upstreamToc.length || tocText) {
       const entries = upstreamToc.length ? upstreamToc : parsePrintedTocEntries(tocText);
-      const plan = buildNavPlan({ chapters: bookChapters, tocEntries: entries });
+      // R1:章节起始的印刷页码(来自 pdf_tool 的 <!--page:N printed:M--> 锚点)给匹配加成。
+      const pages = bookChapters.map((chapter) => printedPageOf(chapter.text));
+      const plan = buildNavPlan({ chapters: bookChapters, tocEntries: entries, pages });
       if (plan) {
         navItems = normalizeNavLevels(plan.items).map((item) => ({
           title: item.title,

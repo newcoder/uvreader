@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildNavPlan, isPrintedTocChapter, looksLikeTocEntry, normalizeNavLevels, parsePrintedTocEntries, stripPrintedToc, stripTocBlock, tocRatio } from "../src/shared/printed-toc.js";
+import { buildNavPlan, isPrintedTocChapter, looksLikeTocEntry, normalizeNavLevels, parsePrintedTocEntries, printedPageOf, stripPrintedToc, stripTocBlock, tocRatio } from "../src/shared/printed-toc.js";
 
 const tocText = [
   "第 1 章 光学简史 …… 1",
@@ -118,4 +118,29 @@ test("normalizeNavLevels never jumps more than one level", () => {
 test("buildNavPlan returns null when too little matches", () => {
   const plan = buildNavPlan({ chapters: [{ title: "甲" }, { title: "乙" }], tocEntries: parsePrintedTocEntries("丙 …… 3") });
   assert.equal(plan, null, "匹配太少时交回按标题分章");
+});
+
+test("printedPageOf reads the printed page from the anchor", () => {
+  assert.equal(printedPageOf("<!--page:16 printed:7-->\n正文"), 7);
+  assert.equal(printedPageOf("<!--page:16-->\n正文"), 0, "没有印刷页码就是 0");
+  assert.equal(printedPageOf("正文"), 0);
+});
+
+test("a page hint rescues an entry whose title OCR mangled", () => {
+  const chapters = [
+    { title: "第一章 光学简史" },
+    { title: "1.1 开场白" },
+    { title: "第二章 波动" },
+  ];
+  const pages = [1, 11, 12];
+  const tocEntries = [
+    { label: "第一章 光学简史", key: "光学简史", page: 1, level: 1 },
+    { label: "1.1 开 场 白", key: "开场白", page: 11, level: 2 },
+    { label: "第二章 波动", key: "波动", page: 12, level: 1 },
+  ];
+  const withoutHint = buildNavPlan({ chapters, tocEntries });
+  const withHint = buildNavPlan({ chapters, tocEntries, pages });
+  assert.ok(withHint, "有页码提示时能出计划");
+  assert.equal(withHint.matched, 3, "标题被 OCR 弄花也能靠页码命中");
+  assert.equal(withoutHint.matched <= withHint.matched, true);
 });

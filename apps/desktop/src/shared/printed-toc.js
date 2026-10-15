@@ -154,13 +154,22 @@ export function titleSimilarity(a, b) {
   return (2 * shared) / (one.size + two.size || 1);
 }
 
+// 印刷页码提示:章节自带 <!--page:PDF printed:印刷--> 时,用它和目录条的页码交叉校验。
+export function printedPageOf(text) {
+  const match = String(text || "").match(/<!--\s*page:\s*\d+\s+printed:\s*(\d+)\s*-->/);
+  return match ? Number(match[1]) : 0;
+}
+
 // 印刷目录条目 → 导航计划:按顺序在章节里找最佳匹配(单调前进,防止错位),
 // 匹配不到的条目保守丢弃;目录之外的「前言/注释」这类章节保留在两端。
-export function buildNavPlan({ chapters = [], tocEntries = [], minSimilarity = 0.6 } = {}) {
+// pages(可选,与 chapters 一一对应)= 章节起始的**印刷页码**:页码对得上时给标题匹配加成,
+// 于是 OCR 噪声把标题弄花也能靠页码定位(R1)。
+export function buildNavPlan({ chapters = [], tocEntries = [], pages = [], minSimilarity = 0.6, pageTolerance = 2 } = {}) {
   const list = (Array.isArray(chapters) ? chapters : []).map((chapter, index) => ({
     index,
     title: String(chapter?.title || ""),
     key: chapterKey(chapter?.title || ""),
+    page: Number((Array.isArray(pages) ? pages : [])[index]) || 0,
   }));
   const items = [];
   const dropped = [];
@@ -168,14 +177,20 @@ export function buildNavPlan({ chapters = [], tocEntries = [], minSimilarity = 0
   let cursor = 0;
   for (const entry of Array.isArray(tocEntries) ? tocEntries : []) {
     let best = null;
-    for (let index = cursor; index < list.length; index += 1) {
+    // 全表搜索:游标只用来做「顺序偏好」,不做硬门槛 —— 否则一次错配会把游标推过头,
+    // 后面标题完全相同的条目也匹配不上(实测《光学》丢了 182 条,多数是精确命中)。
+    for (let index = 0; index < list.length; index += 1) {
       const candidate = list[index];
       if (!candidate.key) continue;
-      const score = candidate.key === entry.key
+      const title = candidate.key === entry.key
         ? 1
         : Math.max(titleSimilarity(candidate.key, entry.key), candidate.key.startsWith(entry.key) || entry.key.startsWith(candidate.key) ? 0.8 : 0);
-      if (score >= minSimilarity && (!best || score > best.score)) best = { index, score };
-      if (score === 1) break;
+      // R1:印刷页码对得上(±容差)→ 加成,标题被 OCR 弄花也能命中。
+      const pageHit = entry.page > 0 && candidate.page > 0 && Math.abs(candidate.page - entry.page) <= pageTolerance;
+      const score = pageHit ? Math.min(1, title + 0.5) : title;
+      if (score < minSimilarity) continue;
+      const rank = score + (index >= cursor ? 0.05 : 0); // 同等条件优先取靠后的那本(目录顺序)
+      if (!best || rank > best.rank) best = { index, score, rank };
     }
     if (!best) {
       dropped.push(entry.label);
@@ -183,7 +198,7 @@ export function buildNavPlan({ chapters = [], tocEntries = [], minSimilarity = 0
     }
     matchedIndexes.add(best.index);
     items.push({ title: entry.label, chapterIndex: best.index, level: entry.level });
-    cursor = best.index;
+    cursor = Math.max(cursor, best.index);
   }
   if (items.length < 2) return null; // 匹配太少就别用印刷目录,交回标题分章
   // 目录覆盖范围之外、且在两端的前言/附录:补进导航,免得整章从目录里消失。
@@ -196,7 +211,16 @@ export function buildNavPlan({ chapters = [], tocEntries = [], minSimilarity = 0
     ...items,
     ...after.map((chapter) => ({ title: chapter.title, chapterIndex: chapter.index, level: 1 })),
   ];
-  return { items: plan, matched: items.length, dropped };
+  // 去重:同一标题只留一条(前后附章可能与目录条目指向同一章,重复标签会让导航看着乱)。
+  const seen = new Set();
+  const deduped = [];
+  for (const item of plan) {
+    const key = chapterKey(item.title);
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
+    deduped.push(item);
+  }
+  return { items: deduped, matched: items.length, dropped };
 }
 
 // 把导航计划的层级拍平(第一个条目必须是 1 级,层级跳跃不超过 1)。

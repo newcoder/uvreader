@@ -213,8 +213,8 @@ export function markdownToHtml(markdown, options = {}) {
 
   for (const raw of lines) {
     const line = raw.replace(/\s+$/, "");
-    // pdf_tool 按页插入的锚点注释(<!--page:16-->):定位用,不进正文。
-    if (/^<!--\s*page:\s*\d+\s*-->$/.test(line.trim())) continue;
+    // pdf_tool 按页插入的锚点注释(<!--page:16--> / <!--page:16 printed:7-->):定位用,不进正文。
+    if (/^<!--\s*page:\s*\d+(\s+printed:\s*\d+)?\s*-->$/.test(line.trim())) continue;
     if (displayQuote) {
       // $$ 单独成行时,行间的空行不该结束公式块(MinerU 会写成 $$ / 空行 / 公式 / 空行 / $$)。
       if (/^\s*\$\$\s*$/.test(line)) {

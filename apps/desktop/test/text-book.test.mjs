@@ -183,3 +183,17 @@ test("page anchor comments from pdf_tool are dropped from the text", () => {
   assert.ok(!html.includes("page:16") && !html.includes("page:17"), "锚点不进成品");
   assert.ok(!/<p>\s*<\/p>/.test(html), "不留空段落");
 });
+
+test("printed page anchors from pdf_tool are dropped too", () => {
+  const html = markdownToHtml([
+    "<!--page:16 printed:7-->",
+    "上文。",
+    "",
+    "<!--page:17 printed:8-->",
+    "",
+    "下文。",
+  ].join("\n"));
+  assert.match(html, /<p>上文。<\/p>/);
+  assert.match(html, /<p>下文。<\/p>/);
+  assert.ok(!html.includes("page:16") && !html.includes("printed:7"), "带印刷页码的锚点也不进成品");
+});

@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { EXTRACT_MODES, IMAGE_INPUTS, extractionKind } from "../shared/extract-formats.js";
-import { joinSplitCodeFences, splitMarkdownChapters, unwrapProseFences } from "../shared/markdown-fix.js";
+import { joinContinuationLines, joinSplitCodeFences, splitMarkdownChapters, unwrapProseFences } from "../shared/markdown-fix.js";
 import { tocKey, tocLevel } from "../shared/printed-toc.js";
 import { blocksFromDoc, blocksToMarkdown } from "./formula-html.js";
 import { buildTextDoc, createPdfTextReader, writeTextProducts } from "./pdf-text.js";
@@ -156,6 +156,25 @@ export function collectUpstreamTocEntries(docPath) {
   }
 }
 
+// 上游(pdf_tool e0bc735)把「页首被截断的半句」标成 continuation:true 并降级为正文。
+// 取出这些块的文字,用来把它们接回上一段(md 里它们现在是独立段落)。
+export function collectContinuations(docPath) {
+  try {
+    if (!docPath || !fs.existsSync(docPath)) return [];
+    const doc = JSON.parse(fs.readFileSync(docPath, "utf8"));
+    const out = [];
+    for (const page of Array.isArray(doc?.pages) ? doc.pages : []) {
+      for (const block of Array.isArray(page?.blocks) ? page.blocks : []) {
+        const text = String(block?.text ?? "").replace(/\s*\n\s*/g, " ").trim();
+        if (block?.continuation === true && text) out.push(text);
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 export function adoptPdfToolOutputs(outDir, name, { renameAssets = true } = {}) {
   const files = {};
   // caption 补全用的块列表(pdf_tool 的 Doc JSON,读不到就算了)。
@@ -205,6 +224,8 @@ export function adoptPdfToolOutputs(outDir, name, { renameAssets = true } = {}) 
           fixed = joinSplitCodeFences(fixed);
           // 上游转 Doc JSON 时丢了脚注,从 MinerU 的 content_list 里捞回来。
           fixed = appendFootnotes(fixed, collectPageFootnotes(outDir));
+          // R2:上游标了 continuation 的半句接回上一段。
+          fixed = joinContinuationLines(fixed, collectContinuations(path.join(outDir, `${name}_doc.json`)));
         }
         if (fixed !== text) fs.writeFileSync(to, fixed, "utf8");
       } catch { /* leave as-is */ }
@@ -403,7 +424,9 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
       log("extract: reuse cached merged markdown", mergedPath);
       const cachedRaw = fs.readFileSync(mergedPath, "utf8");
       // 老缓存里没有脚注(上游 Doc JSON 丢了这个类型):复用顺手补上,缓存自愈。
-      const cachedText = appendFootnotes(cachedRaw, collectPageFootnotes(workDir));
+      let cachedText = appendFootnotes(cachedRaw, collectPageFootnotes(workDir));
+      // R2:上游标了 continuation 的半句接回上一段(老缓存里没有标记就什么都不做)。
+      cachedText = joinContinuationLines(cachedText, collectContinuations(docCandidates.find(fresh)));
       if (cachedText !== cachedRaw) fs.writeFileSync(mergedPath, cachedText, "utf8");
       return { ok: true, markdown: cachedText, path: mergedPath, tocEntries: collectUpstreamTocEntries(docCandidates.find(fresh)) };
     }
@@ -449,7 +472,9 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
     });
     if (merged) {
       // 脚注在上面两步里都不会出现(上游 Doc JSON 丢了这个类型):写完合并稿再补。
-      const withNotes = appendFootnotes(merged, collectPageFootnotes(workDir));
+      let withNotes = appendFootnotes(merged, collectPageFootnotes(workDir));
+      // R2:上游标了 continuation 的半句接回上一段。
+      withNotes = joinContinuationLines(withNotes, collectContinuations(files.json || cachedDoc));
       fs.writeFileSync(mergedPath, withNotes, "utf8");
       return { ok: true, markdown: withNotes, path: mergedPath, tocEntries: collectUpstreamTocEntries(files.json || cachedDoc) };
     }
