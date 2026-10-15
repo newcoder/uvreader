@@ -16,7 +16,7 @@ import { columnDragActive, installColumnDragWatch, onColumnDrag } from "./column
 import { pageForBlock } from "./toc-build.js";
 
 export function createReaderView({
-  ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, BookSetupModal, FONTS, InfoModal, ReadSettingsModal, VIEW_TYPE, addBookFileMenu, attachEngineChrome, attachReaderContentClick, attachReaderSwipeNav, bookNoteAction, buildFindPanelFor, buildReaderPageArea, buildReaderPanels, buildReaderSettPanelBody, buildReaderTopBar, buildTocItems, buildTocPanelFor, clearAiSource, clearFoundIn, createPdfPaginator, createPdfZoomControls, currentBookPage, enrichHighlights, ensureSelectedReaderFont, exportHighlightsMenu,   flowSelectionParts, handleReaderWheel, hidePinPopup, hlColorCss, loadReaderDocument, locateHl, markFoundIn, navigateEngineToc, openEngineHighlightPopup, openEnginePinPopup, pageJump, pdfVisiblePageLabel, pdfZoom, persistCurrentReaderPosition, qiaomuReaderClearPaintedSelection, qiaomuReaderLocale, qiaomuReaderRevealWhenSettled, qiaomuReaderTheme, qiaomuReaderTranslate, raiseSelectionPopup, readerAiPanelContext, readerHud, readerIsPdf, readerPaginationMappingCollapsed, readerPdfPages, readerTimer, rememberReaderJump, renderHighlightPanel, renderReaderLoadError, refreshReaderPdfTextLayer, renderVisibleFigures, resolveHighlightAnchor, restoreAiSource, restoreEngineHistory, selectionHud, setReaderTitle, setReadingFocus, settleReader, syncNavigationPanel, syncOpenAiReaderContext, syncOpenAiSelectionContext, syncReaderAiCapability,   unwrapAllHighlights, unwrapAllPins, updateEngineLocation, wireReaderChrome, wrapBlockRange,
+  ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, BookSetupModal, FONTS, InfoModal, ReadSettingsModal, VIEW_TYPE, addBookFileMenu, attachEngineChrome, attachReaderContentClick, attachReaderSwipeNav, bookNoteAction, buildFindPanelFor, buildReaderPageArea, buildReaderPanels, buildReaderSettPanelBody, buildReaderTopBar, buildTocItems, buildTocPanelFor, clearAiSource, clearFoundIn, createPdfPaginator, createPdfZoomControls, currentBookPage, enrichHighlights, ensureSelectedReaderFont, exportHighlightsMenu,   flowSelectionParts, handleReaderWheel, hidePinPopup, hlColorCss, loadReaderDocument, locateHl, markFoundIn, navigateEngineToc, openEngineHighlightPopup, openEnginePinPopup, pageJump, pdfVisiblePageLabel, pdfZoom, persistCurrentReaderPosition, qiaomuReaderClearPaintedSelection, qiaomuReaderLocale, qiaomuReaderRevealWhenSettled, qiaomuReaderTheme, qiaomuReaderTranslate, raiseSelectionPopup, readerAiPanelContext, readerHud, readerIsPdf, readerPaginationMappingCollapsed, readerPdfPages, readerTimer, rememberReaderJump, renderHighlightPanel, renderReaderLoadError, backfillPdfTextLayers, refreshReaderPdfTextLayer, renderVisibleFigures, resolveHighlightAnchor, restoreAiSource, restoreEngineHistory, selectionHud, setReaderTitle, setReadingFocus, settleReader, syncNavigationPanel, syncOpenAiReaderContext, syncOpenAiSelectionContext, syncReaderAiCapability,   unwrapAllHighlights, unwrapAllPins, updateEngineLocation, wireReaderChrome, wrapBlockRange,
 }) {
   return class ReaderView extends ItemView {
   constructor(leaf, plugin) {
@@ -291,6 +291,9 @@ export function createReaderView({
     if (ready) {
       this._pdfTextReady = null;
       if (!this.pdfDocumentContext) this.pdfDocumentContext = ready.pdfDocumentContext || null;
+      // 文字刚到位:立刻把每一页的空文字层补上(不依赖扫页经过那一页),否则远处的页面
+      // 在 DOM 里永远"没有文字"(查找/跨页选择/断言都读不到)。
+      try { backfillPdfTextLayers(this); } catch { /* 补文字失败不影响阅读 */ }
       // The text pass just filled page text for the whole document: drop the
       // search corpus so a later search covers every page, and refresh an open
       // find panel the way the OCR pass does.

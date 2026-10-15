@@ -1314,6 +1314,36 @@ add("visible-range-null-guard",
   ].join("\n"),
   "if (!doc) return null");
 
+// 29. 去掉虚拟预留:spacer 只保留为空元素(高度恒 0)。预留整段未读空间会让读者在
+// 「虚拟空白」里穿行 —— 实测跳转后预留 82760px,上滚滚几下就穿过几十屏的空白。
+// 滚动范围改为 = 已挂载的相邻若干节;到边缘时挂载邻居 + 补偿滚动位置(见 #30)。
+add("spacer-zero",
+  ["        this.#ensureSpacer().style.height = above > 0 ? `${Math.round(above)}px` : '0px'",
+  ].join("\n"),
+  ["        // UV Reader: no virtual reservation - the scrollable range is the mounted",
+    "        // window itself. Reserving unread space made the reader scroll through",
+    "        // hundreds of screens of blank after a jump.",
+    "        this.#ensureSpacer().style.height = '0px'",
+  ].join("\n"),
+  "no virtual reservation - the scrollable range is the mounted");
+
+// 30. 前插补偿:新节插到视口上方时,滚动位置要同步加回它的高度(视觉不动)。
+add("prepend-compensate",
+  ["                if (this.#stacked) {",
+    "                    this.#stack.set(index, { view })",
+    "                    this.#syncSpacer()",
+    "                }",
+  ].join("\n"),
+  ["                if (this.#stacked) {",
+    "                    this.#stack.set(index, { view })",
+    "                    // Prepending pushes the content down: move the scroll position by",
+    "                    // the same amount so nothing on screen moves.",
+    "                    if (stackBackward && reserved > 0) this.containerPosition = this.containerPosition + reserved",
+    "                    this.#syncSpacer()",
+    "                }",
+  ].join("\n"),
+  "Prepending pushes the content down");
+
 let next = text;
 let applied = 0;
 let already = 0;

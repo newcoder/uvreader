@@ -1387,6 +1387,14 @@ async function runCjkPdfPinScenario() {
 
       // A highlight entry in the docked list jumps to its page even when that
       // page has not been rendered yet.
+      // The text layer of a digital PDF arrives in the background (page by
+      // page), so wait for page 4's text instead of assuming it is already in
+      // the flow - a one-shot lookup raced the text pass.
+      await waitFor("page 4 text in the flow", () => page.evaluate(() => {
+        const flow = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view.pager.flow;
+        return [...flow.querySelectorAll("p,h1,h2,h3,h4,.qiaomu-reader-pdf-text-layer")]
+          .some((el) => el.textContent.includes("第4页的正文内容"));
+      }), 30_000);
       const jumped = await page.evaluate(async () => {
         const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view;
         const flow = view.pager.flow;

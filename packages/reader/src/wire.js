@@ -2879,6 +2879,29 @@ async function sweepReaderFigures(reader, lazy) {
   }
 }
 
+// 只补文字、不画页面:文字到达的那一刻调用一次即可(DOM 级的查找/跨页选择都能读到),
+// 不必等扫页经过那一页。返回补过的页数。
+function backfillPdfTextLayers(reader) {
+  const lazy = reader?._pdfLazy;
+  const flow = reader?.pager?.flow;
+  if (!lazy?.textFor || !flow) return 0;
+  let touched = 0;
+  for (const img of flow.querySelectorAll(FIGURE_LAZY_SELECTOR)) {
+    const pageNumber = figurePageNumber(img);
+    if (!pageNumber) continue;
+    const surface = img.closest(FIGURE_SURFACE_SELECTOR);
+    const layer = surface?.querySelector(".qiaomu-reader-pdf-text-layer");
+    if (!layer || String(layer.textContent || "").trim()) continue;
+    const text = String(lazy.textFor(pageNumber) || "").trim();
+    if (!text) continue;
+    layer.textContent = text;
+    layer.className = "qiaomu-reader-pdf-text-layer qiaomu-reader-pdf-text-placeholder";
+    layer.setAttribute("data-pdf-selectable", "false");
+    touched += 1;
+  }
+  return touched;
+}
+
 // A page's text layer can arrive after the first paint (OCR on a scanned
 // page). Clearing the loaded mark makes the sweep repaint that page so the new
 // text is selectable immediately instead of on the next scroll.
@@ -3409,6 +3432,7 @@ const ReaderView = createReaderView({
   rememberReaderJump,
   renderHighlightPanel,
   renderReaderLoadError,
+  backfillPdfTextLayers,
   refreshReaderPdfTextLayer,
   renderVisibleFigures,
   resolveHighlightAnchor,
@@ -3591,6 +3615,7 @@ const ReaderModal = createReaderModal({
   rememberReaderJump,
   renderHighlightPanel,
   renderReaderLoadError,
+  backfillPdfTextLayers,
   refreshReaderPdfTextLayer,
   renderVisibleFigures,
   resolveHighlightAnchor,
