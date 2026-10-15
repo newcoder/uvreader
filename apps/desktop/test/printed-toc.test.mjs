@@ -209,3 +209,21 @@ test("outlineToTocEntries keeps the PDF's own levels", () => {
   ]);
   assert.equal(entries[0].key, "光学简史");
 });
+
+test("orderFallback anchors every entry near its own place in the book", () => {
+  // 「游标之后第一个」的兜底会把整片尾部条目推空(实测《光学》丢了第11章/第13章/习题),
+  // 现在改成按相对位置认领:第 k 条目录 ≈ 第 k/n×章数 章。
+  const chapters = Array.from({ length: 40 }, (_, index) => ({ title: `Sect ${index + 1}` }));
+  const tocEntries = parsePrintedTocEntries(
+    Array.from({ length: 20 }, (_, index) => `找不到的条目 ${index + 1} 号 …… 9`).join("\n"),
+  );
+  assert.equal(tocEntries.length, 20);
+  const plan = buildNavPlan({ chapters, tocEntries, orderFallback: true });
+  assert.equal(plan.matched, 20);
+  assert.deepEqual(plan.dropped, [], "兜底认领之后不该再丢条目");
+  const indexes = plan.items.map((item) => item.chapterIndex);
+  assert.deepEqual([...indexes].sort((a, b) => a - b), indexes, "认领顺序与目录顺序一致");
+  assert.equal(indexes[0], 0, "第一条落在书首");
+  assert.equal(indexes[indexes.length - 1], 39, "最后一条落在书尾");
+  assert.equal(plan.items.length, 20, "中间章节不会被当成前后附章灌进导航");
+});

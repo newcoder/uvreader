@@ -49,7 +49,7 @@ const FRONT_MATTER_TITLE = /^[（(][^）)]{1,12}[）)]$|第\s*\d+\s*版|版次|�
 //   - 标题清成纯文本(脚注标记 $^{①}$ 之类不进导航);
 //   - 标题重复且正文很短(扉页/页眉/版权页)→ 丢掉;标题等于书名的也丢(书名页);
 //   - 标题重复但正文够长 → 保留(真章节同名是可能的)。
-export function normalizeBookChapters(chapters, bookTitle = "") {
+export function normalizeBookChapters(chapters, bookTitle = "", { keepKeys = null } = {}) {
   const book = cleanChapterTitle(bookTitle).replace(/\s+/g, "").toLowerCase();
   const list = Array.isArray(chapters) ? chapters : [];
   const clean = list.map((chapter) => ({ chapter, title: cleanChapterTitle(chapter?.title || "") }));
@@ -73,7 +73,10 @@ export function normalizeBookChapters(chapters, bookTitle = "") {
     const titlePage = key && group.length > 1 && text.trim().length < 200 && group.some((length) => length >= 200);
     // 封面/版次这类碎片:书首前 3 章里、标题看着像版次/出版信息、且正文几乎没内容(如「(第五版)」)。
     const junkFront = index < 3 && FRONT_MATTER_TITLE.test(title) && bodyChars(text) < 60;
-    if (titlePage || (book && key === book) || junkFront) {
+    // 目录(大纲/目录页)认领过的章节一律保留 —— 否则「第13章」这类章节会被过滤掉,
+    // 目录条目跟着变成「丢弃」(用户实测的缺章就是这么来的)。
+    const claimed = keepKeys && key ? keepKeys.has(key) : false;
+    if (!claimed && (titlePage || (book && key === book) || junkFront)) {
       dropped += 1;
       if (junkFront) frontMatter += 1;
       index += 1;
@@ -297,9 +300,23 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     }
     if (!rawChapters.length) throw new Error("没有可写的内容");
 
+    // 目录优先级第一步:**PDF 自带大纲**(作者给的三级结构)。先读它,好让后面的章节过滤
+    // 不至于误删「目录认领过的章节」(用户实测的缺章就是这么来的)。
+    let outlineEntries = [];
+    if (outlineReader && /\.pdf$/i.test(String(source))) {
+      const outline = await outlineReader.read(source, {
+        python: String(settings.ocrPython || "").trim() || "python",
+        workDir: path.join(workRoot, "outline"),
+        signal,
+      });
+      if (outline.ok) outlineEntries = outlineToTocEntries(outline.outline);
+      else log("book build pdf outline skipped", outline.error);
+      if (signal.aborted) throw new Error("任务已取消");
+    }
+
     // 标题去噪 + 去掉页眉/扉页重复短章(提供的章节也照办:面板传过来的标题可能带
     // 脚注标记 $^{①}$,导航里就会看到这些符号)。
-    const normalized = normalizeBookChapters(rawChapters, title);
+    const normalized = normalizeBookChapters(rawChapters, title, { keepKeys: new Set(outlineEntries.map((entry) => entry.key)) });
     const tocStrip = stripPrintedToc(normalized.chapters, { enabled: payload?.dropPrintedToc !== false });
     const bookChapters = tocStrip.chapters;
     if (tocStrip.dropped || tocStrip.removedLines) {
@@ -325,19 +342,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       if (signal.aborted) throw new Error("任务已取消");
     }
     const renderMath = mathMap ? (latex, display) => shareFormulaHtml(mathMap.get(mathKey(latex)), display) : null;
-    // 导航来源优先级:**PDF 自带大纲** > 上游 OCR 目录条目 > md 里的印刷目录 > 标题分章。
-    // 大纲(PDF 书签)是作者给的完整层级、页码就是 PDF 页,和 <!--page:N--> 锚点精确对上。
-    let outlineEntries = [];
-    if (outlineReader && /\.pdf$/i.test(String(source))) {
-      const outline = await outlineReader.read(source, {
-        python: String(settings.ocrPython || "").trim() || "python",
-        workDir: path.join(workRoot, "outline"),
-        signal,
-      });
-      if (outline.ok) outlineEntries = outlineToTocEntries(outline.outline);
-      else log("book build pdf outline skipped", outline.error);
-      if (signal.aborted) throw new Error("任务已取消");
-    }
+    // 导航来源优先级已在上文定好:**PDF 自带大纲** > 上游 OCR 目录条目 > md 里的印刷目录 > 标题分章。
     const tocText = normalized.chapters.filter((chapter) => isPrintedTocChapter(chapter)).map((chapter) => chapter.text).join("\n");
     const tocSource = outlineEntries.length ? "outline" : upstreamToc.length ? "upstream" : tocText ? "printed" : "";
     let navItems = null;

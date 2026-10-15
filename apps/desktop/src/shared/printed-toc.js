@@ -200,8 +200,10 @@ export function buildNavPlan({ chapters = [], tocEntries = [], pages = [], minSi
   const dropped = [];
   const used = new Set();
   const matchedIndexes = new Set();
+  const entryList = Array.isArray(tocEntries) ? tocEntries : [];
   let cursor = 0;
-  for (const entry of Array.isArray(tocEntries) ? tocEntries : []) {
+  for (let entryIndex = 0; entryIndex < entryList.length; entryIndex += 1) {
+    const entry = entryList[entryIndex];
     let best = null;
     // 全表搜索:游标只用来做「顺序偏好」,不做硬门槛 —— 否则一次错配会把游标推过头,
     // 后面标题完全相同的条目也匹配不上(实测《光学》丢了 182 条,多数是精确命中)。
@@ -226,10 +228,23 @@ export function buildNavPlan({ chapters = [], tocEntries = [], pages = [], minSi
       if (!best || rank > best.rank) best = { index, score, rank };
     }
     if (!best && orderFallback) {
-      // 目录是读书顺序,正文也是读书顺序:实在判不出来就按顺序认领下一章。
-      // (用户口径:页码不必对上原书 —— 我们只要一条能用的目录,所以宁可顺序兜底也别丢条目。)
-      const next = list.findIndex((candidate) => candidate.index >= cursor && !used.has(candidate.index));
-      if (next >= 0) best = { index: next, score: 0.5, rank: 0.5 };
+      // 判不出来时按**相对顺序**认领:目录是读书顺序、正文也是读书顺序,于是
+      // 「第 k 条目录」大约落在「第 k/n × 章数」的位置。取离该位置最近、且还没被占用的章节,
+      // 既不落空(页码/标题都不可信时也要给条目一个落点),也不会像「游标之后第一个」
+      // 那样一次错配就把后面整片推空(用户实测的缺章就是那么来的)。
+      const expected = Math.round((entryIndex / Math.max(1, entryList.length - 1)) * (list.length - 1));
+      let pickIndex = -1;
+      let pickDistance = Infinity;
+      for (const candidate of list) {
+        if (used.has(candidate.index)) continue;
+        const distance = Math.abs(candidate.index - expected);
+        if (distance < pickDistance) {
+          pickDistance = distance;
+          pickIndex = candidate.index;
+        }
+        if (distance === 0) break;
+      }
+      if (pickIndex >= 0) best = { index: pickIndex, score: 0.5, rank: 0.5 };
     }
     if (!best) {
       dropped.push(entry.label);
