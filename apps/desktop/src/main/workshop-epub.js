@@ -364,6 +364,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
         }
         navDropped = plan.dropped.length;
         log("book build nav from toc", tocSource, plan.matched, "entries", navDropped, "dropped");
+        if (plan.dropped.length) log("book build nav dropped", plan.dropped.slice(0, 10).map((label) => String(label).slice(0, 30)).join(" / "));
       } else {
         log("book build nav from toc skipped", "matched too few entries");
       }
