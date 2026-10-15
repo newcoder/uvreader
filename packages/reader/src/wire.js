@@ -2771,8 +2771,15 @@ const FIGURE_TOO_HEAVY_SIGNAL = "qiaomu-reader-render-too-heavy";
 const FIGURE_LOAD_SPAN = 2;
 const FIGURE_DROP_SPAN = 6;
 
-function figureSpreadGap(img, flowRect, columnWidth, spread, vertical) {
+function figureSpreadGap(img, flowRect, columnWidth, spread, vertical, viewport = null) {
   const rect = img.getBoundingClientRect();
+  if (vertical && viewport && viewport.height > 0) {
+    // 滚动模式:直接用「距当前视口的像素距离 ÷ 当前视口高度」——两端用同一个单位,
+    // 不会因为布局时的视口高度与现在不一致(侧栏开合、窗口变化)而累积误差:那样
+    // 读得越远误差越大,后面的页会被判成「太远,不用画」而永远空白(实测 60 页后
+    // 开始、100 页后整段空白)。
+    return Math.abs(rect.top - viewport.top) / viewport.height;
+  }
   const offset = vertical ? rect.top - flowRect.top : rect.left - flowRect.left;
   return Math.abs(Math.floor(offset / columnWidth + 0.01) - spread);
 }
@@ -2830,9 +2837,17 @@ async function sweepReaderFigures(reader, lazy) {
   const spread = pager.spread;
   const vertical = pager.scrollMode;
   const flowRect = flow.getBoundingClientRect();
-  const gapOf = (img) => figureSpreadGap(img, flowRect, columnWidth, spread, vertical);
+  // 滚动模式的距离以「当前视口」为准(见 figureSpreadGap 的说明)。
+  const viewport = vertical && pager.clip
+    ? { top: pager.clip.getBoundingClientRect().top, height: pager.clip.clientHeight || 0 }
+    : null;
+  const gapOf = (img) => figureSpreadGap(img, flowRect, columnWidth, spread, vertical, viewport);
   const current = () => !reader._closed && reader._pdfLazy === lazy && !lazy._destroyed && reader.pager === pager;
-  for (const img of [...flow.querySelectorAll(FIGURE_LAZY_SELECTOR)]) {
+  // 最近的页优先画:跳章/跳页后先出读者眼前的页,而不是从 DOM 第一页慢慢排到那里。
+  const candidates = [...flow.querySelectorAll(FIGURE_LAZY_SELECTOR)]
+    .map((img) => ({ img, gap: gapOf(img) }))
+    .sort((a, b) => a.gap - b.gap);
+  for (const { img } of candidates) {
     if (!current()) return;
     const gap = gapOf(img);
     const loadState = img.getAttribute(FIGURE_LOADED_ATTR);
