@@ -196,6 +196,7 @@ export class EpubEngine {
             if (this.#view !== view) return;
             const detail = e.detail || {};
             this.#lastRange = detail.range || null;
+            this.#prefetchNextSection(detail.index);
             this.#hooks.onRelocate?.(detail);
         });
         // The view re-emits every section document after the library has
@@ -331,6 +332,18 @@ export class EpubEngine {
         style.setAttribute("data-qbr-engine", "");
         style.textContent = css;
         head.appendChild(style);
+    }
+
+    #prefetchNextSection(index) {
+        // 滚动模式下,下一节通常等到滚到底那一刻才开始加载 —— 那一瞬的停顿让「跨节」
+        // 更像一次跳转。靠近末尾时提前读进来(section.load() 自带缓存,重复调用无害)。
+        if (this.#layout.readMode !== "scroll") return;
+        if (!Number.isInteger(index)) return;
+        const next = this.#book?.sections?.[index + 1];
+        if (typeof next?.load !== "function") return;
+        try {
+            Promise.resolve(next.load()).catch(() => { /* 预取失败不影响阅读 */ });
+        } catch { /* best effort */ }
     }
 
     contents() {
