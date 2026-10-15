@@ -700,3 +700,29 @@ test("collectContinuations reads the blocks pdf_tool marked", () => {
   assert.deepEqual(collectContinuations(docPath), ["的努力？"]);
   assert.deepEqual(collectContinuations(path.join(dir, "没有.json")), []);
 });
+
+test("the pdf outline reader returns entries and fails quietly", async () => {
+  const { createPdfOutlineReader } = await import("../src/main/pdf-outline.js");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-outline-"));
+  const script = "import json,sys;json.dump([{'level':1,'title':'第1章','page':3}],open(sys.argv[2],'w'))";
+  const reader = createPdfOutlineReader({ spawnImpl: (command, args, options) => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => {};
+    setImmediate(() => {
+      fs.writeFileSync(args[2], JSON.stringify([{ level: 1, title: "第1章 光学简史", page: 17 }]), "utf8");
+      child.emit("close", 0);
+    });
+    void script;
+    void command;
+    void options;
+    return child;
+  } });
+  const result = await reader.read(path.join(dir, "book.pdf"), { python: "python", workDir: dir });
+  // 源文件不存在时应当安静失败(不抛)。
+  assert.equal(result.ok, false);
+  assert.match(String(result.error), /找不到 PDF/);
+  const missing = await createPdfOutlineReader({ spawnImpl: () => { throw new Error("不该调用"); } }).read("", {});
+  assert.equal(missing.ok, false);
+});

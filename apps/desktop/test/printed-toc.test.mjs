@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildNavPlan, isPrintedTocChapter, looksLikeTocEntry, normalizeNavLevels, parsePrintedTocEntries, printedPageOf, stripPrintedToc, stripTocBlock, tocRatio } from "../src/shared/printed-toc.js";
+import { buildNavPlan, fillPageGaps, isPrintedTocChapter, looksLikeTocEntry, normalizeNavLevels, parsePrintedTocEntries, printedPageOf, stripPrintedToc, stripTocBlock, tocRatio } from "../src/shared/printed-toc.js";
+import { outlineToTocEntries } from "../src/main/pdf-outline.js";
 
 const tocText = [
   "第 1 章 光学简史 …… 1",
@@ -159,4 +160,52 @@ test("cover-ish chapters never lead the nav", () => {
   assert.deepEqual(plan.items.map((item) => item.title), ["Optics Fifth Edition", "译者序", "第一章 光学简史", "第二章 波动"]);
   assert.ok(!plan.items.some((item) => /^[（(]/.test(item.title)), "括号版次条目不进导航");
   assert.ok(!plan.items.some((item) => !item.title), "无标题章节也不进导航");
+});
+
+test("a chapter is used by at most one entry", () => {
+  const chapters = [{ title: "第一章 起点" }, { title: "第二章 终点" }];
+  const tocEntries = [
+    { label: "第一章 起点", key: "起点", page: 0, level: 1 },
+    { label: "第一章 起点(重复条)", key: "起点重复条", page: 0, level: 1 },
+    { label: "第二章 终点", key: "终点", page: 0, level: 1 },
+  ];
+  const plan = buildNavPlan({ chapters, tocEntries });
+  const used = plan.items.map((item) => item.chapterIndex);
+  assert.equal(new Set(used).size, used.length, "同一章不会出现在两条导航里");
+  assert.equal(plan.matched, 2);
+  assert.deepEqual(plan.dropped, ["第一章 起点(重复条)"]);
+});
+
+test("pageFirst lets an exact PDF page claim a chapter whose title was split", () => {
+  // 上游把「第4章 电磁学」拆成了「第」;大纲页码是精确的 PDF 页 → 以页码认领。
+  const chapters = [{ title: "第" }, { title: "4.1 静电场" }, { title: "第5章 光学" }];
+  const pages = [40, 41, 52];
+  const tocEntries = [
+    { label: "第4章 电磁学", key: "电磁学", page: 40, level: 1 },
+    { label: "第5章 光学", key: "光学", page: 52, level: 1 },
+  ];
+  const plan = buildNavPlan({ chapters, tocEntries, pages, pageTolerance: 2, pageFirst: true });
+  assert.equal(plan.matched, 2);
+  assert.equal(plan.items[0].chapterIndex, 0, "页码命中被拆坏的标题章");
+});
+
+test("fillPageGaps interpolates between known anchors", () => {
+  assert.deepEqual(fillPageGaps([10, 0, 0, 13, 0, 15]), [10, 11, 12, 13, 14, 15]);
+  assert.deepEqual(fillPageGaps([0, 0, 0]), [0, 0, 0], "全未知时保持原样");
+  assert.deepEqual(fillPageGaps([5]), [5]);
+});
+
+test("outlineToTocEntries keeps the PDF's own levels", () => {
+  const entries = outlineToTocEntries([
+    { level: 1, title: "第1章 光学简史", page: 17 },
+    { level: 2, title: "1.1 开场白", page: 17 },
+    { level: 3, title: "1.1.1 细节", page: 18 },
+    { level: 1, title: "   ", page: 20 },
+  ]);
+  assert.deepEqual(entries.map((entry) => [entry.label, entry.page, entry.level]), [
+    ["第1章 光学简史", 17, 1],
+    ["1.1 开场白", 17, 2],
+    ["1.1.1 细节", 18, 3],
+  ]);
+  assert.equal(entries[0].key, "光学简史");
 });
