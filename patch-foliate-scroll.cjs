@@ -129,7 +129,7 @@ add("viewSize",
     "        return this.#view.element.getBoundingClientRect()[this.sideProp]",
     "    }",
   ].join("\n"),
-  "if (this.scrolled && this.#stack.size > 1) return this.#container.scrollHeight");
+  "if (this.scrolled && this.#stack.size > 1) return this.#container.scrollHeight", true);
 
 // 6. 坐标映射:接受指定的节(选区/高亮可能来自堆叠里的另一节),并加上它的偏移。
 add("mapper",
@@ -928,14 +928,14 @@ add("display-layout-new-view",
 
 // 21. 堆叠滚动的总开关:关掉 = 滚动模式回到「一次一节」的原始行为(跳转/翻页与优化前一致)。
 // 默认关闭,直到「跳转空白 / 读一段后卡住」两个回归彻底修好再打开。
-add("stack-switch-field",
+add("stack-switch-field", 
   ["    #stack = new Map()",
   ].join("\n"),
   ["    #stack = new Map()",
-    "    // UV Reader: stacked scrolled mode is behind a switch (see the patch script).",
-    "    #stacked = false",
+    "    // UV Reader: stacked scrolled mode (see patch-foliate-scroll.cjs / docs/scroll-mode-design.md).",
+    "    #stacked = true",
   ].join("\n"),
-  "// UV Reader: stacked scrolled mode is behind a switch");
+  "// UV Reader: stacked scrolled mode (see patch-foliate-scroll.cjs");
 add("stack-switch-display",
   ["            const stackForward = this.scrolled && !!this.#view && index === previousIndex + 1",
     "            const stackBackward = this.scrolled && !!this.#view && index === previousIndex - 1",

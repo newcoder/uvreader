@@ -1,7 +1,7 @@
 # 滚动模式（EPUB）几何与堆叠设计
 
-> 状态：**设计已定稿，补丁已就位，开关默认关闭**。真机断言 31 条全绿（`npm run desktop:check-scroll`）。
-> 这份文档记录的是「为什么会跳/会空白」的完整证据链，以及重开堆叠滚动前必须满足的不变量。
+> 状态：**已启用（默认开启）**。真机断言 31 条全绿（`npm run desktop:check-scroll`）；桌面 e2e 全绿（`npm run desktop:e2e`，含开关打开后的那一轮）。
+> 这份文档记录的是「为什么会跳/会空白」的完整证据链，以及堆叠滚动的不变量与开启/回滚方式。
 
 ## 1. 目标
 
@@ -60,10 +60,10 @@
 
 ## 6. 开关与回滚
 
-- 开关在打补丁的 `node_modules/foliate-js/paginator.js`：`#stacked = false`（默认关）；
-- 打补丁脚本：`patch-foliate-scroll.cjs`（56+ 处，每处有唯一标记，上游结构变了会**大声报错**并中止）；
-- 回滚：`npm ci`（重新装依赖即还原）或把开关改回 `false`；
-- **开启步骤**：把 `patch-foliate-scroll.cjs` 里 `stack-switch-field` 的 `#stacked = false` 改成 `true` → `node patch-foliate-scroll.cjs` → `npm run desktop:build`。
+- 开关在打补丁的 `node_modules/foliate-js/paginator.js`：`#stacked = true`（**默认开启**）；
+- 打补丁脚本：`patch-foliate-scroll.cjs`（64 处，每处有唯一标记，上游结构变了会**大声报错**并中止）；
+- 回滚：`npm ci`（重新装依赖即还原）或把开关改回 `false` → `node patch-foliate-scroll.cjs` → `npm run desktop:build`；
+- 回归：`npm run desktop:check-scroll`（31 条几何/堆叠/翻页）+ `npm run desktop:e2e`（应用级：打开/翻页/选词/高亮/笔记/书签/搜索/OCR/PDF/批注与恢复/导航）。
 
 ## 7. 已知限制 / 后续
 
