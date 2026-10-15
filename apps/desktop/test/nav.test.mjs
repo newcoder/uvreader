@@ -131,6 +131,18 @@ test("a printed toc drives the nav and a fragment never reaches it", async () =>
   assert.ok(audit.stats.maxDepth >= 2, "1.1 这类条目应该嵌在章下面");
 });
 
+test("a title-only chapter never breaks the build", async () => {
+  // 实测崩溃:Cannot access 'outlineEntryKeys' before initialization —— 分章时回调
+  // 读到了还没初始化的变量。这条用「标题后紧跟下一级标题」的稿子把它钉住。
+  const { nav, audit, task } = await buildFromMarkdown(
+    ["## 某一节的标题", "## 第一节", "第一节的正文。", "## 第二节", "第二节的正文。"].join("\n\n"),
+  );
+  assert.equal(task.status, "done");
+  const labels = parseNav(nav).entries.map((entry) => entry.label);
+  assert.ok(labels.includes("第一节") && labels.includes("第二节"), labels.join(" / "));
+  assert.equal(audit.ok, true, audit.problems.join(" / "));
+});
+
 test("without a printed toc the nav comes from the chapter titles", async () => {
   const { nav, audit, task } = await buildFromMarkdown(body);
   assert.match(task.detail, /目录来自正文标题/, "没有目录页时写明导航来自正文标题");

@@ -292,68 +292,9 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     // 上游(pdf_tool)给的目录条目:有就优先用(比从 md 文本兜底解析准)。
     let upstreamToc = [];
     let rawChapters;
-    if (provided.length) {
-      rawChapters = provided
-        .map((chapter, index) => ({
-          title: String(chapter?.title || `第 ${index + 1} 章`).slice(0, 120),
-          text: String(chapter?.text || ""),
-          markdown: Boolean(markdown),
-        }))
-        .filter((chapter) => chapter.text.trim());
-    } else if (isText) {
-      text = fs.readFileSync(source, "utf8");
-      // 提取工具写出的 .md 里可能有「假代码块」(正文被包进围栏),先还原成段落。
-      if (markdown) text = unwrapProseFences(text);
-      // Markdown 有标题层级时按标题分章(与 PDF/Office 提取路径一致),否则按章节行 / 长度分。
-      const found = markdown ? splitMarkdownChapters(text, { bookTitle: title }) : [];
-      rawChapters = (found.length >= 2
-        ? found.map((chapter, index) => ({ title: chapter.title || `第 ${index + 1} 章`, text: chapter.text }))
-        : textToChapters(text, { markdown, title }).map((chapter) => ({ title: chapter.title, text: chapter.text })))
-        .map((chapter) => ({ ...chapter, markdown: Boolean(markdown) }));
-    } else {
-      report({ label: "提取内容" });
-      const extracted = await extractMarkdown(source, {
-        kind: extractionKind(source),
-        settings,
-        docvortex,
-        workDir: path.join(workRoot, "extract"),
-        signal,
-        log,
-        spawnImpl,
-        textLayer,
-        // 勾了「忽略缓存重新提取」就重跑上游(MinerU),否则复用缓存。
-        refresh: payload?.refresh === true,
-      });
-      if (signal.aborted) throw new Error("任务已取消");
-      if (!extracted.ok) throw new Error(String(extracted.error || "内容提取失败"));
-      text = extracted.markdown;
-      upstreamToc = Array.isArray(extracted.tocEntries) ? extracted.tocEntries : [];
-      baseDir = path.dirname(extracted.path || source);
-      const found = splitMarkdownChapters(text, {
-        bookTitle: title,
-        // 目录点名的标题(如文章标题)即使正文为空也保留成章 —— 否则条目没有落点。
-        // 判据与导航对齐一致:标题键相同、或标题键是目录键的超集(「形式主义的数学基础
-        // ① (1931)」 vs 目录里的「形式主义的数学基础」)。
-        keepTitle: (value) => {
-          const key = chapterKey(String(value || ""));
-          if (!key) return false;
-          for (const outlineKey of outlineEntryKeys) {
-            if (!outlineKey) continue;
-            if (key === outlineKey) return true;
-            if (key.startsWith(outlineKey) && outlineKey.length >= Math.max(3, key.length * 0.5)) return true;
-          }
-          return false;
-        },
-      });
-      rawChapters = (found.length
-        ? found.map((chapter, index) => ({ title: chapter.title || `第 ${index + 1} 章`, text: chapter.text }))
-        : textToChapters(text, { markdown: true, title }).map((chapter) => ({ title: chapter.title, text: chapter.text })))
-        .map((chapter) => ({ ...chapter, markdown: true }));
-    }
-    if (!rawChapters.length) throw new Error("没有可写的内容");
-
-    // 目录优先级第一步:**PDF 自带大纲**(作者给的三级结构)。先读它,好让后面的章节过滤
-    // 不至于误删「目录认领过的章节」(用户实测的缺章就是这么来的)。
+    // 目录优先级第一步:**PDF 自带大纲**(作者给的三级结构)。**必须在分章之前**读:
+    // ① 章节过滤要靠它保住「目录认领过的章节」;② 分章要靠它保住「空章」(标题后紧跟
+    // 下一级标题的文章标题页 —— 目录条目指的就是那里)。
     // 有的书(如《安妮·卡森诗选》)的 PDF 书签只是「每 20 页一个」的**页码标尺**,
     // 标题就是 001/020/…:那不是目录,过滤掉并改用正文标题(否则导航是一串数字)。
     let outlineEntries = [];
@@ -378,10 +319,66 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     // 让正文标题来当目录(作品名 → 各节)。
     const outlineAnchors = outlineEntries.length >= 2 && outlineEntries.length <= 8 ? outlineEntries : [];
     if (outlineIsPageRuler || outlineEntries.length < 4) outlineEntries = [];
+    // 目录点名要的标题键 + 判据:标题键相同、或标题键是目录键的超集
+    // (「形式主义的数学基础 ① (1931)」 vs 目录里的「形式主义的数学基础」)。
+    const outlineEntryKeys = new Set(outlineEntries.map((entry) => entry.key));
+    const keepOutlineTitle = (value) => {
+      const key = chapterKey(String(value || ""));
+      if (!key) return false;
+      for (const outlineKey of outlineEntryKeys) {
+        if (!outlineKey) continue;
+        if (key === outlineKey) return true;
+        if (key.startsWith(outlineKey) && outlineKey.length >= Math.max(3, key.length * 0.5)) return true;
+      }
+      return false;
+    };
+    if (provided.length) {
+      rawChapters = provided
+        .map((chapter, index) => ({
+          title: String(chapter?.title || `第 ${index + 1} 章`).slice(0, 120),
+          text: String(chapter?.text || ""),
+          markdown: Boolean(markdown),
+        }))
+        .filter((chapter) => chapter.text.trim());
+    } else if (isText) {
+      text = fs.readFileSync(source, "utf8");
+      // 提取工具写出的 .md 里可能有「假代码块」(正文被包进围栏),先还原成段落。
+      if (markdown) text = unwrapProseFences(text);
+      // Markdown 有标题层级时按标题分章(与 PDF/Office 提取路径一致),否则按章节行 / 长度分。
+      const found = markdown ? splitMarkdownChapters(text, { bookTitle: title, keepTitle: keepOutlineTitle }) : [];
+      rawChapters = (found.length >= 2
+        ? found.map((chapter, index) => ({ title: chapter.title || `第 ${index + 1} 章`, text: chapter.text }))
+        : textToChapters(text, { markdown, title }).map((chapter) => ({ title: chapter.title, text: chapter.text })))
+        .map((chapter) => ({ ...chapter, markdown: Boolean(markdown) }));
+    } else {
+      report({ label: "提取内容" });
+      const extracted = await extractMarkdown(source, {
+        kind: extractionKind(source),
+        settings,
+        docvortex,
+        workDir: path.join(workRoot, "extract"),
+        signal,
+        log,
+        spawnImpl,
+        textLayer,
+        // 勾了「忽略缓存重新提取」就重跑上游(MinerU),否则复用缓存。
+        refresh: payload?.refresh === true,
+      });
+      if (signal.aborted) throw new Error("任务已取消");
+      if (!extracted.ok) throw new Error(String(extracted.error || "内容提取失败"));
+      text = extracted.markdown;
+      upstreamToc = Array.isArray(extracted.tocEntries) ? extracted.tocEntries : [];
+      baseDir = path.dirname(extracted.path || source);
+      const found = splitMarkdownChapters(text, { bookTitle: title, keepTitle: keepOutlineTitle });
+      rawChapters = (found.length
+        ? found.map((chapter, index) => ({ title: chapter.title || `第 ${index + 1} 章`, text: chapter.text }))
+        : textToChapters(text, { markdown: true, title }).map((chapter) => ({ title: chapter.title, text: chapter.text })))
+        .map((chapter) => ({ ...chapter, markdown: true }));
+    }
+    if (!rawChapters.length) throw new Error("没有可写的内容");
 
     // 标题去噪 + 去掉页眉/扉页重复短章(提供的章节也照办:面板传过来的标题可能带
     // 脚注标记 $^{①}$,导航里就会看到这些符号)。
-    const outlineEntryKeys = new Set(outlineEntries.map((entry) => entry.key));
     const normalized = normalizeBookChapters(rawChapters, title, { keepKeys: outlineEntryKeys });
     const tocStrip = stripPrintedToc(normalized.chapters, { enabled: payload?.dropPrintedToc !== false });
     const bookChapters = tocStrip.chapters;
