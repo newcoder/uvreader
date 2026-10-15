@@ -2863,6 +2863,18 @@ async function sweepReaderFigures(reader, lazy) {
         layer.setAttribute("data-pdf-selectable", "false");
       }
       img.setAttribute(FIGURE_LOADED_ATTR, "0");
+    } else if (gap > FIGURE_LOAD_SPAN && loadState !== "1") {
+      // 这一页不会被画(超出绘制窗口),但**文字**要补进占位层:查找、跨页选择、
+      // 以及 DOM 级断言读的都是文字层,而占位几乎没有成本。否则页面越远越"没文字"。
+      const layer = img.closest(FIGURE_SURFACE_SELECTOR)?.querySelector(".qiaomu-reader-pdf-text-layer");
+      if (layer && !String(layer.textContent || "").trim()) {
+        const text = String(lazy.textFor?.(figurePageNumber(img)) || "").trim();
+        if (text) {
+          layer.textContent = text;
+          layer.className = "qiaomu-reader-pdf-text-layer qiaomu-reader-pdf-text-placeholder";
+          layer.setAttribute("data-pdf-selectable", "false");
+        }
+      }
     }
   }
 }
