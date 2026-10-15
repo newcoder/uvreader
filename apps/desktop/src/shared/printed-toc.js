@@ -130,6 +130,25 @@ export function tocLevel(label) {
   return 1;
 }
 
+// 页锚点有缺口时按相邻锚点插值(大纲页码精确,缺一格就少一条导航)。
+export function fillPageGaps(pages) {
+  const list = Array.isArray(pages) ? [...pages] : [];
+  let lastKnown = 0;
+  let lastIndex = -1;
+  for (let index = 0; index < list.length; index += 1) {
+    if (!(list[index] > 0)) continue;
+    if (lastIndex >= 0 && list[index] > lastKnown) {
+      const span = index - lastIndex;
+      for (let step = 1; step < span; step += 1) {
+        list[lastIndex + step] = Math.round(lastKnown + ((list[index] - lastKnown) * step) / span);
+      }
+    }
+    lastKnown = list[index];
+    lastIndex = index;
+  }
+  return list;
+}
+
 // 章节标题 → 键(与 tocKey 同一套清洗,便于比对)。
 export function chapterKey(title) {
   return tocKey(cleanChapterTitle(title));
@@ -155,6 +174,12 @@ export function titleSimilarity(a, b) {
 }
 
 // 印刷页码提示:章节自带 <!--page:PDF printed:印刷--> 时,用它和目录条的页码交叉校验。
+// 章节里的页锚点(pdf_tool 写的 <!--page:16 printed:7-->):分别取 PDF 页与印刷页码。
+export function pdfPageOf(text) {
+  const match = String(text || "").match(/<!--\s*page:\s*(\d+)/);
+  return match ? Number(match[1]) : 0;
+}
+
 export function printedPageOf(text) {
   const match = String(text || "").match(/<!--\s*page:\s*\d+\s+printed:\s*(\d+)\s*-->/);
   return match ? Number(match[1]) : 0;
@@ -164,7 +189,7 @@ export function printedPageOf(text) {
 // 匹配不到的条目保守丢弃;目录之外的「前言/注释」这类章节保留在两端。
 // pages(可选,与 chapters 一一对应)= 章节起始的**印刷页码**:页码对得上时给标题匹配加成,
 // 于是 OCR 噪声把标题弄花也能靠页码定位(R1)。
-export function buildNavPlan({ chapters = [], tocEntries = [], pages = [], minSimilarity = 0.6, pageTolerance = 2 } = {}) {
+export function buildNavPlan({ chapters = [], tocEntries = [], pages = [], minSimilarity = 0.6, pageTolerance = 2, pageFirst = false, orderFallback = false } = {}) {
   const list = (Array.isArray(chapters) ? chapters : []).map((chapter, index) => ({
     index,
     title: String(chapter?.title || ""),
@@ -173,6 +198,7 @@ export function buildNavPlan({ chapters = [], tocEntries = [], pages = [], minSi
   }));
   const items = [];
   const dropped = [];
+  const used = new Set();
   const matchedIndexes = new Set();
   let cursor = 0;
   for (const entry of Array.isArray(tocEntries) ? tocEntries : []) {
@@ -182,20 +208,34 @@ export function buildNavPlan({ chapters = [], tocEntries = [], pages = [], minSi
     for (let index = 0; index < list.length; index += 1) {
       const candidate = list[index];
       if (!candidate.key) continue;
+      // 一章只当一条目录条目的落点,否则会出现「第2章重复、第4章缺失」这种错乱。
+      if (used.has(index)) continue;
       const title = candidate.key === entry.key
         ? 1
         : Math.max(titleSimilarity(candidate.key, entry.key), candidate.key.startsWith(entry.key) || entry.key.startsWith(candidate.key) ? 0.8 : 0);
-      // R1:印刷页码对得上(±容差)→ 加成,标题被 OCR 弄花也能命中。
-      const pageHit = entry.page > 0 && candidate.page > 0 && Math.abs(candidate.page - entry.page) <= pageTolerance;
-      const score = pageHit ? Math.min(1, title + 0.5) : title;
+      // R1:页码对得上(±容差)且标题也大致像 → 加成;若这一章的标题本身残缺(「第」这种
+      // 被拆开的占位),也允许用页码认领它 —— 否则「第4章」这类条目会整条丢掉。
+      const weakTitle = String(candidate.title || "").replace(/[^\p{L}\p{N}]/gu, "").length <= 2;
+      const pageClose = entry.page > 0 && candidate.page > 0 && Math.abs(candidate.page - entry.page) <= pageTolerance;
+      // pageFirst:页锚点来自 PDF 大纲(精确页码)时,以页码为主判据 —— 正文那一带的标题
+      // 常常被上游拆坏,靠标题根本配不上。
+      const pageHit = pageClose && (pageFirst || title >= 0.34 || weakTitle);
+      const score = pageHit ? Math.min(1, Math.max(title, pageFirst ? 0.9 : 0.5) + (pageFirst ? 0 : 0.5) * (1 - Math.abs(candidate.page - entry.page) / (pageTolerance + 1))) : title;
       if (score < minSimilarity) continue;
       const rank = score + (index >= cursor ? 0.05 : 0); // 同等条件优先取靠后的那本(目录顺序)
       if (!best || rank > best.rank) best = { index, score, rank };
+    }
+    if (!best && orderFallback) {
+      // 目录是读书顺序,正文也是读书顺序:实在判不出来就按顺序认领下一章。
+      // (用户口径:页码不必对上原书 —— 我们只要一条能用的目录,所以宁可顺序兜底也别丢条目。)
+      const next = list.findIndex((candidate) => candidate.index >= cursor && !used.has(candidate.index));
+      if (next >= 0) best = { index: next, score: 0.5, rank: 0.5 };
     }
     if (!best) {
       dropped.push(entry.label);
       continue;
     }
+    used.add(best.index);
     matchedIndexes.add(best.index);
     items.push({ title: entry.label, chapterIndex: best.index, level: entry.level });
     cursor = Math.max(cursor, best.index);
@@ -217,13 +257,13 @@ export function buildNavPlan({ chapters = [], tocEntries = [], pages = [], minSi
     ...items,
     ...after.map((chapter) => ({ title: chapter.title, chapterIndex: chapter.index, level: 1 })),
   ];
-  // 去重:同一标题只留一条(前后附章可能与目录条目指向同一章,重复标签会让导航看着乱)。
-  const seen = new Set();
+  // 去重:同一章只留一条(前后附章可能与目录条目指向同一章)。
+  // 注意:**不按标题去重** —— 大纲里「习题」「小结」反复出现是正常的(每章一份)。
+  const seenTargets = new Set();
   const deduped = [];
   for (const item of plan) {
-    const key = chapterKey(item.title);
-    if (key && seen.has(key)) continue;
-    if (key) seen.add(key);
+    if (seenTargets.has(item.chapterIndex)) continue;
+    seenTargets.add(item.chapterIndex);
     deduped.push(item);
   }
   return { items: deduped, matched: items.length, dropped };

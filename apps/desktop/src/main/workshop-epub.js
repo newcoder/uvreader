@@ -11,7 +11,8 @@ import { extractMarkdown, extractionKind, splitMarkdownChapters } from "./extrac
 import { createMathRenderer, shareFormulaHtml } from "./math-render.js";
 import { createTextLayerReader } from "./text-layer.js";
 import { cleanChapterTitle, joinInlineFragment, looksLikeHeadingTitle, unwrapProseFences } from "../shared/markdown-fix.js";
-import { buildNavPlan, isPrintedTocChapter, normalizeNavLevels, parsePrintedTocEntries, printedPageOf, stripPrintedToc } from "../shared/printed-toc.js";
+import { buildNavPlan, fillPageGaps, isPrintedTocChapter, normalizeNavLevels, parsePrintedTocEntries, pdfPageOf, printedPageOf, stripPrintedToc } from "../shared/printed-toc.js";
+import { outlineToTocEntries } from "./pdf-outline.js";
 import { collectChars, createFontSubsetter, ensureFont, ensureFontLicense, findPairing, FONT_FAMILIES } from "./workshop-fonts.js";
 import { pairingStacks } from "../shared/book-fonts.js";
 import { convertPath } from "../shared/workshop-names.js";
@@ -207,7 +208,7 @@ export async function resolveCover({ payload = {}, title = "", author = "", mark
   return { data: rendered.data, mediaType: rendered.mediaType || "image/jpeg", fileName: "cover.jpg" };
 }
 
-export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", subsetter = createFontSubsetter(), coverRenderer = null, readImage = null, docvortex = null, mathRenderer = createMathRenderer(), textLayer = createTextLayerReader(), spawnImpl = spawn, log = (...args) => console.log(...args) } = {}) {
+export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", subsetter = createFontSubsetter(), coverRenderer = null, readImage = null, docvortex = null, mathRenderer = createMathRenderer(), textLayer = createTextLayerReader(), outlineReader = null, spawnImpl = spawn, log = (...args) => console.log(...args) } = {}) {
   const absolute = (raw) => {
     const value = String(raw || "");
     return path.isAbsolute(value) ? value : path.join(vaultRoot, value);
@@ -324,23 +325,45 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       if (signal.aborted) throw new Error("任务已取消");
     }
     const renderMath = mathMap ? (latex, display) => shareFormulaHtml(mathMap.get(mathKey(latex)), display) : null;
-    // 导航来源:有印刷目录就用它(条目→正文匹配),否则按章节标题(与旧行为一致)。
+    // 导航来源优先级:**PDF 自带大纲** > 上游 OCR 目录条目 > md 里的印刷目录 > 标题分章。
+    // 大纲(PDF 书签)是作者给的完整层级、页码就是 PDF 页,和 <!--page:N--> 锚点精确对上。
+    let outlineEntries = [];
+    if (outlineReader && /\.pdf$/i.test(String(source))) {
+      const outline = await outlineReader.read(source, {
+        python: String(settings.ocrPython || "").trim() || "python",
+        workDir: path.join(workRoot, "outline"),
+        signal,
+      });
+      if (outline.ok) outlineEntries = outlineToTocEntries(outline.outline);
+      else log("book build pdf outline skipped", outline.error);
+      if (signal.aborted) throw new Error("任务已取消");
+    }
     const tocText = normalized.chapters.filter((chapter) => isPrintedTocChapter(chapter)).map((chapter) => chapter.text).join("\n");
+    const tocSource = outlineEntries.length ? "outline" : upstreamToc.length ? "upstream" : tocText ? "printed" : "";
     let navItems = null;
     let navDropped = 0;
-    if (upstreamToc.length || tocText) {
-      const entries = upstreamToc.length ? upstreamToc : parsePrintedTocEntries(tocText);
-      // R1:章节起始的印刷页码(来自 pdf_tool 的 <!--page:N printed:M--> 锚点)给匹配加成。
-      const pages = bookChapters.map((chapter) => printedPageOf(chapter.text));
-      const plan = buildNavPlan({ chapters: bookChapters, tocEntries: entries, pages });
+    if (tocSource) {
+      const entries = tocSource === "outline" ? outlineEntries : tocSource === "upstream" ? upstreamToc : parsePrintedTocEntries(tocText);
+      const usingPdfPages = tocSource === "outline";
+      // 页锚点有缺口时按相邻锚点插值(大纲页码精确,缺一格就少一条导航)。
+      const pages = usingPdfPages ? fillPageGaps(bookChapters.map((chapter) => pdfPageOf(chapter.text))) : bookChapters.map((chapter) => printedPageOf(chapter.text));
+      const plan = buildNavPlan({ chapters: bookChapters, tocEntries: entries, pages, pageTolerance: 2, pageFirst: usingPdfPages, orderFallback: usingPdfPages });
       if (plan) {
         navItems = normalizeNavLevels(plan.items).map((item) => ({
           title: item.title,
           file: `chapter-${String(item.chapterIndex + 1).padStart(3, "0")}.xhtml`,
           level: item.level,
         }));
+        // 目录条目的标题比正文里的残缺占位好(上游把「第4章 …」拆成了「第」):
+        // 用目录标题把章节名补齐,正文标题也就跟着对了。
+        for (const item of plan.items) {
+          const chapter = bookChapters[item.chapterIndex];
+          if (!chapter) continue;
+          const current = String(chapter.title || "").replace(/[^\p{L}\p{N}]/gu, "");
+          if (current.length <= 2 && item.title) chapter.title = item.title;
+        }
         navDropped = plan.dropped.length;
-        log("book build nav from toc", upstreamToc.length ? "upstream" : "printed", plan.matched, "entries", navDropped, "dropped");
+        log("book build nav from toc", tocSource, plan.matched, "entries", navDropped, "dropped");
       } else {
         log("book build nav from toc skipped", "matched too few entries");
       }
@@ -414,7 +437,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     const formulaCount = mathMap ? [...mathMap.values()].filter(Boolean).length : 0;
     return {
       output: out,
-      detail: `EPUB · ${result.chapters} 章 · ${Math.round(result.bytes / 1024)} KB${fonts.length ? ` · ${fonts.length} 款字体` : ""}${images.length ? ` · ${images.length} 图` : ""}${formulaCount ? ` · ${formulaCount} 公式` : ""}${tocStrip.dropped ? ` · 去印刷目录 ${tocStrip.dropped} 章` : ""}${navItems ? ` · 目录${upstreamToc.length ? "来自上游" : "来自印刷目录"} ${navItems.length} 条${navDropped ? `(丢弃 ${navDropped})` : ""}` : ""}${normalized.dropped ? ` · 去重复页眉 ${normalized.dropped} 章` : ""}${unrendered ? ` · 未渲染 ${unrendered}` : ""}`,
+      detail: `EPUB · ${result.chapters} 章 · ${Math.round(result.bytes / 1024)} KB${fonts.length ? ` · ${fonts.length} 款字体` : ""}${images.length ? ` · ${images.length} 图` : ""}${formulaCount ? ` · ${formulaCount} 公式` : ""}${tocStrip.dropped ? ` · 去印刷目录 ${tocStrip.dropped} 章` : ""}${navItems ? ` · 目录${tocSource === "outline" ? "来自 PDF 大纲" : tocSource === "upstream" ? "来自上游" : "来自印刷目录"} ${navItems.length} 条${navDropped ? `(丢弃 ${navDropped})` : ""}` : ""}${normalized.dropped ? ` · 去重复页眉 ${normalized.dropped} 章` : ""}${unrendered ? ` · 未渲染 ${unrendered}` : ""}`,
     };
   });
 }

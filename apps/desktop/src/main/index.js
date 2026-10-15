@@ -15,6 +15,7 @@ import { registerTextConvertRunner } from "./pdf-text.js";
 import { createKindleSender } from "./kindle-send.js";
 import { createFormulaChain, pdfToolScriptCommand, registerFormulaRunners, resolveMineruToken } from "./workshop-formula.js";
 import { registerBookRunners } from "./workshop-book.js";
+import { createPdfOutlineReader } from "./pdf-outline.js";
 import { registerEpubRunners } from "./workshop-epub.js";
 import { createPdfOcr, OCR_PROBE_TIMEOUT, resolveOcrOutput } from "./pdf-ocr.js";
 import { registerOcrRunners } from "./workshop-ocr.js";
@@ -103,7 +104,7 @@ const readCoverImage = async (filePath) => {
   if (image.isEmpty()) return null;
   return { data: image.toJPEG(90), mediaType: "image/jpeg", fileName: "cover.jpg" };
 };
-registerEpubRunners(workshop, { vaultRoot, cacheRoot: bookCacheRoot, coverRenderer, readImage: readCoverImage, docvortex });
+registerEpubRunners(workshop, { vaultRoot, cacheRoot: bookCacheRoot, coverRenderer, readImage: readCoverImage, docvortex, outlineReader: createPdfOutlineReader() });
 // 内容提取(PDF/Office/OFD/图片 → md/html/json):pdf_tool + DocVortex。
 registerExtractRunners(workshop, { docvortex, vaultRoot, cacheRoot: bookCacheRoot });
 // 发送到 Kindle:走同一条队列(任务里能看进度与结果)。
