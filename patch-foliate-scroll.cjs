@@ -88,7 +88,7 @@ add("display-head",
     "            const stackForward = this.scrolled && !!this.#view && index === previousIndex + 1",
     "            const view = this.#createView(stackForward)",
   ].join("\n"),
-  "const stackForward = this.scrolled && !!this.#view && index === previousIndex + 1");
+  "const stackForward = this.scrolled && !!this.#view && index === previousIndex + 1", true);
 
 add("display-stack",
   [
@@ -659,7 +659,7 @@ add("display-prepend",
     "            const stackBackward = this.scrolled && !!this.#view && index === previousIndex - 1",
     "            const view = this.#createView(stackForward || stackBackward, stackBackward)",
   ].join("\n"),
-  "const stackBackward = this.scrolled && !!this.#view && index === previousIndex - 1");
+  "const stackBackward = this.scrolled && !!this.#view && index === previousIndex - 1", true);
 
 add("display-keep-window",
   ["                this.#stack.set(index, { view })",
@@ -907,6 +907,122 @@ add("replace-clean-container",
     "            this.#container.replaceChildren()",
   ].join("\n"),
   "this.#container.replaceChildren()");
+
+// 20. 跳转/续读挂进来的节必须**立刻**布局一次:容器的 ResizeObserver 只在容器自身
+// 尺寸变化时触发,新节不会自己拿到高度 → 高度 0 → 空白 + 后续滚动卡死(实测复现)。
+add("display-layout-new-view",
+  ["            this.#view = view",
+    "            if (this.scrolled) {",
+    "                this.#stack.set(index, { view })",
+  ].join("\n"),
+  ["            this.#view = view",
+    "            if (this.scrolled) {",
+    "                // Lay this section out right away. The container's resize observer",
+    "                // only fires when #container itself changes size, so a section",
+    "                // mounted by a jump or by continueNext/Prev would otherwise keep a",
+    "                // zero height: blank screen, and nothing further can be scrolled in.",
+    "                try { view.render(this.#beforeRender({ vertical: this.#vertical, rtl: this.#rtl })) } catch { /* retried by the observer */ }",
+    "                this.#stack.set(index, { view })",
+  ].join("\n"),
+  "Lay this section out right away");
+
+// 21. 堆叠滚动的总开关:关掉 = 滚动模式回到「一次一节」的原始行为(跳转/翻页与优化前一致)。
+// 默认关闭,直到「跳转空白 / 读一段后卡住」两个回归彻底修好再打开。
+add("stack-switch-field",
+  ["    #stack = new Map()",
+  ].join("\n"),
+  ["    #stack = new Map()",
+    "    // UV Reader: stacked scrolled mode is behind a switch (see the patch script).",
+    "    #stacked = false",
+  ].join("\n"),
+  "#stacked = false");
+
+add("stack-switch-display",
+  ["            const stackForward = this.scrolled && !!this.#view && index === previousIndex + 1",
+    "            const stackBackward = this.scrolled && !!this.#view && index === previousIndex - 1",
+  ].join("\n"),
+  ["            const stackForward = this.#stacked && this.scrolled && !!this.#view && index === previousIndex + 1",
+    "            const stackBackward = this.#stacked && this.scrolled && !!this.#view && index === previousIndex - 1",
+  ].join("\n"),
+  "const stackForward = this.#stacked && this.scrolled");
+
+add("stack-switch-register",
+  ["            this.#view = view",
+    "            if (this.scrolled) {",
+    "                // Lay this section out right away.",
+  ].join("\n"),
+  ["            this.#view = view",
+    "            if (this.scrolled && this.#stacked) {",
+    "                // Lay this section out right away.",
+  ].join("\n"),
+  "if (this.scrolled && this.#stacked) {");
+
+add("stack-switch-continue",
+  ["    async continueNext() {",
+    "        if (this.#locked) return",
+    "        this.#locked = true",
+    "        const index = this.#adjacentIndex(1)",
+    "        if (index != null) await this.#goTo({ index, keepPosition: true })",
+    "        this.#locked = false",
+    "    }",
+  ].join("\n"),
+  ["    async continueNext() {",
+    "        if (!this.#stacked) return this.next()",
+    "        if (this.#locked) return",
+    "        this.#locked = true",
+    "        const index = this.#adjacentIndex(1)",
+    "        if (index != null) await this.#goTo({ index, keepPosition: true })",
+    "        this.#locked = false",
+    "    }",
+  ].join("\n"),
+  "if (!this.#stacked) return this.next()");
+
+add("stack-switch-continue-prev",
+  ["    async continuePrev() {",
+    "        if (this.#locked) return",
+    "        this.#locked = true",
+    "        const index = this.#adjacentIndex(-1)",
+    "        if (index != null) await this.#goTo({ index, keepPosition: true })",
+    "        this.#locked = false",
+    "    }",
+  ].join("\n"),
+  ["    async continuePrev() {",
+    "        if (!this.#stacked) return this.prev()",
+    "        if (this.#locked) return",
+    "        this.#locked = true",
+    "        const index = this.#adjacentIndex(-1)",
+    "        if (index != null) await this.#goTo({ index, keepPosition: true })",
+    "        this.#locked = false",
+    "    }",
+  ].join("\n"),
+  "if (!this.#stacked) return this.prev()");
+
+add("stack-switch-scroll-prev",
+  ["            const step = distance ?? this.size",
+    "            if (this.start - step < this.mountedStart + 2) {",
+  ].join("\n"),
+  ["            const step = distance ?? this.size",
+    "            if (this.#stacked && this.start - step < this.mountedStart + 2) {",
+  ].join("\n"),
+  "if (this.#stacked && this.start - step < this.mountedStart + 2) {");
+
+add("stack-switch-scroll-next",
+  ["            const step = distance ?? this.size",
+    "            if (this.end + step > this.mountedEnd - 2) {",
+  ].join("\n"),
+  ["            const step = distance ?? this.size",
+    "            if (this.#stacked && this.end + step > this.mountedEnd - 2) {",
+  ].join("\n"),
+  "if (this.#stacked && this.end + step > this.mountedEnd - 2) {");
+
+add("stack-switch-getter",
+  ["    #stacked = false",
+  ].join("\n"),
+  ["    #stacked = false",
+    "    // 供宿主/回归脚本查询堆叠滚动是否开启。",
+    "    get stackedScroll() { return this.#stacked }",
+  ].join("\n"),
+  "get stackedScroll() { return this.#stacked }");
 
 let next = text;
 let applied = 0;

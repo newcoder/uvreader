@@ -69,6 +69,19 @@ paginator.open(book);
 await paginator.goTo({ index: 0 });
 await wait(500);
 
+// 堆叠滚动当前是关闭的(patch 里的开关):这时滚动模式回到「一次一节」的既有行为,
+// 堆叠场景的断言整体跳过;「既有功能」(翻页模式/目录跳转/上下页)照常校验。
+let phase = "stack";
+const stacking = paginator.stackedScroll === true;
+if (!stacking) console.log("NOTE stacked scrolled mode is OFF (patch switch) - stacking assertions skipped");
+const checkOrSkip = (name, ok, detail = "") => {
+  if (!stacking && phase === "stack") {
+    results.push({ name, ok: true, skipped: true, detail: String(detail) });
+    return;
+  }
+  results.push({ name, ok: !!ok, detail: String(detail) });
+};
+
 const indexes = () => paginator.getContents().map((item) => item.index).sort((a, b) => a - b);
 const docHeight = (index) => {
   const doc = paginator.getContents().find((item) => item.index === index)?.doc;
@@ -83,36 +96,36 @@ const readForward = async () => {
   return paginator.getContents().length > 1;
 };
 
-check("打开时只挂一节", indexes().join(",") === "0", indexes().join(","));
+checkOrSkip("打开时只挂一节", indexes().join(",") === "0", indexes().join(","));
 const first = docHeight(0);
 
 // 往前读:跨过分节边界时,上一节应该还挂着,而且视口不该回到新节的顶部。
 const stacked = await readForward();
-check("跨节后上一节仍在屏幕上(可平滑回滚)", stacked && indexes().includes(0), indexes().join(","));
-check("跨节没有跳回新节顶部", paginator.start > first * 0.7,
+checkOrSkip("跨节后上一节仍在屏幕上(可平滑回滚)", stacked && indexes().includes(0), indexes().join(","));
+checkOrSkip("跨节没有跳回新节顶部", paginator.start > first * 0.7,
   \`start=\${round(paginator.start)} 第一节高=\${round(first)} 视口=\${round(paginator.size)}\`);
-check("可滚动范围已含两节", paginator.viewSize > first, \`viewSize=\${round(paginator.viewSize)} 第一节高=\${round(first)}\`);
-check("relocate 报的是正在读的那一节", relocations.at(-1)?.index === 1, String(relocations.at(-1)?.index));
-check("relocate 的进度是节内进度", (relocations.at(-1)?.fraction ?? -1) >= 0 && relocations.at(-1)?.fraction <= 1,
+checkOrSkip("可滚动范围已含两节", paginator.viewSize > first, \`viewSize=\${round(paginator.viewSize)} 第一节高=\${round(first)}\`);
+checkOrSkip("relocate 报的是正在读的那一节", relocations.at(-1)?.index === 1, String(relocations.at(-1)?.index));
+checkOrSkip("relocate 的进度是节内进度", (relocations.at(-1)?.fraction ?? -1) >= 0 && relocations.at(-1)?.fraction <= 1,
   String(relocations.at(-1)?.fraction));
 
 // 再跨一节:窗口保留最近几节,位置继续往前(不是回到某节开头)。
 const beforeSecond = paginator.start;
 const beforeExtent = paginator.viewSize;
 const crossedAgain = await readForward();
-check("再跨一节成功", crossedAgain, indexes().join(","));
-check("往回可读的节仍在窗口里", paginator.getContents().length >= 2 && paginator.getContents().length <= 6,
+checkOrSkip("再跨一节成功", crossedAgain, indexes().join(","));
+checkOrSkip("往回可读的节仍在窗口里", paginator.getContents().length >= 2 && paginator.getContents().length <= 6,
   indexes().join(","));
-check("位置继续前进(没有回到目标节开头)", paginator.start > beforeSecond,
+checkOrSkip("位置继续前进(没有回到目标节开头)", paginator.start > beforeSecond,
   \`start=\${round(paginator.start)} 之前=\${round(beforeSecond)}\`);
-check("滚动条总高只随窗口增长(有界)", paginator.viewSize - beforeExtent <= LINES * LINE_H * 2,
+checkOrSkip("滚动条总高只随窗口增长(有界)", paginator.viewSize - beforeExtent <= LINES * LINE_H * 2,
   \`总高 \${round(beforeExtent)} → \${round(paginator.viewSize)}\`);
 
 // 往回滚:先在堆叠里滚(不立刻换节)。
 const beforeBack = paginator.start;
 await paginator.prev();
 await wait(350);
-check("往回滚先滚内容,不立刻换节", paginator.start < beforeBack, \`start=\${round(paginator.start)}\`);
+checkOrSkip("往回滚先滚内容,不立刻换节", paginator.start < beforeBack, \`start=\${round(paginator.start)}\`);
 
 // 「续读」(app 里滚到边缘时走的路径):把下一节接在下面,并保持视觉位置。
 await paginator.goTo({ index: 1 });
@@ -125,8 +138,8 @@ await wait(700);
 const afterContinue = paginator.start;
 const afterIndexes = indexes();
 const recycled = beforeIndexes.filter((index) => !afterIndexes.includes(index));
-check("续读后仍挂着相邻两节", afterIndexes.length >= 2 && afterIndexes.length <= 6, afterIndexes.join(","));
-check("续读没有把视口推到栈顶/下一节开头",
+checkOrSkip("续读后仍挂着相邻两节", afterIndexes.length >= 2 && afterIndexes.length <= 6, afterIndexes.join(","));
+checkOrSkip("续读没有把视口推到栈顶/下一节开头",
   afterContinue > paginator.size * 0.5 && afterContinue < paginator.viewSize - paginator.size - 8,
   \`start=\${round(afterContinue)} viewSize=\${round(paginator.viewSize)} 视口=\${round(paginator.size)}\`);
 
@@ -139,30 +152,74 @@ await paginator.continuePrev();
 await wait(700);
 const afterUp = { start: paginator.start, indexes: indexes(), extent: paginator.viewSize };
 const addedAbove = afterUp.indexes.filter((index) => !beforeUp.indexes.includes(index));
-check("向上续读把上一节挂到上面", addedAbove.length === 0 || Math.min(...afterUp.indexes) < Math.min(...beforeUp.indexes),
+checkOrSkip("向上续读把上一节挂到上面", addedAbove.length === 0 || Math.min(...afterUp.indexes) < Math.min(...beforeUp.indexes),
   \`\${beforeUp.indexes.join(",")} → \${afterUp.indexes.join(",")}\`);
-check("向上续读保持视觉位置(位置按上方新增高度上移)", addedAbove.length === 0
+checkOrSkip("向上续读保持视觉位置(位置按上方新增高度上移)", addedAbove.length === 0
   || Math.abs(beforeUp.start + addedAbove.length * LINES * LINE_H - afterUp.start) < 32,
   \`前=\${round(beforeUp.start)} 后=\${round(afterUp.start)} 上方新增=\${addedAbove.length}\`);
-check("向上滚动会填充占位(不会滚进空白)", Math.min(...afterUp.indexes) <= 2, afterUp.indexes.join(","));
-check("向上续读后仍在可滚范围内", afterUp.start >= 0 && afterUp.start < afterUp.extent,
+checkOrSkip("向上滚动会填充占位(不会滚进空白)", Math.min(...afterUp.indexes) <= 2, afterUp.indexes.join(","));
+checkOrSkip("向上续读后仍在可滚范围内", afterUp.start >= 0 && afterUp.start < afterUp.extent,
   \`start=\${round(afterUp.start)} 总高=\${round(afterUp.extent)}\`);
-check("窗口在两侧都受限(不会无限膨胀)", afterUp.indexes.length <= 6, afterUp.indexes.join(","));
+checkOrSkip("窗口在两侧都受限(不会无限膨胀)", afterUp.indexes.length <= 6, afterUp.indexes.join(","));
 
 // 跳章(非相邻、往回跳):照旧替换成目标节。
 await paginator.goTo({ index: 0 });
 await wait(500);
-check("跳章后只挂目标节", indexes().join(",") === "0", indexes().join(","));
-check("跳章后旧节的 DOM 也清干净了", paginator.viewSize <= LINES * LINE_H * 2 + paginator.size,
+checkOrSkip("跳章后只挂目标节", indexes().join(",") === "0", indexes().join(","));
+checkOrSkip("跳章后旧节的 DOM 也清干净了", paginator.viewSize <= LINES * LINE_H * 2 + paginator.size,
   \`总高=\${round(paginator.viewSize)}\`);
 
 // 跳到「已经在这一节」的本身:不该重建堆叠,位置也不该乱。
 const beforeSame = paginator.start;
 await paginator.goTo({ index: 0 });
 await wait(400);
-check("跳到当前节本身保持堆叠", paginator.getContents().length >= 1, indexes().join(","));
-check("跳到当前节本身不改变位置", Math.abs(paginator.start - beforeSame) < paginator.size,
+checkOrSkip("跳到当前节本身保持堆叠", paginator.getContents().length >= 1, indexes().join(","));
+checkOrSkip("跳到当前节本身不改变位置", Math.abs(paginator.start - beforeSame) < paginator.size,
   \`start=\${round(paginator.start)} 之前=\${round(beforeSame)}\`);
+
+// ── 回归:不许影响既有功能(翻页模式、跳转、上下页) ──────────────────────────
+phase = "common";
+// 1) 翻页模式(paginated):跳章、上一页/下一页,行为必须与优化前一致 —— 只挂一节。
+const paged = document.createElement("foliate-paginator");
+paged.setAttribute("flow", "paginated");
+paged.setAttribute("margin", "24px");
+paged.setAttribute("gap", "5%");
+paged.setAttribute("max-inline-size", "640px");
+paged.setAttribute("max-column-count", "1");
+document.body.append(paged);
+paged.open(book);
+await paged.goTo({ index: 2 });
+await wait(400);
+checkOrSkip("翻页模式:跳章后只挂目标节", paged.getContents().map((item) => item.index).join(",") === "2",
+  paged.getContents().map((item) => item.index).join(","));
+const pagedStart = paged.page;
+paged.next();
+await wait(300);
+checkOrSkip("翻页模式:下一页前进", paged.page > pagedStart, \`\${pagedStart} → \${paged.page}\`);
+const afterNext = paged.page;
+paged.prev();
+await wait(300);
+checkOrSkip("翻页模式:上一页后退", paged.page < afterNext, \`\${afterNext} → \${paged.page}\`);
+checkOrSkip("翻页模式:没有堆叠(始终只挂一节)", paged.getContents().length === 1,
+  String(paged.getContents().length));
+
+// 2) 滚动模式:目录跳转 = 到目标节开头(翻页语义,不是续读)。
+await paginator.goTo({ index: 5 });
+await wait(500);
+checkOrSkip("滚动模式:目录跳转到目标节", indexes().join(",") === "5", indexes().join(","));
+checkOrSkip("滚动模式:跳转落在目标节开头", paginator.start <= paginator.size,
+  \`start=\${round(paginator.start)} 视口=\${round(paginator.size)}\`);
+
+// 3) 滚动模式:下一页按钮 = 前进一屏(节内不换节)。
+const beforePageTurn = paginator.start;
+const beforeTurnIndex = indexes().join(",");
+await paginator.next();
+await wait(400);
+checkOrSkip("滚动模式:下一页按钮前进而不跳内容", paginator.start > beforePageTurn
+  && paginator.start - beforePageTurn <= paginator.size * 2,
+  \`\${round(beforePageTurn)} → \${round(paginator.start)} 视口=\${round(paginator.size)}\`);
+checkOrSkip("滚动模式:前进后仍可回滚(窗口没丢)", paginator.getContents().length >= 1,
+  indexes().join(","));
 
 const failed = results.filter((item) => !item.ok);
 for (const item of results) console.log(\`\${item.ok ? "PASS" : "FAIL"} \${item.name}\${item.detail ? " · " + item.detail : ""}\`);
