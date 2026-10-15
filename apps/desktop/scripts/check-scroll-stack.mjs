@@ -203,20 +203,27 @@ checkOrSkip("翻页模式:上一页后退", paged.page < afterNext, \`\${afterNe
 checkOrSkip("翻页模式:没有堆叠(始终只挂一节)", paged.getContents().length === 1,
   String(paged.getContents().length));
 
-// 2) 滚动模式:目录跳转 = 到目标节开头(翻页语义,不是续读)。
+// 2) 滚动模式:目录跳转 = 目标节出现在视口范围内(内容坐标 + 目标节真的可见)。
 await paginator.goTo({ index: 5 });
-await wait(500);
-checkOrSkip("滚动模式:目录跳转到目标节", indexes().join(",") === "5", indexes().join(","));
-checkOrSkip("滚动模式:跳转落在目标节开头", paginator.start <= paginator.size,
-  \`start=\${round(paginator.start)} 视口=\${round(paginator.size)}\`);
+await wait(600);
+const jumpItems = paginator.getContents();
+const pageRect = paginator.getBoundingClientRect();
+const targetBody = jumpItems.find((item) => item.index === 5)?.doc?.body;
+const targetRect = targetBody ? targetBody.getBoundingClientRect() : null;
+checkOrSkip("滚动模式:目录跳转到目标节", jumpItems.map((item) => item.index).join(",") === "5",
+  jumpItems.map((item) => item.index).join(","));
+checkOrSkip("滚动模式:跳转后目标节就在视口里(不空白)",
+  !!targetRect && targetRect.top <= pageRect.top + 8 && targetRect.bottom > pageRect.top + 8,
+  targetRect ? \`目标节 top=\${Math.round(targetRect.top)} 视口 top=\${Math.round(pageRect.top)}\` : "找不到目标节文档");
+checkOrSkip("滚动模式:跳转后下方仍有内容可滚", paginator.viewSize >= paginator.start + paginator.size,
+  \`start=\${round(paginator.start)} extent=\${round(paginator.viewSize)}\`);
 
-// 3) 滚动模式:下一页按钮 = 前进一屏(节内不换节)。
+// 3) 滚动模式:下一页按钮 = 往下走(可能顺带挂入下一节,但方向必须是前进)。
 const beforePageTurn = paginator.start;
-const beforeTurnIndex = indexes().join(",");
 await paginator.next();
 await wait(400);
 checkOrSkip("滚动模式:下一页按钮前进而不跳内容", paginator.start > beforePageTurn
-  && paginator.start - beforePageTurn <= paginator.size * 2,
+  && paginator.start - beforePageTurn <= paginator.size * 3,
   \`\${round(beforePageTurn)} → \${round(paginator.start)} 视口=\${round(paginator.size)}\`);
 checkOrSkip("滚动模式:前进后仍可回滚(窗口没丢)", paginator.getContents().length >= 1,
   indexes().join(","));

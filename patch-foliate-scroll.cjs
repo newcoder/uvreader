@@ -649,7 +649,7 @@ add("create-view-prepend-mount",
     "        return this.#view",
     "    }",
   ].join("\n"),
-  "if (prepend) this.#container.prepend(this.#view.element)");
+  "if (prepend) this.#container.prepend(this.#view.element)", true);
 
 add("display-prepend",
   ["            const stackForward = this.scrolled && !!this.#view && index === previousIndex + 1",
@@ -1073,6 +1073,120 @@ add("container-viewport-box",
     "        }",
   ].join("\n"),
   "exactly the viewport");
+
+// 24. 调试几何:阴影根是 closed,外面读不到 #top/#container 的真实尺寸 —— 之前
+// 「CSS 修复没生效」无法确认就是这个原因。加一个只读 getter,供真机脚本取证。
+add("debug-geometry",
+  ["    get stackedScroll() { return this.#stacked }",
+  ].join("\n"),
+  ["    get stackedScroll() { return this.#stacked }",
+    "    // UV Reader: read-only geometry for the real-machine harness (shadow root is",
+    "    // closed, so the host cannot query #top/#container).",
+    "    get debugGeometry() {",
+    "        const rect = (el) => (el ? { w: Math.round(el.getBoundingClientRect().width), h: Math.round(el.getBoundingClientRect().height) } : null)",
+    "        return {",
+    "            host: rect(this),",
+    "            top: rect(this.#top),",
+    "            container: rect(this.#container),",
+    "            containerStyle: this.#container ? getComputedStyle(this.#container).position : '',",
+    "            client: { w: this.#container?.clientWidth ?? 0, h: this.#container?.clientHeight ?? 0 },",
+    "            scroll: { w: this.#container?.scrollWidth ?? 0, h: this.#container?.scrollHeight ?? 0 },",
+    "            size: Math.round(this.size),",
+    "            viewSize: Math.round(this.viewSize),",
+    "            scrolled: this.scrolled,",
+    "            stacked: this.#stacked,",
+    "        }",
+    "    }",
+  ].join("\n"),
+  "get debugGeometry() {");
+
+add("debug-geometry-more",
+  ["    get debugGeometry() {",
+  ].join("\n"),
+  ["    get debugGeometryMore() {",
+    "        const el = this.#container",
+    "        const style = el ? getComputedStyle(el) : null",
+    "        const children = el ? [...el.children].map((child) => ({",
+    "            tag: child.tagName.toLowerCase(),",
+    "            h: Math.round(child.getBoundingClientRect().height),",
+    "            inline: String(child.getAttribute('style') || '').slice(0, 80),",
+    "        })) : []",
+    "        return {",
+    "            container: {",
+    "                height: style?.height, minHeight: style?.minHeight, maxHeight: style?.maxHeight,",
+    "                top: style?.top, bottom: style?.bottom, position: style?.position,",
+    "                display: style?.display, overflow: style?.overflowY,",
+    "                offsetHeight: el?.offsetHeight ?? 0, clientHeight: el?.clientHeight ?? 0, scrollHeight: el?.scrollHeight ?? 0,",
+    "                inline: String(el?.getAttribute('style') || '').slice(0, 120),",
+    "            },",
+    "            children,",
+    "        }",
+    "    }",
+    "    get debugGeometry() {",
+  ].join("\n"),
+  "get debugGeometryMore() {");
+
+// 25. 占位改用**独立 spacer 元素**(不再给容器加 padding:在 overflow:auto 盒子上
+// padding 会把盒子本身撑大,于是 size(视口高度)又被污染 —— 实测 offsetHeight 2809
+// 全是那行 padding-top)。容器盒子保持视口大小(见 container-viewport-box)。
+add("spacer-field",
+  ["    #heights = new Map()",
+  ].join("\n"),
+  ["    #heights = new Map()",
+    "    // Reserved-space element (first child of #container) - never container padding.",
+    "    #spacer = null",
+  ].join("\n"),
+  "#spacer = null");
+
+add("spacer-element",
+  ["    #syncSpacer() {",
+  ].join("\n"),
+  ["    #ensureSpacer() {",
+    "        if (!this.#spacer) {",
+    "            this.#spacer = document.createElement('div')",
+    "            this.#spacer.setAttribute('data-qbr-spacer', '')",
+    "            this.#spacer.style.width = '100%'",
+    "        }",
+    "        if (this.#container.firstChild !== this.#spacer) this.#container.prepend(this.#spacer)",
+    "        return this.#spacer",
+    "    }",
+    "    #syncSpacer() {",
+  ].join("\n"),
+  "#ensureSpacer() {");
+
+add("spacer-set-height",
+  ["        this.#container.style.paddingTop = above > 0 ? `${Math.round(above)}px` : ''",
+  ].join("\n"),
+  ["        this.#ensureSpacer().style.height = above > 0 ? `${Math.round(above)}px` : '0px'",
+  ].join("\n"),
+  "this.#ensureSpacer().style.height");
+
+add("spacer-clear",
+  ["        if (!this.#stack.size) {",
+    "            this.#container.style.paddingTop = ''",
+    "            return",
+    "        }",
+  ].join("\n"),
+  ["        if (!this.#stack.size) {",
+    "            if (this.#spacer) this.#spacer.style.height = '0px'",
+    "            return",
+    "        }",
+  ].join("\n"),
+  "if (this.#spacer) this.#spacer.style.height = '0px'");
+
+add("prepend-after-spacer",
+  ["        if (prepend) this.#container.prepend(this.#view.element)",
+  ].join("\n"),
+  ["        if (prepend) this.#container.insertBefore(this.#view.element, this.#spacer ? this.#spacer.nextSibling : this.#container.firstChild)",
+  ].join("\n"),
+  "this.#container.insertBefore(this.#view.element, this.#spacer");
+
+add("view-size-always-container",
+  ["        if (this.scrolled && this.#stack.size > 1) return this.#container.scrollHeight",
+  ].join("\n"),
+  ["        if (this.scrolled) return this.#container.scrollHeight",
+  ].join("\n"),
+  "if (this.scrolled) return this.#container.scrollHeight");
 
 let next = text;
 let applied = 0;
