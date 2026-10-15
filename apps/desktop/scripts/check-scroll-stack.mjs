@@ -46,7 +46,7 @@ const sectionUrl = (index) => URL.createObjectURL(new Blob([
 
 const book = {
   dir: "ltr",
-  sections: [0, 1, 2].map((index) => ({
+  sections: Array.from({ length: 12 }, (_, index) => ({
     id: index,
     linear: "yes",
     size: LINES * LINE_H,
@@ -93,13 +93,17 @@ check("relocate 报的是正在读的那一节", relocations.at(-1)?.index === 1
 check("relocate 的进度是节内进度", (relocations.at(-1)?.fraction ?? -1) >= 0 && relocations.at(-1)?.fraction <= 1,
   String(relocations.at(-1)?.fraction));
 
-// 再跨一节:只保留相邻两节,位置继续往前(不是回到某节开头)。
+// 再跨一节:窗口保留最近几节,位置继续往前(不是回到某节开头)。
 const beforeSecond = paginator.start;
+const beforeExtent = paginator.viewSize;
 const crossedAgain = await readForward();
 check("再跨一节成功", crossedAgain, indexes().join(","));
-check("只保留相邻两节", paginator.getContents().length <= 2, indexes().join(","));
+check("往回可读的节仍在窗口里", paginator.getContents().length >= 2 && paginator.getContents().length <= 6,
+  indexes().join(","));
 check("位置继续前进(没有回到目标节开头)", paginator.start > beforeSecond,
   \`start=\${round(paginator.start)} 之前=\${round(beforeSecond)}\`);
+check("滚动条总高稳定(不闪)", Math.abs(paginator.viewSize - beforeExtent) <= Math.max(32, beforeExtent * 0.02),
+  \`总高 \${round(beforeExtent)} → \${round(paginator.viewSize)}\`);
 
 // 往回滚:先在堆叠里滚(不立刻换节)。
 const beforeBack = paginator.start;
