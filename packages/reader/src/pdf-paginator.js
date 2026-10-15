@@ -263,6 +263,10 @@ export function createPdfPaginatorClass({
   }
   _syncScrollSpread() {
     const stepH = this.clip.clientHeight || 1;
+    // 滚动模式下内容会随着懒加载的页面挂进来而不断变高:每次同步都按**当前**高度
+    // 重算总页数,否则 spread 会被布局时算出的旧上限卡住 —— 表现就是「滚到某一页
+    // 之后再也滚不动、文字不再变化」(旧上限也触发了滑块提前到底)。
+    this.total = Math.max(1, Math.ceil((this.clip.scrollHeight || stepH) / stepH));
     const at = Math.max(0, Math.min(Math.round(this.clip.scrollTop / stepH), this.total - 1));
     this.spread = at; if (this.onSpreadChange) this.onSpreadChange(at, this.total);
   }
