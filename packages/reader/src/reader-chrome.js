@@ -107,16 +107,24 @@ export function createReaderChrome({
     const dir = event.deltaY > 0 ? "next" : "prev";
     let continueReading = false;
     if (readerWheelIsScrolled(view)) {
-      // 滚动模式:滚轮平时只滚动;只有滚到「已挂载内容的边缘」才**续读**下一节。
-      // 续读 = 把下一节接在当前节下面并保持视口(不是翻页跳转,也不是卡住)。
-      const scroller = view.engine
-        ? engineWheelScroller(event.target?.ownerDocument || docOf(view.areaEl))
-        : view.pager?.clip;
-      if (!scroller) return;
-      const atEnd = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2;
-      const atStart = scroller.scrollTop <= 2;
-      if ((dir === "next" && !atEnd) || (dir === "prev" && !atStart)) return;
-      continueReading = dir === "next" && typeof view.engine?.continueReading === "function";
+      // 滚动模式:滚轮平时只滚动;只有滚到「已挂载内容的边缘」才**续读**相邻节。
+      // 续读 = 把相邻节接在当前节的下/上方并保持视口(不是翻页跳转,也不是卡住)。
+      let atEdge = null;
+      if (view.engine && typeof view.engine.atScrollEdge === "function") {
+        atEdge = view.engine.atScrollEdge(dir);
+      }
+      if (atEdge === null) {
+        // 没有渲染器级边缘信息时退回容器判断(PDF 走这条)。
+        const scroller = view.engine
+          ? engineWheelScroller(event.target?.ownerDocument || docOf(view.areaEl))
+          : view.pager?.clip;
+        if (!scroller) return;
+        const atEnd = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2;
+        const atStart = scroller.scrollTop <= 2;
+        atEdge = dir === "next" ? atEnd : atStart;
+      }
+      if (!atEdge) return;
+      continueReading = typeof view.engine?.continueReading === "function";
     }
     const now = Date.now();
     if (view._wheelTurnAt && now - view._wheelTurnAt < WHEEL_TURN_COOLDOWN_MS) {
@@ -126,7 +134,7 @@ export function createReaderChrome({
     view._wheelTurnAt = now;
     event.preventDefault();
     if (continueReading) {
-      void view.engine.continueReading();
+      void view.engine.continueReading(dir);
       return;
     }
     view.nav(dir);

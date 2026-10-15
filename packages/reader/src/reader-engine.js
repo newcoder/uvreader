@@ -353,12 +353,20 @@ export class EpubEngine {
     // ── navigation ──────────────────────────────────────────────────────────
     async next(distance) { await this.#view?.next(distance); }
     async prev(distance) { await this.#view?.prev(distance); }
-    // 滚动模式滚到边缘时的「续读」:把下一节接在当前节下面并**保持视口** ——
+    // 滚动模式滚到边缘时的「续读」:把相邻节接到当前节的下/上方并**保持视口** ——
     // 不是翻页式跳到下一节开头(那会让读者觉得跳了一屏)。渲染器不支持时退回翻页。
-    continueReading() {
+    continueReading(direction = "next") {
         const renderer = this.#view?.renderer;
-        if (typeof renderer?.continueNext === "function") return renderer.continueNext();
-        return this.next();
+        if (direction === "prev" && typeof renderer?.continuePrev === "function") return renderer.continuePrev();
+        if (direction !== "prev" && typeof renderer?.continueNext === "function") return renderer.continueNext();
+        return direction === "prev" ? this.prev() : this.next();
+    }
+
+    // 滚动模式:是否已经滚到「已挂载内容」的边缘(占位 padding 不算内容)。
+    atScrollEdge(direction = "next") {
+        const renderer = this.#view?.renderer;
+        if (typeof renderer?.atScrollEdge !== "function") return null;
+        return renderer.atScrollEdge(direction) === true;
     }
     async goTo(target) {
         const view = this.#view;

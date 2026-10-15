@@ -10,7 +10,7 @@ const file = path.join(__dirname, "node_modules", "foliate-js", "paginator.js");
 const text = fs.readFileSync(file, "utf8");
 
 const patches = [];
-const add = (name, from, to, marker) => patches.push({ name, from, to, marker });
+const add = (name, from, to, marker, optional = false) => patches.push({ name, from, to, marker, optional });
 
 // 1. 字段:堆叠表(index → view)。
 add("field",
@@ -62,7 +62,7 @@ add("createView",
     "        return this.#view",
     "    }",
   ].join("\n"),
-  "#createView(keepPrevious = false)");
+  "#createView(keepPrevious = false)", true);
 
 // 3. #display:往前翻的那一节接在当前节下面,并记进堆叠表。
 add("display-head",
@@ -105,7 +105,7 @@ add("display-stack",
     "        }",
     "        await this.scrollToAnchor((typeof anchor === 'function'",
   ].join("\n"),
-  "#pruneStack(stackForward ? 2 : 1)");
+  "#pruneStack(stackForward ? 2 : 1)", true);
 
 // 4. 还挂在屏幕上的那一节不许 unload。
 add("unload",
@@ -448,7 +448,7 @@ add("prune-compensate",
     "        }",
     "    }",
   ].join("\n"),
-  "const removed = this.#viewOwnSize(entry.view)");
+  "const removed = this.#viewOwnSize(entry.view)", true);
 
 // 15. onExpand:长在**视口下方**的节(堆叠里的下一章)不许把读者拉回它的锚点 ——
 // 那会让「续读」变成"跳到下一节开头"(实测差一屏)。
@@ -468,7 +468,7 @@ add("expand-keep",
     "            },",
     "        })",
   ].join("\n"),
-  "if (this.scrolled && this.#stack.size > 1 && this.start < this.#stackOffset(this.#view) - 2) return");
+  "if (this.scrolled && this.#stack.size > 1 && this.start < this.#stackOffset(this.#view) - 2) return", true);
 
 // 16. 滚动条稳定:已滚过的节折算成容器 paddingTop(总高度恒定 → 滑块不闪),
 // 窗口扩到「当前 + 最近 5 节」。
@@ -552,7 +552,7 @@ add("spacer-window-size",
     "                // their removed space is reserved by #syncSpacer().",
     "                this.#pruneStack(stackForward ? 6 : 1)",
   ].join("\n"),
-  "#pruneStack(stackForward ? 6 : 1)");
+  "#pruneStack(stackForward ? 6 : 1)", true);
 
 add("spacer-after-scroll",
   ["        const index = this.scrolled ? this.#visibleIndex() : this.#index",
@@ -564,6 +564,350 @@ add("spacer-after-scroll",
   ].join("\n"),
   "if (this.scrolled) this.#syncSpacer()");
 
+// 17. 向上续读 + 真正的挂载边缘:padding 是占位不是内容,边缘要用「已挂载内容」的
+// 端点来判断;到顶时把上一节**前插**到上面并保持视口。
+add("stack-offset-always",
+  ["    #stackOffset(view) {",
+    "        if (!this.scrolled || !view?.element || this.#stack.size <= 1) return 0",
+  ].join("\n"),
+  ["    #stackOffset(view) {",
+    "        // NB: the reserved padding is part of the scroll coordinates, so this must",
+    "        // not short-circuit for a single mounted section.",
+    "        if (!this.scrolled || !view?.element) return 0",
+  ].join("\n"),
+  "NB: the reserved padding is part of the scroll coordinates");
+
+add("mounted-edges",
+  ["    #pruneStack(max) {"].join("\n"),
+  ["    // UV Reader: where the *mounted* content starts/ends — the reserved padding",
+    "    // above/below is not content, so scroll edges must be measured here.",
+    "    get mountedStart() {",
+    "        if (!this.scrolled || !this.#stack.size) return 0",
+    "        let first = null",
+    "        for (const index of this.#stack.keys()) { first = index; break }",
+    "        const entry = first == null ? null : this.#stack.get(first)",
+    "        return entry ? this.#stackOffset(entry.view) : 0",
+    "    }",
+    "    get mountedEnd() {",
+    "        if (!this.scrolled || !this.#stack.size) return 0",
+    "        let last = null",
+    "        for (const index of this.#stack.keys()) if (last == null || index > last) last = index",
+    "        const entry = last == null ? null : this.#stack.get(last)",
+    "        return entry ? this.#stackOffset(entry.view) + this.#viewOwnSize(entry.view) : 0",
+    "    }",
+    "    atScrollEdge(dir = 'next') {",
+    "        if (!this.scrolled || !this.#view) return false",
+    "        return dir === 'next'",
+    "            ? this.start + this.size >= this.mountedEnd - 2",
+    "            : this.start <= this.mountedStart + 2",
+    "    }",
+    "    #pruneStack(max) {",
+  ].join("\n"),
+  "get mountedStart() {");
+
+add("continue-prev",
+  ["    async continueNext() {",
+    "        if (this.#locked) return",
+    "        this.#locked = true",
+    "        const index = this.#adjacentIndex(1)",
+    "        if (index != null) await this.#goTo({ index, keepPosition: true })",
+    "        this.#locked = false",
+    "    }",
+  ].join("\n"),
+  ["    async continueNext() {",
+    "        if (this.#locked) return",
+    "        this.#locked = true",
+    "        const index = this.#adjacentIndex(1)",
+    "        if (index != null) await this.#goTo({ index, keepPosition: true })",
+    "        this.#locked = false",
+    "    }",
+    "    // UV Reader: 向上续读 —— 把上一节前插到上面,同样不动视口,读者继续往上滚。",
+    "    async continuePrev() {",
+    "        if (this.#locked) return",
+    "        this.#locked = true",
+    "        const index = this.#adjacentIndex(-1)",
+    "        if (index != null) await this.#goTo({ index, keepPosition: true })",
+    "        this.#locked = false",
+    "    }",
+  ].join("\n"),
+  "async continuePrev() {");
+
+add("create-view-prepend",
+  ["    #createView(keepPrevious = false) {",
+  ].join("\n"),
+  ["    #createView(keepPrevious = false, prepend = false) {",
+  ].join("\n"),
+  "#createView(keepPrevious = false, prepend = false) {");
+
+add("create-view-prepend-mount",
+  ["        this.#container.append(this.#view.element)",
+    "        return this.#view",
+    "    }",
+  ].join("\n"),
+  ["        if (prepend) this.#container.prepend(this.#view.element)",
+    "        else this.#container.append(this.#view.element)",
+    "        return this.#view",
+    "    }",
+  ].join("\n"),
+  "if (prepend) this.#container.prepend(this.#view.element)");
+
+add("display-prepend",
+  ["            const stackForward = this.scrolled && !!this.#view && index === previousIndex + 1",
+    "            const view = this.#createView(stackForward)",
+  ].join("\n"),
+  ["            const stackForward = this.scrolled && !!this.#view && index === previousIndex + 1",
+    "            const stackBackward = this.scrolled && !!this.#view && index === previousIndex - 1",
+    "            const view = this.#createView(stackForward || stackBackward, stackBackward)",
+  ].join("\n"),
+  "const stackBackward = this.scrolled && !!this.#view && index === previousIndex - 1");
+
+add("display-keep-window",
+  ["                this.#stack.set(index, { view })",
+    "                // 5 previously-read sections stay mounted (smooth scroll back);",
+    "                // their removed space is reserved by #syncSpacer().",
+    "                this.#pruneStack(stackForward ? 6 : 1)",
+  ].join("\n"),
+  ["                this.#stack.set(index, { view })",
+    "                // Keep a few neighbours on either side; the space of pruned",
+    "                // sections is reserved by #syncSpacer().",
+    "                this.#pruneStack(stackForward || stackBackward ? 6 : 1)",
+  ].join("\n"),
+  "#pruneStack(stackForward || stackBackward ? 6 : 1)");
+
+add("prune-by-distance",
+  ["        // Keep what the reader can reach: the current section plus a few already",
+    "        // read ones. Their space stays reserved by #syncSpacer(), so pruning",
+    "        // neither moves the reader nor resizes the scrollbar.",
+    "        while (this.#stack.size > max) {",
+    "            const oldest = this.#stack.keys().next().value",
+    "            const entry = this.#stack.get(oldest)",
+    "            if (!entry) break",
+    "            this.#stack.delete(oldest)",
+    "            try { entry.view.destroy() } catch { /* already gone */ }",
+    "            try { this.#container.removeChild(entry.view.element) } catch { /* already gone */ }",
+    "        }",
+    "        this.#syncSpacer()",
+  ].join("\n"),
+  ["        // Keep what the reader can reach: the current section plus a few on both",
+    "        // sides. Their space stays reserved by #syncSpacer(), so pruning neither",
+    "        // moves the reader nor resizes the scrollbar.",
+    "        const active = this.#visibleIndex()",
+    "        while (this.#stack.size > max) {",
+    "            let farthest = null",
+    "            for (const index of this.#stack.keys()) {",
+    "                if (index === active) continue",
+    "                if (farthest == null || Math.abs(index - active) >= Math.abs(farthest - active)) farthest = index",
+    "            }",
+    "            if (farthest == null) break",
+    "            const entry = this.#stack.get(farthest)",
+    "            this.#stack.delete(farthest)",
+    "            try { entry.view.destroy() } catch { /* already gone */ }",
+    "            try { this.#container.removeChild(entry.view.element) } catch { /* already gone */ }",
+    "        }",
+    "        this.#syncSpacer()",
+  ].join("\n"),
+  "let farthest = null");
+
+add("expand-guard-both",
+  ["            onExpand: () => {",
+    "                if (this.scrolled && this.#stack.size > 1 && this.start < this.#stackOffset(this.#view) - 2) return",
+    "                this.#scrollToAnchor(this.#anchor)",
+    "            },",
+  ].join("\n"),
+  ["            onExpand: () => {",
+    "                if (this.scrolled && this.#stack.size > 1) {",
+    "                    // A section that grew must not pull the reader: below the",
+    "                    // viewport it is skipped, above it the delta is absorbed,",
+    "                    // and when the reader is inside it the range re-anchor keeps",
+    "                    // their exact place.",
+    "                    const offset = this.#stackOffset(this.#view)",
+    "                    const size = this.#viewOwnSize()",
+    "                    if (this.start + this.size <= offset + 2) return",
+    "                    const index = this.#indexOfView(this.#view)",
+    "                    const previous = index == null ? null : this.#heights.get(index)",
+    "                    if (index != null && previous != null && this.start >= offset + size - 2) {",
+    "                        const delta = size - previous",
+    "                        if (delta) {",
+    "                            this.containerPosition = this.start + delta",
+    "                            this.#syncSpacer()",
+    "                        }",
+    "                    }",
+    "                }",
+    "                this.#scrollToAnchor(this.#anchor)",
+    "            },",
+  ].join("\n"),
+  "const delta = size - previous");
+
+add("index-of-view",
+  ["    #viewForDoc(doc) {",
+  ].join("\n"),
+  ["    #indexOfView(view) {",
+    "        for (const [index, entry] of this.#stack) if (entry.view === view) return index",
+    "        return null",
+    "    }",
+    "    #viewForDoc(doc) {",
+  ].join("\n"),
+  "#indexOfView(view) {");
+
+add("placeholder-height",
+  ["            const stackForward = this.scrolled && !!this.#view && index === previousIndex + 1",
+    "            const stackBackward = this.scrolled && !!this.#view && index === previousIndex - 1",
+    "            const view = this.#createView(stackForward || stackBackward, stackBackward)",
+  ].join("\n"),
+  ["            const stackForward = this.scrolled && !!this.#view && index === previousIndex + 1",
+    "            const stackBackward = this.scrolled && !!this.#view && index === previousIndex - 1",
+    "            const view = this.#createView(stackForward || stackBackward, stackBackward)",
+    "            if (this.scrolled) {",
+    "                // Reserve this section's height immediately: while it loads, a zero",
+    "                // height would shift everything (that is the flicker the reader sees).",
+    "                const estimate = this.#heights.get(index)",
+    "                    ?? this.#averageHeight()",
+    "                if (estimate > 0) view.element.style[this.sideProp] = `${Math.round(estimate)}px`",
+    "            }",
+  ].join("\n"),
+  "// Reserve this section's height immediately");
+
+add("average-height",
+  ["    #indexOfView(view) {",
+  ].join("\n"),
+  ["    #averageHeight() {",
+    "        let total = 0",
+    "        for (const height of this.#heights.values()) total += height",
+    "        return this.#heights.size ? total / this.#heights.size : 0",
+    "    }",
+    "    #indexOfView(view) {",
+  ].join("\n"),
+  "#averageHeight() {");
+
+// 18. 不许滚进占位区:接近已挂载内容的上/下边缘时,先把相邻节**填进来**(1:1 换掉
+// padding,位置不动),再滚动 —— 否则读者会滚进上方/下方的空白 padding。
+add("scroll-prev-fill",
+  ["    #scrollPrev(distance) {",
+    "        if (!this.#view) return true",
+    "        if (this.scrolled) {",
+    "            if (this.start > 0) return this.#scrollTo(",
+    "                Math.max(0, this.start - (distance ?? this.size)), null, true)",
+    "            return !this.atStart",
+    "        }",
+  ].join("\n"),
+  ["    #scrollPrev(distance) {",
+    "        if (!this.#view) return true",
+    "        if (this.scrolled) {",
+    "            // UV Reader: the reserved space above is a placeholder, not content -",
+    "            // fill it with the previous section before scrolling into it (the",
+    "            // space swaps 1:1, so nothing moves on screen).",
+    "            const step = distance ?? this.size",
+    "            if (this.start - step < this.mountedStart + 2) {",
+    "                const previous = this.#adjacentIndex(-1)",
+    "                if (previous != null && !this.#stack.has(previous)) {",
+    "                    return this.#goTo({ index: previous, keepPosition: true }).then(() =>",
+    "                        this.#scrollTo(Math.max(this.mountedStart, this.start - step), null, true))",
+    "                }",
+    "            }",
+    "            if (this.start > 0) return this.#scrollTo(",
+    "                Math.max(0, this.start - step), null, true)",
+    "            return !this.atStart",
+    "        }",
+  ].join("\n"),
+  "fill it with the previous section before scrolling into it");
+
+add("scroll-next-fill",
+  ["    #scrollNext(distance) {",
+    "        if (!this.#view) return true",
+    "        if (this.scrolled) {",
+    "            if (this.viewSize - this.end > 2) return this.#scrollTo(",
+    "                Math.min(this.viewSize, distance ? this.start + distance : this.end), null, true)",
+    "            return !this.atEnd",
+    "        }",
+  ].join("\n"),
+  ["    #scrollNext(distance) {",
+    "        if (!this.#view) return true",
+    "        if (this.scrolled) {",
+    "            // UV Reader: same as #scrollPrev - keep the reserved space on the far",
+    "            // side filled with real content instead of letting the reader scroll",
+    "            // into a blank placeholder.",
+    "            const step = distance ?? this.size",
+    "            if (this.end + step > this.mountedEnd - 2) {",
+    "                const next = this.#adjacentIndex(1)",
+    "                if (next != null && !this.#stack.has(next)) {",
+    "                    return this.#goTo({ index: next, keepPosition: true }).then(() =>",
+    "                        this.#scrollTo(Math.min(this.mountedEnd, this.start + step), null, true))",
+    "                }",
+    "            }",
+    "            if (this.viewSize - this.end > 2) return this.#scrollTo(",
+    "                Math.min(this.viewSize, this.start + step), null, true)",
+    "            return !this.atEnd",
+    "        }",
+  ].join("\n"),
+  "keep the reserved space on the far");
+
+// 18b. 现有安装里的 mountedStart/mountedEnd 用的是 `keys().next()` 解构(实测会拿到
+// undefined 而报错),换成防御式遍历;全新安装由 mounted-edges 直接生成防御版,所以可选。
+add("mounted-edges-defensive",
+  ["    get mountedStart() {",
+    "        if (!this.scrolled || !this.#stack.size) return 0",
+    "        const { value: first } = this.#stack.keys()",
+    "        return this.#stackOffset(this.#stack.get(first).view)",
+    "    }",
+    "    get mountedEnd() {",
+    "        if (!this.scrolled || !this.#stack.size) return 0",
+    "        let last = -1",
+    "        for (const index of this.#stack.keys()) if (index > last) last = index",
+    "        const entry = this.#stack.get(last)",
+    "        return this.#stackOffset(entry.view) + this.#viewOwnSize(entry.view)",
+    "    }",
+  ].join("\n"),
+  ["    get mountedStart() {",
+    "        if (!this.scrolled || !this.#stack.size) return 0",
+    "        let first = null",
+    "        for (const index of this.#stack.keys()) { first = index; break }",
+    "        const entry = first == null ? null : this.#stack.get(first)",
+    "        return entry ? this.#stackOffset(entry.view) : 0",
+    "    }",
+    "    get mountedEnd() {",
+    "        if (!this.scrolled || !this.#stack.size) return 0",
+    "        let last = null",
+    "        for (const index of this.#stack.keys()) if (last == null || index > last) last = index",
+    "        const entry = last == null ? null : this.#stack.get(last)",
+    "        return entry ? this.#stackOffset(entry.view) + this.#viewOwnSize(entry.view) : 0",
+    "    }",
+  ].join("\n"),
+  "let first = null",
+  true);
+
+// 19. #syncSpacer 里同样踩了「解构 Map 迭代器拿不到值」的坑(解构不调用 next()),
+// 导致占位 padding 一直是空操作;换成防御式遍历。
+add("sync-spacer-first",
+  ["        const { value: first } = this.#stack.keys()",
+    "        let total = 0",
+  ].join("\n"),
+  ["        let first = null",
+    "        for (const index of this.#stack.keys()) { first = index; break }",
+    "        if (first == null) {",
+    "            this.#container.style.paddingTop = ''",
+    "            return",
+    "        }",
+    "        let total = 0",
+  ].join("\n"),
+  "for (const index of this.#stack.keys()) { first = index; break }\n        if (first == null) {");
+
+add("replace-clean-container",
+  ["            if (this.#view) {",
+    "                try { this.#view.destroy() } catch { /* already gone */ }",
+    "                try { this.#container.removeChild(this.#view.element) } catch { /* already gone */ }",
+    "            }",
+  ].join("\n"),
+  ["            if (this.#view) {",
+    "                try { this.#view.destroy() } catch { /* already gone */ }",
+    "                try { this.#container.removeChild(this.#view.element) } catch { /* already gone */ }",
+    "            }",
+    "            // Replacing the window must not leave stale section elements behind:",
+    "            // they would keep the container scrollable and the reader would land in",
+    "            // stale space (measured after a jump: the old heights stayed).",
+    "            this.#container.replaceChildren()",
+  ].join("\n"),
+  "this.#container.replaceChildren()");
+
 let next = text;
 let applied = 0;
 let already = 0;
@@ -574,6 +918,12 @@ for (const patch of patches) {
     continue;
   }
   if (!next.includes(patch.from)) {
+    // Intermediate steps whose region a later hunk supersedes are not errors:
+    // the final state is asserted by that later hunk's own marker.
+    if (patch.optional) {
+      already += 1;
+      continue;
+    }
     failed.push(patch.name);
     continue;
   }

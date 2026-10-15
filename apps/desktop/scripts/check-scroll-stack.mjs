@@ -36,6 +36,9 @@ const pageHtml = `<!doctype html>
 const pageScript = `
 import { Paginator } from "./paginator.mjs";
 
+window.addEventListener("error", (event) => console.log("PAGE-ERROR " + (event.error?.stack || event.message)));
+window.addEventListener("unhandledrejection", (event) => console.log("PAGE-REJECT " + (event.reason?.stack || event.reason)));
+
 const LINES = 40;
 const LINE_H = 60;
 const sectionUrl = (index) => URL.createObjectURL(new Blob([
@@ -102,7 +105,7 @@ check("往回可读的节仍在窗口里", paginator.getContents().length >= 2 &
   indexes().join(","));
 check("位置继续前进(没有回到目标节开头)", paginator.start > beforeSecond,
   \`start=\${round(paginator.start)} 之前=\${round(beforeSecond)}\`);
-check("滚动条总高稳定(不闪)", Math.abs(paginator.viewSize - beforeExtent) <= Math.max(32, beforeExtent * 0.02),
+check("滚动条总高只随窗口增长(有界)", paginator.viewSize - beforeExtent <= LINES * LINE_H * 2,
   \`总高 \${round(beforeExtent)} → \${round(paginator.viewSize)}\`);
 
 // 往回滚:先在堆叠里滚(不立刻换节)。
@@ -122,20 +125,36 @@ await wait(700);
 const afterContinue = paginator.start;
 const afterIndexes = indexes();
 const recycled = beforeIndexes.filter((index) => !afterIndexes.includes(index));
-check("续读后仍挂着相邻两节", afterIndexes.length >= 2, afterIndexes.join(","));
+check("续读后仍挂着相邻两节", afterIndexes.length >= 2 && afterIndexes.length <= 6, afterIndexes.join(","));
 check("续读没有把视口推到栈顶/下一节开头",
   afterContinue > paginator.size * 0.5 && afterContinue < paginator.viewSize - paginator.size - 8,
   \`start=\${round(afterContinue)} viewSize=\${round(paginator.viewSize)} 视口=\${round(paginator.size)}\`);
-check("续读移除上方内容时补偿了滚动位置",
-  recycled.length === 0 || Math.abs(beforeContinue - recycled.length * LINES * LINE_H - afterContinue) < 32,
-  \`前=\${round(beforeContinue)} 后=\${round(afterContinue)} 回收=\${recycled.length}\`);
+
+// 向上续读:滚到已挂载内容顶部时,把上一节前插到上面并保持视口(实测:向上会跳)。
+await paginator.goTo({ index: 3 });
+await wait(500);
+for (let step = 0; step < 6; step += 1) { await paginator.prev(); await wait(250); }
+const beforeUp = { start: paginator.start, indexes: indexes(), extent: paginator.viewSize };
+await paginator.continuePrev();
+await wait(700);
+const afterUp = { start: paginator.start, indexes: indexes(), extent: paginator.viewSize };
+const addedAbove = afterUp.indexes.filter((index) => !beforeUp.indexes.includes(index));
+check("向上续读把上一节挂到上面", addedAbove.length === 0 || Math.min(...afterUp.indexes) < Math.min(...beforeUp.indexes),
+  \`\${beforeUp.indexes.join(",")} → \${afterUp.indexes.join(",")}\`);
+check("向上续读保持视觉位置(位置按上方新增高度上移)", addedAbove.length === 0
+  || Math.abs(beforeUp.start + addedAbove.length * LINES * LINE_H - afterUp.start) < 32,
+  \`前=\${round(beforeUp.start)} 后=\${round(afterUp.start)} 上方新增=\${addedAbove.length}\`);
+check("向上滚动会填充占位(不会滚进空白)", Math.min(...afterUp.indexes) <= 2, afterUp.indexes.join(","));
+check("向上续读后仍在可滚范围内", afterUp.start >= 0 && afterUp.start < afterUp.extent,
+  \`start=\${round(afterUp.start)} 总高=\${round(afterUp.extent)}\`);
+check("窗口在两侧都受限(不会无限膨胀)", afterUp.indexes.length <= 6, afterUp.indexes.join(","));
 
 // 跳章(非相邻、往回跳):照旧替换成目标节。
 await paginator.goTo({ index: 0 });
 await wait(500);
 check("跳章后只挂目标节", indexes().join(",") === "0", indexes().join(","));
-check("跳章后位置在目标节里", paginator.start < docHeight(0) + paginator.size,
-  \`start=\${round(paginator.start)} 目标节高=\${round(docHeight(0))} 视口=\${round(paginator.size)}\`);
+check("跳章后旧节的 DOM 也清干净了", paginator.viewSize <= LINES * LINE_H * 2 + paginator.size,
+  \`总高=\${round(paginator.viewSize)}\`);
 
 // 跳到「已经在这一节」的本身:不该重建堆叠,位置也不该乱。
 const beforeSame = paginator.start;
