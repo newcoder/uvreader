@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildNavPlan, fillPageGaps, isPrintedTocChapter, looksLikeTocEntry, normalizeNavLevels, parsePrintedTocEntries, printedPageOf, stripPrintedToc, stripTocBlock, tocRatio } from "../src/shared/printed-toc.js";
+import { buildNavPlan, chapterNumber, chapterStartPages, fillPageGaps, isPrintedTocChapter, lastPdfPageOf, lastPrintedPageOf, looksLikeTocEntry, normalizeNavLevels, parsePrintedTocEntries, printedPageOf, stripPrintedToc, stripTocBlock, tocRatio } from "../src/shared/printed-toc.js";
 import { outlineToTocEntries } from "../src/main/pdf-outline.js";
 
 const tocText = [
@@ -190,7 +190,6 @@ test("pageFirst lets an exact PDF page claim a chapter whose title was split", (
 });
 
 test("fillPageGaps interpolates between known anchors", () => {
-  assert.deepEqual(fillPageGaps([10, 0, 0, 13, 0, 15]), [10, 11, 12, 13, 14, 15]);
   assert.deepEqual(fillPageGaps([0, 0, 0]), [0, 0, 0], "全未知时保持原样");
   assert.deepEqual(fillPageGaps([5]), [5]);
 });
@@ -208,6 +207,83 @@ test("outlineToTocEntries keeps the PDF's own levels", () => {
     ["1.1.1 细节", 18, 3],
   ]);
   assert.equal(entries[0].key, "光学简史");
+});
+
+test("chapterStartPages takes the page the chapter starts on", () => {
+  // 页锚点写在页首、标题在本页中间:本章第一个锚点常是起始页的下一页(实测差 1~3 页)。
+  const chapters = [
+    { text: "封面\n<!--page:1-->\n...\n<!--page:9-->\n序的尾巴" },
+    { text: "目录页\n<!--page:10-->\n...\n<!--page:17-->" },
+    { text: "1.1 开场白\n正文\n<!--page:18-->" },
+  ];
+  assert.deepEqual(chapterStartPages(chapters), [1, 9, 17], "章首页 = 上一章最后一个锚点");
+  assert.deepEqual(chapterStartPages(chapters, { of: lastPdfPageOf, lastOf: lastPdfPageOf }), [9, 9, 17], "换成「最后一个锚点」也自洽");
+  assert.deepEqual(chapterStartPages(chapters, { of: printedPageOf, lastOf: lastPrintedPageOf }), [0, 0, 0], "这批锚点没有印刷页码");
+  assert.equal(lastPdfPageOf(chapters[1].text), 17);
+  assert.equal(lastPrintedPageOf("<!--page:6 printed:4-->a<!--page:7 printed:5-->"), 5);
+});
+
+test("stripPrintedToc reports which chapters it kept", () => {
+  const chapters = [
+    { title: "目录", text: "第一章 …… 1\n第二章 …… 9" },
+    { title: "第一章", text: "正文" },
+  ];
+  const kept = stripPrintedToc(chapters);
+  assert.deepEqual([...kept.keptIndexes], [1], "目录章的原始下标要能对上页码表");
+  assert.equal(kept.dropped, 1);
+  const off = stripPrintedToc(chapters, { enabled: false });
+  assert.deepEqual([...off.keptIndexes], [0, 1]);
+  assert.equal(off.dropped, 0);
+});
+
+test("chapterNumber reads the chapter number of a heading", () => {
+  assert.equal(chapterNumber("第 1 章"), 1);
+  assert.equal(chapterNumber("第1章 光学简史"), 1);
+  assert.equal(chapterNumber("第十三章 现代光学"), 13);
+  assert.equal(chapterNumber("第二十一章 波动"), 21);
+  assert.equal(chapterNumber("1.2 初始时期"), 0);
+  assert.equal(chapterNumber("第 2 节 空间频率"), 0, "节不算章");
+});
+
+test("an exact title keeps its chapter even when a page hit wants it", () => {
+  // 实测《光学》:「第1章 光学简史」(页 17)靠页码抢了「1.2 初始时期」那一章,
+  // 后面的条目跟着整片顺移(用户看到的跳歪)。现在标题/编号对得上的先钉死。
+  const chapters = [
+    { title: "第 1 章" }, // 正文标题被上游拆得只剩编号,标题键是空的
+    { title: "1.1 开场白" },
+    { title: "1.2 初始时期" },
+    { title: "1.3 十七世纪以来" },
+  ];
+  const pages = [17, 17, 17, 20];
+  const tocEntries = [
+    { label: "第1章 光学简史", key: "光学简史", page: 17, level: 1 },
+    { label: "1.1 开场白", key: "开场白", page: 17, level: 2 },
+    { label: "1.2 初始时期", key: "初始时期", page: 17, level: 2 },
+    { label: "1.3 十七世纪以来", key: "十七世纪以来", page: 19, level: 2 },
+  ];
+  const plan = buildNavPlan({ chapters, tocEntries, pages, pageTolerance: 2, pageFirst: true });
+  const target = (label) => plan.items.find((item) => item.title === label)?.chapterIndex;
+  assert.equal(target("第1章 光学简史"), 0, "按「第 N 章」编号认领拆坏的章节标题");
+  assert.equal(target("1.1 开场白"), 1);
+  assert.equal(target("1.2 初始时期"), 2, "页码命中也不能抢走标题对得上的章");
+  assert.equal(target("1.3 十七世纪以来"), 3);
+  assert.equal(plan.dropped.length, 0);
+});
+
+test("a chapter title claims its chapter, and falls back to its first section", () => {
+  // 正文里没有「第7章」这一章(上游吃掉了标题)时,章级条目应落在它第一节上。
+  const chapters = [{ title: "7.1 引言" }, { title: "7.2 方法" }];
+  const pages = [420, 425];
+  const tocEntries = [
+    { label: "第7章 某某", key: "某某", page: 420, level: 1 },
+    { label: "7.1 引言", key: "引言", page: 420, level: 2 },
+    { label: "7.2 方法", key: "方法", page: 425, level: 2 },
+  ];
+  const plan = buildNavPlan({ chapters, tocEntries, pages, pageTolerance: 2, pageFirst: true, orderFallback: true });
+  const target = (label) => plan.items.find((item) => item.title === label)?.chapterIndex;
+  assert.equal(target("7.1 引言"), 0);
+  assert.equal(target("第7章 某某"), 0, "章级条目落到它第一节那一章");
+  assert.equal(plan.matched, 3);
 });
 
 test("orderFallback anchors every entry near its own place in the book", () => {

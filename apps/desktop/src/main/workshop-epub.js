@@ -11,7 +11,7 @@ import { extractMarkdown, extractionKind, splitMarkdownChapters } from "./extrac
 import { createMathRenderer, shareFormulaHtml } from "./math-render.js";
 import { createTextLayerReader } from "./text-layer.js";
 import { cleanChapterTitle, joinInlineFragment, looksLikeHeadingTitle, unwrapProseFences } from "../shared/markdown-fix.js";
-import { buildNavPlan, fillPageGaps, isPrintedTocChapter, normalizeNavLevels, parsePrintedTocEntries, pdfPageOf, printedPageOf, stripPrintedToc } from "../shared/printed-toc.js";
+import { buildNavPlan, chapterStartPages, fillPageGaps, isPrintedTocChapter, lastPrintedPageOf, normalizeNavLevels, parsePrintedTocEntries, printedPageOf, stripPrintedToc } from "../shared/printed-toc.js";
 import { outlineToTocEntries } from "./pdf-outline.js";
 import { collectChars, createFontSubsetter, ensureFont, ensureFontLicense, findPairing, FONT_FAMILIES } from "./workshop-fonts.js";
 import { pairingStacks } from "../shared/book-fonts.js";
@@ -350,8 +350,12 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     if (tocSource) {
       const entries = tocSource === "outline" ? outlineEntries : tocSource === "upstream" ? upstreamToc : parsePrintedTocEntries(tocText);
       const usingPdfPages = tocSource === "outline";
+      // 章首页码 = 上一章最后一个页锚点(标题常在本页中间,取本章第一个锚点会差 1~3 页;
+      // 上一步删掉的印刷目录章也要参与计算,否则跨过它的几页会算错),再按删除情况对齐回章节表。
+      const startPages = chapterStartPages(normalized.chapters, usingPdfPages ? {} : { of: printedPageOf, lastOf: lastPrintedPageOf })
+        .filter((_page, index) => tocStrip.keptIndexes.has(index));
       // 页锚点有缺口时按相邻锚点插值(大纲页码精确,缺一格就少一条导航)。
-      const pages = usingPdfPages ? fillPageGaps(bookChapters.map((chapter) => pdfPageOf(chapter.text))) : bookChapters.map((chapter) => printedPageOf(chapter.text));
+      const pages = usingPdfPages ? fillPageGaps(startPages) : startPages;
       const plan = buildNavPlan({ chapters: bookChapters, tocEntries: entries, pages, pageTolerance: 2, pageFirst: usingPdfPages, orderFallback: usingPdfPages });
       if (plan) {
         navItems = normalizeNavLevels(plan.items).map((item) => ({
