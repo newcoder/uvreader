@@ -562,7 +562,7 @@ add("spacer-after-scroll",
     "        if (this.scrolled) this.#syncSpacer()",
     "        const detail = { reason, range, index }",
   ].join("\n"),
-  "if (this.scrolled) this.#syncSpacer()");
+  "if (this.scrolled) this.#syncSpacer()", true);
 
 // 17. 向上续读 + 真正的挂载边缘:padding 是占位不是内容,边缘要用「已挂载内容」的
 // 端点来判断;到顶时把上一节**前插**到上面并保持视口。
@@ -1187,6 +1187,71 @@ add("view-size-always-container",
   ["        if (this.scrolled) return this.#container.scrollHeight",
   ].join("\n"),
   "if (this.scrolled) return this.#container.scrollHeight");
+
+// 26. 前插时「元素插入」与「spacer 让位」必须同步:否则中间几帧内容被顶下去再回来,
+// 向上滚动时上方出现短暂空白/闪动(用户实测)。
+add("register-before-load",
+  ["            if (this.scrolled) {",
+    "                // Reserve this section's height only when it was measured before:",
+    "                // guessing (an average of the others) pushed the viewport past the",
+    "                // content on a jump, which read as a blank screen.",
+    "                const measured = this.#heights.get(index)",
+    "                if (measured > 0) view.element.style[this.sideProp] = `${Math.round(measured)}px`",
+    "            }",
+  ].join("\n"),
+  ["            if (this.scrolled) {",
+    "                // Reserve this section's height only when it was measured before:",
+    "                // guessing (an average of the others) pushed the viewport past the",
+    "                // content on a jump, which read as a blank screen.",
+    "                const measured = this.#heights.get(index)",
+    "                if (measured > 0) view.element.style[this.sideProp] = `${Math.round(measured)}px`",
+    "                // Register and shrink the reserved space *now*, before the (async)",
+    "                // load: otherwise the new section is inserted while the spacer still",
+    "                // holds its old height, the content below gets pushed down for a few",
+    "                // frames and springs back - a brief blank above when scrolling up.",
+    "                if (this.#stacked) {",
+    "                    this.#stack.set(index, { view })",
+    "                    this.#syncSpacer()",
+    "                }",
+    "            }",
+  ].join("\n"),
+  "Register and shrink the reserved space *now*");
+
+// 27. 提前填充:在防抖的滚动同步里,距离「已挂载内容的上下边缘」还有 2 屏时就预挂
+// 相邻节 —— 否则读者滚到占位区时上一节还在异步加载,上方会短暂空白(用户实测)。
+add("eager-fill",
+  ["        if (this.scrolled) this.#syncSpacer()",
+  ].join("\n"),
+  ["        if (this.scrolled) {",
+    "            this.#syncSpacer()",
+    "            // UV Reader: fill the reserved space ahead of the reader. Wheel, scrollbar",
+    "            // and keys all land here, so the next/previous section is loaded before the",
+    "            // blank spacer can be seen.",
+    "            if (this.#stacked && this.#view) {",
+    "                const lead = this.size * 2",
+    "                if (this.start - lead < this.mountedStart + 2) {",
+    "                    const previous = this.#adjacentIndex(-1)",
+    "                    if (previous != null && !this.#stack.has(previous)) void this.continuePrev()",
+    "                }",
+    "                if (this.end + lead > this.mountedEnd - 2) {",
+    "                    const next = this.#adjacentIndex(1)",
+    "                    if (next != null && !this.#stack.has(next)) void this.continueNext()",
+    "                }",
+    "            }",
+    "        }",
+  ].join("\n"),
+  "fill the reserved space ahead of the reader");
+
+// 27b. 提前填充只允许由**滚动同步**触发,且不能在导航进行中 —— 否则 #afterScroll 在
+// #goTo/#scrollTo 内部同步执行时会重入导航,把堆叠替换掉(实测:全部塌成 1 节)。
+add("eager-fill-guard",
+  ["            if (this.#stacked && this.#view) {",
+    "                const lead = this.size * 2",
+  ].join("\n"),
+  ["            if (reason === 'scroll' && !this.#locked && this.#stacked && this.#view) {",
+    "                const lead = this.size * 2",
+  ].join("\n"),
+  "if (reason === 'scroll' && !this.#locked && this.#stacked && this.#view) {");
 
 let next = text;
 let applied = 0;

@@ -335,15 +335,18 @@ export class EpubEngine {
     }
 
     #prefetchNextSection(index) {
-        // 滚动模式下,下一节通常等到滚到底那一刻才开始加载 —— 那一瞬的停顿让「跨节」
-        // 更像一次跳转。靠近末尾时提前读进来(section.load() 自带缓存,重复调用无害)。
+        // 滚动模式下,相邻节通常等到滚到边缘那一刻才开始加载 —— 那一瞬的停顿让「跨节」
+        // 更像一次跳转,向上滚时还会先看到占位空白。两个方向都提前读进来
+        // (section.load() 自带缓存,重复调用无害)。
         if (this.#layout.readMode !== "scroll") return;
         if (!Number.isInteger(index)) return;
-        const next = this.#book?.sections?.[index + 1];
-        if (typeof next?.load !== "function") return;
-        try {
-            Promise.resolve(next.load()).catch(() => { /* 预取失败不影响阅读 */ });
-        } catch { /* best effort */ }
+        for (const neighbour of [index + 1, index - 1]) {
+            const section = this.#book?.sections?.[neighbour];
+            if (typeof section?.load !== "function") continue;
+            try {
+                Promise.resolve(section.load()).catch(() => { /* 预取失败不影响阅读 */ });
+            } catch { /* best effort */ }
+        }
     }
 
     contents() {

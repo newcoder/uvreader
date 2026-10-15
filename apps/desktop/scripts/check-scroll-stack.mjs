@@ -165,8 +165,9 @@ checkOrSkip("窗口在两侧都受限(不会无限膨胀)", afterUp.indexes.leng
 // 跳章(非相邻、往回跳):照旧替换成目标节。
 await paginator.goTo({ index: 0 });
 await wait(500);
-checkOrSkip("跳章后只挂目标节", indexes().join(",") === "0", indexes().join(","));
-checkOrSkip("跳章后旧节的 DOM 也清干净了", paginator.viewSize <= LINES * LINE_H * 2 + paginator.size,
+checkOrSkip("跳章后以目标节为起点(含预取后续节)", indexes()[0] === 0 && indexes().length <= 6,
+  indexes().join(","));
+checkOrSkip("跳章后旧窗口已清干净(只剩目标与相邻)", Math.min(...indexes()) === 0 && Math.max(...indexes()) <= 5,
   \`总高=\${round(paginator.viewSize)}\`);
 
 // 跳到「已经在这一节」的本身:不该重建堆叠,位置也不该乱。
@@ -176,6 +177,30 @@ await wait(400);
 checkOrSkip("跳到当前节本身保持堆叠", paginator.getContents().length >= 1, indexes().join(","));
 checkOrSkip("跳到当前节本身不改变位置", Math.abs(paginator.start - beforeSame) < paginator.size,
   \`start=\${round(paginator.start)} 之前=\${round(beforeSame)}\`);
+
+// 前插必须与 spacer 让位同步:否则向上滚时上方会短暂空白(用户实测)。
+// 判据:前插那一刻(0ms)与稳定后,可见内容的位置必须一致。
+await paginator.goTo({ index: 2 });
+await wait(600);
+await paginator.prev();
+await wait(400);
+const contentOffset = () => {
+  const doc = paginator.getContents().map((item) => item.doc).find(Boolean);
+  return doc ? Math.round(doc.body.getBoundingClientRect().top) : null;
+};
+const before = contentOffset();
+const beforeStart = paginator.start;
+await paginator.continuePrev();
+const immediate = contentOffset();
+await wait(600);
+const settled = contentOffset();
+const settledStart = paginator.start;
+checkOrSkip("向上续读:前插瞬间内容不被顶走(防上方空白)",
+  immediate !== null && settled !== null && Math.abs(immediate - settled) <= 8,
+  \`瞬间=\${immediate} 稳定=\${settled}\`);
+checkOrSkip("向上续读:位置整体一致(视口与内容同步)",
+  Math.abs((beforeStart - settledStart) - (before - settled)) <= 16,
+  \`start \${beforeStart}→\${settledStart} 内容 \${before}→\${settled}\`);
 
 // ── 回归:不许影响既有功能(翻页模式、跳转、上下页) ──────────────────────────
 phase = "common";
