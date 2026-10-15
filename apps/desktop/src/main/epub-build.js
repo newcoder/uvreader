@@ -68,25 +68,44 @@ ${body}
 `;
 }
 
+// 平铺的(level, item)列表 → 树。导航的层级**必须**靠树的形状表达:
+//   <li><a>第一章</a><ol><li><a>1.1</a></li></ol></li>
+// 把子级 <ol> 写成上一个 <li> 的**兄弟**是非法结构,标准解析器(foliate/Calibre/ADE)
+// 只认 ol 的直接 li 孩子,子级整片看不见 —— 用户实测「面板只有一级」就是这个原因。
+function navTree(chapters) {
+  const list = (Array.isArray(chapters) ? chapters : []).map((chapter) => ({
+    title: String(chapter?.title || ""),
+    file: String(chapter?.file || ""),
+    level: Math.min(Math.max(Number(chapter?.level) || 1, 1), 3),
+    children: [],
+  }));
+  const roots = [];
+  const stack = [];
+  for (const node of list) {
+    while (stack.length >= node.level) stack.pop();
+    if (stack.length) stack[stack.length - 1].children.push(node);
+    else roots.push(node);
+    stack.push(node);
+  }
+  return roots;
+}
+
 export function buildNav(chapters, title = "目录") {
-  const list = (Array.isArray(chapters) ? chapters : []).map((chapter) => ({ ...chapter, level: Math.min(Math.max(Number(chapter?.level) || 1, 1), 3) }));
   const lines = [];
-  let depth = 1; // 模板里已经有一个外层 <ol>
-  for (const chapter of list) {
-    while (depth < chapter.level) {
-      lines.push(`${"      ".repeat(depth)}<ol>`);
-      depth += 1;
+  const render = (nodes, indent) => {
+    for (const node of nodes) {
+      if (!node.children.length) {
+        lines.push(`${indent}<li><a href="${node.file}">${escapeXml(node.title)}</a></li>`);
+        continue;
+      }
+      lines.push(`${indent}<li><a href="${node.file}">${escapeXml(node.title)}</a>`);
+      lines.push(`${indent}  <ol>`);
+      render(node.children, `${indent}    `);
+      lines.push(`${indent}  </ol>`);
+      lines.push(`${indent}</li>`);
     }
-    while (depth > chapter.level) {
-      depth -= 1;
-      lines.push(`${"      ".repeat(depth)}</ol>`);
-    }
-    lines.push(`${"      ".repeat(depth)}<li><a href="${chapter.file}">${escapeXml(chapter.title)}</a></li>`);
-  }
-  while (depth > 1) {
-    depth -= 1;
-    lines.push(`${"      ".repeat(depth)}</ol>`);
-  }
+  };
+  render(navTree(chapters), "      ");
   return xhtmlDocument({
     title,
     body: `<nav epub:type="toc" id="toc">\n      <h1>${escapeXml(title)}</h1>\n      <ol>\n${lines.join("\n")}\n      </ol>\n    </nav>`,
@@ -94,31 +113,21 @@ export function buildNav(chapters, title = "目录") {
 }
 
 export function buildNcx(chapters, { title, identifier }) {
-  // NCX 也要支持层级(EPUB2 阅读器):按 level 生成嵌套 navPoint。
-  const list = (Array.isArray(chapters) ? chapters : []).map((chapter) => ({ ...chapter, level: Math.min(Math.max(Number(chapter?.level) || 1, 1), 3) }));
+  // NCX 也要支持层级(EPUB2 阅读器):子级 navPoint 写在**父条目的** navPoint 里 ——
+  // 无标签的分组节点不合规,有些阅读器会把整组当成一条空目录。
   const points = [];
-  let depth = 0;
   let order = 0;
-  const indent = (value) => "  ".repeat(value + 1);
-  for (const chapter of list) {
-    order += 1;
-    while (depth < chapter.level) {
-      points.push(`${indent(depth)}<navPoint id="navGroup-${depth}-${order}" playOrder="${order}">`);
-      depth += 1;
+  const render = (nodes, indent) => {
+    for (const node of nodes) {
+      order += 1;
+      points.push(`${indent}<navPoint id="navPoint-${order}" playOrder="${order}">`);
+      points.push(`${indent}  <navLabel><text>${escapeXml(node.title)}</text></navLabel>`);
+      points.push(`${indent}  <content src="${node.file}"/>`);
+      render(node.children, `${indent}  `);
+      points.push(`${indent}</navPoint>`);
     }
-    while (depth > chapter.level) {
-      depth -= 1;
-      points.push(`${indent(depth)}</navPoint>`);
-    }
-    points.push(`${indent(depth)}<navPoint id="navPoint-${order}" playOrder="${order}">`);
-    points.push(`${indent(depth + 1)}<navLabel><text>${escapeXml(chapter.title)}</text></navLabel>`);
-    points.push(`${indent(depth + 1)}<content src="${chapter.file}"/>`);
-    points.push(`${indent(depth)}</navPoint>`);
-  }
-  while (depth > 0) {
-    depth -= 1;
-    points.push(`${indent(depth)}</navPoint>`);
-  }
+  };
+  render(navTree(chapters), "    ");
   return `<?xml version="1.0" encoding="UTF-8"?>
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
   <head>
@@ -151,7 +160,9 @@ export function buildOpf({ book, chapters, files, hasCover, fontFiles = [], hasC
   if (hasColophon) manifest.push(`    <item id="colophon" href="colophon.xhtml" media-type="application/xhtml+xml"/>`);
   const spine = [];
   if (hasCover) spine.push(`    <itemref idref="cover"/>`);
-  spine.push(`    <itemref idref="nav" linear="no"/>`);
+  // 目录文档**不进 spine**:进了 spine 就会被全文搜索当成正文索引(用户实测在正文里
+  // 搜到整份目录、多级、位置还准),也会在阅读顺序/页码里多出一节。EPUB 3 阅读器
+  // 从 manifest 的 properties="nav" 取目录,不需要它在 spine 里。
   chapters.forEach((_chapter, index) => spine.push(`    <itemref idref="chapter-${index + 1}"/>`));
   if (hasColophon) spine.push(`    <itemref idref="colophon"/>`);
   return `<?xml version="1.0" encoding="UTF-8"?>

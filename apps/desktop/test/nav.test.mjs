@@ -70,13 +70,31 @@ const body = [
 
 test("parseNav reads links and nesting depth", () => {
   const nav = `<nav><ol>
+      <li><a href="chapter-001.xhtml">第一章</a>
+        <ol><li><a href="chapter-002.xhtml">1.1 小节</a></li></ol>
+      </li>
+    </ol></nav>`;
+  const parsed = parseNav(nav);
+  assert.deepEqual(parsed.entries.map((entry) => entry.href), ["chapter-001.xhtml", "chapter-002.xhtml"]);
+  assert.deepEqual(parsed.entries.map((entry) => entry.depth), [1, 2]);
+  assert.equal(parsed.maxDepth, 2);
+  assert.equal(parsed.balanced, true);
+  assert.deepEqual(parsed.problems, []);
+});
+
+test("a sub-list written as a sibling <li> is reported (readers ignore it)", () => {
+  // 这就是用户实测「面板只有一级」的结构:子级 <ol> 是上一个 <li> 的兄弟,
+  // foliate/Calibre 只读 ol 的直接 li 孩子,整个二层看不见。
+  const nav = `<nav><ol>
       <li><a href="chapter-001.xhtml">第一章</a></li>
       <ol><li><a href="chapter-002.xhtml">1.1 小节</a></li></ol>
     </ol></nav>`;
   const parsed = parseNav(nav);
-  assert.deepEqual(parsed.entries.map((entry) => entry.href), ["chapter-001.xhtml", "chapter-002.xhtml"]);
-  assert.equal(parsed.maxDepth, 2);
-  assert.equal(parsed.balanced, true);
+  assert.equal(parsed.balanced, true, "标签是配对的 —— 只有结构性检查能抓到它");
+  assert.ok(parsed.problems.some((problem) => problem.includes("没写在 <li> 里")), parsed.problems.join(" / "));
+  const audit = auditNav({ nav, ncx: "", fileNames: ["OEBPS/chapter-001.xhtml", "OEBPS/chapter-002.xhtml"] });
+  assert.equal(audit.ok, false);
+  assert.ok(audit.problems.some((problem) => problem.includes("导航结构")), "审计要把它当问题报出来");
 });
 
 test("auditNav reports dangling links, broken nesting and NCX drift", () => {

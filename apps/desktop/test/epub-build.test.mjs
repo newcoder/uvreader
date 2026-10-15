@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { JSDOM } from "jsdom";
 import JSZip from "jszip";
 
 import { BOOK_STYLE_DEFAULTS, buildEpub, buildNav, buildNcx, normalizeBookStyles, renderBookCss } from "../src/main/epub-build.js";
@@ -70,6 +71,8 @@ test("buildEpub writes a valid reflowable EPUB with chapters, nav and cover", as
   assert.match(opf, /<item id="cover" href="cover.xhtml"/);
   assert.match(opf, /<itemref idref="chapter-1"\/>/);
   assert.match(opf, /<itemref idref="chapter-2"\/>/);
+  assert.ok(!/<itemref idref="nav"/.test(opf), "目录文档不进 spine(否则会被全文搜索当成正文)");
+  assert.match(opf, /<item id="nav" href="nav\.xhtml" media-type="application\/xhtml\+xml" properties="nav"\/>/, "但仍在 manifest 里声名 nav");
   const nav = await zip.file("OEBPS/nav.xhtml").async("string");
   assert.match(nav, /<a href="chapter-001.xhtml">第一章<\/a>/);
   const first = await zip.file("OEBPS/chapter-001.xhtml").async("string");
@@ -121,18 +124,46 @@ test("the chapter title is written into the body, not just the nav", async () =>
   assert.match(second, /<h1 class="chapter-title">第 2 章<\/h1>/, "没有标题的章节用「第 N 章」占位(与导航一致)");
 });
 
-test("buildNav nests levels instead of flattening them", () => {
+test("buildNav nests levels the way readers parse them (li > ol)", () => {
   const nav = buildNav([
     { title: "第一章", file: "chapter-001.xhtml", level: 1 },
     { title: "1.1 小节", file: "chapter-002.xhtml", level: 2 },
-    { title: "第二章", file: "chapter-003.xhtml", level: 1 },
+    { title: "1.1.1 细节", file: "chapter-003.xhtml", level: 3 },
+    { title: "1.2 又一小节", file: "chapter-004.xhtml", level: 2 },
+    { title: "第二章", file: "chapter-005.xhtml", level: 1 },
   ]);
-  assert.match(nav, /<li><a href="chapter-001\.xhtml">第一章<\/a><\/li>/);
-  assert.match(nav, /<ol>\s*<li><a href="chapter-002\.xhtml">1\.1 小节<\/a><\/li>\s*<\/ol>/, "二级条目嵌在 <ol> 里");
-  assert.equal((nav.match(/<ol>/g) || []).length, 2, "外层 + 一层嵌套");
+  const dom = new JSDOM(nav, { contentType: "application/xhtml+xml" });
+  const doc = dom.window.document;
+  const toc = doc.querySelector("nav");
+  assert.equal(toc?.getAttributeNS("http://www.idpf.org/2007/ops", "type"), "toc", "目录写在 nav[epub:type=toc] 里");
+  const top = toc.querySelector("ol");
+  assert.equal(top?.parentElement?.localName, "nav", "最外层 <ol> 直接挂在 nav 下");
+  for (const list of toc.querySelectorAll("ol ol")) {
+    const parent = list.parentElement;
+    assert.equal(parent?.localName, "li", `子级 <ol> 必须套在 <li> 里(实际父节点:${parent?.localName})`);
+  }
+  // 跟 foliate 的 parseNav 一样走一遍:$ol 的直接 li 孩子 + li 里那个 ol 的直接 li 孩子。
+  const readList = (list) => [...list.querySelectorAll(":scope > li")].map((li) => ({
+    label: li.querySelector(":scope > a")?.textContent || "",
+    subitems: (() => {
+      const inner = li.querySelector(":scope > ol");
+      return inner ? readList(inner) : [];
+    })(),
+  }));
+  const tree = readList(toc.querySelector("ol"));
+  assert.deepEqual(tree.map((node) => node.label), ["第一章", "第二章"]);
+  assert.deepEqual(tree[0].subitems.map((node) => node.label), ["1.1 小节", "1.2 又一小节"]);
+  assert.deepEqual(tree[0].subitems[0].subitems.map((node) => node.label), ["1.1.1 细节"], "三级也读得到");
+  assert.equal(tree[1].subitems.length, 0);
   const ncx = buildNcx([
     { title: "第一章", file: "chapter-001.xhtml", level: 1 },
     { title: "1.1 小节", file: "chapter-002.xhtml", level: 2 },
+    { title: "第二章", file: "chapter-003.xhtml", level: 1 },
   ], { title: "书", identifier: "urn:x" });
-  assert.equal((ncx.match(/<navPoint/g) || []).length, 4, "NCX 也要有分组与条目");
+  const ncxDom = new JSDOM(ncx, { contentType: "text/xml" });
+  const points = [...ncxDom.window.document.querySelectorAll("navPoint")];
+  assert.equal(points.length, 3, "每个条目一个 navPoint(不再有没标签的分组节点)");
+  const first = ncxDom.window.document.querySelector("navPoint");
+  assert.equal(first.querySelector("navLabel text")?.textContent, "第一章");
+  assert.equal(first.querySelector(":scope > navPoint navLabel text")?.textContent, "1.1 小节", "子级嵌在父条目的 navPoint 里");
 });
