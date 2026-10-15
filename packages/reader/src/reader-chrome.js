@@ -105,18 +105,18 @@ export function createReaderChrome({
     if (view.hlPopup?.classList.contains("qiaomu-reader-hl-popup-on")) return;
     if (event.target?.closest?.(".qiaomu-reader-panel,.qiaomu-reader-hl-popup,.menu,.modal-container")) return;
     const dir = event.deltaY > 0 ? "next" : "prev";
+    let continueReading = false;
     if (readerWheelIsScrolled(view)) {
-      // 滚动模式:滚轮平时只滚动;只有滚到「已挂载内容的边缘」才**续读**下一节
-      // (不是翻页跳转 —— 堆叠渲染把下一节接在下面,视口停在原处)。到了边缘却
-      // 不续读的话,读者会以为卡住了(实测反馈)。
+      // 滚动模式:滚轮平时只滚动;只有滚到「已挂载内容的边缘」才**续读**下一节。
+      // 续读 = 把下一节接在当前节下面并保持视口(不是翻页跳转,也不是卡住)。
       const scroller = view.engine
         ? engineWheelScroller(event.target?.ownerDocument || docOf(view.areaEl))
         : view.pager?.clip;
       if (!scroller) return;
       const atEnd = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2;
       const atStart = scroller.scrollTop <= 2;
-      // 到边缘才往下走(下面的冷却 + nav 统一处理;这里不重复 preventDefault)。
       if ((dir === "next" && !atEnd) || (dir === "prev" && !atStart)) return;
+      continueReading = dir === "next" && typeof view.engine?.continueReading === "function";
     }
     const now = Date.now();
     if (view._wheelTurnAt && now - view._wheelTurnAt < WHEEL_TURN_COOLDOWN_MS) {
@@ -125,6 +125,10 @@ export function createReaderChrome({
     }
     view._wheelTurnAt = now;
     event.preventDefault();
+    if (continueReading) {
+      void view.engine.continueReading();
+      return;
+    }
     view.nav(dir);
   }
 

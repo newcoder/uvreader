@@ -353,6 +353,13 @@ export class EpubEngine {
     // ── navigation ──────────────────────────────────────────────────────────
     async next(distance) { await this.#view?.next(distance); }
     async prev(distance) { await this.#view?.prev(distance); }
+    // 滚动模式滚到边缘时的「续读」:把下一节接在当前节下面并**保持视口** ——
+    // 不是翻页式跳到下一节开头(那会让读者觉得跳了一屏)。渲染器不支持时退回翻页。
+    continueReading() {
+        const renderer = this.#view?.renderer;
+        if (typeof renderer?.continueNext === "function") return renderer.continueNext();
+        return this.next();
+    }
     async goTo(target) {
         const view = this.#view;
         const fail = () => new Error("Could not navigate to book location");

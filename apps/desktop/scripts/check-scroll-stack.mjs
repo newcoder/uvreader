@@ -107,6 +107,25 @@ await paginator.prev();
 await wait(350);
 check("往回滚先滚内容,不立刻换节", paginator.start < beforeBack, \`start=\${round(paginator.start)}\`);
 
+// 「续读」(app 里滚到边缘时走的路径):把下一节接在下面,并保持视觉位置。
+await paginator.goTo({ index: 1 });
+await wait(500);
+for (let step = 0; step < 6; step += 1) { await paginator.next(); await wait(250); }
+const beforeContinue = paginator.start;
+const beforeIndexes = indexes();
+await paginator.continueNext();
+await wait(700);
+const afterContinue = paginator.start;
+const afterIndexes = indexes();
+const recycled = beforeIndexes.filter((index) => !afterIndexes.includes(index));
+check("续读后仍挂着相邻两节", afterIndexes.length >= 2, afterIndexes.join(","));
+check("续读没有把视口推到栈顶/下一节开头",
+  afterContinue > paginator.size * 0.5 && afterContinue < paginator.viewSize - paginator.size - 8,
+  \`start=\${round(afterContinue)} viewSize=\${round(paginator.viewSize)} 视口=\${round(paginator.size)}\`);
+check("续读移除上方内容时补偿了滚动位置",
+  recycled.length === 0 || Math.abs(beforeContinue - recycled.length * LINES * LINE_H - afterContinue) < 32,
+  \`前=\${round(beforeContinue)} 后=\${round(afterContinue)} 回收=\${recycled.length}\`);
+
 // 跳章(非相邻、往回跳):照旧替换成目标节。
 await paginator.goTo({ index: 0 });
 await wait(500);

@@ -366,6 +366,110 @@ add("destroy",
   ].join("\n"),
   "for (const entry of this.#stack.values()) {\n            try { entry.view.destroy() } catch { /* already gone */ }");
 
+// 13. #goTo/#display 支持「保持视口」:续读时把下一节接在下面,但不把视口推到它的开头
+// (否则读者会觉得跳了一屏)。
+add("goTo-keepPosition",
+  ["    async #goTo({ index, anchor, select }) {",
+    "        if (index === this.#index) await this.#display({ index, anchor, select })",
+  ].join("\n"),
+  ["    async #goTo({ index, anchor, select, keepPosition }) {",
+    "        if (index === this.#index) await this.#display({ index, anchor, select, keepPosition })",
+  ].join("\n"),
+  "#goTo({ index, anchor, select, keepPosition })");
+
+add("goTo-load-keepPosition",
+  ["                .then(src => ({ index, src, anchor, onLoad, select }))"].join("\n"),
+  ["                .then(src => ({ index, src, anchor, onLoad, select, keepPosition }))"].join("\n"),
+  ".then(src => ({ index, src, anchor, onLoad, select, keepPosition }))");
+
+add("display-keepPosition",
+  ["        const { index, src, anchor, onLoad, select } = await promise"].join("\n"),
+  ["        const { index, src, anchor, onLoad, select, keepPosition } = await promise"].join("\n"),
+  "const { index, src, anchor, onLoad, select, keepPosition } = await promise");
+
+add("display-skip-scroll",
+  ["        await this.scrollToAnchor((typeof anchor === 'function'"].join("\n"),
+  ["        // UV Reader: continueNext() keeps the viewport where it is - the new",
+    "        // section was appended below the seam and must not push it down a screen.",
+    "        if (!keepPosition) await this.scrollToAnchor((typeof anchor === 'function'"].join("\n"),
+  "if (!keepPosition) await this.scrollToAnchor((typeof anchor === 'function'");
+
+add("continue-next",
+  ["    nextSection() {",
+    "        return this.goTo({ index: this.#adjacentIndex(1) })",
+    "    }",
+  ].join("\n"),
+  ["    nextSection() {",
+    "        return this.goTo({ index: this.#adjacentIndex(1) })",
+    "    }",
+    "    // UV Reader: 滚动模式滚到边缘时用 —— 把下一节接在当前节下面,**不动视口**,",
+    "    // 读者继续往下滚才是接着读(而不是跳到下一节开头,那会差一屏)。",
+    "    async continueNext() {",
+    "        if (this.#locked) return",
+    "        this.#locked = true",
+    "        const index = this.#adjacentIndex(1)",
+    "        if (index != null) await this.#goTo({ index, keepPosition: true })",
+    "        this.#locked = false",
+    "    }",
+  ].join("\n"),
+  "async continueNext() {");
+
+// 14. 回收时补偿滚动位置:从视口**上方**摘掉内容后,滚动位置要减去它的高度,
+// 否则读者看到的位置会被顶走(实测:续读时视口被推到下一节开头)。
+add("prune-compensate",
+  ["    #pruneStack(max) {",
+    "        // Keep the section being read plus at most one neighbour: the reader can",
+    "        // still scroll back into it, and the iframes stay cheap. Dropping the",
+    "        // oldest never removes what is on screen - reading forward keeps the",
+    "        // previous section, and a jump replaces everything anyway.",
+    "        while (this.#stack.size > max) {",
+    "            const oldest = this.#stack.keys().next().value",
+    "            const entry = this.#stack.get(oldest)",
+    "            this.#stack.delete(oldest)",
+    "            try { entry.view.destroy() } catch { /* already gone */ }",
+    "            try { this.#container.removeChild(entry.view.element) } catch { /* already gone */ }",
+    "        }",
+    "    }",
+  ].join("\n"),
+  ["    #pruneStack(max) {",
+    "        // Keep the section being read plus at most one neighbour: the reader can",
+    "        // still scroll back into it, and the iframes stay cheap.",
+    "        while (this.#stack.size > max) {",
+    "            const oldest = this.#stack.keys().next().value",
+    "            const entry = this.#stack.get(oldest)",
+    "            if (!entry) break",
+    "            // Removing content above the viewport must not move what the reader",
+    "            // sees: take the removed height off the scroll position.",
+    "            const removed = this.#viewOwnSize(entry.view)",
+    "            this.#stack.delete(oldest)",
+    "            try { entry.view.destroy() } catch { /* already gone */ }",
+    "            try { this.#container.removeChild(entry.view.element) } catch { /* already gone */ }",
+    "            if (removed > 0) this.containerPosition = Math.max(0, this.containerPosition - removed)",
+    "        }",
+    "    }",
+  ].join("\n"),
+  "const removed = this.#viewOwnSize(entry.view)");
+
+// 15. onExpand:长在**视口下方**的节(堆叠里的下一章)不许把读者拉回它的锚点 ——
+// 那会让「续读」变成"跳到下一节开头"(实测差一屏)。
+add("expand-keep",
+  ["        this.#view = new View({",
+    "            container: this,",
+    "            onExpand: () => this.#scrollToAnchor(this.#anchor),",
+    "        })",
+  ].join("\n"),
+  ["        this.#view = new View({",
+    "            container: this,",
+    "            // UV Reader: a section that grows *below* the viewport (the stacked",
+    "            // next chapter) must not pull the reader back to its own anchor.",
+    "            onExpand: () => {",
+    "                if (this.scrolled && this.#stack.size > 1 && this.start < this.#stackOffset(this.#view) - 2) return",
+    "                this.#scrollToAnchor(this.#anchor)",
+    "            },",
+    "        })",
+  ].join("\n"),
+  "if (this.scrolled && this.#stack.size > 1 && this.start < this.#stackOffset(this.#view) - 2) return");
+
 let next = text;
 let applied = 0;
 let already = 0;
