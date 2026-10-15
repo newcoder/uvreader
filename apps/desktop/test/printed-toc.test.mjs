@@ -270,6 +270,30 @@ test("an exact title keeps its chapter even when a page hit wants it", () => {
   assert.equal(plan.dropped.length, 0);
 });
 
+test("repeated labels spread monotonically across the chapters they name", () => {
+  // 大纲里「习题」会出现十几次、页码还可能全是错的(PDF 自身的数据问题)。
+  // 全局对齐按顺序把它们分给各章的「习题」,不会挤在一处、也不会顺移别的条目。
+  const chapters = [
+    { title: "1.1 引言" }, { title: "习题" },
+    { title: "2.1 引言" }, { title: "习题" },
+    { title: "3.1 引言" }, { title: "习题" },
+  ];
+  const pages = [10, 20, 30, 40, 50, 60];
+  const tocEntries = [
+    { label: "1.1 引言", key: "引言", page: 10, level: 2 },
+    { label: "习题", key: "习题", page: 58, level: 2 },
+    { label: "2.1 引言", key: "引言", page: 30, level: 2 },
+    { label: "习题", key: "习题", page: 58, level: 2 },
+    { label: "3.1 引言", key: "引言", page: 50, level: 2 },
+    { label: "习题", key: "习题", page: 58, level: 2 },
+  ];
+  const plan = buildNavPlan({ chapters, tocEntries, pages, pageTolerance: 2, pageFirst: true, orderFallback: true });
+  assert.deepEqual(plan.items.map((item) => `${item.title}@${item.chapterIndex}`), [
+    "1.1 引言@0", "习题@1", "2.1 引言@2", "习题@3", "3.1 引言@4", "习题@5",
+  ]);
+  assert.equal(plan.matched, 6);
+});
+
 test("a chapter title claims its chapter, and falls back to its first section", () => {
   // 正文里没有「第7章」这一章(上游吃掉了标题)时,章级条目应落在它第一节上。
   const chapters = [{ title: "7.1 引言" }, { title: "7.2 方法" }];

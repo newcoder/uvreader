@@ -258,10 +258,72 @@ export function chapterStartPages(chapters, { of = pdfPageOf, lastOf = lastPdfPa
   });
 }
 
-// 印刷目录条目 → 导航计划:按顺序在章节里找最佳匹配(单调前进,防止错位),
-// 匹配不到的条目保守丢弃;目录之外的「前言/注释」这类章节保留在两端。
-// pages(可选,与 chapters 一一对应)= 章节起始的**印刷页码**:页码对得上时给标题匹配加成,
-// 于是 OCR 噪声把标题弄花也能靠页码定位(R1)。
+// 目录条目 ↔ 正文章节 的**全局最优单调对齐**(动态规划,思路同序列比对 / diff)。
+//
+// 为什么不能逐条贪心:目录和正文都是读书顺序,真实的对应关系必然**单调**(第 i 条
+// 落在第 j 章,那第 i+1 条不会跑到第 j 章前面)。逐条挑「最像的一章」是局部决策:
+// 只要某几条的信号有噪声(正文标题被上游拆坏、页码缺失或错、同一标题反复出现),
+// 冲突点就会把本该属于后面某条的章节顺移 —— 表现就是「大部分精确、小部分跳歪」,
+// 而且错一处会带偏一片。全局对齐一次性求出总分最大的单调对应,从根上避免。
+export function alignEntries(list, entries, { minSimilarity = 0.6, pageTolerance = 2, pageFirst = false, minScore = 0.3 } = {}) {
+  const n = entries.length;
+  const m = list.length;
+  if (!n || !m) return [];
+  const pageWeight = pageFirst ? 0.5 : 0.4;
+  const pageWindow = Math.max(6, pageTolerance * 3);
+  // 一条目录与一章的分:标题(含「第 N 章」编号)为主,页码只当提示 ——
+  // 标题命中时页码用来在重复标题里挑人,标题不命中时页码才有机会顶上来。
+  const pair = (entry, candidate) => {
+    const title = Math.max(
+      titleScoreOf(candidate, entry, minSimilarity),
+      entry.number && candidate.number && entry.number === candidate.number ? 0.95 : 0,
+    );
+    let page = 0;
+    if (entry.page > 0 && candidate.page > 0) {
+      const distance = Math.abs(candidate.page - entry.page);
+      if (distance < pageWindow) page = pageWeight * (1 - distance / pageWindow);
+    }
+    const total = title > 0 ? title + page * 0.4 : page;
+    return total >= minScore ? total : 0;
+  };
+  const width = m + 1;
+  const table = new Float64Array((n + 1) * width);
+  const step = new Uint8Array((n + 1) * width); // 0=跳过这条目录 1=跳过这一章 2=对齐
+  for (let i = 1; i <= n; i += 1) {
+    for (let j = 1; j <= m; j += 1) {
+      const base = i * width + j;
+      const skipEntry = table[base - width];
+      const skipChapter = table[base - 1];
+      const value = pair(entries[i - 1], list[j - 1]);
+      const aligned = value > 0 ? table[base - width - 1] + value : -Infinity;
+      let best = skipEntry;
+      let how = 0;
+      if (skipChapter > best) { best = skipChapter; how = 1; }
+      if (aligned > best) { best = aligned; how = 2; }
+      table[base] = best;
+      step[base] = how;
+    }
+  }
+  const pairs = [];
+  let i = n;
+  let j = m;
+  while (i > 0 && j > 0) {
+    const how = step[i * width + j];
+    if (how === 2) {
+      pairs.push({ entry: i - 1, chapter: j - 1, score: pair(entries[i - 1], list[j - 1]) });
+      i -= 1;
+      j -= 1;
+      continue;
+    }
+    if (how === 1) j -= 1;
+    else i -= 1;
+  }
+  return pairs.reverse();
+}
+
+// 印刷目录条目 → 导航计划:目录与正文章节做全局对齐(见 alignEntries),对不上的
+// 条目按相邻锚点之间的**间隙**落位(绝不落空);目录之外的「前言/注释」这类章节保留在两端。
+// pages(可选,与 chapters 一一对应)= 章节起始页码:大纲/印刷目录的页码都当提示用。
 export function buildNavPlan({ chapters = [], tocEntries = [], pages = [], minSimilarity = 0.6, pageTolerance = 2, pageFirst = false, orderFallback = false } = {}) {
   const list = (Array.isArray(chapters) ? chapters : []).map((chapter, index) => ({
     index,
@@ -277,67 +339,19 @@ export function buildNavPlan({ chapters = [], tocEntries = [], pages = [], minSi
   const used = new Set();
   const assigned = new Array(entries.length).fill(-1);
   const lastIndex = list.length - 1;
-  // 目录与正文都是读书顺序:「第 k 条目录」大致落在「第 k/n × 章数」的位置。
-  // 只在多条候选同分时用来挑最合理的那个(重复出现的「习题」就靠它分开)。
+  for (const { entry, chapter } of alignEntries(list, entries, { minSimilarity, pageTolerance, pageFirst })) {
+    assigned[entry] = chapter;
+    used.add(chapter);
+  }
   const expectedOf = (entryIndex) => Math.round((entryIndex / Math.max(1, entries.length - 1)) * lastIndex);
-  // 同分时优先离「大致位置」近的候选;惩罚很小(≤0.2),不会压过页码/标题判据。
-  const rankOf = (score, candidateIndex, entryIndex) => score
-    - Math.min(0.2, (Math.abs(candidateIndex - expectedOf(entryIndex)) / Math.max(1, lastIndex)) * 0.2);
-  const pick = (entryIndex, test) => {
-    let best = null;
-    for (const candidate of list) {
-      if (used.has(candidate.index)) continue;
-      const score = test(candidate, entries[entryIndex]);
-      if (score <= 0) continue;
-      const rank = rankOf(score, candidate.index, entryIndex);
-      if (!best || rank > best.rank) best = { index: candidate.index, score, rank };
-    }
-    return best;
+  const claim = (entryIndex, index) => {
+    if (!(index >= 0)) return;
+    assigned[entryIndex] = index;
+    used.add(index);
   };
-  const claim = (entryIndex, best) => {
-    if (!best) return false;
-    used.add(best.index);
-    assigned[entryIndex] = best.index;
-    return true;
-  };
-  // 第一步:**标题(或「第 N 章」编号)对得上的先钉死**。靠页码认领的条目会抢走
-  // 它们要的那一章 —— 实测《光学》「第1章 光学简史」抢了「1.2 初始时期」的章,
-  // 后面的条目跟着整片顺移(用户看到的「跳歪」正是这样滚出来的)。
-  for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
-    const exact = (candidate, entry) => {
-      if (entry.key && candidate.key && candidate.key === entry.key) return 1;
-      if (entry.number && candidate.number && entry.number === candidate.number) {
-        // 编号相同还要看页码:正文里常另有一章同名(附录、尾声里的「第5章」)。
-        // 实测「第5章 几何光学」被书尾的一章「第5章」抢走,一点就跳到全书最后。
-        const pagesKnown = entry.page > 0 && candidate.page > 0;
-        const close = pagesKnown
-          ? Math.abs(candidate.page - entry.page) <= Math.max(pageTolerance * 2, 4)
-          : Math.abs(candidate.index - expectedOf(entryIndex)) <= Math.max(10, lastIndex * 0.1);
-        return close ? (candidate.key && entry.key && candidate.key === entry.key ? 1 : 0.95) : 0;
-      }
-      return 0;
-    };
-    claim(entryIndex, pick(entryIndex, exact));
-  }
-  // 第二步:相似标题 + 页码提示(印刷目录的 OCR 噪声就靠这一步救)。
-  for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
-    if (assigned[entryIndex] >= 0) continue;
-    const best = pick(entryIndex, (candidate, entry) => {
-      const title = titleScoreOf(candidate, entry, minSimilarity);
-      const weakTitle = String(candidate.title || "").replace(/[^\p{L}\p{N}]/gu, "").length <= 2;
-      const pageClose = entry.page > 0 && candidate.page > 0 && Math.abs(candidate.page - entry.page) <= pageTolerance;
-      const pageHit = pageClose && (pageFirst || title >= 0.34 || weakTitle);
-      if (!pageHit) return title;
-      const base = pageFirst ? 0.85 : 0.5;
-      const bonus = pageFirst ? 0.1 : 0.5;
-      return Math.min(1, Math.max(title, base) + bonus * (1 - Math.abs(candidate.page - entry.page) / (pageTolerance + 1)));
-    });
-    claim(entryIndex, best && best.score >= minSimilarity ? best : null);
-  }
-  // 第二步半:章级条目在正文里常常没有自己的章节(上游把「第N章 …」的标题吃掉了)。
-  // 这时指向它**下面第一节**所在的章节 —— 那正是这一章的起点(用户实测点「第1章」
-  // 跳到 1.5,现在落到 1.1)。放在页码兜底之前,否则它先被页码抢走了。
   if (orderFallback) {
+    // 章级条目在正文里常常没有自己的章节(上游把「第N章 …」的标题吃掉了):指向它
+    // **下面第一节**所在的章节 —— 那正是这一章的起点(点「第1章」落到 1.1,而不是 1.5)。
     for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
       if (assigned[entryIndex] >= 0) continue;
       const own = Number(entries[entryIndex].level) || 1;
@@ -346,17 +360,25 @@ export function buildNavPlan({ chapters = [], tocEntries = [], pages = [], minSi
         && assigned[index] >= 0);
       if (next >= 0) assigned[entryIndex] = assigned[next];
     }
-  }
-  // 第三步:兜底 —— 判不出来的条目也要有落点(用户口径:页码不必对上原书,但要有一条能用的目录)。
-  // 先按页码就近,再按「第 k/n × 章数」的相对位置就近,绝不落空。
-  if (orderFallback) {
+    // 其余对不上的条目:**在相邻两个锚点之间的间隙里**落位(前一条已对齐的目录 →
+    // 后一条已对齐的目录之间的那些章节),再按页码/相对位置挑最近的。这样它只会
+    // 落在「它本来就该在的那一段」,不会跑到书的另一头。
     for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
       if (assigned[entryIndex] >= 0) continue;
+      const lower = (() => {
+        for (let index = entryIndex - 1; index >= 0; index -= 1) if (assigned[index] >= 0) return assigned[index];
+        return -1;
+      })();
+      const upper = (() => {
+        for (let index = entryIndex + 1; index < entries.length; index += 1) if (assigned[index] >= 0) return assigned[index];
+        return list.length;
+      })();
       const entry = entries[entryIndex];
       let pickIndex = -1;
       let pickDistance = Infinity;
       for (const candidate of list) {
         if (used.has(candidate.index)) continue;
+        if (candidate.index <= lower || candidate.index >= upper) continue;
         const distance = entry.page > 0 && candidate.page > 0
           ? Math.abs(candidate.page - entry.page)
           : Math.abs(candidate.index - expectedOf(entryIndex)) * (pageTolerance + 1);
@@ -364,9 +386,21 @@ export function buildNavPlan({ chapters = [], tocEntries = [], pages = [], minSi
           pickDistance = distance;
           pickIndex = candidate.index;
         }
-        if (distance === 0) break;
       }
-      if (pickIndex >= 0) claim(entryIndex, { index: pickIndex });
+      if (pickIndex < 0) {
+        // 间隙里没有空章(比如书末的附录/答案):退到整表里最近的一个。
+        for (const candidate of list) {
+          if (used.has(candidate.index)) continue;
+          const distance = entry.page > 0 && candidate.page > 0
+            ? Math.abs(candidate.page - entry.page)
+            : Math.abs(candidate.index - expectedOf(entryIndex)) * (pageTolerance + 1);
+          if (distance < pickDistance) {
+            pickDistance = distance;
+            pickIndex = candidate.index;
+          }
+        }
+      }
+      claim(entryIndex, pickIndex);
     }
   }
   const items = [];
