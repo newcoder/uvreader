@@ -258,6 +258,37 @@ export function chapterStartPages(chapters, { of = pdfPageOf, lastOf = lastPdfPa
   });
 }
 
+// 相对位置:原书目录的页码可能有**系统性偏移**(印刷页 vs PDF 页、扫描页 vs 正文页),
+// 但顺序与间隔是对的 —— 所以用相邻两个已对齐条目把页码插值出来,偏移在插值里自然抵消,
+// 比直接比对绝对页码稳。没有锚点时退回到条目自己的页码。
+export function interpolatePage(entries, entryIndex, lowerEntry, upperEntry) {
+  const own = Number(entries[entryIndex]?.page) || 0;
+  const low = lowerEntry != null && lowerEntry >= 0 ? Number(entries[lowerEntry]?.page) || 0 : 0;
+  const high = upperEntry != null && upperEntry >= 0 ? Number(entries[upperEntry]?.page) || 0 : 0;
+  if (low > 0 && high > low && upperEntry > lowerEntry) {
+    const ratio = (entryIndex - lowerEntry) / (upperEntry - lowerEntry);
+    return low + (high - low) * ratio;
+  }
+  return own;
+}
+
+// 页码的系统性偏移 = 标题完全对得上的那些锚点的 (章节页 − 目录页) 的中位数。
+// 有了它,页码比较就变成「相对」比较(用户提的那点):顺序对、偏移固定,照样能用。
+export function estimatePageOffset(list, entries, pairs) {
+  const deltas = [];
+  for (const pair of pairs) {
+    const entry = entries[pair.entry];
+    const candidate = list[pair.chapter];
+    if (!entry || !candidate) continue;
+    if (!entry.key || !candidate.key || entry.key !== candidate.key) continue;
+    if (!(entry.page > 0) || !(candidate.page > 0)) continue;
+    deltas.push(candidate.page - entry.page);
+  }
+  if (!deltas.length) return 0;
+  deltas.sort((a, b) => a - b);
+  return deltas[Math.floor(deltas.length / 2)];
+}
+
 // 目录条目 ↔ 正文章节 的**全局最优单调对齐**(动态规划,思路同序列比对 / diff)。
 //
 // 为什么不能逐条贪心:目录和正文都是读书顺序,真实的对应关系必然**单调**(第 i 条
@@ -265,7 +296,7 @@ export function chapterStartPages(chapters, { of = pdfPageOf, lastOf = lastPdfPa
 // 只要某几条的信号有噪声(正文标题被上游拆坏、页码缺失或错、同一标题反复出现),
 // 冲突点就会把本该属于后面某条的章节顺移 —— 表现就是「大部分精确、小部分跳歪」,
 // 而且错一处会带偏一片。全局对齐一次性求出总分最大的单调对应,从根上避免。
-export function alignEntries(list, entries, { minSimilarity = 0.6, pageTolerance = 2, pageFirst = false, minScore = 0.3 } = {}) {
+export function alignEntries(list, entries, { minSimilarity = 0.6, pageTolerance = 2, pageFirst = false, minScore = 0.3, pageOffset = 0 } = {}) {
   const n = entries.length;
   const m = list.length;
   if (!n || !m) return [];
@@ -273,6 +304,7 @@ export function alignEntries(list, entries, { minSimilarity = 0.6, pageTolerance
   const pageWindow = Math.max(6, pageTolerance * 3);
   // 一条目录与一章的分:标题(含「第 N 章」编号)为主,页码只当提示 ——
   // 标题命中时页码用来在重复标题里挑人,标题不命中时页码才有机会顶上来。
+  // pageOffset 把两边的系统性页码偏移消掉,于是页码实际是「相对位置」的度量。
   const pair = (entry, candidate) => {
     const title = Math.max(
       titleScoreOf(candidate, entry, minSimilarity),
@@ -280,7 +312,7 @@ export function alignEntries(list, entries, { minSimilarity = 0.6, pageTolerance
     );
     let page = 0;
     if (entry.page > 0 && candidate.page > 0) {
-      const distance = Math.abs(candidate.page - entry.page);
+      const distance = Math.abs(candidate.page - entry.page - pageOffset);
       if (distance < pageWindow) page = pageWeight * (1 - distance / pageWindow);
     }
     const total = title > 0 ? title + page * 0.4 : page;
@@ -339,7 +371,13 @@ export function buildNavPlan({ chapters = [], tocEntries = [], pages = [], minSi
   const used = new Set();
   const assigned = new Array(entries.length).fill(-1);
   const lastIndex = list.length - 1;
-  for (const { entry, chapter } of alignEntries(list, entries, { minSimilarity, pageTolerance, pageFirst })) {
+  const alignOptions = { minSimilarity, pageTolerance, pageFirst };
+  const firstPass = alignEntries(list, entries, alignOptions);
+  // 先用标题锚点估出两边的系统性页码偏移(印刷页 vs PDF 页之类),再对齐一次 ——
+  // 页码就变成「相对位置」的度量了(用户口径:顺序对、偏移固定,就还能用)。
+  const offset = estimatePageOffset(list, entries, firstPass);
+  const pairs = offset ? alignEntries(list, entries, { ...alignOptions, pageOffset: offset }) : firstPass;
+  for (const { entry, chapter } of pairs) {
     assigned[entry] = chapter;
     used.add(chapter);
   }
@@ -365,23 +403,25 @@ export function buildNavPlan({ chapters = [], tocEntries = [], pages = [], minSi
     // 落在「它本来就该在的那一段」,不会跑到书的另一头。
     for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
       if (assigned[entryIndex] >= 0) continue;
-      const lower = (() => {
-        for (let index = entryIndex - 1; index >= 0; index -= 1) if (assigned[index] >= 0) return assigned[index];
-        return -1;
-      })();
-      const upper = (() => {
-        for (let index = entryIndex + 1; index < entries.length; index += 1) if (assigned[index] >= 0) return assigned[index];
-        return list.length;
-      })();
-      const entry = entries[entryIndex];
+      let lowerEntry = -1;
+      for (let index = entryIndex - 1; index >= 0; index -= 1) if (assigned[index] >= 0) { lowerEntry = index; break; }
+      let upperEntry = -1;
+      for (let index = entryIndex + 1; index < entries.length; index += 1) if (assigned[index] >= 0) { upperEntry = index; break; }
+      const lower = lowerEntry >= 0 ? assigned[lowerEntry] : -1;
+      const upper = upperEntry >= 0 ? assigned[upperEntry] : list.length;
+      // 落点参考用「相对位置」:由相邻两个已对齐条目把页码插值出来(页码偏移在插值里
+      // 抵消),而不是拿条目自己的绝对页码去比 —— 原书目录的页码常常整体偏、顺序却是对的。
+      const target = interpolatePage(entries, entryIndex, lowerEntry, upperEntry);
+      const distanceOf = (candidate) => {
+        if (target > 0 && candidate.page > 0) return Math.abs(candidate.page - target);
+        return Math.abs(candidate.index - expectedOf(entryIndex)) * (pageTolerance + 1);
+      };
       let pickIndex = -1;
       let pickDistance = Infinity;
       for (const candidate of list) {
         if (used.has(candidate.index)) continue;
         if (candidate.index <= lower || candidate.index >= upper) continue;
-        const distance = entry.page > 0 && candidate.page > 0
-          ? Math.abs(candidate.page - entry.page)
-          : Math.abs(candidate.index - expectedOf(entryIndex)) * (pageTolerance + 1);
+        const distance = distanceOf(candidate);
         if (distance < pickDistance) {
           pickDistance = distance;
           pickIndex = candidate.index;
@@ -391,14 +431,18 @@ export function buildNavPlan({ chapters = [], tocEntries = [], pages = [], minSi
         // 间隙里没有空章(比如书末的附录/答案):退到整表里最近的一个。
         for (const candidate of list) {
           if (used.has(candidate.index)) continue;
-          const distance = entry.page > 0 && candidate.page > 0
-            ? Math.abs(candidate.page - entry.page)
-            : Math.abs(candidate.index - expectedOf(entryIndex)) * (pageTolerance + 1);
+          const distance = distanceOf(candidate);
           if (distance < pickDistance) {
             pickDistance = distance;
             pickIndex = candidate.index;
           }
         }
+      }
+      if (pickIndex < 0) {
+        // 整表里也没有空章(条目比章节还多):跟前后的已对齐条目前后脚待在同一个落点,
+        // 至少不丢条目,顺序也不会乱。
+        if (lower >= 0) pickIndex = lower;
+        else if (upper < list.length) pickIndex = upper;
       }
       claim(entryIndex, pickIndex);
     }

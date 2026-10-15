@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildNavPlan, chapterNumber, chapterStartPages, fillPageGaps, isPrintedTocChapter, lastPdfPageOf, lastPrintedPageOf, looksLikeTocEntry, normalizeNavLevels, parsePrintedTocEntries, printedPageOf, stripPrintedToc, stripTocBlock, tocRatio } from "../src/shared/printed-toc.js";
+import { buildNavPlan, chapterNumber, chapterStartPages, estimatePageOffset, fillPageGaps, interpolatePage, isPrintedTocChapter, lastPdfPageOf, lastPrintedPageOf, looksLikeTocEntry, normalizeNavLevels, parsePrintedTocEntries, printedPageOf, stripPrintedToc, stripTocBlock, tocRatio } from "../src/shared/printed-toc.js";
 import { outlineToTocEntries } from "../src/main/pdf-outline.js";
 
 const tocText = [
@@ -268,6 +268,41 @@ test("an exact title keeps its chapter even when a page hit wants it", () => {
   assert.equal(target("1.2 初始时期"), 2, "页码命中也不能抢走标题对得上的章");
   assert.equal(target("1.3 十七世纪以来"), 3);
   assert.equal(plan.dropped.length, 0);
+});
+
+test("interpolatePage and estimatePageOffset read relative positions", () => {
+  const entries = [
+    { page: 10 }, { page: 0 }, { page: 20 }, { page: 30 },
+  ];
+  assert.equal(interpolatePage(entries, 1, 0, 2), 15, "两个锚点之间按位置插值");
+  assert.equal(interpolatePage(entries, 1, -1, -1), 0, "没有锚点时用条目自己的页码");
+  assert.equal(Math.round(interpolatePage(entries, 2, 0, 3)), 23, "锚点已知时以插值为准(相对位置)");
+  assert.equal(interpolatePage(entries, 2, 0, 3) === 20, false, "不再直接采信条目自己的绝对页码");
+  const list = [{ key: "一", page: 12 }, { key: "二", page: 22 }];
+  const toc = [{ key: "一", page: 10 }, { key: "二", page: 20 }];
+  assert.equal(estimatePageOffset(list, toc, [{ entry: 0, chapter: 0 }, { entry: 1, chapter: 1 }]), 2, "章节页码 − 目录页码");
+  assert.equal(estimatePageOffset(list, toc, []), 0);
+});
+
+test("an entry with a missing or bogus page lands by relative position", () => {
+  // 原书页码整体偏 2 页(章节 page = 目录 page + 2),顺序是对的;没有页码 / 页码是错的
+  // 条目应该按相邻锚点插值落在两段之间,而不是被塞到书的别处。
+  const chapters = [{ title: "第一章" }, { title: "第二章" }, { title: "第三章" }, { title: "第四章" }];
+  const pages = [12, 22, 32, 42];
+  const tocEntries = [
+    { label: "第一章", key: "第一章", page: 10, level: 1 },
+    { label: "第二章", key: "第二章", page: 20, level: 1 },
+    { label: "补遗", key: "补遗", page: 0, level: 1 },
+    { label: "附录", key: "附录", page: 5, level: 1 }, // 页码是错的(实际在中间)
+    { label: "第四章", key: "第四章", page: 40, level: 1 },
+  ];
+  const plan = buildNavPlan({ chapters, tocEntries, pages, pageTolerance: 2, pageFirst: true, orderFallback: true });
+  const target = (label) => plan.items.find((item) => item.title === label)?.chapterIndex;
+  assert.equal(target("第一章"), 0);
+  assert.equal(target("第二章"), 1);
+  assert.equal(target("第四章"), 3);
+  assert.ok(target("补遗") === 2 && target("附录") === 2, `中间的条目落在间隙里(补遗 ${target("补遗")} / 附录 ${target("附录")})`);
+  assert.equal(plan.matched, 5);
 });
 
 test("repeated labels spread monotonically across the chapters they name", () => {
