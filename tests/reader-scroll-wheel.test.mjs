@@ -1,5 +1,5 @@
-// 滚动模式的下一条体验约束:滚轮只滚动,不许被抢去翻页/翻章。
-// (实测:滚动模式下每次滚到「当前挂载到的边界」就整节跳过去 —— 那个边界不是书的边界。)
+// 滚动模式的下一条体验约束:滚轮平时只滚动,只有在「已挂载内容的边缘」才续读
+// 下一节(不是翻页跳转 —— 堆叠渲染把下一节接在下面,视口停在原处)。
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -23,9 +23,9 @@ function harness(settings, extra = {}) {
   return { view, events };
 }
 
-test("scrolling mode leaves the wheel to the scroller", () => {
+test("scrolling mode keeps mid-scroll wheels with the scroller", () => {
   const chrome = createReaderChrome({ readerIsPdf: () => false, warn: () => {} });
-  const { view, events } = harness({ readMode: "scroll" });
+  const { view, events } = harness({ readMode: "scroll" }, { engine: false, pager: { scrollMode: true, clip: { scrollTop: 100, clientHeight: 400, scrollHeight: 2000 } } });
   let prevented = 0;
   const event = {
     deltaY: 120,
@@ -33,8 +33,18 @@ test("scrolling mode leaves the wheel to the scroller", () => {
     preventDefault: () => { prevented += 1; },
   };
   chrome.handleReaderWheel(view, event);
-  assert.equal(prevented, 0, "滚轮不能被 preventDefault(否则页面滚不动)");
-  assert.deepEqual(events, [], "也不能翻页/翻章");
+  assert.equal(prevented, 0, "中途滚动不能被 preventDefault(否则页面滚不动)");
+  assert.deepEqual(events, [], "中途也不翻页");
+});
+
+test("scrolling mode continues into the next section at the edge", () => {
+  const chrome = createReaderChrome({ readerIsPdf: () => false, warn: () => {} });
+  const { view, events } = harness({ readMode: "scroll" }, { engine: false, pager: { scrollMode: true, clip: { scrollTop: 1600, clientHeight: 400, scrollHeight: 2000 } } });
+  let prevented = 0;
+  const event = { deltaY: 120, target: { closest: () => null }, preventDefault: () => { prevented += 1; } };
+  chrome.handleReaderWheel(view, event);
+  assert.equal(prevented, 1);
+  assert.deepEqual(events, ["next"]);
 });
 
 test("paged mode still turns the page on a wheel gesture", () => {
@@ -54,14 +64,4 @@ test("paged mode still turns the page on a wheel gesture", () => {
   chrome.handleReaderWheel(view, again);
   assert.equal(prevented, 2);
   assert.deepEqual(events, ["prev"]);
-});
-
-test("PDF scrolling mode also keeps the wheel as a scroll", () => {
-  const chrome = createReaderChrome({ readerIsPdf: () => false, warn: () => {} });
-  const { view, events } = harness({ readMode: "scroll" }, { engine: false, pager: { scrollMode: true } });
-  let prevented = 0;
-  const event = { deltaY: 120, target: { closest: () => null }, preventDefault: () => { prevented += 1; } };
-  chrome.handleReaderWheel(view, event);
-  assert.equal(prevented, 0);
-  assert.deepEqual(events, []);
 });

@@ -80,11 +80,11 @@ export function createReaderChrome({
   }
 
   // Wheel paging: in paged layout any wheel gesture turns the page. In scrolling
-  // layout the wheel must stay a scroll: hijacking it the moment the scroller
-  // reports an edge made the reader jump a whole section mid-read (the section
-  // list keeps growing as more sections mount, so "at the end" is not the end of
-  // the book). Chapter turns stay on the toolbar and the page keys.
-  const WHEEL_TURN_COOLDOWN_MS = 450;
+  // layout the wheel scrolls normally and only continues into the next section
+  // once the reader reaches the edge of what is mounted — with the stacked
+  // scrolled mode that means the next section is appended below (the position
+  // stays put), so it reads as one continuous scroll, not a page jump.
+  const WHEEL_TURN_COOLDOWN_MS = 560;
   function engineWheelScroller(doc) {
     try {
       const root = doc?.defaultView?.frameElement?.getRootNode?.();
@@ -104,10 +104,20 @@ export function createReaderChrome({
     if (view.panelOpen || view._selectionMenuOpen || view._commentEditing) return;
     if (view.hlPopup?.classList.contains("qiaomu-reader-hl-popup-on")) return;
     if (event.target?.closest?.(".qiaomu-reader-panel,.qiaomu-reader-hl-popup,.menu,.modal-container")) return;
-    // 滚动模式:滚轮永远只是滚动 —— 不抢手势去翻页/翻章。否则一旦滚动容器报告
-    // 「到底了」(分节还在陆续挂载,这个「底」并不是书的底),就会整节跳过去。
-    if (readerWheelIsScrolled(view)) return;
     const dir = event.deltaY > 0 ? "next" : "prev";
+    if (readerWheelIsScrolled(view)) {
+      // 滚动模式:滚轮平时只滚动;只有滚到「已挂载内容的边缘」才**续读**下一节
+      // (不是翻页跳转 —— 堆叠渲染把下一节接在下面,视口停在原处)。到了边缘却
+      // 不续读的话,读者会以为卡住了(实测反馈)。
+      const scroller = view.engine
+        ? engineWheelScroller(event.target?.ownerDocument || docOf(view.areaEl))
+        : view.pager?.clip;
+      if (!scroller) return;
+      const atEnd = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2;
+      const atStart = scroller.scrollTop <= 2;
+      // 到边缘才往下走(下面的冷却 + nav 统一处理;这里不重复 preventDefault)。
+      if ((dir === "next" && !atEnd) || (dir === "prev" && !atStart)) return;
+    }
     const now = Date.now();
     if (view._wheelTurnAt && now - view._wheelTurnAt < WHEEL_TURN_COOLDOWN_MS) {
       event.preventDefault();

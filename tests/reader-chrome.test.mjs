@@ -166,9 +166,9 @@ test("handleReaderWheel pages in paged mode and respects the cooldown", () => {
   assert.deepEqual(nav, ["next", "prev"]);
 });
 
-test("handleReaderWheel never turns the page in scroll mode", () => {
-  // 滚动模式的滚轮**只滚动**。旧行为是「滚到当前滚动容器的边缘就翻页」,而分节还在
-  // 陆续挂载 —— 那个「边缘」并不是书的边缘,读着读着就整节跳过去(用户实测)。
+test("handleReaderWheel only continues at the edge in scroll mode", () => {
+  // 滚动模式:滚轮平时只滚动;滚到已挂载内容的边缘才续读下一节。续读=堆叠渲染把
+  // 下一节接在下面(不是换文档跳页),所以这里允许在边缘触发 next。
   const { chrome } = setup();
   const nav = [];
   const clip = { scrollTop: 100, clientHeight: 400, scrollHeight: 2000 };
@@ -177,13 +177,11 @@ test("handleReaderWheel never turns the page in scroll mode", () => {
   assert.deepEqual(nav, [], "滚动中途当然不翻页");
   clip.scrollTop = 1600;
   chrome.handleReaderWheel(view, { deltaY: 120, preventDefault() {}, target: null });
-  assert.deepEqual(nav, [], "到了当前容器的边缘也不翻页(那只是已挂载内容的边缘)");
+  assert.deepEqual(nav, ["next"], "到了边缘续读下一节(堆叠渲染会接在下面)");
+  view._wheelTurnAt = 0;
+  clip.scrollTop = 0;
   chrome.handleReaderWheel(view, { deltaY: -120, preventDefault() {}, target: null });
-  assert.deepEqual(nav, [], "往回滚同样只滚动");
-  // 引擎书(EPUB)用 readMode 判断,PDF 用 pager.scrollMode。
-  const engineView = { bookHtml: "<p>x</p>", engine: {}, plugin: { settings: { readMode: "scroll" } }, nav: (dir) => nav.push(dir), pager: null };
-  chrome.handleReaderWheel(engineView, { deltaY: 120, preventDefault() {}, target: null });
-  assert.deepEqual(nav, []);
+  assert.deepEqual(nav, ["next", "prev"], "往回滚到顶部同理");
 });
 
 test("handleReaderWheel ignores zoomed PDFs and open panels", () => {
