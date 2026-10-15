@@ -765,7 +765,7 @@ add("placeholder-height",
     "                if (estimate > 0) view.element.style[this.sideProp] = `${Math.round(estimate)}px`",
     "            }",
   ].join("\n"),
-  "// Reserve this section's height immediately");
+  "// Reserve this section's height immediately", true);
 
 add("average-height",
   ["    #indexOfView(view) {",
@@ -935,8 +935,7 @@ add("stack-switch-field",
     "    // UV Reader: stacked scrolled mode is behind a switch (see the patch script).",
     "    #stacked = false",
   ].join("\n"),
-  "#stacked = false");
-
+  "// UV Reader: stacked scrolled mode is behind a switch");
 add("stack-switch-display",
   ["            const stackForward = this.scrolled && !!this.#view && index === previousIndex + 1",
     "            const stackBackward = this.scrolled && !!this.#view && index === previousIndex - 1",
@@ -1023,6 +1022,57 @@ add("stack-switch-getter",
     "    get stackedScroll() { return this.#stacked }",
   ].join("\n"),
   "get stackedScroll() { return this.#stacked }");
+
+// 22. 占位/预留只用**实测**高度:未测过的节一律按 0 预留,绝不估算 ——
+// 估算会把视口推到内容之外(实测复现:jump 后 start=extent=3110,整屏空白)。
+add("spacer-measured-only",
+  ["        let total = 0",
+    "        for (const height of this.#heights.values()) total += height",
+    "        const average = this.#heights.size ? total / this.#heights.size : 0",
+    "        let above = 0",
+    "        for (let index = 0; index < first; index += 1) above += this.#heights.get(index) ?? average",
+  ].join("\n"),
+  ["        let above = 0",
+    "        for (let index = 0; index < first; index += 1) above += this.#heights.get(index) ?? 0",
+  ].join("\n"),
+  "for (let index = 0; index < first; index += 1) above += this.#heights.get(index) ?? 0");
+
+add("placeholder-measured-only",
+  ["                // Reserve this section's height immediately: while it loads, a zero",
+    "                // height would shift everything (that is the flicker the reader sees).",
+    "                const estimate = this.#heights.get(index)",
+    "                    ?? this.#averageHeight()",
+    "                if (estimate > 0) view.element.style[this.sideProp] = `${Math.round(estimate)}px`",
+  ].join("\n"),
+  ["                // Reserve this section's height only when it was measured before:",
+    "                // guessing (an average of the others) pushed the viewport past the",
+    "                // content on a jump, which read as a blank screen.",
+    "                const measured = this.#heights.get(index)",
+    "                if (measured > 0) view.element.style[this.sideProp] = `${Math.round(measured)}px`",
+  ].join("\n"),
+  "const measured = this.#heights.get(index)");
+
+// 23. 滚动模式下把 #container 钉成**视口大小**。否则网格按内容给它定尺寸,于是
+// `size`(视口高度)变成"内容总高",所有基于它的判断(页数/尾部/边缘/上一页下一页)
+// 全部失真 —— 实测 viewport=31997(应为 640),这也是最初「一页结束就跳到下一页」的根。
+add("container-viewport-box",
+  ["        :host([flow=\"scrolled\"]) #container {",
+    "            grid-column: 1 / -1;",
+    "            grid-row: 1 / -1;",
+    "            overflow: auto;",
+    "        }",
+  ].join("\n"),
+  ["        :host([flow=\"scrolled\"]) #container {",
+    "            grid-column: 1 / -1;",
+    "            grid-row: 1 / -1;",
+    "            overflow: auto;",
+    "            /* UV Reader: exactly the viewport - the grid would otherwise size",
+    "               this box from its content, making size mean content height. */",
+    "            position: absolute;",
+    "            inset: 0;",
+    "        }",
+  ].join("\n"),
+  "exactly the viewport");
 
 let next = text;
 let applied = 0;
