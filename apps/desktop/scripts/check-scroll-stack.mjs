@@ -202,6 +202,32 @@ checkOrSkip("向上续读:位置整体一致(视口与内容同步)",
   Math.abs((beforeStart - settledStart) - (before - settled)) <= 16,
   \`start \${beforeStart}→\${settledStart} 内容 \${before}→\${settled}\`);
 
+// 诊断 + 断言:目录跳转后往上滚,每一步视口里都必须有真实内容(防占位空白)。
+// 步骤:先读几节(让 #heights 有实测值)→ 跳到远处 → 一步步往上滚并采样。
+await paginator.goTo({ index: 1 });
+await wait(500);
+for (let i = 0; i < 5; i += 1) { await paginator.continueNext(); await wait(300); }
+await paginator.goTo({ index: 24 });
+await wait(800);
+const visRect = () => paginator.getBoundingClientRect();
+const visibleSections = () => {
+  const box = visRect();
+  return paginator.getContents().filter((item) => {
+    const rect = item.doc?.body?.getBoundingClientRect?.();
+    return rect && rect.bottom > box.top + 2 && rect.top < box.bottom - 2;
+  }).map((item) => item.index);
+};
+const blanks = [];
+for (let step = 0; step < 24; step += 1) {
+  const seen = visibleSections();
+  if (!seen.length) blanks.push({ step, start: Math.round(paginator.start), extent: Math.round(paginator.viewSize), mounted: indexes().join(",") });
+  await paginator.prev();
+  await wait(220);
+}
+console.log("UP-SCAN blanks=" + JSON.stringify(blanks.slice(0, 6)));
+checkOrSkip("目录跳转后一路上滚:视口里始终有真实内容(无占位空白)", blanks.length === 0,
+  \`空白步数=\${blanks.length} 首例=\${JSON.stringify(blanks[0] || null)}\`);
+
 // ── 回归:不许影响既有功能(翻页模式、跳转、上下页) ──────────────────────────
 phase = "common";
 // 1) 翻页模式(paginated):跳章、上一页/下一页,行为必须与优化前一致 —— 只挂一节。
@@ -235,8 +261,7 @@ const jumpItems = paginator.getContents();
 const pageRect = paginator.getBoundingClientRect();
 const targetBody = jumpItems.find((item) => item.index === 5)?.doc?.body;
 const targetRect = targetBody ? targetBody.getBoundingClientRect() : null;
-checkOrSkip("滚动模式:目录跳转到目标节", jumpItems.map((item) => item.index).join(",") === "5",
-  jumpItems.map((item) => item.index).join(","));
+checkOrSkip("滚动模式:目录跳转到目标节", jumpItems[0]?.index === 5, jumpItems.map((item) => item.index).join(","));
 checkOrSkip("滚动模式:跳转后目标节就在视口里(不空白)",
   !!targetRect && targetRect.top <= pageRect.top + 8 && targetRect.bottom > pageRect.top + 8,
   targetRect ? \`目标节 top=\${Math.round(targetRect.top)} 视口 top=\${Math.round(pageRect.top)}\` : "找不到目标节文档");

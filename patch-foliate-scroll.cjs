@@ -210,7 +210,7 @@ add("range",
     "        // viewport is inside, not to the last one that happened to be loaded.",
     "        if (this.scrolled) return getVisibleRange(this.#visibleView().document,",
   ].join("\n"),
-  "getVisibleRange(this.#visibleView().document,");
+  "getVisibleRange(this.#visibleView().document,", true);
 
 add("afterScroll",
   [
@@ -1035,7 +1035,7 @@ add("spacer-measured-only",
   ["        let above = 0",
     "        for (let index = 0; index < first; index += 1) above += this.#heights.get(index) ?? 0",
   ].join("\n"),
-  "for (let index = 0; index < first; index += 1) above += this.#heights.get(index) ?? 0");
+  "for (let index = 0; index < first; index += 1) above += this.#heights.get(index) ?? 0", true);
 
 add("placeholder-measured-only",
   ["                // Reserve this section's height immediately: while it loads, a zero",
@@ -1252,6 +1252,67 @@ add("eager-fill-guard",
     "                const lead = this.size * 2",
   ].join("\n"),
   "if (reason === 'scroll' && !this.#locked && this.#stacked && this.#view) {");
+
+// 28. 估算占位回归(配合 spacer 元素):新挂载的节在加载完成前必须有高度,否则那一段
+// 就是空白(用户实测:跳转后往上滚)。占位与 spacer 用**同一个** `#heightOf`,保证 1:1。
+add("height-of-helper",
+  ["    #averageHeight() {",
+  ].join("\n"),
+  ["    // 已测高度优先,未测用已测部分的平均值(与 spacer 的预留保持一致)。",
+    "    #heightOf(index) {",
+    "        const measured = this.#heights.get(index)",
+    "        if (measured > 0) return measured",
+    "        return this.#averageHeight()",
+    "    }",
+    "    #averageHeight() {",
+  ].join("\n"),
+  "#heightOf(index) {");
+
+add("spacer-use-height-of",
+  ["        for (let index = 0; index < first; index += 1) above += this.#heights.get(index) ?? 0",
+  ].join("\n"),
+  ["        for (let index = 0; index < first; index += 1) above += this.#heightOf(index)",
+  ].join("\n"),
+  "for (let index = 0; index < first; index += 1) above += this.#heightOf(index)");
+
+add("placeholder-use-height-of",
+  ["                const measured = this.#heights.get(index)",
+    "                if (measured > 0) view.element.style[this.sideProp] = `${Math.round(measured)}px`",
+  ].join("\n"),
+  ["                // A brand new section must still occupy space: without a height its",
+    "                // stretch reads as a blank while it loads.",
+    "                const reserved = this.#heightOf(index)",
+    "                if (reserved > 0) view.element.style[this.sideProp] = `${Math.round(reserved)}px`",
+  ].join("\n"),
+  "const reserved = this.#heightOf(index)");
+
+add("visible-view-ready-only",
+  ["    #visibleView() {",
+    "        return this.#stack.get(this.#visibleIndex())?.view || this.#view",
+    "    }",
+  ].join("\n"),
+  ["    #visibleView() {",
+    "        // A section that is still loading has no document yet; measuring a range in",
+    "        // it threw and killed the page turn (which left the reader on a blank).",
+    "        const indexed = this.#stack.get(this.#visibleIndex())?.view",
+    "        if (indexed?.document) return indexed",
+    "        for (const entry of this.#stack.values()) if (entry.view?.document) return entry.view",
+    "        return this.#view",
+    "    }",
+  ].join("\n"),
+  "A section that is still loading has no document yet");
+
+add("visible-range-null-guard",
+  ["        if (this.scrolled) return getVisibleRange(this.#visibleView().document,",
+  ].join("\n"),
+  ["        if (this.scrolled) {",
+    "            const doc = this.#visibleView()?.document",
+    "            if (!doc) return null",
+    "            return getVisibleRange(doc,",
+    "                this.start + this.#margin, this.end - this.#margin, this.#getRectMapper())",
+    "        }",
+  ].join("\n"),
+  "if (!doc) return null");
 
 let next = text;
 let applied = 0;
