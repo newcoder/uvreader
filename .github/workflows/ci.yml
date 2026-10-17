@@ -30,6 +30,11 @@ jobs:
         if: failure()
         run: |
           npm run test:desktop -- --test-reporter=tap > /tmp/desktop.tap 2>&1 || true
+          # A test file that fails to *load* only prints a file-level block in TAP,
+          # and the reason sits at the very top of the stream: dump the head first.
+          head -60 /tmp/desktop.tap | while IFS= read -r line; do
+            echo "::error ::TAP-HEAD $line"
+          done
           grep -E "^not ok |^  error: " /tmp/desktop.tap | head -40 | while IFS= read -r line; do
             echo "::error ::$line"
           done
