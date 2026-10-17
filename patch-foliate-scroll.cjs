@@ -225,9 +225,12 @@ add("afterScroll",
     "            const active = this.#stack.get(index)?.view || this.#view",
     "            detail.fraction = Math.min(1, Math.max(0,",
     "                (this.start - this.#stackOffset(active)) / Math.max(1, this.#viewOwnSize(active))))",
+    "            // 前插之后(有快照)在每次滚动结算时核对一次:动画 / 浏览器锚定 / 懒加载",
+    "            // 谁先谁后都不影响最终位置 —— 读者看的那一行必须还在原来的地方。",
+    "            if (this.#stacked && this.#readerAnchor) this.#restoreReaderAnchor()",
     "        }",
   ].join("\n"),
-  "const index = this.scrolled ? this.#visibleIndex() : this.#index");
+  "if (this.#stacked && this.#readerAnchor) this.#restoreReaderAnchor()");
 
 // 9. getContents:每个还挂着的节都要报出去(高亮/选区/搜索都在)。
 add("contents",
@@ -450,25 +453,32 @@ add("prune-compensate",
   ].join("\n"),
   "const removed = this.#viewOwnSize(entry.view)", true);
 
-// 15. onExpand:长在**视口下方**的节(堆叠里的下一章)不许把读者拉回它的锚点 ——
-// 那会让「续读」变成"跳到下一节开头"(实测差一屏)。
+// 15. onExpand:一节「长大」时别把读者拽走 —— 长在视口上方(前插的上一章)要把滚动
+// 位置补上增量,长在下方(懒加载的下一章)什么都不用做,读者就在里面时保持原位。
+// 只有**单节**(整书初次打开 / 跳章)才重新锚定:旧实现无条件 #scrollToAnchor,
+// 而 #view 在前插之后是**新插进来那一节**、#anchor 常是过期的导航锚点(目录跳转留下
+// 的 0),一锚就滚到它的开头 —— 实测整节 4800px ≈ 8 屏(用户:往上滚会跳到前面)。
 add("expand-keep",
   ["        this.#view = new View({",
     "            container: this,",
     "            onExpand: () => this.#scrollToAnchor(this.#anchor),",
     "        })",
   ].join("\n"),
-  ["        this.#view = new View({",
+  ["        const view = new View({",
     "            container: this,",
-    "            // UV Reader: a section that grows *below* the viewport (the stacked",
-    "            // next chapter) must not pull the reader back to its own anchor.",
     "            onExpand: () => {",
-    "                if (this.scrolled && this.#stack.size > 1 && this.start < this.#stackOffset(this.#view) - 2) return",
+    "                if (this.scrolled && this.#stack.size > 1) {",
+    "                    // 刚发生过前插(有快照)→ 核对位置,差多少补多少,然后**不再**锚定",
+    "                    // (旧锚点会把读者甩到前插那一节的开头);其它情况维持原语义。",
+    "                    if (this.#restoreReaderAnchor()) return",
+    "                    if (this.start + this.size <= this.#stackOffset(this.#view) + 2) return",
+    "                }",
     "                this.#scrollToAnchor(this.#anchor)",
     "            },",
     "        })",
+    "        this.#view = view",
   ].join("\n"),
-  "if (this.scrolled && this.#stack.size > 1 && this.start < this.#stackOffset(this.#view) - 2) return", true);
+  "#restoreReaderAnchor()");
 
 // 16. 滚动条稳定:已滚过的节折算成容器 paddingTop(总高度恒定 → 滑块不闪),
 // 窗口扩到「当前 + 最近 5 节」。
@@ -481,8 +491,10 @@ add("heights-field",
     "    // Measured height per section index, so the space of pruned sections can be",
     "    // reserved as padding and the scrollbar stays put.",
     "    #heights = new Map()",
+    "    // UV Reader: 前插前记下的「读者在看的位置」(视图 + 视图内偏移),长大之后核对用。",
+    "    #readerAnchor = null",
   ].join("\n"),
-  "#heights = new Map()");
+  "#readerAnchor = null");
 
 add("spacer-helper",
   ["    #pruneStack(max) {"].join("\n"),
@@ -736,7 +748,7 @@ add("expand-guard-both",
     "                this.#scrollToAnchor(this.#anchor)",
     "            },",
   ].join("\n"),
-  "const delta = size - previous");
+  "const delta = size - previous", true);
 
 add("index-of-view",
   ["    #viewForDoc(doc) {",
@@ -745,9 +757,29 @@ add("index-of-view",
     "        for (const [index, entry] of this.#stack) if (entry.view === view) return index",
     "        return null",
     "    }",
+    "    // UV Reader: 前插之前记下读者在看的位置(视图 + 视图内偏移)。",
+    "    #rememberReaderAnchor() {",
+    "        const view = this.#visibleView()",
+    "        const index = this.#indexOfView(view)",
+    "        this.#readerAnchor = index == null ? null : { view, offset: this.start - this.#stackOffset(view) }",
+    "    }",
+    "    // UV Reader: 内容在视口上方长大之后核对一次。Chromium 的 scroll anchoring 通常",
+    "    // 已经补好了(实测前插撑开时 scrollTop 自己从 640 变成 4848,正好等于新增高度),",
+    "    // 但它选哪个节点当锚点由浏览器决定;差多少我们补多少,两种机制收敛到同一位置。",
+    "    // 这里**绝不能**改回 #scrollToAnchor(this.#anchor):#anchor 是导航锚点(目录跳转",
+    "    // 留下的 0),而 #view 此刻正是新插进来那一节 —— 一锚就滚到它的开头(整节 4800px)。",
+    "    #restoreReaderAnchor() {",
+    "        const anchor = this.#readerAnchor",
+    "        if (!anchor || !this.#stack.has(this.#indexOfView(anchor.view))) return false",
+    "        const expected = Math.max(0, this.#stackOffset(anchor.view) + anchor.offset)",
+    "        if (Math.abs(expected - this.start) <= 2) return true",
+    "        this.containerPosition = expected",
+    "        this.#syncSpacer()",
+    "        return true",
+    "    }",
     "    #viewForDoc(doc) {",
   ].join("\n"),
-  "#indexOfView(view) {");
+  "#rememberReaderAnchor() {");
 
 add("placeholder-height",
   ["            const stackForward = this.scrolled && !!this.#view && index === previousIndex + 1",
@@ -942,8 +974,12 @@ add("stack-switch-display",
   ].join("\n"),
   ["            const stackForward = this.#stacked && this.scrolled && !!this.#view && index === previousIndex + 1",
     "            const stackBackward = this.#stacked && this.scrolled && !!this.#view && index === previousIndex - 1",
+    "            // 快照只在「刚发生过前插」时有意义:任何一次挂载都先清掉,免得它落到",
+    "            // 一次无关的加载完成上(实测:同节 goTo 之后加载完成会把位置拽回旧锚点)。",
+    "            this.#readerAnchor = null",
+    "            if (stackBackward) this.#rememberReaderAnchor()",
   ].join("\n"),
-  "const stackForward = this.#stacked && this.scrolled");
+  "if (stackBackward) this.#rememberReaderAnchor()");
 
 add("stack-switch-register",
   ["            this.#view = view",
@@ -1109,6 +1145,7 @@ add("debug-geometry-more",
     "        const children = el ? [...el.children].map((child) => ({",
     "            tag: child.tagName.toLowerCase(),",
     "            h: Math.round(child.getBoundingClientRect().height),",
+    "            top: Math.round(child.getBoundingClientRect().top),",
     "            inline: String(child.getAttribute('style') || '').slice(0, 80),",
     "        })) : []",
     "        return {",
@@ -1281,10 +1318,14 @@ add("placeholder-use-height-of",
   ].join("\n"),
   ["                // A brand new section must still occupy space: without a height its",
     "                // stretch reads as a blank while it loads.",
-    "                const reserved = this.#heightOf(index)",
+    "                const measured = this.#heights.get(index)",
+    "                // 前插进来的那一节(往上滚)现在就必须占地方:它在视口**上面**,等它",
+    "                // 自己撑开时下面整片内容会被推下去一整节(实测 4800px ≈ 8 屏)。",
+    "                // 视口高度当占位够滚进去,准确差值由 onExpand 一次补平。",
+    "                const reserved = stackBackward ? (measured > 0 ? measured : this.size) : this.#heightOf(index)",
     "                if (reserved > 0) view.element.style[this.sideProp] = `${Math.round(reserved)}px`",
   ].join("\n"),
-  "const reserved = this.#heightOf(index)");
+  "const reserved = stackBackward ? (measured > 0 ? measured : this.size) : this.#heightOf(index)");
 
 add("visible-view-ready-only",
   ["    #visibleView() {",

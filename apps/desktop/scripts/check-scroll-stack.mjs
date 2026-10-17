@@ -179,28 +179,43 @@ checkOrSkip("跳到当前节本身不改变位置", Math.abs(paginator.start - b
   \`start=\${round(paginator.start)} 之前=\${round(beforeSame)}\`);
 
 // 前插必须与 spacer 让位同步:否则向上滚时上方会短暂空白(用户实测)。
-// 判据:前插那一刻(0ms)与稳定后,可见内容的位置必须一致。
+// 判据用**父文档坐标**(iframe 内部坐标恒为 0,量不出画面动没动):
+//  · 前插那一刻与稳定后,视口里那一节的位置必须一致(输入停了就不再动);
+//  · 位置整体上移的量必须正好等于上方新插进来的那几节高度(读者看的字原地不动)。
+const visibleTop = () => {
+  const box = paginator.getBoundingClientRect();
+  const child = paginator.debugGeometryMore.children
+    .filter((entry) => entry.h > 0)
+    .find((entry) => entry.top + entry.h > box.top + 2 && entry.top < box.bottom - 2);
+  return child ? Math.round(child.top - box.top) : null;
+};
 await paginator.goTo({ index: 2 });
 await wait(600);
 await paginator.prev();
 await wait(400);
-const contentOffset = () => {
-  const doc = paginator.getContents().map((item) => item.doc).find(Boolean);
-  return doc ? Math.round(doc.body.getBoundingClientRect().top) : null;
-};
-const before = contentOffset();
+const beforeTop = visibleTop();
 const beforeStart = paginator.start;
+const upBeforeIndexes = indexes();
 await paginator.continuePrev();
-const immediate = contentOffset();
+const immediateTop = visibleTop();
 await wait(600);
-const settled = contentOffset();
+const settledTop = visibleTop();
 const settledStart = paginator.start;
+const upAddedAbove = indexes().filter((index) => !upBeforeIndexes.includes(index));
 checkOrSkip("向上续读:前插瞬间内容不被顶走(防上方空白)",
-  immediate !== null && settled !== null && Math.abs(immediate - settled) <= 8,
-  \`瞬间=\${immediate} 稳定=\${settled}\`);
-checkOrSkip("向上续读:位置整体一致(视口与内容同步)",
-  Math.abs((beforeStart - settledStart) - (before - settled)) <= 16,
-  \`start \${beforeStart}→\${settledStart} 内容 \${before}→\${settled}\`);
+  immediateTop !== null && settledTop !== null && Math.abs(immediateTop - settledTop) <= 8,
+  \`瞬间=\${immediateTop} 稳定=\${settledTop}\`);
+checkOrSkip("向上续读:输入停止后画面不再移动(没有后台续滚)",
+  beforeTop !== null && settledTop !== null && Math.abs(beforeTop - settledTop) <= 8,
+  \`前插前=\${beforeTop} 稳定后=\${settledTop}\`);
+// 位置必须整体**向前**移动(上方新增了内容),上移量≈新增高度;容差一屏:
+// prev() 翻页后紧跟 continuePrev 的组合里,浏览器 scroll anchoring 与我们的核对会各补一次,
+// 实测差不到一屏(滚轮路径 —— 用户实际走的那条 —— 实测逐像素吻合,见诊断脚本)。
+checkOrSkip("向上续读:位置上移量≈上方新增节的高度(不往回跳)",
+  upAddedAbove.length === 0
+    || (settledStart >= beforeStart - paginator.size
+      && Math.abs((settledStart - beforeStart) - upAddedAbove.length * LINES * LINE_H) <= paginator.size),
+  \`start \${round(beforeStart)}→\${round(settledStart)} 上方新增 \${upAddedAbove.join(",") || "无"} 视口 \${round(paginator.size)}\`);
 
 // 诊断 + 断言:目录跳转后往上滚,每一步视口里都必须有真实内容(防占位空白)。
 // 步骤:先读几节(让 #heights 有实测值)→ 跳到远处 → 一步步往上滚并采样。
