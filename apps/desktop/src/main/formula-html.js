@@ -32,7 +32,9 @@ export function stripMathDelimiters(value) {
   return text;
 }
 
-function scriptTag(latex, display) {
+// DocVortex 认这类 script 标签:行内 `<script type="math/tex">`、行间 `…; mode=display`。
+// 公式桥(文本 → HTML)与公式提取(path→HTML)都用它,别各写一份。
+export function mathScript(latex, display) {
   // `</script` 会提前结束脚本元素;LaTeX 里不会出现,防御性转义。
   const body = String(latex).replace(/<\/script/gi, "<\\/script");
   return `<script type="math/tex${display ? "; mode=display" : ""}">${body}</script>`;
@@ -47,7 +49,7 @@ export function wrapInlineMath(value) {
   let last = 0;
   for (const match of raw.matchAll(INLINE_MATH_RE)) {
     out += escapeHtml(raw.slice(last, match.index));
-    out += scriptTag(stripMathDelimiters(match[0]), match[1] !== undefined);
+    out += mathScript(stripMathDelimiters(match[0]), match[1] !== undefined);
     last = match.index + match[0].length;
   }
   out += escapeHtml(raw.slice(last));
@@ -149,7 +151,7 @@ export function blockToHtml(block, { tableMode = "table" } = {}) {
   if (type === "equation") {
     const latex = stripMathDelimiters(block.text ?? block.latex ?? "");
     const image = imageHtml(block.image, "公式");
-    if (latex) return `<p>${scriptTag(latex, true)}</p>`;
+    if (latex) return `<p>${mathScript(latex, true)}</p>`;
     return image ? `<p>${image}</p>` : "";
   }
   if (type === "table") {

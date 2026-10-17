@@ -9,7 +9,7 @@
 
 1. 给 OCR 路径加**公式识别模型**(PP-FormulaNet / UniMERNet 的 ONNX 版,与它现有 PP-DocLayoutV2 / PP-OCRv6 同族),把 `display_formula` 裁剪图与行内公式区域转成 LaTeX;
 2. 顺带支持**外部文本源**(喂 MinerU layout.json / vision 结果,参照 pdf_tool 的 `--source mineru|hybrid`:文本替换、位置保留);
-3. 顺带补齐 **Markdown / txt 输入**(0.5.16 里 `TEXT_EXTENSIONS` 只是 ingestible,`convert` 会报 `Unsupported native input format: txt`)。
+3. 顺带补齐 **Markdown / txt 输入**(0.5.16 里 `TEXT_EXTENSIONS` 只是 ingestible、`FileSuffix` 里根本没有,`convert` 会报 `Unsupported native input format: markdown|txt`)。**书坊侧已于 2026-10-17 自解**:转换 / 提取遇到文本源先渲染成 HTML 桥(见 `docs/workshop.md` §8.1 与 `main/docvortex.js` 的 `textSourceHtml`),上游补不补都不再阻塞使用。
 
 ## 2. 为什么"只缺识别"
 

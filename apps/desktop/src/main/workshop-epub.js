@@ -6,7 +6,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 
 import { buildEpub, BOOK_STYLE_DEFAULTS, collectBookImages } from "./epub-build.js";
-import { collectMathFromMarkdown, countRawFormulas, markdownToHtml, textToChapters, textToHtml } from "./text-book.js";
+import { collectMathFromMarkdown, countRawFormulas, markdownToHtml, stripBom, textToChapters, textToHtml } from "./text-book.js";
 import { extractMarkdown, extractionKind, splitMarkdownChapters } from "./extract-doc.js";
 import { createMathRenderer, shareFormulaHtml } from "./math-render.js";
 import { createTextLayerReader } from "./text-layer.js";
@@ -16,6 +16,7 @@ import { outlineToTocEntries } from "./pdf-outline.js";
 import { collectChars, createFontSubsetter, ensureFont, ensureFontLicense, findPairing, FONT_FAMILIES } from "./workshop-fonts.js";
 import { pairingStacks } from "../shared/book-fonts.js";
 import { convertPath } from "../shared/workshop-names.js";
+import { textSourceKind } from "../shared/workshop-formats.js";
 
 // 公式表的键:同一道公式在中间稿里有多种写法(MinerU 的 `s _ {o} = f` 与文字层
 // 合并后的 `s_o=f`;`\tag{…}` 有时还会是被截断的 `\tag{5.16`),而渲染时编号本来就
@@ -270,7 +271,8 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     const settings = payload?.settings || {};
     const source = absolute(payload?.source);
     if (!fs.existsSync(source)) throw new Error(`源文件不存在：${source}`);
-    const markdown = /\.(md|markdown)$/i.test(source);
+    const sourceKind = textSourceKind(source);
+    const markdown = sourceKind === "markdown";
     const styles = { ...BOOK_STYLE_DEFAULTS, ...(payload?.styles || {}) };
     const title = String(payload?.title || "").trim() || path.basename(source).replace(/\.[^.]+$/, "");
     const out = payload?.out
@@ -278,7 +280,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       : absolute(convertPath(payload?.source, "epub", (candidate) => fs.existsSync(absolute(candidate))));
 
     report({ label: "读取内容" });
-    const isText = /\.(txt|md|markdown)$/i.test(source);
+    const isText = Boolean(sourceKind);
     // 面板里编辑过的目录优先(改名/合并/拆分/排序);文本源按标题自动分章;
     // PDF / Office / OFD / 图片先内部提取(中间产物放缓存目录,用户无感)。
     const provided = Array.isArray(payload?.chapters) ? payload.chapters : [];
@@ -341,7 +343,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
         }))
         .filter((chapter) => chapter.text.trim());
     } else if (isText) {
-      text = fs.readFileSync(source, "utf8");
+      text = stripBom(fs.readFileSync(source, "utf8"));
       // 提取工具写出的 .md 里可能有「假代码块」(正文被包进围栏),先还原成段落。
       if (markdown) text = unwrapProseFences(text);
       // Markdown 有标题层级时按标题分章(与 PDF/Office 提取路径一致),否则按章节行 / 长度分。

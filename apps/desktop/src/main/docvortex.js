@@ -6,8 +6,10 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { cleanedPdfFor, createPdfCleaner } from "./pdf-text.js";
-import { uniqueFile } from "./paths.js";
-import { DOCVORTEX_FORMATS, docvortexFormatExt } from "../shared/workshop-formats.js";
+import { escapeHtml, mathScript, stripMathDelimiters } from "./formula-html.js";
+import { markdownToHtml, textToHtml } from "./text-book.js";
+import { removeFile, uniqueFile } from "./paths.js";
+import { DOCVORTEX_FORMATS, docvortexFormatExt, textSourceKind } from "../shared/workshop-formats.js";
 import { convertPath } from "../shared/workshop-names.js";
 
 export { DOCVORTEX_FORMATS };
@@ -27,6 +29,63 @@ export function convertArgs(source, target, out, { parseMode = "" } = {}) {
   const mode = String(parseMode || "").trim();
   if (mode) args.push("--parse-mode", mode);
   return args;
+}
+
+// Markdown / 纯文本 → DocVortex 能收的 HTML。
+// 它 0.5.16 的原生输入(FileSuffix)只有 PDF / Office / ODF / HTML / EPUB / OFD:
+// 直接把 .md / .txt 交给它会报 `Unsupported native input format: markdown|txt`。
+// 桥接时:标题 / 列表 / 表格 / 代码走书坊自己的渲染器,公式写成它认识的
+// `<script type="math/tex">`(DOCX 出真 OMML、EPUB 出 MathML),图片保持相对路径。
+export function textSourceHtml(source, text, { title = "" } = {}) {
+  const renderMath = (latex, display) => {
+    const body = mathScript(stripMathDelimiters(latex), display);
+    return display ? `<p>${body}</p>` : body;
+  };
+  const kind = textSourceKind(source);
+  const body = kind === "markdown"
+    ? markdownToHtml(text, { renderMath })
+    : textToHtml(text);
+  const base = String(source || "");
+  const name = String(title || path.basename(base, path.extname(base)));
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>${escapeHtml(name)}</title>
+</head>
+<body>
+${body}
+</body>
+</html>
+`;
+}
+
+// 桥文件写在源文件旁边:DocVortex 把 HTML 所在目录当资源根,Markdown 里的相对图片
+// (images/fig1.png)这样才能被读到。目录不可写(只读盘 / 权限)时退回缓存目录,
+// 代价是相对图片找不到 —— 记日志,不阻断转换。
+export function writeTextSourceBridge(source, { cacheRoot = "", log = () => {} } = {}) {
+  if (!textSourceKind(source)) return "";
+  const html = textSourceHtml(source, fs.readFileSync(source, "utf8"));
+  const name = `.${path.basename(source)}.bridge-${Date.now().toString(36)}.html`;
+  const beside = path.join(path.dirname(source), name);
+  try {
+    fs.writeFileSync(beside, html, "utf8");
+    return beside;
+  } catch (error) {
+    const dir = path.join(String(cacheRoot || process.env.TEMP || process.env.TMP || "/tmp"), "convert-bridge");
+    fs.mkdirSync(dir, { recursive: true });
+    const fallback = path.join(dir, name);
+    fs.writeFileSync(fallback, html, "utf8");
+    log("text bridge fell back to the cache dir (relative images may be skipped)", fallback, String(error?.message || error));
+    return fallback;
+  }
+}
+
+// 桥文件是实现细节,用完就删,别留在用户的目录里。
+export function removeTextSourceBridge(file, { log = () => {} } = {}) {
+  if (!file) return;
+  // 清理失败不掩盖转换本身的错误,但要留日志:桥文件落在用户目录里,不能悄悄留下。
+  try { removeFile(file); } catch (error) { log("text bridge cleanup failed", file, String(error?.message || error)); }
 }
 
 function tail(text, limit = 300) {
@@ -145,11 +204,20 @@ export function registerDocvortexRunners(workshop, { docvortex, vaultRoot = "", 
     // 这条链路不经过 pdf_tool,PDF 的页眉页脚 / 页码 / 水印由我们先擦掉
     // (经过 pdf_tool 的链路由 pdf_tool 侧负责)。
     const input = await cleanedPdfFor(source, { cleaner, settings, cacheRoot, signal, log });
-    report({ label: `转换为 ${format}` });
+    const kind = textSourceKind(input);
+    // Markdown / 纯文本 DocVortex 收不了(见 textSourceHtml):先渲染成 HTML 再转换。
+    const label = kind === "markdown" ? "Markdown 渲染成 HTML" : kind === "text" ? "纯文本渲染成 HTML" : `转换为 ${format}`;
+    report({ label });
     log("workshop convert", source, "→", out);
-    const result = await docvortex.convert(settings, { source: input, format, out, signal });
-    if (signal.aborted) throw new Error("任务已取消");
-    if (!result.ok) throw new Error(String(result.error || "转换失败"));
+    let bridge = "";
+    try {
+      if (kind) bridge = writeTextSourceBridge(input, { cacheRoot, log });
+      const result = await docvortex.convert(settings, { source: bridge || input, format, out, signal });
+      if (signal.aborted) throw new Error("任务已取消");
+      if (!result.ok) throw new Error(String(result.error || "转换失败"));
+    } finally {
+      removeTextSourceBridge(bridge, { log });
+    }
     return { output: out, detail: `${format} · ${path.basename(out)}` };
   });
 

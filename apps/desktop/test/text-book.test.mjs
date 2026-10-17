@@ -40,6 +40,17 @@ test("textToHtml turns blank-line separated blocks into paragraphs", () => {
   assert.equal(textToHtml('<script>x</script>'), "<p>&lt;script&gt;x&lt;/script&gt;</p>");
 });
 
+test("markdownToHtml closes a list before a paragraph that follows it", () => {
+  // 「1. 标题 + 紧跟正文」(中文技术稿最常见)曾渲染成 <ol><li>…</li><p>…</p></ol>:
+  // 不是合法 HTML,DocVortex 会把整段丢掉(实测正文全没了,只剩小标题)。
+  const html = markdownToHtml(["1. General requirements:", "High‑performance work station.", "", "2. CPU", "Model: Ultra 9."].join("\n"));
+  assert.match(html, /<ol>\n<li>General requirements:<\/li>\n<\/ol>\n<p>High‑performance work station\.<\/p>/);
+  assert.match(html, /<ol>\n<li>CPU<\/li>\n<\/ol>\n<p>Model: Ultra 9\.<\/p>/);
+  for (const block of html.match(/<(?:ol|ul)>[\s\S]*?<\/(?:ol|ul)>/g) || []) {
+    assert.ok(!block.includes("<p>"), `列表里不该出现段落:${block}`);
+  }
+});
+
 test("markdownToHtml handles headings, lists, quotes, code and inline markup", () => {
   const html = markdownToHtml([
     "# 标题",

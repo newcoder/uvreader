@@ -7,12 +7,23 @@ export const DOCVORTEX_INPUTS = [
   "odt", "ods", "odp", "epub", "html", "htm", "shtml", "mhtml", "mht", "ofd",
 ];
 
+// 纯文本类源(Markdown / txt):书坊直接按文本读;DocVortex 0.5.16 的原生输入里没有它们,
+// 直接给 .md / .txt 会报 `Unsupported native input format: markdown|txt` —— 格式转换与
+// 内容提取会先渲染成 HTML 再交给它(main/docvortex.js 的 textSourceBridge)。
+export const TEXT_SOURCE_EXTENSIONS = Object.freeze(["md", "markdown", "txt"]);
+
+export function textSourceKind(source) {
+  const ext = String(source || "").split(".").pop()?.toLowerCase() || "";
+  if (!TEXT_SOURCE_EXTENSIONS.includes(ext)) return "";
+  return ext === "txt" ? "text" : "markdown";
+}
+
 // 书坊「打开本地文件…」对话框的过滤集合:电子书 + Office/ODF/OFD/HTML + 纯文本 + 图片。
 // 各工具只处理自己支持的子集,这里保证默认过滤器能看见常见文档(而不是要用户切到"所有文件")。
 export const WORKSHOP_PICK_EXTENSIONS = Object.freeze([...new Set([
   ...BOOK_EXTENSIONS,
   ...DOCVORTEX_INPUTS,
-  "txt", "md", "markdown",
+  ...TEXT_SOURCE_EXTENSIONS,
   "png", "jpg", "jpeg", "webp", "gif", "bmp", "tiff", "jp2",
 ])]);
 

@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { convertArgs, createDocvortex, docvortexCandidates, registerDocvortexRunners } from "../src/main/docvortex.js";
+import { convertArgs, createDocvortex, docvortexCandidates, registerDocvortexRunners, removeTextSourceBridge, textSourceHtml, writeTextSourceBridge } from "../src/main/docvortex.js";
 import { createWorkshopQueue } from "../src/main/workshop.js";
 import { waitForTask } from "./wait-for-task.mjs";
 import { convertPath } from "../src/shared/workshop-names.js";
@@ -56,6 +56,78 @@ test("docvortexCandidates prefers a custom path, then PATH, then python", () => 
   assert.deepEqual(fallback.map((entry) => entry.kind), ["path", "python"]);
   assert.deepEqual(fallback[1].args, ["-m", "docvortex"]);
   assert.equal(fallback[1].command, "python3");
+});
+
+// Markdown / 纯文本 DocVortex 收不了(0.5.16 的原生输入里没有它们,直接给会报
+// `Unsupported native input format: markdown|txt`):书坊先渲染成 HTML 再转换。
+test("textSourceHtml renders Markdown with the math markers DocVortex reads", () => {
+  const html = textSourceHtml("论文.md", [
+    "\uFEFF# 标题一",
+    "",
+    "行内 $E = mc^2$ 与**粗体**",
+    "",
+    "$$",
+    "\\int_0^1 x^2 dx",
+    "$$",
+    "",
+    "- 列表项",
+    "",
+    "| 列1 | 列2 |",
+    "| --- | --- |",
+    "| a | b |",
+  ].join("\n"));
+  assert.match(html, /^<!doctype html>/);
+  assert.match(html, /<title>论文<\/title>/);
+  assert.match(html, /<h1>标题一<\/h1>/, "带 BOM 时第一个标题也要认得出来");
+  assert.match(html, /<script type="math\/tex">E = mc\^2<\/script>/, "行内公式写成 DocVortex 的 script 标签");
+  assert.match(html, /<p><script type="math\/tex; mode=display">\\int_0\^1 x\^2 dx<\/script><\/p>/, "行间公式配 mode=display");
+  assert.match(html, /<table>/);
+  assert.match(html, /<ul>/);
+  assert.match(textSourceHtml("说明.txt", "\uFEFF第一段\n\n第二段"), /<p>第一段<\/p>\n<p>第二段<\/p>/);
+});
+
+test("writeTextSourceBridge lands the bridge beside the source so relative images resolve", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-bridge-"));
+  const source = path.join(dir, "书稿.md");
+  fs.writeFileSync(source, "# 一\n![图](images/fig-1.png)\n", "utf8");
+  const bridge = writeTextSourceBridge(source, {});
+  assert.equal(path.dirname(bridge), dir, "桥文件与源文件同目录(资源根才对)");
+  assert.match(path.basename(bridge), /^\.书稿\.md\.bridge-[0-9a-z]+\.html$/);
+  const html = fs.readFileSync(bridge, "utf8");
+  assert.match(html, /<img src="images\/fig-1\.png"/, "图片引用保持相对路径");
+  removeTextSourceBridge(bridge);
+  assert.equal(fs.existsSync(bridge), false, "桥文件用完就删");
+  assert.equal(writeTextSourceBridge(path.join(dir, "书稿.docx"), {}), "", "非文本源不写桥");
+});
+
+test("the convert runner sends Markdown through an HTML bridge", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-docvortex-bridge-"));
+  fs.writeFileSync(path.join(dir, "说明书.md"), "# 一\n\n行内 $a^2$ 与正文\n", "utf8");
+  const calls = [];
+  const queue = createWorkshopQueue({ file: path.join(dir, "tasks.json"), onState: () => {}, log: { warn() {} } });
+  registerDocvortexRunners(queue, {
+    docvortex: {
+      probe: async () => ({ ok: true }),
+      convert: async (_settings, request) => {
+        calls.push({ ...request, body: fs.readFileSync(request.source, "utf8") });
+        fs.writeFileSync(request.out, "converted");
+        return { ok: true, out: request.out };
+      },
+    },
+    vaultRoot: dir,
+    cacheRoot: path.join(dir, "cache"),
+    log: () => {},
+  });
+  const id = queue.start({ kind: "docvortex-convert", title: "文档互转", payload: { source: "说明书.md", format: "docx" } });
+  await sleep(40);
+  const task = await waitForTask(queue, id);
+  assert.equal(task.status, "done", task.error);
+  assert.equal(task.output, path.join(dir, "说明书.docx"));
+  assert.match(calls[0].source, /\.说明书\.md\.bridge-[0-9a-z]+\.html$/, "DocVortex 收到 HTML 桥文件而不是 .md");
+  assert.match(calls[0].body, /<h1>一<\/h1>/);
+  assert.match(calls[0].body, /<script type="math\/tex">a\^2<\/script>/);
+  assert.equal(fs.existsSync(calls[0].source), false, "转换完桥文件不留在用户目录里");
+  assert.deepEqual(fs.readdirSync(dir).filter((name) => name.includes("bridge")), []);
 });
 
 test("probe falls back through the candidates and reports the first that answers", async () => {

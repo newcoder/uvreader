@@ -1,7 +1,7 @@
 import { ItemView, Notice, setIcon } from "obsidian";
 
 import { iconResolver } from "./icons.js";
-import { DOCVORTEX_FORMATS, DOCVORTEX_INPUTS, EBOOK_TARGETS, IMAGE_BOOK_TARGETS, docvortexFormatExt } from "../shared/workshop-formats.js";
+import { DOCVORTEX_FORMATS, DOCVORTEX_INPUTS, EBOOK_TARGETS, IMAGE_BOOK_TARGETS, TEXT_SOURCE_EXTENSIONS, docvortexFormatExt } from "../shared/workshop-formats.js";
 import { BOOK_STYLE_DEFAULTS, BOOK_THEMES, COVER_PALETTES, renderBookCss } from "../shared/book-styles.js";
 import { FONT_PAIRINGS, findPairing, pairingStacks } from "../shared/book-fonts.js";
 import { coverHtml } from "../shared/cover-template.js";
@@ -1204,7 +1204,7 @@ export function createWorkshopView(leaf, options) {
       }
       optionCard.createDiv({ cls: "qbr-workshop-hint", text: "MinerU 云端排队时间波动很大(实测 2 页 25 秒、7 页可能到 20 分钟);纯文字、不需要 LaTeX 公式的 PDF 选「文本型 PDF」更快。同一份文件 + 同一模式重跑会复用已有产物,不再等云端。" });
       optionCard.createDiv({ cls: "qbr-workshop-hint", text: "在「设置 → 书坊」填了「本地 MinerU 服务」地址后,MinerU 模式优先走本机服务(不出网、免凭据,热请求快很多)。" });
-      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "输出 <源名>.md / .html / .json(+ 体检报告),落在源文件旁;PDF 走 pdf_tool(模式可切 MinerU),Office / OFD / HTML / 图片走 DocVortex;题库等 schema 模板后续阶段。" });
+      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "输出 <源名>.md / .html / .json(+ 体检报告),落在源文件旁;PDF 走 pdf_tool(模式可切 MinerU),Office / OFD / HTML / 图片 / Markdown / 纯文本走 DocVortex;题库等 schema 模板后续阶段。" });
       const detectRow = optionCard.createDiv("qbr-workshop-row");
       addSettingsLink(detectRow, "提取链路的检测(pdf_tool / DocVortex / MinerU)与全局配置都在「设置 → 书坊」。");
 
@@ -1226,7 +1226,7 @@ export function createWorkshopView(leaf, options) {
     }
 
     extractFiles() {
-      const wanted = [...DOCVORTEX_INPUTS, ...IMAGE_INPUTS];
+      const wanted = [...DOCVORTEX_INPUTS, ...IMAGE_INPUTS, ...TEXT_SOURCE_EXTENSIONS];
       return (app?.vault?.getFiles?.() || [])
         .filter((file) => wanted.includes(String(file?.extension || "").toLowerCase()))
         .sort((a, b) => String(a.basename).localeCompare(String(b.basename), "ru"));
@@ -2082,7 +2082,7 @@ export function createWorkshopView(leaf, options) {
       presetCard.createEl("h3", { text: "选择预设" });
       this._convertPreset = "convert";
       this.renderPresetMatrix(presetCard, [
-        { id: "convert", label: "文档互转(DocVortex)", hint: "保持内容与版式:Office/ODF/HTML/EPUB/OFD → md / html / docx / pdf / latex", ready: true },
+        { id: "convert", label: "文档互转(DocVortex)", hint: "保持内容与版式:Office/ODF/HTML/EPUB/OFD/Markdown/纯文本 → md / html / docx / pdf / latex", ready: true },
         { id: "img", label: "图片 → PDF", hint: "打包成 PDF:照片成书、扫描页合成(每张一页)", ready: true },
       ], { selected: this._convertPreset, onSelect: (id) => { this._convertPreset = id; this.syncConvertPreset(); } });
 
@@ -2094,6 +2094,7 @@ export function createWorkshopView(leaf, options) {
       const pickLocal = pickRow.createEl("button", { text: "打开本地文件…" });
       pickLocal.addEventListener("click", () => void this.pickLocalConvertFiles());
       pickRow.createSpan({ cls: "qbr-workshop-hint", text: "本地文件就地处理,产物落在源文件旁" });
+      inputCard.createDiv({ cls: "qbr-workshop-hint", text: "Markdown / 纯文本也能转:DocVortex 不收 .md / .txt,书坊先渲染成 HTML(公式仍是公式)再交给它。" });
       this._convertBookList = inputCard.createDiv("qbr-workshop-booklist");
       this._convertBookList.hidden = true;
       this._convertChips = inputCard.createDiv("qbr-workshop-chips");
@@ -2146,8 +2147,9 @@ export function createWorkshopView(leaf, options) {
     }
 
     convertBooks() {
+      const wanted = [...DOCVORTEX_INPUTS, ...TEXT_SOURCE_EXTENSIONS];
       return (app?.vault?.getFiles?.() || [])
-        .filter((file) => DOCVORTEX_INPUTS.includes(String(file?.extension || "").toLowerCase()))
+        .filter((file) => wanted.includes(String(file?.extension || "").toLowerCase()))
         .sort((a, b) => String(a.basename).localeCompare(String(b.basename), "ru"));
     }
 

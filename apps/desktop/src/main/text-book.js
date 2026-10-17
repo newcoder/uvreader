@@ -2,6 +2,12 @@
 // 分章规则:识别「第X章/回/卷/篇」「Chapter N」「序章/楔子/后记…」等标题行;
 // 没有标题时按长度分块,保证纯 txt 也能成书。
 
+// Windows 记事本 / 部分导出工具会写 UTF-8 BOM:不剥掉的话第一个标题会被当成正文
+// (md 的 `# 标题一` 落进段落、txt 的章节行分不出章)。
+export function stripBom(text) {
+  return String(text ?? "").replace(/^\uFEFF/, "");
+}
+
 const HEADING_RE = /^(?:#{1,4}\s+)?(第[零一二三四五六七八九十百千万〇0-9]{1,10}[章节回卷篇部集幕]|Chapter\s+[0-9IVXLC]+|序章|序言|前言|引子|楔子|后记|尾声|终章|番外|附录|参考文献)(?:[\s:：.、-].*)?$/i;
 
 export function isChapterHeading(line) {
@@ -31,7 +37,7 @@ function chunkByLength(text, size = 4000) {
 }
 
 export function splitTextChapters(text) {
-  const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
+  const lines = stripBom(text).replace(/\r\n?/g, "\n").split("\n");
   const chapters = [];
   let current = { title: "", lines: [] };
   let sawHeading = false;
@@ -145,7 +151,7 @@ export function countRawFormulas(html) {
 
 // 纯文本段落 → HTML(空行分段,单换行并成一行)。
 export function textToHtml(text) {
-  const blocks = String(text || "").replace(/\r\n?/g, "\n").split(/\n{2,}/);
+  const blocks = stripBom(text).replace(/\r\n?/g, "\n").split(/\n{2,}/);
   return blocks
     .map((block) => block.split("\n").map((line) => line.trim()).filter(Boolean).join(""))
     .filter(Boolean)
@@ -157,7 +163,7 @@ export function textToHtml(text) {
 // options.renderMath(latex, display) 返回公式 HTML;缺省时公式按原文保留。
 export function markdownToHtml(markdown, options = {}) {
   const renderMath = typeof options.renderMath === "function" ? options.renderMath : null;
-  const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
+  const lines = stripBom(markdown).replace(/\r\n?/g, "\n").split("\n");
   const out = [];
   let paragraph = [];
   let list = null; // "ul" | "ol"
@@ -167,6 +173,9 @@ export function markdownToHtml(markdown, options = {}) {
 
   const flushParagraph = () => {
     if (!paragraph.length) return;
+    // 段落不属于列表:先把列表收掉,否则 `<p>` 会落在 `<ol>`/`<ul>` 里 —— 不是合法
+    // HTML,DocVortex 这类严格解析器会整段丢掉(中文技术稿「1. 标题 + 紧跟正文」很常见)。
+    closeList();
     const joined = paragraph.join(" ");
     paragraph = [];
     // 整段就是一条行间公式时不包 <p>,直接输出块级公式。

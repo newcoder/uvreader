@@ -6,6 +6,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { COVER_SIZE, coverHtml, normalizeCoverOptions } from "../shared/cover-template.js";
+import { removeTree } from "./paths.js";
 
 export { COVER_SIZE, coverHtml, normalizeCoverOptions };
 export { COVER_PALETTES } from "../shared/book-styles.js";
@@ -50,7 +51,7 @@ export function createCoverRenderer({ createWindow, log = (...args) => console.l
       return { ok: false, error: String(error?.message || error) };
     } finally {
       try { window?.destroy(); } catch { /* already gone */ }
-      try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+      try { removeTree(dir); } catch { /* best effort */ }
     }
   }
 

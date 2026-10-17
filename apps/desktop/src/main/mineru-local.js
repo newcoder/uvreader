@@ -6,6 +6,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { removeTree } from "./paths.js";
+
 export const DEFAULT_MINERU_PORT = 8123;
 export const MINERU_HEALTH_TIMEOUT = 2500;
 export const MINERU_START_TIMEOUT = 45_000;
@@ -170,7 +172,9 @@ export function clearMineruCaches(paths = [], { fsImpl = fs } = {}) {
     let bytes = 0;
     try { bytes = directorySize(value, fsImpl); } catch { bytes = 0; }
     try {
-      fsImpl.rmSync(value, { recursive: true, force: true });
+      // 非 ASCII 路径(用户自选的中文目录)上 rmSync 会静默不删,这里走助手(见 paths.js)。
+      removeTree(value, { fsImpl });
+      if (fsImpl.existsSync(value)) throw new Error(`目录没被删掉:${value}`);
       cleared.push({ path: value, bytes });
       totalBytes += bytes;
     } catch {

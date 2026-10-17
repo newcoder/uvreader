@@ -8,10 +8,13 @@ import os from "node:os";
 import path from "node:path";
 
 import { EXTRACT_MODES, IMAGE_INPUTS, extractionKind } from "../shared/extract-formats.js";
+import { textSourceKind } from "../shared/workshop-formats.js";
 import { joinContinuationLines, joinSplitCodeFences, splitMarkdownChapters, unwrapProseFences } from "../shared/markdown-fix.js";
 import { tocKey, tocLevel } from "../shared/printed-toc.js";
 import { blocksFromDoc, blocksToMarkdown } from "./formula-html.js";
 import { buildTextDoc, createPdfTextReader, writeTextProducts } from "./pdf-text.js";
+import { removeTextSourceBridge, writeTextSourceBridge } from "./docvortex.js";
+import { removeFile, removeTree } from "./paths.js";
 import { mergeBlocksWithTextLayer } from "./text-merge.js";
 import { createTextLayerReader } from "./text-layer.js";
 import { resolveLocalBackend } from "./mineru-local.js";
@@ -198,7 +201,7 @@ export function adoptPdfToolOutputs(outDir, name, { renameAssets = true } = {}) 
         // 同一份源提取过多次:目标 assets 目录已经在了(MinerU 每次的图名是内容哈希,
         // 可能和上次不同),把这次的新图并进去,否则 <源名>.assets/... 的链接会指空。
         copyDir(assetsFrom, assetsTo);
-        fs.rmSync(assetsFrom, { recursive: true, force: true });
+        removeTree(assetsFrom);
       } else {
         fs.renameSync(assetsFrom, assetsTo);
       }
@@ -493,8 +496,15 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
     return { ok: true, markdown: readMarkdown(out), path: out };
   }
   const out = path.join(workDir, "content.md");
-  const result = await docvortex.convert(settings, { source, format: "markdown", out, signal });
-  if (!result.ok) return { ok: false, error: result.error };
+  // Markdown / 纯文本 DocVortex 收不了(见 docvortex.js 的 textSourceHtml):先渲染成 HTML。
+  let bridge = "";
+  try {
+    if (textSourceKind(source)) bridge = writeTextSourceBridge(source, { cacheRoot: workDir, log });
+    const result = await docvortex.convert(settings, { source: bridge || source, format: "markdown", out, signal });
+    if (!result.ok) return { ok: false, error: result.error };
+  } finally {
+    removeTextSourceBridge(bridge, { log });
+  }
   return { ok: true, markdown: readMarkdown(out), path: out };
 }
 
@@ -626,8 +636,10 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", ca
     const dir = path.dirname(source);
     const stem = path.basename(source).replace(/\.[^.]+$/, "");
     // 图片:DocVortex 的 convert 只收文档,先把图片合成单页 PDF(临时文件,跑完删掉)再走它的 OCR。
+    // Markdown / 纯文本同理:渲染成 HTML 桥(源文件旁的临时文件,跑完删掉)。
     let input = source;
     let tempPdf = "";
+    let bridge = "";
     let parseMode = "";
     if (extractionKind(source) === "image") {
       report({ label: "图片转 PDF" });
@@ -636,6 +648,10 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", ca
       if (!made.ok) throw new Error(`图片转 PDF 失败：${made.error}（需要 Pillow：pip install pillow）`);
       input = tempPdf;
       parseMode = "ocr";
+    } else if (textSourceKind(source)) {
+      report({ label: "渲染成 HTML" });
+      bridge = writeTextSourceBridge(source, { cacheRoot, log });
+      input = bridge;
     }
     const outputs = {};
     try {
@@ -653,8 +669,9 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", ca
       }
     } finally {
       if (tempPdf) {
-        try { fs.rmSync(tempPdf, { force: true }); } catch { /* 临时文件,忽略 */ }
+        try { removeFile(tempPdf); } catch { /* 临时文件,忽略 */ }
       }
+      removeTextSourceBridge(bridge, { log });
     }
     if (!outputs.md) throw new Error("提取完成但没有找到 Markdown 产物");
     return { output: outputs.md, detail: `Markdown · ${Math.round(fs.statSync(outputs.md).size / 1024)} KB`, outputs };

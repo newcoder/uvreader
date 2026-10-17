@@ -37,8 +37,8 @@
 | 分组 | 工具 | 后端 |
 | --- | --- | --- |
 | 文字层与可搜索 PDF | 生成文字层 / 导出可搜索 PDF | pdf_tool reader sidecar |
-| 格式转换 | 保持内容与版式的互转(输出**文档**):Office/ODF/HTML/EPUB/OFD → md/html/docx/pdf/latex;图片 → PDF | DocVortex + pdf_tool |
-| 内容提取 | 只取内容、可丢版式:PDF / DOCX / 图片 → Markdown / HTML / 结构化 JSON | pdf_tool(高保真)+ DocVortex |
+| 格式转换 | 保持内容与版式的互转(输出**文档**):Office/ODF/HTML/EPUB/OFD → md/html/docx/pdf/latex;Markdown / 纯文本(先渲染成 HTML 桥,见 §8.1);图片 → PDF | DocVortex + pdf_tool |
+| 内容提取 | 只取内容、可丢版式:PDF / DOCX / 图片 / Markdown / 纯文本 → Markdown / HTML / 结构化 JSON | pdf_tool(高保真)+ DocVortex |
 | 电子书制作 | 新建电子书(向导):元数据/章节/封面/样式 → **EPUB / AZW3 / MOBI / CBZ**(电子书产物统一在此) | Calibre `ebook-convert`(备选 EbookLib)+ 打包 |
 | 发送 | 发送到 Kindle(邮件,EPUB 直发) | 主进程 SMTP(nodemailer) |
 | 任务 | 任务队列与历史 | 主进程任务执行器 |
@@ -254,7 +254,7 @@ DocVortex 实测备注:输出 EPUB 结构合法(mimetype/container/OPF/nav + 图
 **结论**:pdf_tool 的公式质量来自 **MinerU**(`--source mineru/hybrid`;本地 rapidocr 无公式模型),其 LaTeX 已含上下标与分式;DocVortex 的公式**渲染**管线完整(LaTeX→MathML→OMML 写 DOCX、EPUB 输出 MathML、PDF 用 ziamath 画矢量),缺的只是**扫描件的公式识别**。两者可用 HTML 桥接,**不需要改 DocVortex**。
 
 - pdf_tool 侧证据:`output/testpdf2/mineru/full.md`(扫描件)含 `$v = v_{0} + at$`、`$\frac{U_1}{U_2} = \frac{n_1}{n_2}$`、`$2\mathrm{m}/{\mathrm{s}}^{2}$`、`$\frac{mv_0^2\sin^2\theta}{qE}$`;`render/viewer.py` 把 `X_p`/`x^2` 渲染为 `<sub>/<sup>`;双层 PDF 的文字层用 `latex_to_text` 转 Unicode(只为可搜索)。
-- DocVortex 侧:扫描件 OCR 路径把 `display_formula` 当**截图**保留、行内公式走 PP-OCRv6 纯文本(上下标被拉平);原生 PDF 路径有公式检测(按字形几何,`analyzers/native/pdf/formulas.py` + `inline/scripts.py`);HTML/XHTML 输入识别 MathML、`<script type="math/tex">`、`data-tex` 等(`content/markup/formula.py`);DOCX 输出为真 OMML 公式(`render/_internal/docx/math.py`)。注意 0.5.16 的 Markdown/txt 输入**实际不支持**(`Unsupported native input format: txt`)。
+- DocVortex 侧:扫描件 OCR 路径把 `display_formula` 当**截图**保留、行内公式走 PP-OCRv6 纯文本(上下标被拉平);原生 PDF 路径有公式检测(按字形几何,`analyzers/native/pdf/formulas.py` + `inline/scripts.py`);HTML/XHTML 输入识别 MathML、`<script type="math/tex">`、`data-tex` 等(`content/markup/formula.py`);DOCX 输出为真 OMML 公式(`render/_internal/docx/math.py`)。注意 0.5.16 的 Markdown/txt 输入**不是原生输入**(直接给 `.md`/`.txt` 会报 `Unsupported native input format: markdown|txt`;`schema.py` 的 `FileSuffix` 里没有它们)——书坊侧已桥接(2026-10-17):格式转换 / 内容提取先渲染成 HTML(见 `main/docvortex.js` 的 `textSourceHtml`,公式写成它认的 `<script type="math/tex">`、图片相对路径,桥文件落在源文件旁、跑完即删),所以上游这条只是「少一次桥」,不再是阻塞项。
 - **实测桥**(`%TEMP%\dv-math-html`):LaTeX 包在 `<script type="math/tex">`(行内)/`<script type="math/tex; mode=display">`(行间)的 HTML → `docvortex convert --format docx`:7×`m:oMath`、3×`m:sSub`、2×`m:sSup`、2×`m:f`;`--format epub` 输出 MathML(`msub`)。MathML(经 latex2mathml,docvortex 自带依赖)同样可行。
 - **实施 A(不改 DocVortex,已实现 2026-10-11)**:书坊「文档互转」增加**解析方式 = 公式优先(MinerU 云端,PDF)**;链路 = pdf_tool(`pdf_to_doc.py --mode mineru --formats json`)→ Doc v1 JSON → 带公式标记的 HTML → DocVortex → DOCX/EPUB/PDF。桥放在本仓(`apps/desktop/src/main/formula-html.js` 纯函数 + `workshop-formula.js` runner),pdf_tool 保持不动;每个源文件一个稳定缓存目录(重复转换复用 MinerU 产物),任务标签随阶段推进(MinerU 云端解析 → 生成公式 HTML → DocVortex 转换)。实测:14 页扫描件 → DOCX **197 个 OMML 公式(96 下标 / 52 上标)**;e2e `workshop-formula` 默认跳过(计费云服务),`QBR_E2E_MINERU=1` 才跑。**凭据来源**:面板「MinerU 凭据」→ 进程环境 `MINERU_API_KEY`/`MINERU_TOKEN` → Windows 注册表(用户/机器级,免重启;变量设好后应用没重启也能用);凭据经子进程环境传入 pdf_tool,不出现在命令行。
 - **实施 B(上游/分支,终局;备忘见 `docs/docvortex-formula-upstream.md`)**:给 DocVortex 的 OCR 路径加**公式识别模型**(PP-FormulaNet / UniMERNet ONNX,与现有 PP-DocLayoutV2 / PP-OCRv6 同族),把 `display_formula` 截图与行内公式区域变成 LaTeX;顺带支持外部文本源(MinerU layout.json / vision 结果)与 Markdown 输入。优势:离线、无配额、单工具一条命令、文件不出本机;代价:改第三方包(PR/分支)、行内公式检测工作量大、模型质量上限仍不如 MinerU 的 VLM。当前**决定:采用 A,B 仅作备忘**(触发条件见备忘 §6)。

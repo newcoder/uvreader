@@ -2785,6 +2785,28 @@ async function runWorkshopConvertScenario() {
       .map((file) => file.path));
     if (strays.length) throw new Error(`the outside docx was imported into the library: ${strays}`);
     console.log("workshop-convert: outside docx processed in place —", path.basename(outsideOut));
+
+    // Markdown 就地转换:DocVortex 没有原生 md 输入(直接给它会报 Unsupported native
+    // input format),书坊先渲染成 HTML 桥再转换 —— 源文件不动、桥文件不残留。
+    const mdText = "# 系统规格\n\n1. 列表后接正文:\n书坊 Markdown 桥测试。\n\n行内公式 $E = mc^2$。\n";
+    const mdSource = path.join(outsideDir, "系统规格.md");
+    fs.writeFileSync(mdSource, mdText, "utf8");
+    const mdOut = path.join(outsideDir, "系统规格.docx");
+    const mdTask = await page.evaluate(async ({ source, out }) => window.qbrDesktop.workshop.start({
+      kind: "docvortex-convert", title: "文档互转", detail: source,
+      payload: { settings: {}, source, out, format: "docx" },
+    }), { source: mdSource.replace(/\\/g, "/"), out: mdOut.replace(/\\/g, "/") });
+    const mdDone = await waitFor("markdown convert", () => page.evaluate(async (id) => {
+      const state = await window.qbrDesktop.workshop.list();
+      const task = state.tasks.find((entry) => entry.id === id);
+      return task && task.status !== "running" && task.status !== "queued" ? `${task.status}|${task.output}|${task.error}` : "";
+    }, mdTask), 120_000);
+    if (!mdDone.startsWith("done")) throw new Error(`the markdown conversion should finish done: ${mdDone}`);
+    if (fs.readFileSync(mdSource, "utf8") !== mdText) throw new Error("the markdown source should not be rewritten");
+    if (!fs.existsSync(mdOut)) throw new Error(`expected the docx next to the markdown source: ${mdOut}`);
+    const bridgeStrays = fs.readdirSync(outsideDir).filter((name) => name.includes("bridge"));
+    if (bridgeStrays.length) throw new Error(`the bridge file should be cleaned up: ${bridgeStrays.join(",")}`);
+    console.log("workshop-convert: markdown converted in place —", path.basename(mdOut), fs.statSync(mdOut).size, "bytes");
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(userData, { recursive: true, force: true });

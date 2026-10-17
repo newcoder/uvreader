@@ -1,5 +1,5 @@
 // 内容提取的输入与模式(主进程与渲染层共用)。
-import { DOCVORTEX_INPUTS } from "./workshop-formats.js";
+import { DOCVORTEX_INPUTS, TEXT_SOURCE_EXTENSIONS } from "./workshop-formats.js";
 
 export const IMAGE_INPUTS = Object.freeze(["png", "jpg", "jpeg", "webp", "gif", "bmp", "tiff", "jp2"]);
 
@@ -14,6 +14,7 @@ export function extractionKind(source) {
   const ext = String(source || "").split(".").pop()?.toLowerCase() || "";
   if (ext === "pdf") return "pdf";
   if (IMAGE_INPUTS.includes(ext)) return "image";
+  if (TEXT_SOURCE_EXTENSIONS.includes(ext)) return "text";
   if (DOCVORTEX_INPUTS.includes(ext)) return "document";
   return "";
 }

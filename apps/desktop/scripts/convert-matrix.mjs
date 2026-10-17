@@ -71,6 +71,31 @@ function writeCsv(file, delimiter = ",") {
   fs.writeFileSync(file, `名称${delimiter}数量\n${MARKER}${delimiter}2\n乙${delimiter}3\n`);
 }
 
+// Markdown / 纯文本源:DocVortex 自己没有这两种原生输入,书坊先渲染成 HTML 桥
+// (见 main/docvortex.js):标题 + 「1. 标题 + 紧跟正文」的列表后接段落 + 行内公式。
+// 标记特意**只放在段落里**(标题不放):这样产物里还能找到标记,就说明列表后面的
+// 段落没被 DocVortex 丢掉(<p> 落在 <ol> 里时它整段丢)。
+function writeMarkdown(file) {
+  fs.writeFileSync(file, `# 矩阵 Markdown 源
+
+1. 列表后接正文:
+${MARKER} 段落必须活下来。
+
+行内公式 $E = mc^2$ 与第二段。
+
+| 列 | 值 |
+| --- | --- |
+| a | 1 |
+`, "utf8");
+}
+
+function writeText(file) {
+  fs.writeFileSync(file, `${MARKER}:纯文本源文件。
+
+第二段。
+`, "utf8");
+}
+
 function rtfEscape(text) {
   return [...String(text)].map((ch) => (ch.codePointAt(0) < 128 ? ch : `\\u${ch.codePointAt(0)}?`)).join("");
 }
@@ -242,6 +267,8 @@ async function docvortexMatrix() {
     ["mhtml", path.join(srcDir, "矩阵.mht"), "text"],
     ["csv", path.join(srcDir, "矩阵.csv"), "text"],
     ["tsv", path.join(srcDir, "矩阵.tsv"), "text"],
+    ["md", path.join(srcDir, "矩阵.md"), "text"],
+    ["txt", path.join(srcDir, "矩阵.txt"), "text"],
     ["epub", path.join(srcDir, "矩阵.epub"), "text"],
     ["pdf", PDF_LOCAL, "text"],
   ];
@@ -359,6 +386,8 @@ await writeOdt(path.join(srcDir, "矩阵.odt"));
 writeMhtml(path.join(srcDir, "矩阵.mht"));
 writeCsv(path.join(srcDir, "矩阵.csv"), ",");
 writeCsv(path.join(srcDir, "矩阵.tsv"), "\t");
+writeMarkdown(path.join(srcDir, "矩阵.md"));
+writeText(path.join(srcDir, "矩阵.txt"));
 await writeEpub(path.join(srcDir, "矩阵.epub"));
 
 // RTF / ODT 交给 Calibre 从 EPUB 生成(编码正规;手写的那两份当兜底)。

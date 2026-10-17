@@ -31,11 +31,14 @@ function fakeSpawn(handler) {
   return { spawnImpl, calls };
 }
 
-test("extractionKind routes pdf, images and documents", () => {
+test("extractionKind routes pdf, images, text sources and documents", () => {
   assert.equal(extractionKind("D:/a/b.pdf"), "pdf");
   assert.equal(extractionKind("D:/a/scan.PNG"), "image");
   assert.equal(extractionKind("D:/a/report.docx"), "document");
-  assert.equal(extractionKind("D:/a/notes.txt"), "");
+  // 文本源走 DocVortex 前先桥接成 HTML(main/docvortex.js),不是「不支持」。
+  assert.equal(extractionKind("D:/a/notes.txt"), "text");
+  assert.equal(extractionKind("D:/a/notes.md"), "text");
+  assert.equal(extractionKind("D:/a/archive.7z"), "");
 });
 
 test("splitMarkdownChapters follows 1–3 level headings and keeps fences intact", () => {
@@ -236,6 +239,35 @@ test("the docvortex runner writes markdown, html and json next to the source", a
   assert.equal(fs.readFileSync(path.join(vault, "讲义.md"), "utf8"), "内容:markdown");
   assert.ok(fs.existsSync(path.join(vault, "讲义.html")));
   assert.ok(fs.existsSync(path.join(vault, "讲义.json")));
+});
+
+// Markdown / 纯文本 DocVortex 收不了(Unsupported native input format):提取同样先渲染成 HTML。
+test("the docvortex runner bridges Markdown through an HTML file", async () => {
+  const vault = tempDir("qbr-extract-vault-md-");
+  const source = path.join(vault, "说明书.md");
+  fs.writeFileSync(source, "# 一\n\n正文 $a^2$\n", "utf8");
+  const requests = [];
+  const docvortex = {
+    probe: async () => ({ ok: true }),
+    convert: async (_settings, request) => {
+      requests.push({ ...request, body: fs.readFileSync(request.source, "utf8") });
+      fs.writeFileSync(request.out, request.format === "structured_content" ? "{}" : `内容:${request.format}`);
+      return { ok: true, out: request.out };
+    },
+  };
+  const { queue } = makeQueue(docvortex);
+  const id = queue.start({ kind: "extract-docvortex", title: "内容提取", payload: { source, settings: {} } });
+  await sleep(60);
+  const task = await waitForTask(queue, id);
+  assert.equal(task.status, "done", task.error);
+  // 源文件就是 .md:产物按「同名加序号」落到它旁边,绝不覆盖源文件。
+  assert.equal(fs.readFileSync(source, "utf8"), "# 一\n\n正文 $a^2$\n", "源文件不动");
+  assert.equal(fs.readFileSync(path.join(vault, "说明书 (1).md"), "utf8"), "内容:markdown", "产物落在源文件旁");
+  assert.match(requests[0].source, /\.说明书\.md\.bridge-[0-9a-z]+\.html$/, "DocVortex 收到 HTML 桥文件");
+  assert.match(requests[0].body, /<h1>一<\/h1>/);
+  assert.match(requests[0].body, /<script type="math\/tex">a\^2<\/script>/);
+  assert.equal(requests[0].source, requests[1].source, "三个格式复用同一个桥文件");
+  assert.ok(!fs.existsSync(requests[0].source), "提取完桥文件不留");
 });
 
 test("the docvortex runner turns images into a temporary PDF and asks for OCR", async () => {
