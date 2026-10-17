@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { cleanedPdfFor, createPdfCleaner } from "./pdf-text.js";
+import { restoreDocxLists } from "./docx-numbering.js";
 import { escapeHtml, mathScript, stripMathDelimiters } from "./formula-html.js";
 import { markdownToHtml, textToHtml } from "./text-book.js";
 import { removeFile, uniqueFile } from "./paths.js";
@@ -215,6 +216,12 @@ export function registerDocvortexRunners(workshop, { docvortex, vaultRoot = "", 
       const result = await docvortex.convert(settings, { source: bridge || input, format, out, signal });
       if (signal.aborted) throw new Error("任务已取消");
       if (!result.ok) throw new Error(String(result.error || "转换失败"));
+      // 文本源 → docx:DocVortex 的列表是「字面编号 + 缩进」的普通段落,产物里换成
+      // 真 Word 列表(w:numPr) —— 编号可续、可改样式(见 docx-numbering.js)。
+      if (kind && format === "docx") {
+        const restored = await restoreDocxLists(out, { log });
+        if (restored) log("docx lists restored", restored, path.basename(out));
+      }
     } finally {
       removeTextSourceBridge(bridge, { log });
     }

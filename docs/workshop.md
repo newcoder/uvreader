@@ -37,7 +37,7 @@
 | 分组 | 工具 | 后端 |
 | --- | --- | --- |
 | 文字层与可搜索 PDF | 生成文字层 / 导出可搜索 PDF | pdf_tool reader sidecar |
-| 格式转换 | 保持内容与版式的互转(输出**文档**):Office/ODF/HTML/EPUB/OFD → md/html/docx/pdf/latex;Markdown / 纯文本(先渲染成 HTML 桥,见 §8.1);图片 → PDF | DocVortex + pdf_tool |
+| 格式转换 | 保持内容与版式的互转(输出**文档**):Office/ODF/HTML/EPUB/OFD → md/html/docx/pdf/latex;Markdown / 纯文本(先渲染成 HTML 桥,见 §8.1;→ docx 时再把 DocVortex 的字面编号换成真 Word 列表);图片 → PDF | DocVortex + pdf_tool |
 | 内容提取 | 只取内容、可丢版式:PDF / DOCX / 图片 / Markdown / 纯文本 → Markdown / HTML / 结构化 JSON | pdf_tool(高保真)+ DocVortex |
 | 电子书制作 | 新建电子书(向导):元数据/章节/封面/样式 → **EPUB / AZW3 / MOBI / CBZ**(电子书产物统一在此) | Calibre `ebook-convert`(备选 EbookLib)+ 打包 |
 | 发送 | 发送到 Kindle(邮件,EPUB 直发) | 主进程 SMTP(nodemailer) |
@@ -261,6 +261,7 @@ DocVortex 实测备注:输出 EPUB 结构合法(mimetype/container/OPF/nav + 图
 - **A-local(本地 MinerU,由 pdf_tool 侧实现)**:离线版 A——pdf_tool 增加 `--mineru-source auto|cloud|local`(本地 `mineru` CLI / `mineru-api` HTTP / OpenAI 兼容端点),档位 basic/standard/advanced,**输出契约不变**(同构 Doc JSON → 书坊桥与 DocVortex 零改动)。需求已交给 pdf_tool:`pdf_tool/docs/reader-request-mineru-local-2026-10-11.md`(接口建议、验收、硬件参考、书坊后续:解析方式加「公式优先(MinerU 本地)」)。本机可行:RTX 4060 Laptop 8GB 单并发,2–6s/页;模型 `MinerU2.5-Pro-2605-1.2B`(2026/06;Apache-2.0 系许可)。
 - 顺带发现(pdf_tool 侧,未改):`render/md.py: render_html_blocks` 没有 `equation` 分支,公式块在它的 HTML 预览里被丢弃 —— 与书坊链路无关(桥不走它),但值得以后补一行。
 - 不采用:把 pdf_tool 的 hybrid 双层 PDF 再喂给 DocVortex —— 文字层公式已转 Unicode、字形几何是合成的,原生路径还原不出上下标结构。
+- **列表保真度(2026-10-17 实测)**:DocVortex 的 HTML→DOCX 把列表画成「`w:t` 里的字面 `1. ` / `- ` + 段落 `w:ind` 缩进」,整份文档 `w:numPr = 0`(同一产物里表格倒是真 `w:tbl`)—— Word 里不能续编号 / 改项目符号样式 / 升降层级。书坊在 **md/txt → docx** 这条链路上自己补:`main/docx-numbering.js` 识别这类段落、去掉字面标记、写 `w:numPr` 并往 `numbering.xml` 追加 abstractNum/`w:num`(层级缩进 340×n、原文起始号用 `startOverride` 保留,跳号的有序列表不动)。缩进与原来一致,编号变成 Word 自己的。
 
 ## 9. 文案与 i18n
 

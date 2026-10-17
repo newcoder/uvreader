@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { convertArgs, createDocvortex, docvortexCandidates, registerDocvortexRunners, removeTextSourceBridge, textSourceHtml, writeTextSourceBridge } from "../src/main/docvortex.js";
+import JSZip from "jszip";
 import { createWorkshopQueue } from "../src/main/workshop.js";
 import { waitForTask } from "./wait-for-task.mjs";
 import { convertPath } from "../src/shared/workshop-names.js";
@@ -128,6 +129,49 @@ test("the convert runner sends Markdown through an HTML bridge", async () => {
   assert.match(calls[0].body, /<script type="math\/tex">a\^2<\/script>/);
   assert.equal(fs.existsSync(calls[0].source), false, "转换完桥文件不留在用户目录里");
   assert.deepEqual(fs.readdirSync(dir).filter((name) => name.includes("bridge")), []);
+});
+
+// DocVortex 的 HTML→DOCX 列表是「字面编号 + 缩进」的普通段落(没有 w:numPr):
+// md/txt 桥出去的 docx 产物要换成真 Word 列表,其它链路不碰。
+test("the convert runner restores real Word lists for text sources only", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-docvortex-number-"));
+  const para = (text, indent) => `<w:p><w:pPr><w:ind w:left="${indent}"/></w:pPr><w:r><w:t xml:space="preserve">${text}</w:t></w:r></w:p>`;
+  const docx = path.join(dir, "docvortex-out.docx");
+  const zip = new JSZip();
+  zip.file("[Content_Types].xml", '<?xml version="1.0"?><Types/>');
+  zip.file("word/numbering.xml", '<?xml version="1.0"?><w:numbering xmlns:w="w"></w:numbering>');
+  zip.file("word/document.xml", `<?xml version="1.0"?><w:document xmlns:w="w"><w:body>${para("1. 第一项", 340)}${para("- 细则", 680)}${para("2. 第二项", 340)}</w:body></w:document>`);
+  fs.writeFileSync(docx, await zip.generateAsync({ type: "nodebuffer" }));
+  fs.writeFileSync(path.join(dir, "规格.md"), "# 规格\n\n1. 第一项\n- 细则\n\n2. 第二项\n", "utf8");
+  fs.copyFileSync(docx, path.join(dir, "输入.docx"));
+  const queue = createWorkshopQueue({ file: path.join(dir, "tasks.json"), onState: () => {}, log: { warn() {} } });
+  registerDocvortexRunners(queue, {
+    docvortex: {
+      probe: async () => ({ ok: true }),
+      // 每次转换都把「DocVortex 那种产物」复制成结果。
+      convert: async (_settings, request) => { fs.copyFileSync(docx, request.out); return { ok: true, out: request.out }; },
+    },
+    vaultRoot: dir,
+    cacheRoot: path.join(dir, "cache"),
+    log: () => {},
+  });
+  const read = async (file) => (await JSZip.loadAsync(fs.readFileSync(file))).file("word/document.xml").async("string");
+
+  const bridged = queue.start({ kind: "docvortex-convert", payload: { source: "规格.md", format: "docx" } });
+  await sleep(60);
+  const first = await waitForTask(queue, bridged);
+  assert.equal(first.status, "done", first.error);
+  const restored = await read(first.output);
+  assert.equal((restored.match(/<w:numPr>/g) || []).length, 3, "文本源产物:三个列表段落都换成真编号");
+  assert.ok(!/w:t[^>]*>\s*\d+\.\s/.test(restored), "字面编号去掉");
+
+  const other = queue.start({ kind: "docvortex-convert", payload: { source: "输入.docx", format: "docx" } });
+  await sleep(60);
+  const second = await waitForTask(queue, other);
+  assert.equal(second.status, "done", second.error);
+  const untouched = await read(second.output);
+  assert.equal((untouched.match(/<w:numPr>/g) || []).length, 0, "docx → docx 不是我们的桥,不动它");
+  assert.match(untouched, /w:t[^>]*>1\. 第一项</, "原样保留");
 });
 
 test("probe falls back through the candidates and reports the first that answers", async () => {
