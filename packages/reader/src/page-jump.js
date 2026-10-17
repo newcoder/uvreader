@@ -6,6 +6,11 @@ export function createPageJump({ translate, svgIcon, docOf, isPdf, pdfPages, rem
   function pageInfo(view) {
     if (view.engine) {
       const detail = view._engineLocation || view.engine.currentLocation?.();
+      // 滚动模式没有「全书页码」:渲染器报的是**当前节**内的页(稳定、和屏幕上的
+      // 文字一致);翻页模式仍用 foliate 的 location。
+      if (Number.isFinite(detail?.pages) && detail.pages > 0) {
+        return { current: Number(detail.page) || 1, total: Number(detail.pages), scroll: true };
+      }
       const total = Number(detail?.location?.total) || 0;
       const current = Number(detail?.location?.current);
       return { current: Number.isFinite(current) ? current + 1 : 1, total };
@@ -21,10 +26,11 @@ export function createPageJump({ translate, svgIcon, docOf, isPdf, pdfPages, rem
     const input = view.pageInputEl;
     const label = view.pageTotalEl;
     if (!input || !label) return;
-    const { current, total } = pageInfo(view);
+    const { current, total, scroll } = pageInfo(view);
     if (docOf(input).activeElement !== input) input.value = total ? String(current) : "";
     label.setText(`/ ${total || 0}`);
-    input.disabled = !total;
+    // 滚动模式:数字是「本节第几屏」,没有全书页码可以跳 —— 输入框只读,箭头按钮照旧翻页。
+    input.disabled = !total || !!scroll;
   }
 
   function jump(view, page) {

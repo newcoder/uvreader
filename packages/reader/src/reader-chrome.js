@@ -125,6 +125,15 @@ export function createReaderChrome({
       }
       if (!atEdge) return;
       continueReading = typeof view.engine?.continueReading === "function";
+      if (continueReading) {
+        // 滚动模式:滚到已挂载内容的边缘时只负责把相邻节挂上来,**不吞这一格滚轮** ——
+        // 吞掉的话读者会觉得「卡住再一冲」(实测位置能停 ~0.6s 等下一节挂上)。
+        const now = Date.now();
+        if (view._wheelContinueAt && now - view._wheelContinueAt < WHEEL_TURN_COOLDOWN_MS) return;
+        view._wheelContinueAt = now;
+        void view.engine.continueReading(dir);
+        return;
+      }
     }
     const now = Date.now();
     if (view._wheelTurnAt && now - view._wheelTurnAt < WHEEL_TURN_COOLDOWN_MS) {
@@ -133,10 +142,6 @@ export function createReaderChrome({
     }
     view._wheelTurnAt = now;
     event.preventDefault();
-    if (continueReading) {
-      void view.engine.continueReading(dir);
-      return;
-    }
     view.nav(dir);
   }
 
