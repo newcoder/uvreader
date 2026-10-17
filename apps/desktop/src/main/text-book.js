@@ -166,15 +166,19 @@ export function markdownToHtml(markdown, options = {}) {
   const lines = stripBom(markdown).replace(/\r\n?/g, "\n").split("\n");
   const out = [];
   let paragraph = [];
-  let list = null; // "ul" | "ol"
   let fence = null;
   let table = null; // { head: string[] | null, rows: string[][] }
   let displayQuote = null; // $$ 单独成行时的收集缓冲
+  // 打开的列表栈(可有嵌套)。每层:
+  //   kind   "ul" | "ol"
+  //   li     `<li>` 是否已经写出(项正文落地后为 true)
+  //   text   项的正文(项开头攒着;li 为 true 时是嵌套列表之后的续行)
+  //   loose  这一层出现过空行(下一行还是列表标记就继续同一列表)
+  const lists = [];
 
   const flushParagraph = () => {
     if (!paragraph.length) return;
-    // 段落不属于列表:先把列表收掉,否则 `<p>` 会落在 `<ol>`/`<ul>` 里 —— 不是合法
-    // HTML,DocVortex 这类严格解析器会整段丢掉(中文技术稿「1. 标题 + 紧跟正文」很常见)。
+    // 段落不属于列表:先把整串列表收掉,否则 `<p>` 会落在 `<ol>`/`<ul>` 里 —— 不是合法 HTML。
     closeList();
     const joined = paragraph.join(" ");
     paragraph = [];
@@ -189,11 +193,55 @@ export function markdownToHtml(markdown, options = {}) {
     }
     out.push(`<p>${inlineWithMath(joined, renderMath)}</p>`);
   };
-  const closeList = () => {
-    if (list) {
-      out.push(`</${list}>`);
-      list = null;
+  const topList = () => lists[lists.length - 1] || null;
+  // 一层的项正文落地:`<li>` 开标签先不闭(后面可能跟嵌套列表)。
+  const flushItemText = (level) => {
+    if (!level.text.length) return;
+    const text = inlineWithMath(level.text.join(" ").trim(), renderMath);
+    level.text = [];
+    if (!text) return;
+    if (level.li) out.push(`<p>${text}</p>`); // 嵌套列表之后的续行:另起一段(仍在 <li> 里)
+    else {
+      out.push(`<li>${text}`);
+      level.li = true;
     }
+  };
+  const closeItem = (level) => {
+    flushItemText(level);
+    if (level.li) {
+      // 没嵌套列表就直接补在项文本后面(输出紧凑),有嵌套才单独一行。
+      if (level.nested) out.push("</li>");
+      else out[out.length - 1] += "</li>";
+      level.li = false;
+    }
+    level.nested = false;
+    level.loose = false;
+  };
+  const startItem = (level, text) => {
+    closeItem(level);
+    level.text = [text];
+    level.li = false;
+    level.nested = false;
+    level.loose = false;
+  };
+  const closeList = () => {
+    while (lists.length) {
+      const level = lists.pop();
+      closeItem(level);
+      out.push(`</${level.kind}>`);
+    }
+  };
+  // 收掉 level 之上(不含)的嵌套层:回到外层列表继续编号用得上。
+  const closeAbove = (level) => {
+    while (lists.length && topList() !== level) {
+      const nested = lists.pop();
+      closeItem(nested);
+      out.push(`</${nested.kind}>`);
+    }
+  };
+  const startList = (kind, text) => {
+    out.push(`<${kind}>`);
+    lists.push({ kind, li: false, text: [text], nested: false, loose: false });
   };
   const closeTable = () => {
     if (!table) return;
@@ -270,7 +318,9 @@ export function markdownToHtml(markdown, options = {}) {
     }
     if (!line.trim()) {
       flushParagraph();
-      closeList();
+      // 空行不一定结束列表:`1. 标题` / 空行 / `2. 标题` 是同一个列表的两项。
+      const level = topList();
+      if (level) level.loose = true;
       continue;
     }
     const heading = line.match(/^(#{1,6})\s+(.*)$/);
@@ -299,13 +349,46 @@ export function markdownToHtml(markdown, options = {}) {
     if (ordered || bullet) {
       flushParagraph();
       const kind = ordered ? "ol" : "ul";
-      if (list !== kind) {
-        closeList();
-        out.push(`<${kind}>`);
-        list = kind;
+      const text = (ordered || bullet)[1].trim();
+      const level = topList();
+      // ① 最内层就是同类列表:下一项(编号连续)。
+      if (level && level.kind === kind) {
+        startItem(level, text);
+        continue;
       }
-      out.push(`<li>${inlineWithMath((ordered || bullet)[1], renderMath)}</li>`);
+      // ② 外层已有同类列表:收掉嵌套层,回到那一层继续编号 ——
+      //    「1. 标题 / - 细则 / 2. 标题」里的 2. 属于第 1 层,不是新列表。
+      const outer = lists.findLastIndex((entry) => entry.kind === kind);
+      if (outer >= 0) {
+        closeAbove(lists[outer]);
+        startItem(topList(), text);
+        continue;
+      }
+      // ③ 项正文紧跟另一种标记:这是该项里的嵌套列表(`1.` 后面跟 `- ` 很常见)。
+      if (level && !level.li && level.text.length && !level.loose) {
+        flushItemText(level);
+        level.nested = true;
+        startList(kind, text);
+        continue;
+      }
+      // ④ 其余情况:同级换一种列表(空行之后的 `- ` 段落等)。
+      if (level) {
+        const closed = lists.pop();
+        closeItem(closed);
+        out.push(`</${closed.kind}>`);
+      }
+      startList(kind, text);
       continue;
+    }
+    // 不带缩进的后续行是同一列表项的正文(CommonMark 的 lazy continuation);
+    // 空行之后的顶格正文才结束列表,那种才算列表外的一段。
+    const open = topList();
+    if (open) {
+      if (!open.loose || /^\s/.test(raw)) {
+        open.text.push(line.trim());
+        continue;
+      }
+      closeList();
     }
     paragraph.push(line.trim());
   }
