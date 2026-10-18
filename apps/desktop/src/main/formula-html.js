@@ -248,12 +248,12 @@ export function blockToMarkdown(block, { tableMode = "table" } = {}) {
     const combined = caption ? [caption, content].filter(Boolean).join("\n") : content;
     return looksLikeProseBlock(combined) ? joinProseLines(combined) : `\`\`\`\n${content}\n\`\`\``;
   }
-  // 脚注原样保留(引用块),加个页码便于对回原书;上游丢内容只剩「||」的残片清掉。
+  // 脚注原样保留(引用块);上游丢内容只剩「||」的残片清掉。
+  // 不再附「（第 N 页）」:页码是给"对回原书"用的内部信息,读者看到的是噪声(用户实测)。
   if (type === "page_footnote" || type === "footnote") {
     const note = cleanFootnoteText(String(block?.text ?? "").replace(/\s*\n\s*/g, " ").trim());
     if (!note) return "";
-    const page = Number(block?.page) || 0;
-    return `> ${note}${page ? `（第 ${page} 页）` : ""}`;
+    return `> ${note}`;
   }
   const text = block?.text ?? block?.content ?? "";
   return String(text).trim();

@@ -87,3 +87,17 @@ test("renderMap reports a missing latex2mathml or a failing interpreter instead 
   assert.equal(crashedResult.ok, false);
   assert.match(crashedResult.error, /boom/);
 });
+
+// 真跑一次 latex2mathml:上游(MinerU)把黑板体字母丢成空壳时会留下悬空上下标,
+// 第一条公式整条渲染不出来 —— 重试路径要能救回来。机器上没有 latex2mathml 就跳过。
+test("the python helper repairs formulas whose symbol was dropped upstream", async (t) => {
+  const renderer = createMathRenderer();
+  const broken = "\\\\mathbb { } _ {j} \\\\lesssim \\\\varepsilon ^ { - (d - 1)}";
+  const result = await renderer.renderMap([broken, "x^2 + y^2 = z^2"], { python: "python", workDir: tempDir() });
+  if (!result.ok) {
+    t.skip(`latex2mathml 不可用:${String(result.error).slice(0, 60)}`);
+    return;
+  }
+  assert.match(result.map[broken] || "", /<math/, "空壳字体 + 悬空上下标也要渲染出来");
+  assert.match(result.map["x^2 + y^2 = z^2"] || "", /<math/, "普通公式不受影响");
+});

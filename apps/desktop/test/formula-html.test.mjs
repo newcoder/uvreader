@@ -138,7 +138,7 @@ test("page footnotes render as quotes instead of being dropped", () => {
   const html = blockToHtml(block);
   assert.match(html, /^<blockquote class="docvortex-footnote">① 原题/);
   const md = blockToMarkdown(block);
-  assert.match(md, /^> ① 原题: An Axiomatization of Set Theory。（第 17 页）$/);
+  assert.equal(md, "> ① 原题: An Axiomatization of Set Theory。", "不再附「（第 N 页）」");
   assert.equal(blockToHtml({ type: "page_footnote", text: "   " }), "");
 });
 
@@ -149,5 +149,5 @@ test("footnote fragments that only kept the formula delimiters are dropped", () 
   assert.equal(cleanFootnoteText("ε^(d−1)||"), "ε^(d−1)");
   assert.equal(cleanFootnoteText("保留: |H| 正常文本"), "保留: |H| 正常文本");
   assert.equal(blockToMarkdown({ type: "page_footnote", text: "||", page: 4 }), "");
-  assert.match(blockToMarkdown({ type: "page_footnote", text: "ε^(d−1)||", page: 4 }), /^> ε\^\(d−1\)（第 4 页）$/);
+  assert.equal(blockToMarkdown({ type: "page_footnote", text: "ε^(d−1)||", page: 4 }), "> ε^(d−1)");
 });

@@ -617,8 +617,8 @@ test("appendFootnotes adds one 注释 section and stays idempotent", () => {
   const notes = [{ page: 17, text: "① 原题: An Axiomatization of Set Theory。" }, { page: 0, text: "② 无页码的注解。" }];
   const once = appendFootnotes("# 第一章\n\n正文。", notes);
   assert.match(once, /\n## 注释\n/);
-  assert.match(once, /> ① 原题: An Axiomatization of Set Theory。（第 17 页）/);
-  assert.match(once, /> ② 无页码的注解。\s*$/, "没有页码就不写页码");
+  assert.match(once, /> ① 原题: An Axiomatization of Set Theory。/);
+  assert.ok(!once.includes("（第 17 页）"), "脚注不再附页码(读者看到的是噪声)");
   assert.equal(appendFootnotes(once, notes), once, "重复调用不会再加一节");
   assert.equal(appendFootnotes("正文。", []), "正文。", "没有脚注时原样返回");
 });

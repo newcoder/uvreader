@@ -129,7 +129,7 @@ export function appendFootnotes(markdown, notes) {
   const body = missing
     .map((note) => ({ ...note, text: cleanFootnoteText(String(note.text || "").replace(/\s*\n\s*/g, " ").trim()) }))
     .filter((note) => note.text)
-    .map((note) => `> ${note.text}${note.page ? `（第 ${note.page} 页）` : ""}`)
+    .map((note) => `> ${note.text}`)
     .join("\n\n");
   if (!body) return text;
   return `${text.replace(/\s*$/, "")}\n\n## 注释\n\n${body}\n`;

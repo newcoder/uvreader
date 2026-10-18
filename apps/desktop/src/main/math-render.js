@@ -11,16 +11,33 @@ except Exception as exc:  # latex2mathml 缺失:交给上层回退
     print(json.dumps({"ok": False, "error": "latex2mathml missing: %s" % exc}))
     sys.exit(0)
 items = json.load(open(sys.argv[1], encoding="utf-8"))
+
+def clean(latex):
+    c = re.sub(r"\\\\tag\\{[^}]*\\}", "", latex)
+    c = re.sub(r"\\\\begin\\{(aligned|align|array|matrix|pmatrix|bmatrix|cases)\\}", "", c)
+    c = re.sub(r"\\\\end\\{(aligned|align|array|matrix|pmatrix|bmatrix|cases)\\}", "", c)
+    return c.replace("&", "").strip()
+
+def repair(cleaned):
+    # MinerU 偶尔把黑板体/花体的字母丢成空壳(\\\\mathbb { }),留下没有基底的上下标 ——
+    # latex2mathml 会直接报错,整条公式退回原文(实测 Notes_Boltzmann 4 处)。空壳补方块
+    # (提示"这里少了个符号"),悬空上下标去掉,只在这一步失败后的重试里用。
+    r = re.sub(r"\\\\(mathbb|mathcal|mathfrak|mathbf|mathsf|mathtt|mathit|mathrm)\\s*\\{\\s*\\}", r"\\\\square", cleaned)
+    r = re.sub(r"}\\s*(?=[_^]\\s*\\{)", "", r)
+    r = re.sub(r"(?<![\\\\\\w}\\]])[_^]\\s*\\{([^{}]*)\\}", "", r)
+    r = re.sub(r"^\\s*[_^]\\s*\\{([^{}]*)\\}\\s*", "", r)
+    return r.strip()
+
 out = {}
 for latex in items:
-    cleaned = re.sub(r"\\\\tag\\{[^}]*\\}", "", latex)
-    cleaned = re.sub(r"\\\\begin\\{(aligned|align|array|matrix|pmatrix|bmatrix|cases)\\}", "", cleaned)
-    cleaned = re.sub(r"\\\\end\\{(aligned|align|array|matrix|pmatrix|bmatrix|cases)\\}", "", cleaned)
-    cleaned = cleaned.replace("&", "")
+    cleaned = clean(latex)
     try:
-        out[latex] = convert(cleaned.strip())
+        out[latex] = convert(cleaned)
     except Exception:
-        out[latex] = ""
+        try:
+            out[latex] = convert(repair(cleaned))
+        except Exception:
+            out[latex] = ""
 json.dump({"ok": True, "mathml": out}, open(sys.argv[2], "w", encoding="utf-8"))
 `;
 
