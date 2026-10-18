@@ -11,6 +11,7 @@ import { escapeHtml, mathScript, stripMathDelimiters } from "./formula-html.js";
 import { markdownToHtml, textToHtml } from "./text-book.js";
 import { removeFile, uniqueFile } from "./paths.js";
 import { DOCVORTEX_FORMATS, docvortexFormatExt, textSourceKind } from "../shared/workshop-formats.js";
+import { decodeText } from "../shared/text-encoding.js";
 import { convertPath } from "../shared/workshop-names.js";
 
 export { DOCVORTEX_FORMATS };
@@ -66,7 +67,7 @@ ${body}
 // 代价是相对图片找不到 —— 记日志,不阻断转换。
 export function writeTextSourceBridge(source, { cacheRoot = "", log = () => {} } = {}) {
   if (!textSourceKind(source)) return "";
-  const html = textSourceHtml(source, fs.readFileSync(source, "utf8"));
+  const html = textSourceHtml(source, decodeText(fs.readFileSync(source)));
   const name = `.${path.basename(source)}.bridge-${Date.now().toString(36)}.html`;
   const beside = path.join(path.dirname(source), name);
   try {

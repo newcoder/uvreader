@@ -462,3 +462,26 @@ test("a cover fragment at the very start is dropped, a real short chapter is not
   ], "书");
   assert.deepEqual(kept.chapters.map((chapter) => chapter.title), ["第1章 开头", "序"]);
 });
+
+test("a GB18030 txt source is decoded instead of shipping mojibake", async () => {
+  const vault = tempDir("qbr-epub-gbk-");
+  // 整份书稿都按 GB18030 写盘(旧站中文 TXT 的常见编码):标题「第一章 起风了」+ 正文「正文从这里开始。」
+  const gbk = Buffer.from([
+    0xB5, 0xDA, 0xD2, 0xBB, 0xD5, 0xC2, 0x20, 0xC6, 0xF0, 0xB7, 0xE7, 0xC1, 0xCB,
+    0x0D, 0x0A,
+    0xD5, 0xFD, 0xCE, 0xC4, 0xB4, 0xD3, 0xD5, 0xE2, 0xC0, 0xEF, 0xBF, 0xAA, 0xCA, 0xBC, 0xA1, 0xA3,
+  ]);
+  const source = path.join(vault, "凡人.txt");
+  fs.writeFileSync(source, gbk);
+  const { queue } = makeQueue(tempDir("qbr-epub-cache-gbk-"), null);
+  const id = queue.start({ kind: "book-build", title: "生成电子书", payload: { source, settings: {} } });
+  const task = await waitForTask(queue, id);
+  assert.equal(task.status, "done", task.error);
+  const zip = await JSZip.loadAsync(fs.readFileSync(task.output));
+  const nav = await zip.file("OEBPS/nav.xhtml").async("string");
+  assert.match(nav, /第一章 起风了/);
+  assert.ok(!nav.includes("\uFFFD"), "目录里不该出现替换字符");
+  const first = await zip.file("OEBPS/chapter-001.xhtml").async("string");
+  assert.match(first, /正文从这里开始。/);
+  assert.ok(!first.includes("\uFFFD"));
+});

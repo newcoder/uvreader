@@ -13,6 +13,7 @@ import path from "node:path";
 
 import { buildEpub, BOOK_STYLE_DEFAULTS, collectBookImages } from "./epub-build.js";
 import { collectMathFromMarkdown, countRawFormulas, markdownToHtml, stripBom, textToChapters, textToHtml } from "./text-book.js";
+import { decodeText } from "../shared/text-encoding.js";
 import { extractMarkdown, extractionKind, splitMarkdownChapters } from "./extract-doc.js";
 import { createMathRenderer, shareFormulaHtml } from "./math-render.js";
 import { createTextLayerReader } from "./text-layer.js";
@@ -282,7 +283,8 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
         }))
         .filter((chapter) => chapter.text.trim());
     } else if (isText) {
-      text = stripBom(fs.readFileSync(source, "utf8"));
+      // 编码按内容判(GB18030 的中文 TXT 很常见),不能一律 UTF-8。
+      text = stripBom(decodeText(fs.readFileSync(source)));
       // 提取工具写出的 .md 里可能有「假代码块」(正文被包进围栏),先还原成段落。
       if (markdown) text = unwrapProseFences(text);
       // Markdown 有标题层级时按标题分章(与 PDF/Office 提取路径一致),否则按章节行 / 长度分。

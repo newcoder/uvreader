@@ -9,6 +9,7 @@ import { EXTRACT_MODES, IMAGE_INPUTS, extractionKind } from "../shared/extract-f
 import { splitMarkdownChapters, unwrapProseFences } from "../shared/markdown-fix.js";
 import { convertPath, uvtextPath } from "../shared/workshop-names.js";
 import { createAiContext } from "../../../../packages/reader/src/ai-context.js";
+import { decodeText } from "../shared/text-encoding.js";
 
 // 书坊的 AI 辅助复用伴读的配置读取(供应商 / 模型 / 密钥都从同一份设置与密钥库来,
 // 不新增设置项);这里只用 aiConfig,翻译与高亮定位给最小实现。
@@ -1643,17 +1644,32 @@ export function createWorkshopView(leaf, options) {
       };
     }
 
+    // 读书稿正文:按编码解码(GB18030 的中文 TXT 很常见,一律 UTF-8 读会整本乱码)。
+    // 书库文件走 vault;本地文件(书库外)按绝对路径读。两条路都经过同一份解码。
+    async readSourceText(rel) {
+      const normalized = String(rel || "").replace(/\\/g, "/");
+      if (!normalized) return "";
+      const vaultRoot = String(window.qbrDesktop?.paths?.vaultRoot || "").replace(/\\/g, "/").replace(/\/+$/, "");
+      const absolute = /^[a-zA-Z]:\//.test(normalized) || normalized.startsWith("//")
+        ? normalized
+        : (vaultRoot ? `${vaultRoot}/${normalized}` : "");
+      const fsImpl = typeof window !== "undefined" && typeof window.require === "function" ? window.require("fs") : null;
+      if (fsImpl && absolute) {
+        try {
+          return decodeText(fsImpl.readFileSync(absolute));
+        } catch { /* 读不到就退回 vault */ }
+      }
+      const file = app?.vault?.getAbstractFileByPath?.(normalized);
+      return file ? String(await app.vault.read(file).catch(() => "") || "") : "";
+    }
+
     // 提示词用的书稿开头:txt / md 直接读;PDF / Office 读同目录「内容提取」的 md 产物。
     async bookSourceText(limit = 8000) {
       const rel = String(this._bookSources?.[0] || "");
       if (!rel) return "";
-      const readVault = async (target) => {
-        const file = app?.vault?.getAbstractFileByPath?.(target);
-        return file ? String(await app.vault.read(file).catch(() => "") || "") : "";
-      };
-      if (/\.(txt|md|markdown)$/i.test(rel)) return (await readVault(rel)).slice(0, limit);
+      if (/\.(txt|md|markdown)$/i.test(rel)) return (await this.readSourceText(rel)).slice(0, limit);
       const sibling = rel.replace(/\.[^./\\]+$/, ".md");
-      return (await readVault(sibling)).slice(0, limit);
+      return (await this.readSourceText(sibling)).slice(0, limit);
     }
 
     async startAiSuggestion(kind) {
@@ -1756,7 +1772,7 @@ export function createWorkshopView(leaf, options) {
         host.createDiv({ cls: "qbr-workshop-hint", text: "PDF / Office / OFD / 图片的目录在生成时自动识别(内部先提取,无需先跑内容提取)" });
         return;
       }
-      const text = await app.vault.read(file).catch(() => "");
+      const text = await this.readSourceText(rel);
       const isMarkdown = /\.(md|markdown)$/i.test(rel);
       const cleaned = isMarkdown ? unwrapProseFences(text) : text;
       const found = isMarkdown ? splitMarkdownChapters(cleaned, { bookTitle: this._bookTitle?.value || "" }) : [];

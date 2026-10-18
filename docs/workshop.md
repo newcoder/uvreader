@@ -144,7 +144,7 @@
 
 **面板预设(计划中,2026-10-12 起不在向导面板重复展示)**:PDF → 干净电子书;Markdown / HTML → EPUB;txt → EPUB;Office / OFD → EPUB;**EPUB → AZW3 / MOBI**;图片 → CBZ / EPUB——源已全部接入后,这些都在「电子书制作」向导里直接完成(非文本源由向导内部自动提取/转换)。**所有电子书产物统一在这里。**
 
-**源已全部接入(2026-10-12)**:书稿选择接受 **txt / Markdown / PDF / Office(docx/pptx/xlsx…)/ ODF / OFD / HTML / EPUB / 图片**;**非文本源在生成时由向导内部自动提取**(PDF 走 pdf_tool,其余走 DocVortex,中间产物放 `userData` 缓存,用户无感),提取出的 Markdown 按 1–3 级标题分章。
+**源已全部接入(2026-10-12)**:书稿选择接受 **txt / Markdown / PDF / Office(docx/pptx/xlsx…)/ ODF / OFD / HTML / EPUB / 图片**;**非文本源在生成时由向导内部自动提取**(PDF 走 pdf_tool,其余走 DocVortex,中间产物放 `userData` 缓存,用户无感),提取出的 Markdown 按 1–3 级标题分章。**txt / md 的编码按内容判**(2026-10-18:`shared/text-encoding.js`;GB18030 的中文小说、UTF-8(±BOM)、UTF-16 都能读,不再一律 UTF-8)。
 
 **已实现(2026-10-12)**:
 - 「**电子书互转(EPUB → AZW3 / MOBI)**」(Calibre `ebook-convert`,检测 + 路径设置 + 检测按钮)与「**图片 → CBZ / EPUB**」(CBZ 自己打包:自然排序、同名序号;EPUB 由 CBZ 经 Calibre 转);产物落在源文件旁。
