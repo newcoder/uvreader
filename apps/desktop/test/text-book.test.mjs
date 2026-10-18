@@ -1,7 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { isChapterHeading, markdownToHtml, splitTextChapters, textToChapters, textToHtml } from "../src/main/text-book.js";
+import { chineseNumber, isChapterHeading, markdownToHtml, splitTextChapters, textToChapters, textToHtml, weakHeadingNumber } from "../src/main/text-book.js";
+
+test("chineseNumber and weakHeadingNumber parse the numbers behind numbered titles", () => {
+  assert.equal(chineseNumber("一"), 1);
+  assert.equal(chineseNumber("十一"), 11);
+  assert.equal(chineseNumber("二十三"), 23);
+  assert.equal(chineseNumber("一百零八"), 108);
+  assert.equal(chineseNumber("2024"), 0, "阿拉伯数字不走中文解析");
+  assert.equal(weakHeadingNumber("一、初入宗门"), 1);
+  assert.equal(weakHeadingNumber("12. 拜师"), 12);
+  assert.equal(weakHeadingNumber("001 起风"), 1);
+  assert.equal(weakHeadingNumber("（一）初入宗门"), 0, "带括号的不认(正文里的引用更常见)");
+  assert.equal(weakHeadingNumber("2024 年 3 月"), 2024, "单看像编号 —— 靠序列与间距在 splitTextChapters 里挡掉");
+  assert.equal(weakHeadingNumber("1."), 0, "编号后面必须有标题");
+  assert.equal(weakHeadingNumber("这是一段普通正文,以数字开头也算不上章节标题"), 0);
+});
 
 test("isChapterHeading recognises Chinese and English chapter lines", () => {
   for (const line of ["第一章 起风了", "第12回", "  ## 第三卷 ", "Chapter 3 The Return", "序章", "楔子：远行", "后记"]) {
@@ -25,6 +40,78 @@ test("splitTextChapters cuts before headings and keeps their titles", () => {
   assert.equal(chapters[0].body, "第一段正文。");
   assert.equal(chapters[1].title, "第二章 雨");
   assert.equal(chapters[1].body, "第二段正文。");
+});
+
+test("numbered chapter lines are recognised when they run in sequence", () => {
+  // 「一、标题」「1. 标题」「001 标题」这类在中文 TXT 里很常见。
+  const chinese = splitTextChapters([
+    "一、山边小村",
+    "正文一。".repeat(60),
+    "二、青牛镇",
+    "正文二。".repeat(60),
+    "三、七玄门",
+    "正文三。".repeat(60),
+  ].join("\n"));
+  assert.deepEqual(chinese.map((chapter) => chapter.title), ["一、山边小村", "二、青牛镇", "三、七玄门"]);
+
+  const arabic = splitTextChapters([
+    "1. 初入宗门",
+    "正文。".repeat(80),
+    "2. 拜师学艺",
+    "正文。".repeat(80),
+  ].join("\n"));
+  assert.deepEqual(arabic.map((chapter) => chapter.title), ["1. 初入宗门", "2. 拜师学艺"]);
+
+  const padded = splitTextChapters([
+    "001 起风",
+    "正文。".repeat(80),
+    "002 下雨",
+    "正文。".repeat(80),
+  ].join("\n"));
+  assert.deepEqual(padded.map((chapter) => chapter.title), ["001 起风", "002 下雨"]);
+});
+
+test("a numbered list is not mistaken for chapters", () => {
+  // 相邻两行的编号列表(隔得近、没有成串的章号)必须留在正文里,退回长度分块。
+  const text = [
+    "安装说明",
+    "1. 打开设置",
+    "2. 关闭窗口",
+    "3. 重启应用",
+    "正文继续。".repeat(200),
+  ].join("\n");
+  const chapters = splitTextChapters(text);
+  assert.equal(chapters.length, 1);
+  assert.match(chapters[0].body, /1\. 打开设置/);
+  assert.equal(chapters[0].title, "第 1 部分", "没有认出来的标题就按长度分块的默认名");
+});
+
+test("strong headings win over numbered lines in the same book", () => {
+  const text = [
+    "第一章 起风了",
+    "正文。".repeat(80),
+    "1. 打开设置",
+    "2. 关闭窗口",
+    "3. 重启应用",
+    "第二章 下雨",
+    "正文。".repeat(80),
+  ].join("\n");
+  const chapters = splitTextChapters(text);
+  assert.deepEqual(chapters.map((chapter) => chapter.title), ["第一章 起风了", "第二章 下雨"]);
+  assert.match(chapters[0].body, /1\. 打开设置/, "编号列表留在第一章正文里");
+});
+
+test("spelled English chapter and part lines are recognised", () => {
+  const text = [
+    "Chapter One The Boy",
+    "Body one.".repeat(60),
+    "Chapter Two The Journey",
+    "Body two.".repeat(60),
+    "Part Three",
+    "Body three.".repeat(60),
+  ].join("\n");
+  const chapters = splitTextChapters(text);
+  assert.deepEqual(chapters.map((chapter) => chapter.title), ["Chapter One The Boy", "Chapter Two The Journey", "Part Three"]);
 });
 
 test("splitTextChapters falls back to length chunks without headings", () => {

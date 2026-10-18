@@ -8,12 +8,74 @@ export function stripBom(text) {
   return String(text ?? "").replace(/^\uFEFF/, "");
 }
 
-const HEADING_RE = /^(?:#{1,4}\s+)?(第[零一二三四五六七八九十百千万〇0-9]{1,10}[章节回卷篇部集幕]|Chapter\s+[0-9IVXLC]+|序章|序言|前言|引子|楔子|后记|尾声|终章|番外|附录|参考文献)(?:[\s:：.、-].*)?$/i;
+const HEADING_RE = /^(?:#{1,4}\s+)?(第[零一二三四五六七八九十百千万〇0-9]{1,10}[章节回卷篇部集幕]|Chapter\s+(?:[0-9IVXLC]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)|Part\s+(?:[0-9IVXLC]+|one|two|three|four|five|six|seven|eight|nine|ten)|序章|序言|前言|引子|楔子|后记|尾声|终章|番外|附录|参考文献)(?:[\s:：.、-].*)?$/i;
 
 export function isChapterHeading(line) {
   const trimmed = String(line || "").trim();
   if (!trimmed || trimmed.length > 30) return false;
   return HEADING_RE.test(trimmed) || /^#{1,4}\s+\S/.test(trimmed);
+}
+
+// ── 编号式标题(弱)────────────────────────────────────────────────────
+// 「一、初入宗门」「1. 初入宗门」「001 初入宗门」这类在中文 TXT 里很常见,但单看像列表项,
+// 所以要成串、编号递增、彼此隔得远才认(见 acceptWeakHeadings),否则一律当正文。
+
+const CN_DIGITS = Object.freeze({ 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 });
+
+// 中文数字 → 数字(章节号用到的范围:一 … 几千;认不出返回 0)。
+export function chineseNumber(value) {
+  const text = String(value || "");
+  if (!text || !/[零〇一二三四五六七八九十百千]/.test(text)) return 0;
+  if (!/[十百千]/.test(text)) return text.length === 1 ? (CN_DIGITS[text] ?? 0) : 0;
+  let total = 0;
+  let digit = 0;
+  for (const ch of text) {
+    if (ch === "百") { total += (digit || 1) * 100; digit = 0; }
+    else if (ch === "千") { total += (digit || 1) * 1000; digit = 0; }
+    else if (ch === "十") { total += (digit || 1) * 10; digit = 0; }
+    else if (ch in CN_DIGITS) digit = CN_DIGITS[ch];
+    else return 0;
+  }
+  return total + digit;
+}
+
+// 编号式标题行 → 编号;不是这个形状返回 0(整行、≤30 字、编号后必须有标题)。
+export function weakHeadingNumber(line) {
+  const trimmed = String(line || "").trim().replace(/^#{1,4}\s+/, "");
+  if (!trimmed || trimmed.length > 30) return 0;
+  const match = /^(\d{1,4}|[零〇一二三四五六七八九十百千]{1,6})\s*(?:[.、．:：)）\]]\s*|\s+)(\S.*)$/.exec(trimmed);
+  if (!match) return 0;
+  const number = /^\d+$/.test(match[1]) ? Number(match[1]) : chineseNumber(match[1]);
+  return number > 0 ? number : 0;
+}
+
+function collectWeakHeadings(lines) {
+  const out = [];
+  let offset = 0;
+  for (let index = 0; index < lines.length; index += 1) {
+    const number = weakHeadingNumber(lines[index]);
+    if (number) out.push({ index, number, offset });
+    offset += lines[index].length + 1;
+  }
+  return out;
+}
+
+// 弱标题成串才算:首个编号 ≤ 20(排除日期这类大数)、严格递增且跳号 ≤ 3、
+// 相邻至少隔 200 字(列表项不会隔这么远)、过半步长是 1。
+function acceptWeakHeadings(candidates) {
+  if (candidates.length < 2 || candidates[0].number > 20) return [];
+  const picked = [candidates[0]];
+  for (const item of candidates.slice(1)) {
+    const prev = picked[picked.length - 1];
+    if (item.number <= prev.number) continue;
+    if (item.number - prev.number > 3) continue;
+    if (item.offset - prev.offset < 200) continue;
+    picked.push(item);
+  }
+  if (picked.length < 2) return [];
+  const steps = picked.slice(1).map((item, i) => item.number - picked[i].number);
+  const consecutive = steps.filter((step) => step === 1).length;
+  return consecutive * 2 >= steps.length ? picked : [];
 }
 
 function headingTitle(line) {
@@ -37,7 +99,18 @@ function chunkByLength(text, size = 4000) {
 }
 
 export function splitTextChapters(text) {
-  const lines = stripBom(text).replace(/\r\n?/g, "\n").split("\n");
+  const source = stripBom(text).replace(/\r\n?/g, "\n");
+  const lines = source.split("\n");
+  // 强标题(第X章 / Chapter N / 序章…)优先;一个都没有时才试编号式弱标题,
+  // 免得正文里的编号列表被当成章节(有强标题的书,编号行一律留在正文里)。
+  const headings = new Set();
+  for (let index = 0; index < lines.length; index += 1) {
+    if (isChapterHeading(lines[index])) headings.add(index);
+  }
+  if (headings.size < 2) {
+    const weak = acceptWeakHeadings(collectWeakHeadings(lines));
+    if (weak.length >= 2) for (const item of weak) headings.add(item.index);
+  }
   const chapters = [];
   let current = { title: "", lines: [] };
   let sawHeading = false;
@@ -46,8 +119,9 @@ export function splitTextChapters(text) {
     if (body) chapters.push({ title: current.title || `第 ${chapters.length + 1} 节`, body });
     current = { title: "", lines: [] };
   };
-  for (const line of lines) {
-    if (isChapterHeading(line)) {
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (headings.has(index)) {
       sawHeading = true;
       push();
       current.title = headingTitle(line);
