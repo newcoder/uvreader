@@ -1249,42 +1249,10 @@ body .view-content.qiaomu-reader-view .qiaomu-reader-pdf-zoom-control {
   text-align: right;
 }
 
-.qbr-workshop-advanced {
-  margin-top: 8px;
-  padding: 8px 12px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 10px;
-}
-
-.qbr-workshop-advanced summary {
-  cursor: pointer;
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
-.qbr-workshop-preview {
-  margin-top: 0;
-  display: flex;
-  justify-content: center;
-}
-
-.qbr-workshop-preview-frame {
-  width: min(420px, 100%);
-  height: min(58vh, 620px);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 10px;
-  background: #fff;
-  transition: width .2s;
-}
-
-.qbr-workshop-preview.is-wide .qbr-workshop-preview-frame {
-  width: 100%;
-}
-
-/* 快速成书:左设置 / 右预览并排 */
+/* 快速成书:单列向导(右侧预览已移除) */
 .qbr-workshop-wizard {
   display: grid;
-  grid-template-columns: minmax(300px, 1fr) minmax(300px, 1fr);
+  grid-template-columns: 1fr;
   gap: 18px;
   align-items: start;
 }
@@ -1360,47 +1328,7 @@ body .view-content.qiaomu-reader-view .qiaomu-reader-pdf-zoom-control {
   margin-top: 8px;
 }
 
-.qbr-workshop-wizard-preview {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  position: sticky;
-  top: 8px;
-}
-
-@media (max-width: 900px) {
-  .qbr-workshop-wizard {
-    grid-template-columns: 1fr;
-  }
-
-  .qbr-workshop-wizard-preview {
-    position: static;
-  }
-}
-
-/* 封面预览与目录编辑 */
-.qbr-workshop-cover-preview {
-  margin-top: 0;
-  display: flex;
-}
-
-.qbr-workshop-cover-box {
-  width: 176px;
-  height: 264px;
-  overflow: hidden;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  background: #fff;
-}
-
-.qbr-workshop-cover-frame {
-  width: 1600px;
-  height: 2400px;
-  border: 0;
-  transform: scale(0.11);
-  transform-origin: top left;
-}
-
+/* 目录编辑 */
 .qbr-workshop-chapters {
   margin-top: 10px;
   display: flex;

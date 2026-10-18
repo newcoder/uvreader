@@ -3018,19 +3018,17 @@ async function runWorkshopEpubScenario() {
   fs.mkdirSync(path.join(userData, "library", "Books"), { recursive: true });
   const source = path.join(userData, "library", "Books", "测试小说.txt");
   fs.writeFileSync(source, "第一章 起风了\n\n第一段正文，犇。\n\n第二章 雨\n\n第二段正文。\n", "utf8");
-  const bundledFont = fileURLToPath(new URL("../../../fonts/QiaomuReadingFangsong.woff2", import.meta.url));
   const { app, page } = await launch("", { userData });
   try {
     await page.waitForSelector(".qbr-home-view", { timeout: 30_000 });
     const payload = {
       source: "Books/测试小说.txt",
       settings: { ocrPython: process.env.QBR_OCR_PYTHON || "python" },
-      styles: { theme: "warm", fontSize: 18, lineHeight: 1.8 },
+      styles: { indent: 2 },
       title: "测试小说",
       author: "书坊",
       cover: { mode: "template", palette: "ink", subtitle: "封面副标题" },
     };
-    if (fs.existsSync(bundledFont)) payload.fonts = { files: [{ path: bundledFont.replace(/\\/g, "/"), family: "Zhuque" }] };
     const task = await page.evaluate((request) => window.qbrDesktop.workshop.start({
       kind: "book-build", title: "生成电子书", payload: request,
     }), payload);
@@ -3048,7 +3046,7 @@ async function runWorkshopEpubScenario() {
     const nav = await zip.file("OEBPS/nav.xhtml").async("string");
     if (!nav.includes("第一章 起风了") || !nav.includes("第二章 雨")) throw new Error("the epub lost its chapters");
     const css = await zip.file("OEBPS/styles.css").async("string");
-    if (!/background: #faf6ef/.test(css) || !/font-size: 18px/.test(css)) throw new Error("the epub lost its styles");
+    if (!/text-indent: 2em/.test(css) || /background:/.test(css)) throw new Error("the epub lost its styles");
     const coverImage = await zip.file("OEBPS/images/cover.jpg")?.async("nodebuffer");
     if (!coverImage?.length || coverImage[0] !== 0xff || coverImage[1] !== 0xd8) {
       throw new Error("the template cover should be a real JPEG inside the epub");
@@ -3141,8 +3139,8 @@ async function runWorkshopEpubScenario() {
     console.log("workshop-epub: wizard keeps its controls; preview column removed");
     const ranges = await page.evaluate(() => [...document.querySelectorAll(".qbr-workshop-panel[data-tool='book'] input[type='range']")]
       .map((input) => `${input.min}-${input.max}:${input.value}`));
-    if (ranges[0] !== "12-28:17" || ranges[1] !== "1.2-2.4:1.75" || ranges[2] !== "0-12:5") {
-      throw new Error(`the wizard sliders should start at the defaults: ${ranges.join(", ")}`);
+    if (ranges.length !== 2 || ranges[0] !== "0-4:2" || ranges[1] !== "0-2:0") {
+      throw new Error(`the wizard should keep just the indent and spacing sliders at their defaults: ${ranges.join(", ")}`);
     }
     // 目录编辑(两章,改名第一章)。
     const detected = await waitFor("detected chapters", () => page.evaluate(() => {

@@ -5,9 +5,9 @@ import path from "node:path";
 
 import JSZip from "jszip";
 
-import { BOOK_STYLE_DEFAULTS, BOOK_THEMES, normalizeBookStyles, renderBookCss } from "../shared/book-styles.js";
+import { BOOK_STYLE_DEFAULTS, normalizeBookStyles, renderBookCss } from "../shared/book-styles.js";
 
-export { BOOK_STYLE_DEFAULTS, BOOK_THEMES, normalizeBookStyles, renderBookCss };
+export { BOOK_STYLE_DEFAULTS, normalizeBookStyles, renderBookCss };
 
 export const IMAGE_MEDIA_TYPES = Object.freeze({
   ".png": "image/png",

@@ -2,7 +2,7 @@ import { ItemView, Notice, setIcon } from "obsidian";
 
 import { iconResolver } from "./icons.js";
 import { DOCVORTEX_FORMATS, DOCVORTEX_INPUTS, EBOOK_TARGETS, IMAGE_BOOK_TARGETS, TEXT_SOURCE_EXTENSIONS, docvortexFormatExt } from "../shared/workshop-formats.js";
-import { BOOK_STYLE_DEFAULTS, BOOK_THEMES, COVER_PALETTES } from "../shared/book-styles.js";
+import { BOOK_STYLE_DEFAULTS, COVER_PALETTES } from "../shared/book-styles.js";
 import { chapterStats, mergeChapters, moveChapter, removeChapter, renameChapter, splitChapter } from "../shared/book-chapters.js";
 import { splitTextChapters } from "../main/text-book.js";
 import { EXTRACT_MODES, IMAGE_INPUTS, extractionKind } from "../shared/extract-formats.js";
@@ -1286,33 +1286,19 @@ export function createWorkshopView(leaf, options) {
       this._bookCoverMode.addEventListener("change", () => { this.syncBookCoverRow(); this.onBookStyleChange(); });
       this.syncBookCoverRow();
 
-      // ④ 排版样式(右侧预览即时更新)
-      const styleStep = this.bookStep(controls, "4", "排版样式", "字号 / 行距 / 缩进 / 对齐");
+      // ④ 排版样式:只留书里一定看得见的三项。字号 / 行距 / 边距 / 对齐 / 主题都由
+      // 阅读器自己的阅读设置决定(UV Reader 用 !important 覆盖,见 reader-appearance.js),
+      // 摆在这里只会是「按了没反应」的控件;书里仍会写入一份默认基线供其他阅读器使用。
+      const styleStep = this.bookStep(controls, "4", "排版样式", "首行缩进 / 段间距 / 标题对齐");
       this._bookControls = {};
-      this.bookSlider(styleStep, "字号", "fontSize", { min: 12, max: 28, step: 1, suffix: "px" });
-      this.bookSlider(styleStep, "行距", "lineHeight", { min: 1.2, max: 2.4, step: 0.05, suffix: "" });
-      this.bookSlider(styleStep, "边距", "margin", { min: 0, max: 12, step: 1, suffix: "%" });
-      const themeRow = styleStep.createDiv("qbr-workshop-row");
-      themeRow.createSpan({ cls: "qbr-workshop-hint", text: "主题" });
-      this._bookTheme = themeRow.createEl("select", { cls: "qbr-workshop-select" });
-      for (const [id, theme] of Object.entries(BOOK_THEMES)) {
-        this._bookTheme.createEl("option", { attr: { value: id }, text: theme.label });
-      }
-
-      const advanced = styleStep.createEl("details", { cls: "qbr-workshop-advanced" });
-      advanced.createEl("summary", { text: "高级排版(缩进 / 段距 / 对齐)" });
-      this.bookSlider(advanced, "首行缩进", "indent", { min: 0, max: 4, step: 0.5, suffix: "em" });
-      this.bookSlider(advanced, "段间距", "spacing", { min: 0, max: 2, step: 0.25, suffix: "em" });
-      const alignRow = advanced.createDiv("qbr-workshop-row");
-      alignRow.createSpan({ cls: "qbr-workshop-hint", text: "对齐" });
-      this._bookAlign = alignRow.createEl("select", { cls: "qbr-workshop-select" });
-      this._bookAlign.createEl("option", { attr: { value: "justify" }, text: "两端对齐" });
-      this._bookAlign.createEl("option", { attr: { value: "left" }, text: "左对齐" });
-      const headingRow = advanced.createDiv("qbr-workshop-row");
+      this.bookSlider(styleStep, "首行缩进", "indent", { min: 0, max: 4, step: 0.5, suffix: "em" });
+      this.bookSlider(styleStep, "段间距", "spacing", { min: 0, max: 2, step: 0.25, suffix: "em" });
+      const headingRow = styleStep.createDiv("qbr-workshop-row");
       headingRow.createSpan({ cls: "qbr-workshop-hint", text: "标题" });
       this._bookHeadingAlign = headingRow.createEl("select", { cls: "qbr-workshop-select" });
       this._bookHeadingAlign.createEl("option", { attr: { value: "left" }, text: "左对齐" });
       this._bookHeadingAlign.createEl("option", { attr: { value: "center" }, text: "居中" });
+      this._bookHeadingAlign.addEventListener("change", () => this.onBookStyleChange());
 
       const buildRow = controls.createDiv("qbr-workshop-row qbr-workshop-build");
       const build = buildRow.createEl("button", { cls: "mod-cta", text: "生成 EPUB" });
@@ -1562,8 +1548,6 @@ export function createWorkshopView(leaf, options) {
       for (const [key, control] of Object.entries(this._bookControls || {})) {
         state[key] = Number(control.input.value);
       }
-      state.theme = String(this._bookTheme?.value || "follow");
-      state.align = String(this._bookAlign?.value || "justify");
       state.headingAlign = String(this._bookHeadingAlign?.value || "left");
       state.title = String(this._bookTitle?.value || "");
       state.author = String(this._bookAuthor?.value || "");
@@ -1601,8 +1585,6 @@ export function createWorkshopView(leaf, options) {
         control.input.value = String(Number.isFinite(Number(saved[key])) ? Number(saved[key]) : fallback);
         control.value.setText(`${control.input.value}${control.suffix}`);
       }
-      if (saved.theme) this._bookTheme.value = String(saved.theme);
-      if (saved.align) this._bookAlign.value = String(saved.align);
       if (saved.headingAlign) this._bookHeadingAlign.value = String(saved.headingAlign);
       if (typeof saved.title === "string") this._bookTitle.value = saved.title;
       if (typeof saved.author === "string") this._bookAuthor.value = saved.author;
@@ -1789,16 +1771,10 @@ export function createWorkshopView(leaf, options) {
           title: state.title,
           author: state.author,
           styles: {
-            fontSize: state.fontSize,
-            lineHeight: state.lineHeight,
-            margin: state.margin,
             indent: state.indent,
             spacing: state.spacing,
-            align: state.align,
             headingAlign: state.headingAlign,
-            theme: state.theme,
           },
-          fonts: { pairing: state.pairing, embed: true },
           cover: {
             mode: state.coverMode,
             imagePath: state.coverImage,

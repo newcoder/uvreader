@@ -46,7 +46,7 @@ test("the book-build runner turns a txt into a readable EPUB", async () => {
   const id = queue.start({
     kind: "book-build",
     title: "生成电子书",
-    payload: { source, settings: {}, styles: { theme: "warm", fontSize: 18 } },
+    payload: { source, settings: {}, styles: { indent: 3 } },
   });
   const task = await waitForTask(queue, id);
   assert.equal(task.status, "done");
@@ -59,7 +59,7 @@ test("the book-build runner turns a txt into a readable EPUB", async () => {
   const nav = await zip.file("OEBPS/nav.xhtml").async("string");
   assert.match(nav, /第一章 起风了/);
   const css = await zip.file("OEBPS/styles.css").async("string");
-  assert.match(css, /background: #faf6ef/, "the warm theme reached the stylesheet");
+  assert.match(css, /text-indent: 3em/, "the panel's indent reached the stylesheet");
   assert.match(task.detail, /EPUB · 2 章/);
 });
 

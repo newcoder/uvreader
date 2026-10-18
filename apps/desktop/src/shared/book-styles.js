@@ -1,4 +1,8 @@
-// 电子书样式(主进程与渲染层共用):单栏流式 CSS,预览与成品共用同一份。
+// 电子书样式(主进程与渲染层共用):单栏流式 CSS。
+// 字号 / 行距 / 边距 / 对齐 / 主题这些「阅读器说了算」的项只在这里保留**默认基线**
+// (供 Kindle / Apple Books 等外部阅读器首次打开时使用),面板不再暴露 ——
+// UV Reader 自己的阅读设置会用 !important 覆盖它们(见 reader-appearance.js),
+// 暴露出来只会是「按了没反应」的控件。面板只留书里一定看得见的三项:缩进 / 段距 / 标题对齐。
 export const BOOK_STYLE_DEFAULTS = Object.freeze({
   fontSize: 17,
   lineHeight: 1.75,
@@ -6,21 +10,11 @@ export const BOOK_STYLE_DEFAULTS = Object.freeze({
   indent: 2,
   spacing: 0,
   align: "justify",
-  theme: "follow",
   headingAlign: "left",
   bodyFont: "Georgia, 'Songti SC', serif",
   headingFont: "",
   latinFont: "",
   codeFont: "'JetBrains Mono', 'SFMono-Regular', Consolas, monospace",
-});
-
-// 主题:follow 不写颜色(交给阅读器);其余给出纸色/墨色。
-export const BOOK_THEMES = Object.freeze({
-  follow: { bg: "", fg: "", rule: "", label: "跟随阅读主题" },
-  paper: { bg: "#ffffff", fg: "#1f1f1f", rule: "#e2e2e2", label: "纸白" },
-  warm: { bg: "#faf6ef", fg: "#3a3228", rule: "#e8dfd2", label: "暖纸" },
-  celadon: { bg: "#f4f7f4", fg: "#26312b", rule: "#dde6dd", label: "青瓷" },
-  night: { bg: "#1b1b1f", fg: "#d6d3cd", rule: "#3a3a40", label: "夜间" },
 });
 
 // 模板封面配色(与内文主题分开)。
@@ -39,20 +33,15 @@ export function normalizeBookStyles(styles = {}) {  const merged = { ...BOOK_STY
   merged.spacing = Math.min(2, Math.max(0, Number(merged.spacing) || 0));
   merged.align = merged.align === "left" ? "left" : "justify";
   merged.headingAlign = merged.headingAlign === "center" ? "center" : "left";
-  merged.theme = BOOK_THEMES[merged.theme] ? merged.theme : "follow";
   return merged;
 }
 
 export function renderBookCss(styles = {}) {  const s = normalizeBookStyles(styles);
-  const theme = BOOK_THEMES[s.theme];
-  const colorBlock = theme.bg
-    ? `html, body { background: ${theme.bg}; color: ${theme.fg}; }\nhr { border-top-color: ${theme.rule}; }\n`
-    : "";
   const headingFont = s.headingFont ? `${s.headingFont}, ` : "";
   const bodyFont = s.latinFont ? `${s.bodyFont}, ${s.latinFont}` : s.bodyFont;
   return `/* 单栏流式排版:不写死宽度,交给阅读器分栏/分页 */
 html { -webkit-text-size-adjust: 100%; }
-${colorBlock}body {
+body {
   font-family: ${bodyFont};
   font-size: ${s.fontSize}px;
   line-height: ${s.lineHeight};

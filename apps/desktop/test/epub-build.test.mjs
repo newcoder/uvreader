@@ -18,20 +18,17 @@ test("normalizeBookStyles clamps user input", () => {
   assert.equal(styles.margin, 0);
   assert.equal(styles.indent, 4);
   assert.equal(styles.align, "justify", "unknown alignments fall back to justify");
-  assert.equal(styles.theme, "follow");
   assert.equal(normalizeBookStyles({}).fontSize, BOOK_STYLE_DEFAULTS.fontSize);
 });
 
 test("renderBookCss emits a single-column reflow stylesheet", () => {
-  const css = renderBookCss({ fontSize: 18, lineHeight: 1.8, margin: 6, indent: 2, theme: "warm" });
+  const css = renderBookCss({ fontSize: 18, lineHeight: 1.8, margin: 6, indent: 2 });
   assert.match(css, /body \{[\s\S]*font-size: 18px/);
   assert.match(css, /line-height: 1\.8/);
   assert.match(css, /margin: 6%/);
   assert.match(css, /text-indent: 2em/);
-  assert.match(css, /background: #faf6ef/, "the warm theme sets paper colours");
   assert.match(css, /img \{ max-width: 100%/);
-  const followed = renderBookCss({ theme: "follow" });
-  assert.ok(!/background: #/.test(followed.split("body")[0]), "the follow theme leaves colours to the reader");
+  assert.ok(!/background:/.test(css), "主题已移除:书里不写背景色,交给阅读器");
   assert.ok(!/@font-face/.test(renderBookCss({})), "字体不再嵌入:样式里没有 @font-face");
 });
 
@@ -48,7 +45,7 @@ test("buildEpub writes a valid reflowable EPUB with chapters, nav and cover", as
   const cover = Buffer.from("fake-jpeg");
   const result = await buildEpub({
     book: { title: "测试书", author: "作者", language: "zh", identifier: "urn:test:1", modified: "2026-10-12T00:00:00Z" },
-    styles: { theme: "paper" },
+    styles: { indent: 2 },
     chapters: [chapter("第一章", "<p>正文一</p>"), chapter("第二章", "<p>正文二</p>")],
     cover: { data: cover, fileName: "cover.jpg" },
     colophon: "由 UV Reader 生成",
