@@ -136,11 +136,11 @@
 - **格式转换全面测试(2026-10-12,15 组互转 + 命名 + 错误路径)**:docx / pdf / epub / html / csv × md / html / tex / docx / pdf 全绿(docx → 5 种目标各 2–4 秒,epub / pdf 各 1–3 秒);过程中发现并修掉两个真问题:  - **表格**:DocVortex 的 DOCX 渲染器**无法从 HTML 物化表格**(直接报 `HTML table cannot be materialized and has no image fallback`),PDF 渲染器则**静默丢掉表格内容**。新增目标感知的 `tableModeFor()`:`docx` / `pdf` 目标把表格换成 MinerU 的**表格截图**(Doc JSON 自带 `image`),`html` / `latex` 目标仍输出真 `<table>`。实测 2 页报价 PDF:改前 DOCX 报错、PDF 里搜不到表格文字;改后 DOCX 178KB(内嵌 3 张表格截图)、PDF 285KB、HTML 3 个真表格。
   - **本地文件同名覆盖**:渲染层的同名判断只查**书库**(本地文件永远判不到),会静默覆盖已有产物。新增 `main/paths.js` 的 `uniqueFile()`,接入 `docvortex-convert` / `formula-convert` / `ebook-convert` 三个 runner;实测同一份本地 PDF 连转两次 → `报价单.md` + `报价单 (1).md`,两个文件都在。
   - 顺带:Markdown 的**管道表格**现在渲染成真表格(`text-book.markdownToHtml`:缺格补空、单元格里的公式照常渲染;此前是带竖线的段落),`book-styles` 配了表格样式。
-  - 已知上游限制:DOCX 里的表格只能是截图(DocVortex 渲染器限制);转换 HTML 时若同目录缺图片资源 DocVortex 会报错(资源放好即可,任务会记录错误);**DocVortex 会把含 `++` 的普通文字误判成公式裁成图片**(实测 `CSP2021.pdf` 的选项 "A. C++" 变成 `images/page_0_equation_6.jpg`),而且**它的 PDF 路径没有「图 → LaTeX」的后续识别**:公式条目虽然有 `equation_latex` 槽位,但只由 Office 原生格式(docx OMML / 旧 .doc 的 MTEF 对象)或我们桥接的 `<script type="math/tex">` 填充,它自己的说明是 "Vector-only page preserved as an image; no text recognition was performed" —— 也就是说 **DocVortex 负责「消费」LaTeX,不负责「生产」LaTeX**(生产靠 MinerU 的公式模型)。这类试卷 / 公文用「文本型」最稳(本地、不会把文字变图片);真公式用「公式优先」;**图片 → PDF** 预设仍未实现(面板标注「后续阶段」)。
+  - 已知上游限制:DOCX 里的表格只能是截图(DocVortex 渲染器限制);转换 HTML 时若同目录缺图片资源 DocVortex 会报错(资源放好即可,任务会记录错误);**DocVortex 会把含 `++` 的普通文字误判成公式裁成图片**(实测 `CSP2021.pdf` 的选项 "A. C++" 变成 `images/page_0_equation_6.jpg`),而且**它的 PDF 路径没有「图 → LaTeX」的后续识别**:公式条目虽然有 `equation_latex` 槽位,但只由 Office 原生格式(docx OMML / 旧 .doc 的 MTEF 对象)或我们桥接的 `<script type="math/tex">` 填充,它自己的说明是 "Vector-only page preserved as an image; no text recognition was performed" —— 也就是说 **DocVortex 负责「消费」LaTeX,不负责「生产」LaTeX**(生产靠 MinerU 的公式模型)。这类试卷 / 公文用「文本型」最稳(本地、不会把文字变图片);真公式用「公式优先」;**图片 → PDF** 已实现(2026-10-14,格式转换的预设卡)。
 
-### 5.4 电子书制作(向导 + 实时预览,主输出 EPUB)
+### 5.4 电子书制作(向导,主输出 EPUB)
 
-**布局**:左侧向导步骤,右侧**实时预览**(章节样张/封面/目录随步骤切换)。样式改动只重渲染预览(毫秒级),「生成」时才真正构建 EPUB。
+**布局(2026-10-18)**:单列向导——① 内容 → ② 目录 → ③ 书名与封面 → ④ 排版样式 → 生成 EPUB。**右侧实时预览列已移除**(用户要求:预览没用;见 `docs/workshop-implementation.md` 的 2026-10-18 减法条目)。
 
 **面板预设(计划中,2026-10-12 起不在向导面板重复展示)**:PDF → 干净电子书;Markdown / HTML → EPUB;txt → EPUB;Office / OFD → EPUB;**EPUB → AZW3 / MOBI**;图片 → CBZ / EPUB——源已全部接入后,这些都在「电子书制作」向导里直接完成(非文本源由向导内部自动提取/转换)。**所有电子书产物统一在这里。**
 
@@ -148,11 +148,11 @@
 
 **已实现(2026-10-12)**:
 - 「**电子书互转(EPUB → AZW3 / MOBI)**」(Calibre `ebook-convert`,检测 + 路径设置 + 检测按钮)与「**图片 → CBZ / EPUB**」(CBZ 自己打包:自然排序、同名序号;EPUB 由 CBZ 经 Calibre 转);产物落在源文件旁。
-- **EPUB 构建器 + 字体子系统(W1-2)**:txt / Markdown → 章节(识别「第X章/回/卷」等标题,无标题按长度分块;Markdown 渲染标题/列表/引用/代码/图片/链接/强调)→ 单栏流式 CSS(主题/字号/行距/边距/缩进/对齐/标题/引用/代码/图片)→ EPUB 3(mimetype 存储、container、OPF 元数据、nav + NCX、封面页、版权/字体许可页)。字体:**乔木封面字库按需下载**(jsDelivr 镜像 → 缓存 `userData/font-cache`)+ **子集化嵌入**(Python fontTools 子集化;需 fontTools 与 brotli 读 WOFF2,缺失时先回退嵌原文件、再回退系统字体),子集改名 `QBR <字体名>`,OFL 文本随包。实测:朱雀 2.5MB WOFF2 → **22KB 子集**,整本 EPUB 27.8KB,阅读器可直接打开。
-- **向导 UI(W1-3,已实现 2026-10-12)**:「快速成书」面板 = 书稿选择(txt / Markdown,书库或本地)→ 书名/作者 → 字体搭配(12 套)+ 字号/行距/边距/主题(高级:缩进/段距/对齐/标题)→ **iframe(blob)实时预览**(手机/桌面宽度,与成品共用同一份 CSS;选中书稿后显示其开头)→ 生成 EPUB(走任务队列);样式持久化在本地。
-- **封面(已实现 2026-10-12)**:三选一——**模板生成**(1600×2400 离屏渲染,配色 暖纸/纸白/青瓷/夜墨,标题/副标题/作者,嵌入所选搭配字体)、**指定图片**(nativeImage 统一转 JPEG)、**自动**(Markdown 首图,缺图回退模板);**面板内 176×264 缩略图实时预览**(同一份 `coverHtml`,系统近似字体)。PDF/Office/图片源随后续阶段接入。
+- **EPUB 构建器(W1-2)**:txt / Markdown → 章节(识别「第X章/回/卷」等标题,无标题按长度分块;Markdown 渲染标题/列表/引用/代码/图片/链接/强调)→ 单栏流式 CSS(缩进/段距/标题对齐 + 字号/行距/边距/对齐的默认基线)→ EPUB 3(mimetype 存储、container、OPF 元数据、nav + NCX、封面页、版权页)。**字体子系统已移除(2026-10-18)**:~~乔木封面字库按需下载 + 子集化嵌入(`pyftsubset`,OFL 随包)~~ —— 不再下载/嵌入字体(字体交给阅读器自带),实测 txt → epub 从 ~78KB 降到 55KB。
+- **向导 UI(W1-3,已实现 2026-10-12;2026-10-18 收敛)**:「快速成书」面板 = 书稿选择(**txt / Markdown / PDF / Office / ODF / OFD / HTML / EPUB / 图片**,书库或本地)→ 书名/作者 → 目录编辑 → **排版三项(首行缩进 / 段间距 / 标题对齐)** → 生成 EPUB(走任务队列);样式持久化在本地。~~字体搭配 / 字号 / 行距 / 边距 / 主题 / 对齐控件、iframe 实时预览~~ 已按用户要求移除(那些项由阅读器自己的阅读设置决定)。
+- **封面(已实现 2026-10-12)**:三选一——**模板生成**(1600×2400 离屏渲染,配色 暖纸/纸白/青瓷/夜墨,标题/副标题/作者)、**指定图片**(nativeImage 统一转 JPEG)、**自动**(Markdown 首图,缺图回退模板)。~~面板内 176×264 缩略图实时预览~~ 随预览列一起移除(2026-10-18)。
 - **目录编辑(已实现 2026-10-12)**:选中书库书稿后自动分章并列出(序号 / 标题输入框 / 字数),可**改名、合并(与下一章)、拆分(段落中点)、上下排序**;编辑后的章节列表随 `book-build` 一起提交(runner 优先使用面板目录)。本地文件在生成时自动识别目录。
-- **面板重排 + 成品质量修复(2026-10-12,用户反馈)**:面板改成**一条主流程 + 更多工具**——主流程是向导四步(① 内容 → ② 目录 → ③ 书名与封面 → ④ 排版样式 → 生成 EPUB),右侧全程预览;「EPUB → AZW3 / MOBI」「图片 → CBZ / EPUB」「Calibre 设置(折叠)」收进「更多工具」;向导上方的预设矩阵撤掉(任何受支持的输入都直接在向导里成书)。同时修掉三类成品问题:
+- **面板重排 + 成品质量修复(2026-10-12,用户反馈)**:面板改成**一条主流程 + 更多工具**——主流程是向导四步(① 内容 → ② 目录 → ③ 书名与封面 → ④ 排版样式 → 生成 EPUB)~~,右侧全程预览~~;「EPUB → AZW3 / MOBI」「图片 → CBZ / EPUB」「Calibre 设置(折叠)」收进「更多工具」;向导上方的预设矩阵撤掉(任何受支持的输入都直接在向导里成书)。同时修掉三类成品问题:
   - **图片**:章节 HTML 引用的本地图片(`mineru/images/*.jpg` 这类提取产物)按提取目录解析后**嵌入 EPUB**(`images/image-N.*`;缺失或不支持的格式丢弃并记日志),成品不再出现破图;支持 png / jpg / jpeg / gif / svg。
   - **公式**:正文里的 `$…$` / `$$…$$` / `\(…\)` / `\[…\]` 收集去重后用 Python `latex2mathml` 一次转成 **MathML**(行间公式标 `display="block"`),失败时保留原 LaTeX 文本、不阻断出书;实测用户论文 34 条公式全部转换(章节里 37 处 `<math>`,0 处遗留 `$…$`)。
   - **假代码块**:MinerU 偶尔把正文段落包进没有语言标记的围栏(段里的公式因此不渲染),`shared/markdown-fix.js` 的 `unwrapProseFences()` 把这类「像正文」的围栏拆回段落(真代码块保留);向导读 Markdown 源、内容提取的向导路径与预览都先过这一层。
@@ -163,22 +163,15 @@
 3. **章节**:按标题自动分章(1–3 级可选);可改名/合并/拆分/排序,显示字数;「**AI 建议分章**」在标题缺失时推断结构;右侧预览目录(nav/NCX)。
 4. **样式**(2026-10-18 收敛为三项:缩进 / 段距 / 标题对齐,见下「字体与排版」):~~字体(内置字体 + 系统)、字号、行距、段首缩进、页边距、标题风格、对齐、主题(跟随阅读主题 / 纸白 / 暖纸 / 青瓷 / 夜间)、代码块与引用样式;默认值可用,高级折叠;右侧样张实时更新,可切换**手机/平板/桌面**宽度与明暗。~~
 
-**字体与排版(2026-10-12 定调)**:
-- **版式**:单栏流式(EPUB reflow),不做固定版式;新章起新页,图片居中自适应;标题层级由 CSS 控制(不写死字号)。预览与成品共用同一份 CSS。
-- **字体来源**:[乔木封面字库](https://github.com/joeseesun/qiaomu-cover-fonts)(34 款 SIL OFL,中文 19 / 英文 15;WOFF2 子集共 30.7MB;`index.json` 带字节数与 SHA-256)+ 系统字体 + 阅读器已导入字体(`importedFonts`)。**按需下载**:首次选用某款时从 jsDelivr 镜像下载并校验 SHA-256,缓存到 `userData/font-cache`,之后离线可用;不预装、不静默下载整库。
-- **字体搭配**(12 套,标题 / 正文 / 英文三角色):沿用字库的 pairing(`editorial` 编辑杂志、`literary` 文化书卷、`tech` 科技产品、`warm` 温暖手记、`guofeng` 国风书法 等);默认给最稳的一套(正文思源宋体 + 标题思源黑体 Bold + 英文 Inter),用户可换。
-- **EPUB 嵌字**:选中的标题/正文/英文字体**子集化后嵌入**(`pyftsubset`,本机 fontTools 4.56 可用;DocVortex 同款依赖):
-  - 只保留书中实际用到的字符 + 常用标点 → 正文字体通常几百 KB;
-  - 输出 **TTF**(兼容性最好;WOFF2 只被部分阅读器支持);
-  - **命名与许可**:子集字体重命名为 `QBR <字体名>`(与现有阅读子集 `QBR Zhuque Fangsong` 一致,满足 OFL Reserved Font Name);EPUB 内附 `fonts/OFL-*.txt` 并在版权页注明;
-  - **排除不可子集的字体**(抖音美好体等 no-modify)只用于封面渲染,不进 EPUB;
-  - 字体缺失/下载失败时回退系统 serif/sans,不阻断生成。
+**字体与排版(2026-10-12 定调;2026-10-18 减法)**:
+- **版式**:单栏流式(EPUB reflow),不做固定版式;新章起新页,图片居中自适应;标题层级由 CSS 控制(不写死字号)。~~预览与成品共用同一份 CSS~~(预览已移除)。
+- ~~**字体来源**(乔木封面字库按需下载 + SHA-256 校验 + `userData/font-cache`)、**字体搭配**(12 套 pairing)、**EPUB 嵌字**(`pyftsubset` 子集化 → TTF,改名 `QBR <字体名>`,OFL 随包)~~ —— **字体整套移除(2026-10-18)**:不再下载、不再嵌入,字体交给阅读器自带(封面改用系统字体栈);留档见 `docs/workshop-implementation.md` 的 2026-10-18 减法条目。
 - **样式设置(2026-10-18 收敛:面板只留三项)**:
   - 面板:**段首缩进**(默认 2em)/ **段间距** / **标题对齐**(左 / 居中)
   - 书里仍写入一份完整默认基线(字号 17px、行距 1.75、边距 5%、两端对齐、不写颜色),供 Kindle / Apple Books 等**外部阅读器**首次打开时使用
   - **字号 / 行距 / 边距 / 对齐 / 主题不再放面板**:这些「阅读器说了算」的项会被 UV Reader 自己的阅读设置覆盖(`reader-appearance.js` 用 `!important` 盖正文排版,foliate 分页器还会强制 `body{margin:0}`)——摆出来只是「按了没反应」的控件(用户实测反馈)。字体搭配与主题已在 2026-10-18 的减法里移除。
   - 中文排版细节(标点挤压、避头尾)交给阅读器,不写复杂 CSS;缩进只用 `text-indent`。
-- **后续(不在本阶段)**:阅读器的字体列表也可接入同一字库(现在只内置朱雀仿宋子集);导入字体与「用户自行安装」的说明见 `fonts/README.md`。
+- **后续(不在本阶段)**:~~阅读器的字体列表也可接入同一字库~~(字库已整体移除);导入字体与「用户自行安装」的说明见 `fonts/README.md`。
 5. **生成**:EPUB(主输出);可选同时导出 Markdown/HTML;可再转 AZW3/MOBI(Calibre);生成后可直接「发送到 Kindle」。
 
 **LLM 辅助任务**(全部可选、可撤销,复用伴读 AI 配置):AI 清理(OCR/断行/漏标题)、AI 分章建议、AI 元数据推断、AI 封面文案;进任务队列显示进度,失败不影响手动流程。
@@ -190,9 +183,12 @@
 - 统一任务模型:`{id, 类型, 输入, 状态(排队/运行/完成/失败/取消), 进度, 产物, 错误}`。
 - 交互:底部任务条(运行中 + 最近 3 条);展开列表(最近 20 条);取消、失败重试、完成 toast;历史落盘(不自动续跑)。
 
-### 5.6 发送到 Kindle(邮件,EPUB 直发,不需要转 AZW3)
+### 5.6 发送到 Kindle(邮件直发)——**已移除(2026-10-18)**
 
-**可行性**:Amazon「Send to Kindle」邮件通道**原生支持 EPUB**(官方支持列表:PDF/DOC/DOCX/TXT/RTF/HTM/HTML/PNG/GIF/JPG/JPEG/BMP/**EPUB**),无需转换 Kindle 格式。所以只要配置一个发件邮箱即可。
+> **2026-10-18 按用户要求整条移除**:SMTP 配置繁琐、功能鸡肋。删掉的范围:UI 工具与面板、设置页 SMTP 段、`main/kindle-send.js`、两个 IPC 与 preload 桥、单测与 e2e 断言;左侧栏 6 个工具变 5 个。要恢复看 git 历史 `de2afc8` 与 `docs/workshop-implementation.md` 的 2026-10-18 条目。
+> **保留**:EPUB → AZW3 / MOBI(Calibre,格式转换,不是发送)。
+
+~~**可行性**:Amazon「Send to Kindle」邮件通道**原生支持 EPUB**(官方支持列表:PDF/DOC/DOCX/TXT/RTF/HTM/HTML/PNG/GIF/JPG/JPEG/BMP/**EPUB**),无需转换 Kindle 格式。所以只要配置一个发件邮箱即可。~~
 
 **Amazon 侧前置条件(设置页给出引导)**:
 
@@ -202,7 +198,7 @@
 
 **应用内设计**:
 
-- 入口:书坊 →「发送到 Kindle」(已落地);书库书卡右键「发送到 Kindle…」与「电子书制作完成后一键发送」后续再加。
+- 入口:~~书坊 →「发送到 Kindle」(已落地)~~(已移除);书库书卡右键与「电子书制作完成后一键发送」从未实现。
 - 面板:选择文件(书库勾选 / 本地文件,就地处理)→「发送到 Kindle」;结果进任务队列(任务行显示送达地址与附件名)。多个文件自动打包 ZIP(Amazon 会自动解压),打包后仍 >50MB 直接拒发并说明。
 - 设置(统一在 **设置 → 书坊** 的「发送到 Kindle」段):Kindle 收件地址、SMTP 服务器、端口(465 SSL / 587 STARTTLS)、账号(完整邮箱)、发件地址(留空用账号);**「检测 SMTP」**走 `transporter.verify()`(只建连认证,不发信,结果原地显示)。收件地址目前单个(多地址分割后续再补)。
 - 密码用桌面壳的 **safeStorage/SecretStorage** 保存(与 AI 密钥同一机制),**不落明文设置**:设置页密码框「已保存;留空不修改」,发送/检测时由主进程从密文里读。
@@ -210,18 +206,18 @@
 
 **实现**:主进程 `apps/desktop/src/main/kindle-send.js` + `nodemailer`(纯 JS,Electron 主进程可用);IPC `qbr:kindle:probe` / `qbr:kindle:send`(直连,设置页检测用)+ 任务队列 runner `kindle-send`(面板发送用,`qbr:workshop:start`);非桌面宿主不提供(桌面壳专有)。单测用真实 SMTP mock 服务器跑完整会话(单附件原字节、多文件 ZIP 解包核对、超限拒发、错误映射、检测)。
 
-**两条路都保留**:① **邮件直发 EPUB**(推荐,最省事,本功能);② **EPUB → AZW3/MOBI**(Calibre,给 USB 拷贝、其它阅读器或离线场景)。直发不依赖 Calibre,转换功能也照常提供。
+**两条路都保留** ~~① **邮件直发 EPUB**(推荐,最省事,本功能)~~(已移除);② **EPUB → AZW3/MOBI**(Calibre,给 USB 拷贝、其它阅读器或离线场景)保留。
 
 ## 6. 技术架构
 
 - **页面**:`views.js` 新增 `createWorkshopView`(视图 `qbr-workshop`)+ 导航路由 `workshop`;窄窗口抽屉沿用书库方案。
-- **主进程**:`apps/desktop/src/main/workshop.js` 任务执行器 + IPC `qbr:workshop:*`(start/cancel/list/状态事件);产物写库内目录(沿用 `resolveOcrOutput` 的库内校验);发送到 Kindle 用 `apps/desktop/src/main/kindle-send.js`(nodemailer,SMTP)。
+- **主进程**:`apps/desktop/src/main/workshop.js` 任务执行器 + IPC `qbr:workshop:*`(start/cancel/list/状态事件);产物写库内目录(沿用 `resolveOcrOutput` 的库内校验)。~~发送到 Kindle 用 `apps/desktop/src/main/kindle-send.js`(nodemailer,SMTP)~~(已移除 2026-10-18)。
 - **后端解析(与 OCR 设置同规则:exe 优先 → Python 目录 → 环境变量)**:
   - `pdf_tool.reader`(sidecar JSON-RPC):文字层、可搜索 PDF、`doc.convert`;
   - `docvortex`(CLI/Python SDK):文档互转;`pip install docvortex`(MIT);
   - **Calibre(CLI 形式,外置进程)**:`ebook-convert` / `ebook-meta`,main 进程 spawn;检测顺序=设置自定义路径 → 常见安装位置(`C:\Program Files\Calibre2\ebook-convert.exe`、macOS `calibre.app/Contents/MacOS/`、PATH)→ 未找到给出下载引导;常用参数 `--title/--authors/--cover/--language/--publisher/--series/--tags`、`--chapter "//h:h2"`、`--toc-threshold`、`--extra-css`、`--base-font-size`;EPUB→AZW3/MOBI 同命令换扩展名。体积大且 GPL-3,**不随包分发**;未安装时 EPUB 用 **EbookLib** 兜底构建(备选,AGPL,需评估);
   - 备选 `EbookLib`(纯 Python):需要完全内置的 EPUB 构建时使用。
-- **预览渲染**:壳内 iframe 渲染章节 HTML,内嵌**与 EPUB 相同的 CSS**(样式控件改动即时重渲染);Markdown 预览复用现有 sanitize/render 管线;EPUB 仅在「生成」时构建,预览不落盘。
+- ~~**预览渲染**:壳内 iframe 渲染章节 HTML,内嵌与 EPUB 相同的 CSS(样式控件改动即时重渲染);Markdown 预览复用现有 sanitize/render 管线;EPUB 仅在「生成」时构建,预览不落盘。~~(预览已移除 2026-10-18)
 - **LLM 任务**:走现有 AI 桥(与伴读同一供应商/密钥),不新增设置项;任务进队列,可取消/重试。
 - **AI 复用**:在线提取/视觉模式复用伴读的 AI 供应商配置与密钥(不新增设置项)。
 - **输出**:默认落书库(文字层导出=源文件旁、同名覆盖);中间产物(缓存/工作文件)放应用目录,不入库。
@@ -274,7 +270,7 @@ DocVortex 实测备注:输出 EPUB 结构合法(mimetype/container/OPF/nav + 图
 
 - **P0**:页面 + 导航;文字层 / 可搜索 PDF(批量,`.uvtext.pdf`);PDF → Markdown/HTML(pdf_tool);文档互转(DocVortex:docx/ppt/odt/html/epub/mhtml/ofd → md/html/docx/pdf);任务队列。
 - **P1**:电子书制作向导(**实时预览 + 样式 + 封面 + 目录**;Calibre → EPUB);**发送到 Kindle**(SMTP + 设置 + 右键/书坊入口);**EPUB → AZW3/MOBI**(Calibre,与直发并存);PDF → EPUB(先提取再制作);图片 → PDF/CBZ;DOCX → EPUB。
-- **P2**:**LLM 辅助**(AI 清理 / AI 分章建议 / AI 元数据 / AI 封面文案);批量制作与元数据/样式模板;Markdown → EPUB;EPUB → Markdown;EbookLib 内置构建(可选);题目抽取(后续)。
+- **P2**:**LLM 辅助**(AI 清理 / AI 分章建议 / AI 元数据 / AI 封面文案);批量制作与元数据/样式模板;~~Markdown → EPUB、EPUB → Markdown~~(✅ 已具备:向导吃 md/txt、格式转换吃 EPUB→md;2026-10-18 补「EPUB → Markdown」预设卡);EbookLib 内置构建(可选);题目抽取(后续)。
 
 ## 11. 非目标
 
@@ -292,8 +288,8 @@ DocVortex 实测备注:输出 EPUB 结构合法(mimetype/container/OPF/nav + 图
 5. 本地文件打开**就地处理,不导入书库**,产物落在源文件旁(2026-10-12 调整);**不单独建书坊目录**(理由见 §1)。
 6. 电子书主输出 **EPUB**;特定需求经 Calibre 转 AZW3/MOBI 等主流格式。
 7. 文档格式转换采用 **DocVortex**(已安装,能力见 §8)。
-8. **发送到 Kindle**:走 Amazon 邮件通道,EPUB **直发**;应用内配置 SMTP(授权码/应用密码走 safeStorage)与 Kindle 地址,含「测试连接」与失败提示;Amazon 侧需把发件邮箱加入「已批准的个人文档电子邮件列表」,单封 ≤25 附件 / ≤50MB(超出自动 ZIP)。
+8. ~~**发送到 Kindle**:走 Amazon 邮件通道,EPUB 直发;应用内配置 SMTP(授权码/应用密码走 safeStorage)与 Kindle 地址,含「测试连接」与失败提示;Amazon 侧需把发件邮箱加入「已批准的个人文档电子邮件列表」,单封 ≤25 附件 / ≤50MB(超出自动 ZIP)。~~ **已移除(2026-10-18)**。
 9. **EPUB → AZW3/MOBI 转换同时保留**(Calibre,USB 拷贝/离线/其它阅读器场景),与「发送到 Kindle」并存,不做二选一。
-10. **预览与样式**:向导右侧**实时预览**(壳内 iframe + 与 EPUB 相同的 CSS),样式/封面/目录改动即时可见;EPUB 只在「生成」时构建。提取结果同样提供 Markdown/HTML/JSON 预览与结构树。
+10. ~~**预览与样式**:向导右侧实时预览(壳内 iframe + 与 EPUB 相同的 CSS),样式/封面/目录改动即时可见;EPUB 只在「生成」时构建。~~(预览与"阅读器说了算"的样式控件已移除 2026-10-18:面板只留缩进 / 段距 / 标题对齐)提取结果仍提供 Markdown/HTML/JSON 预览与结构树。
 11. **LLM 辅助**:AI 清理(OCR/断行/漏标题)、AI 分章建议、AI 元数据推断、AI 封面文案等复杂任务,复用现有 AI 配置;全部可选、可撤销、失败不阻塞手动流程。
 12. **Calibre 集成形式**:外置 **CLI 进程**(`ebook-convert`/`ebook-meta`),检测顺序=自定义路径 → 常见安装位置 → PATH,未找到给下载引导;体积大且 GPL-3 不随包分发,未安装时用 **EbookLib** 兜底构建 EPUB。

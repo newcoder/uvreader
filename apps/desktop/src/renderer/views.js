@@ -1803,6 +1803,7 @@ export function createWorkshopView(leaf, options) {
       this._convertPreset = "convert";
       this.renderPresetMatrix(presetCard, [
         { id: "convert", label: "文档互转(DocVortex)", hint: "保持内容与版式:Office/ODF/HTML/EPUB/OFD/Markdown/纯文本 → md / html / docx / pdf / latex", ready: true },
+        { id: "epub-md", label: "EPUB → Markdown", hint: "把 EPUB 拆成 Markdown:标题 / 列表 / 图片保留,公式进 LaTeX(目标格式已预选 md)", ready: true },
         { id: "img", label: "图片 → PDF", hint: "打包成 PDF:照片成书、扫描页合成(每张一页)", ready: true },
       ], { selected: this._convertPreset, onSelect: (id) => { this._convertPreset = id; this.syncConvertPreset(); } });
 
@@ -1982,8 +1983,10 @@ export function createWorkshopView(leaf, options) {
     }
 
     // 预设不同,后续操作不同:图片 → PDF 只需选图片;文档互转才用目标格式 / 解析方式 / MinerU。
+    // 「EPUB → Markdown」是文档互转的快捷方式:目标格式预选 md(仍可改,改了就是普通互转)。
     syncConvertPreset() {
       const img = this._convertPreset === "img";
+      if (this._convertPreset === "epub-md" && this._convertFormat) this._convertFormat.value = "markdown";
       if (this._convertFormatRow) this._convertFormatRow.hidden = img;
       if (this._convertParseRow) this._convertParseRow.hidden = img;
       for (const hint of this._convertHints || []) hint.hidden = img;
@@ -2082,6 +2085,11 @@ export function createWorkshopView(leaf, options) {
           payload: { images, settings: this.docvortexSettings() },
         }).catch((error) => new Notice(String(error?.message || error)));
         this.selectTool("tasks");
+        return;
+      }
+      // 「EPUB → Markdown」预设:输入应当是 EPUB(目标格式在预设里已预选,选错会在这里拦住)。
+      if (this._convertPreset === "epub-md" && !files.some((rel) => /\.epub$/i.test(rel))) {
+        new Notice("EPUB → Markdown 需要 EPUB 文件");
         return;
       }
       const format = String(this._convertFormat?.value || "markdown");

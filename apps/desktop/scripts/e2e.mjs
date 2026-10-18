@@ -2427,6 +2427,22 @@ async function runWorkshopScenario() {
       throw new Error(`the panel should follow the preset: ${JSON.stringify(imgPreset)}`);
     }
     console.log("workshop: preset switches the panel (图片 → PDF hides format/parse, button says 打包为 PDF)");
+    // 「EPUB → Markdown」预设:选中后目标格式预选 md(2026-10-18,W2-3)。
+    const epubPreset = await page.evaluate(() => {
+      const panel = document.querySelector(".qbr-workshop-panel[data-tool='convert']");
+      const cards = [...panel.querySelectorAll(".qbr-workshop-preset")];
+      const find = (text) => cards.find((card) => (card.querySelector("b")?.textContent || "").includes(text));
+      const card = find("EPUB → Markdown");
+      card?.click();
+      const select = [...panel.querySelectorAll("select")].find((s) => [...s.options].some((o) => o.value === "markdown"));
+      const value = select?.value || "";
+      find("文档互转")?.click();
+      return { found: Boolean(card), value };
+    });
+    if (!epubPreset.found || epubPreset.value !== "markdown") {
+      throw new Error(`EPUB → Markdown should preselect the md target: ${JSON.stringify(epubPreset)}`);
+    }
+    console.log("workshop: EPUB → Markdown preselects the markdown target");
     // 「打开 设置 → 书坊」应当直接落在书坊 tab 上,并在那里原地给检测结果。
     const mineru = await page.evaluate(async () => {
       const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
