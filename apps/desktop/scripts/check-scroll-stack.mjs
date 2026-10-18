@@ -108,8 +108,9 @@ checkOrSkip("可滚动范围已含两节", paginator.viewSize > first, \`viewSiz
 checkOrSkip("relocate 报的是正在读的那一节",
   relocations.at(-1)?.index === 1 || relocations.at(-1)?.index === 0,
   \`\${relocations.at(-1)?.index}(接缝处 0/1 都算:视口里两节都在)\`);
-checkOrSkip("relocate 的进度是节内进度", (relocations.at(-1)?.fraction ?? -1) >= 0 && relocations.at(-1)?.fraction <= 1,
-  String(relocations.at(-1)?.fraction));
+checkOrSkip("relocate 报的进度是节内进度(全书进度留在 detail.fraction)",
+  (relocations.at(-1)?.sectionFraction ?? -1) >= 0 && relocations.at(-1)?.sectionFraction <= 1,
+  String(relocations.at(-1)?.sectionFraction));
 
 // 再跨一节:窗口保留最近几节,位置继续往前(不是回到某节开头)。
 const beforeSecond = paginator.start;
@@ -163,6 +164,19 @@ checkOrSkip("向上滚动会填充占位(不会滚进空白)", Math.min(...after
 checkOrSkip("向上续读后仍在可滚范围内", afterUp.start >= 0 && afterUp.start < afterUp.extent,
   \`start=\${round(afterUp.start)} 总高=\${round(afterUp.extent)}\`);
 checkOrSkip("窗口在两侧都受限(不会无限膨胀)", afterUp.indexes.length <= 6, afterUp.indexes.join(","));
+
+// 同一 index 只能有一个元素:边缘连滚 / 导航重入重复挂载时,旧元素必须摘掉,
+// 否则同一节内容会在正文里出现多份(用户实测:目录章节重复出现在正文里、位置乱)。
+const mounted = () => paginator.debugGeometryMore.children
+  .filter((entry) => entry.h !== 0 || entry.index != null)
+  .map((entry) => entry.index)
+  .filter((index) => index != null);
+for (let step = 0; step < 3; step += 1) { await paginator.continueNext(); await wait(300); }
+for (let step = 0; step < 2; step += 1) { await paginator.continuePrev(); await wait(300); }
+const mountedIds = mounted();
+checkOrSkip("同一节不会被挂载两份(正文里不出现重复章节)",
+  new Set(mountedIds).size === mountedIds.length,
+  "挂载=" + mountedIds.join(","));
 
 // 跳章(非相邻、往回跳):照旧替换成目标节。
 await paginator.goTo({ index: 0 });
