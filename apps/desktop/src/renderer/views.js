@@ -10,6 +10,7 @@ import { splitMarkdownChapters, unwrapProseFences } from "../shared/markdown-fix
 import { convertPath, uvtextPath } from "../shared/workshop-names.js";
 import { createAiContext } from "../../../../packages/reader/src/ai-context.js";
 import { decodeText } from "../shared/text-encoding.js";
+import { applyChapterRule, describeChapterRule } from "../shared/chapter-rules.js";
 
 // 书坊的 AI 辅助复用伴读的配置读取(供应商 / 模型 / 密钥都从同一份设置与密钥库来,
 // 不新增设置项);这里只用 aiConfig,翻译与高亮定位给最小实现。
@@ -1269,6 +1270,14 @@ export function createWorkshopView(leaf, options) {
       this._bookDropToc.checked = true;
       tocRow.createSpan({ text: "去掉书里的印刷目录(与电子书导航重复的那几页)" });
 
+      // AI 分章建议:章名不是常见形态时,让模型归纳规则,套用前先给预览(可撤销)。
+      const aiChapterRow = chapterStep.createDiv("qbr-workshop-row");
+      aiChapterRow.createSpan({ cls: "qbr-workshop-hint", text: "认不出章名?" });
+      const aiChapters = aiChapterRow.createEl("button", { text: "AI 建议分章" });
+      aiChapters.addEventListener("click", () => void this.startAiChapters());
+      aiChapterRow.createSpan({ cls: "qbr-workshop-hint", text: "判断章名形态,套用前先看预览" });
+      this._bookAiChapters = chapterStep.createDiv("qbr-workshop-ai-suggest");
+
       // ③ 书名与封面
       const metaStep = this.bookStep(controls, "3", "书名与封面", "写进扉页、目录与封面");
       const metaRow = metaStep.createDiv("qbr-workshop-row");
@@ -1663,13 +1672,17 @@ export function createWorkshopView(leaf, options) {
       return file ? String(await app.vault.read(file).catch(() => "") || "") : "";
     }
 
-    // 提示词用的书稿开头:txt / md 直接读;PDF / Office 读同目录「内容提取」的 md 产物。
-    async bookSourceText(limit = 8000) {
+    // 书稿全文 / 开头:txt / md 直接读;PDF / Office 读同目录「内容提取」的 md 产物。
+    // 与主进程 runner 的读法一致(同一份编码解码),套用 AI 规则时切出来的章节才对得上。
+    async bookSourceFullText() {
       const rel = String(this._bookSources?.[0] || "");
       if (!rel) return "";
-      if (/\.(txt|md|markdown)$/i.test(rel)) return (await this.readSourceText(rel)).slice(0, limit);
-      const sibling = rel.replace(/\.[^./\\]+$/, ".md");
-      return (await this.readSourceText(sibling)).slice(0, limit);
+      if (/\.(txt|md|markdown)$/i.test(rel)) return this.readSourceText(rel);
+      return this.readSourceText(rel.replace(/\.[^./\\]+$/, ".md"));
+    }
+
+    async bookSourceText(limit = 8000) {
+      return (await this.bookSourceFullText()).slice(0, limit);
     }
 
     async startAiSuggestion(kind) {
@@ -1699,9 +1712,9 @@ export function createWorkshopView(leaf, options) {
       new Notice("AI 在后台处理,结果会出现在「书名与封面」这一步(只作建议)");
     }
 
-    // 任务完成 → 记下建议;面板里显式「应用」才写进字段(可选、可撤销)。
+    // 任务完成 → 记下建议;面板里显式「应用」才写进字段 / 替换目录(可选、可撤销)。
     captureAiSuggestions(tasks) {
-      const pending = (tasks || []).find((task) => (task.kind === "ai-metadata" || task.kind === "ai-cover-copy")
+      const pending = (tasks || []).find((task) => (task.kind === "ai-metadata" || task.kind === "ai-cover-copy" || task.kind === "ai-chapters")
         && task.status === "done" && task.result);
       if (!pending) return;
       if (this._aiSuggestion?.taskId === pending.id || this._aiDismissed?.has?.(pending.id)) return;
@@ -1710,11 +1723,30 @@ export function createWorkshopView(leaf, options) {
     }
 
     renderAiSuggestion() {
-      const host = this._bookAiSuggestion;
-      if (!host) return;
-      host.empty();
+      const metaHost = this._bookAiSuggestion;
+      const chapterHost = this._bookAiChapters;
+      metaHost?.empty();
+      chapterHost?.empty();
       const suggestion = this._aiSuggestion;
       if (!suggestion?.data) return;
+      if (suggestion.kind === "ai-chapters") this.renderAiChapterSuggestion(chapterHost, suggestion);
+      else this.renderAiFieldSuggestion(metaHost, suggestion);
+    }
+
+    aiSuggestionActions(host, suggestion, applyLabel, onApply) {
+      const actions = host.createDiv("qbr-workshop-row");
+      const apply = actions.createEl("button", { cls: "mod-cta", text: applyLabel });
+      apply.addEventListener("click", () => void onApply());
+      const skip = actions.createEl("button", { text: "忽略" });
+      skip.addEventListener("click", () => {
+        this._aiDismissed?.add?.(suggestion.taskId);
+        this._aiSuggestion = null;
+        this.renderAiSuggestion();
+      });
+    }
+
+    renderAiFieldSuggestion(host, suggestion) {
+      if (!host) return;
       const rows = suggestion.kind === "ai-metadata"
         ? [["书名", suggestion.data.title], ["作者", suggestion.data.author], ["语言", suggestion.data.language], ["丛书", suggestion.data.series], ["标签", (suggestion.data.tags || []).join(" / ")]]
         : [["书名", suggestion.data.title], ["副标题", suggestion.data.subtitle], ["系列", suggestion.data.series]];
@@ -1725,15 +1757,57 @@ export function createWorkshopView(leaf, options) {
       }
       host.createDiv({ cls: "qbr-workshop-hint", text: suggestion.kind === "ai-metadata" ? "AI 建议(应用时只填空着的字段):" : "AI 封面文案(应用时只填空着的字段):" });
       for (const [label, value] of filled) host.createDiv({ cls: "qbr-workshop-hint", text: `${label}:${value}` });
-      const actions = host.createDiv("qbr-workshop-row");
-      const apply = actions.createEl("button", { cls: "mod-cta", text: "应用" });
-      apply.addEventListener("click", () => this.applyAiSuggestion());
-      const skip = actions.createEl("button", { text: "忽略" });
-      skip.addEventListener("click", () => {
-        this._aiDismissed?.add?.(suggestion.taskId);
-        this._aiSuggestion = null;
-        this.renderAiSuggestion();
-      });
+      this.aiSuggestionActions(host, suggestion, "应用", () => this.applyAiSuggestion());
+    }
+
+    // AI 分章建议:只显示「规则 + 预览」,套用是本地按规则重切(与主进程同一份实现)。
+    renderAiChapterSuggestion(host, suggestion) {
+      if (!host) return;
+      const data = suggestion.data;
+      host.createDiv({ cls: "qbr-workshop-hint", text: `AI 判断的章名形态:${describeChapterRule(data.rule)}` });
+      host.createDiv({ cls: "qbr-workshop-hint", text: `预计 ${data.count} 章(从 ${data.candidates} 条候选里${data.truncated ? "采样" : "逐条"}判断)` });
+      if (data.first?.length) host.createDiv({ cls: "qbr-workshop-hint", text: `开头:${data.first.join(" / ")}` });
+      if (data.last?.length) host.createDiv({ cls: "qbr-workshop-hint", text: `结尾:${data.last.join(" / ")}` });
+      this.aiSuggestionActions(host, suggestion, "套用这份目录", () => this.applyAiChapters());
+    }
+
+    async applyAiChapters() {
+      const suggestion = this._aiSuggestion;
+      const rule = suggestion?.data?.rule;
+      if (!rule) return;
+      const text = await this.bookSourceFullText();
+      const applied = applyChapterRule(text, rule);
+      if (applied.error) {
+        new Notice(`套用失败:${applied.error}`);
+        return;
+      }
+      this._bookChapters = applied.chapters.map((chapter) => ({ title: chapter.title, text: chapter.body }));
+      this.renderChapterRows();
+      this._aiSuggestion = null;
+      this.renderAiSuggestion();
+      new Notice(`已套用 AI 目录:${applied.count} 章(可继续改名 / 合并 / 排序)`);
+    }
+
+    async startAiChapters() {
+      if (!bridge) return;
+      const rel = String(this._bookSources?.[0] || "");
+      if (!rel) {
+        new Notice("请先选择书稿");
+        return;
+      }
+      const config = this.aiReadyConfig();
+      if (!config) {
+        new Notice("AI 还没配置好:先在「设置 → AI 助读」里选好供应商、模型与密钥");
+        return;
+      }
+      const fileName = rel.split("/").pop() || rel;
+      void bridge.start({
+        kind: "ai-chapters",
+        title: "AI 建议分章",
+        detail: rel,
+        payload: { config, source: rel, fileName },
+      }).catch((error) => new Notice(String(error?.message || error)));
+      new Notice("AI 在后台判断章名形态,结果会出现在「目录」这一步(套用前先看预览)");
     }
 
     applyAiSuggestion() {
@@ -1779,7 +1853,15 @@ export function createWorkshopView(leaf, options) {
       this._bookChapters = found.length >= 2
         ? found.map((chapter, index) => ({ title: chapter.title || `第 ${index + 1} 章`, text: chapter.text }))
         : splitTextChapters(cleaned).map((chapter) => ({ title: chapter.title, text: chapter.body }));
-      if (!this._bookChapters.length) return;
+      this.renderChapterRows();
+    }
+
+    // 只渲染当前章节列表(编辑动作不再重读源文件 —— 否则改名/排序会被重新分章覆盖掉)。
+    renderChapterRows() {
+      const host = this._bookChaptersHost;
+      if (!host) return;
+      host.empty();
+      if (!this._bookChapters?.length) return;
       const stats = chapterStats(this._bookChapters);
       host.createDiv({ cls: "qbr-workshop-hint", text: `目录:${stats.chapters} 章 · 约 ${Math.max(1, Math.round(stats.chars / 1000))}k 字(可改名 / 合并 / 拆分 / 排序)` });
       this._bookChapters.forEach((chapter, index) => {
@@ -1796,31 +1878,31 @@ export function createWorkshopView(leaf, options) {
         up.disabled = index === 0;
         up.addEventListener("click", () => {
           this._bookChapters = moveChapter(this._bookChapters, index, -1);
-          void this.renderBookChapters();
+          this.renderChapterRows();
         });
         const down = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "↓" });
         down.disabled = index === this._bookChapters.length - 1;
         down.addEventListener("click", () => {
           this._bookChapters = moveChapter(this._bookChapters, index, 1);
-          void this.renderBookChapters();
+          this.renderChapterRows();
         });
         const merge = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "合并" });
         merge.disabled = index === this._bookChapters.length - 1;
         merge.addEventListener("click", () => {
           this._bookChapters = mergeChapters(this._bookChapters, index);
-          void this.renderBookChapters();
+          this.renderChapterRows();
         });
         const split = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "拆分" });
         split.addEventListener("click", () => {
           this._bookChapters = splitChapter(this._bookChapters, index);
-          void this.renderBookChapters();
+          this.renderChapterRows();
         });
         // 页眉/扉页这类不该成章的直接删(生成时也会自动清一遍)。
         const remove = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "删除" });
         remove.disabled = this._bookChapters.length <= 1;
         remove.addEventListener("click", () => {
           this._bookChapters = removeChapter(this._bookChapters, index);
-          void this.renderBookChapters();
+          this.renderChapterRows();
         });
       });
     }

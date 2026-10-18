@@ -3162,17 +3162,18 @@ async function runWorkshopEpubScenario() {
     const aiHelper = await page.evaluate(async () => {
       const panel = document.querySelector(".qbr-workshop-panel[data-tool='book']");
       const button = [...panel.querySelectorAll("button")].find((b) => (b.textContent || "").includes("AI 推断书名"));
-      if (!button) return { found: false, notice: "" };
+      const chapters = [...panel.querySelectorAll("button")].find((b) => (b.textContent || "").includes("AI 建议分章"));
+      if (!button || !chapters) return { found: false, notice: "", chapters: Boolean(chapters) };
       button.click();
       const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       for (let i = 0; i < 25; i += 1) {
         const notice = [...document.querySelectorAll(".notice")].map((el) => el.textContent || "").find((text) => text.includes("AI"));
-        if (notice) return { found: true, notice };
+        if (notice) return { found: true, notice, chapters: true };
         await wait(100);
       }
-      return { found: true, notice: "" };
+      return { found: true, notice: "", chapters: true };
     });
-    if (!aiHelper.found || !/AI/.test(aiHelper.notice)) {
+    if (!aiHelper.found || !aiHelper.chapters || !/AI/.test(aiHelper.notice)) {
       throw new Error(`the wizard should offer AI helpers with a notice when unconfigured: ${JSON.stringify(aiHelper)}`);
     }
     console.log("workshop-epub: AI helper present —", aiHelper.notice.slice(0, 40));

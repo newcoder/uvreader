@@ -1,17 +1,24 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import {
   AI_TASK_SPECS,
   aiFailureText,
+  buildChapterMessages,
   buildCoverCopyMessages,
   buildMetadataMessages,
   createAiRunner,
+  createChapterRunner,
+  createSourceReader,
   normalizeAiConfig,
   normalizeAiCoverCopy,
   normalizeAiMetadata,
   parseAiJson,
   registerAiRunners,
+  sourceSample,
 } from "../src/main/workshop-ai.js";
 
 function fakeRuntime({ answer = '{"title":"纽扣"}' , fail = null, onStream = null } = {}) {  const calls = [];
@@ -170,11 +177,59 @@ test("cancelling the task aborts the AI request", async () => {
   assert.equal(sent, false);
 });
 
-test("registerAiRunners wires both LLM task kinds", async () => {
+test("registerAiRunners wires the LLM task kinds", async () => {
   const registered = new Map();
   const workshop = { register: (kind, runner) => { registered.set(kind, runner); return () => registered.delete(kind); } };
   const dispose = registerAiRunners(workshop, { aiRuntime: fakeRuntime() });
-  assert.deepEqual([...registered.keys()].sort(), ["ai-cover-copy", "ai-metadata"]);
+  assert.deepEqual([...registered.keys()].sort(), ["ai-chapters", "ai-cover-copy", "ai-metadata"]);
   dispose();
   assert.equal(registered.size, 0);
+});
+
+test("the chapter runner turns an AI rule into a chapter preview", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-ai-chapters-"));
+  const source = path.join(dir, "书.txt");
+  fs.writeFileSync(source, ["12 起风", "", "正文一。".repeat(80), "", "13 下雨", "", "正文二。".repeat(80)].join("\n"), "utf8");
+  const runtime = fakeRuntime({ answer: JSON.stringify({ kind: "numbered", number: "arabic", separator: " ", accept: [1, 5], note: "数字 + 空格" }) });
+  const run = createChapterRunner({ aiRuntime: runtime, readSource: createSourceReader({}) });
+  const result = await run({ payload: { config: { id: "x", base: "b", model: "m" }, source, fileName: "书.txt" } });
+  assert.equal(result.result.count, 2);
+  assert.deepEqual(result.result.first, ["12 起风", "13 下雨"]);
+  assert.match(result.output, /2 章/);
+  assert.match(runtime.calls[0].messages[1].content, /12 起风/, "候选行进了提示词");
+  assert.match(runtime.calls[0].messages[1].content, /正文一/, "正文片段也在(判断风格用)");
+});
+
+test("the chapter runner reads GB18030 sources and rejects unusable rules", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-ai-chapters-gbk-"));
+  const source = path.join(dir, "凡人.txt");
+  // 「第一章 起风了」+ 正文,整份按 GB18030 写盘。
+  fs.writeFileSync(source, Buffer.from([
+    0xB5, 0xDA, 0xD2, 0xBB, 0xD5, 0xC2, 0x20, 0xC6, 0xF0, 0xB7, 0xE7, 0xC1, 0xCB, 0x0D, 0x0A,
+    0xD5, 0xFD, 0xCE, 0xC4, 0xA1, 0xA3, 0x0D, 0x0A,
+  ]));
+  const reader = createSourceReader({});
+  const text = await reader(source);
+  assert.match(text, /第一章 起风了/, "主进程读书稿也走同一份编码解码");
+  assert.match(text, /正文。/);
+
+  const runtime = fakeRuntime({ answer: "抱歉,我不能这么做。" });
+  const run = createChapterRunner({ aiRuntime: runtime, readSource: reader });
+  const body = "正文。".repeat(80);
+  fs.writeFileSync(source, ["12 起风", "", body, "", "13 下雨", "", body].join("\n"), "utf8");
+  await assert.rejects(() => run({ payload: { config: { id: "x", base: "b", model: "m" }, source } }), /没给出可用的章名规则/);
+
+  const descending = fakeRuntime({ answer: '{"kind":"numbered","number":"arabic","separator":" "}' });
+  fs.writeFileSync(source, [`12 起风`, "", body, "", `9 下雨`, "", body].join("\n"), "utf8");
+  const run2 = createChapterRunner({ aiRuntime: descending, readSource: reader });
+  await assert.rejects(() => run2({ payload: { config: { id: "x", base: "b", model: "m" }, source } }), /切不出章节/);
+});
+
+test("sourceSample takes head, middle and tail so the prompt sees more than the preface", () => {
+  const text = `开头说明。${"甲".repeat(900)}${"乙".repeat(900)}结尾。`;
+  const sample = sourceSample(text);
+  assert.match(sample, /开头说明/);
+  assert.match(sample, /结尾/);
+  assert.ok(sample.length < text.length);
+  assert.match(buildChapterMessages({ candidates: [{ no: 3, text: "12 起风" }], total: 1, sample }).at(-1).content, /12 起风/);
 });

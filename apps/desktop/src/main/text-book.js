@@ -1,6 +1,9 @@
 // 书坊:纯文本 / Markdown → 章节 HTML(电子书制作的输入适配)。
 // 分章规则:识别「第X章/回/卷/篇」「Chapter N」「序章/楔子/后记…」等标题行;
 // 没有标题时按长度分块,保证纯 txt 也能成书。
+import { chineseNumber } from "../shared/chapter-rules.js";
+
+export { chineseNumber };
 
 // Windows 记事本 / 部分导出工具会写 UTF-8 BOM:不剥掉的话第一个标题会被当成正文
 // (md 的 `# 标题一` 落进段落、txt 的章节行分不出章)。
@@ -19,25 +22,7 @@ export function isChapterHeading(line) {
 // ── 编号式标题(弱)────────────────────────────────────────────────────
 // 「一、初入宗门」「1. 初入宗门」「001 初入宗门」这类在中文 TXT 里很常见,但单看像列表项,
 // 所以要成串、编号递增、彼此隔得远才认(见 acceptWeakHeadings),否则一律当正文。
-
-const CN_DIGITS = Object.freeze({ 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 });
-
-// 中文数字 → 数字(章节号用到的范围:一 … 几千;认不出返回 0)。
-export function chineseNumber(value) {
-  const text = String(value || "");
-  if (!text || !/[零〇一二三四五六七八九十百千]/.test(text)) return 0;
-  if (!/[十百千]/.test(text)) return text.length === 1 ? (CN_DIGITS[text] ?? 0) : 0;
-  let total = 0;
-  let digit = 0;
-  for (const ch of text) {
-    if (ch === "百") { total += (digit || 1) * 100; digit = 0; }
-    else if (ch === "千") { total += (digit || 1) * 1000; digit = 0; }
-    else if (ch === "十") { total += (digit || 1) * 10; digit = 0; }
-    else if (ch in CN_DIGITS) digit = CN_DIGITS[ch];
-    else return 0;
-  }
-  return total + digit;
-}
+// (中文数字解析来自 shared/chapter-rules.js:AI 分章建议的规则层用同一份。)
 
 // 编号式标题行 → 编号;不是这个形状返回 0(整行、≤30 字、编号后必须有标题)。
 export function weakHeadingNumber(line) {
