@@ -2685,6 +2685,10 @@ function buildTocPanelFor(view, panel, { close, jump: openItem }) {
   const redraw = () => {
     list.empty();
     const activeSpread = view.pager ? view.pager.spread : 0;
+    // 引擎书(EPUB)没有 spread:用渲染器报的**当前节 id** 对齐目录条目,高亮当前章
+    // (目录条目带 href,section 的 id 就是 href 去掉片段那部分)。
+    const activeSection = view.engine ? (view._engineLocation?.sectionId || "") : "";
+    let activeNode = null;
     let visible = 0;
     for (const entry of entries) {
       if (filterText && !entry.label.toLowerCase().includes(filterText)) continue;
@@ -2699,12 +2703,20 @@ function buildTocPanelFor(view, panel, { close, jump: openItem }) {
       if (meta.length) row.createSpan({ cls: "qiaomu-reader-toc-where", text: meta.join(" \xB7 ") });
       if (entry.level) node.style.paddingLeft = `${8 + entry.level * 12}px`;
       if (typeof spread === "number" && spread === activeSpread) node.addClass("active");
+      if (activeSection && !activeNode && String(entry.href || "").split("#")[0] === activeSection) {
+        node.addClass("active");
+        activeNode = node;
+      }
       node.addEventListener("click", () => {
         close();
         openItem(entry);
       });
     }
     if (!visible) list.createDiv("qiaomu-reader-toc-empty").setText(qiaomuReaderTranslate("nothing-found"));
+    // 当前章滚出可视区时把它带回来(block:"nearest" 只在需要时滚,不会打断读者翻目录)。
+    if (activeNode) {
+      try { activeNode.scrollIntoView({ block: "nearest" }); } catch { /* 老引擎没有这个参数 */ }
+    }
   };
   redraw();
   return redraw;
