@@ -42,6 +42,15 @@ export function mathScript(latex, display) {
 
 const INLINE_MATH_RE = /\$\$([\s\S]+?)\$\$|\$([^$\n]+?)\$/g;
 
+// MinerU 的 page_footnote 有时只剩公式定界符(「||」—— 内容在上游就丢了):这类残片
+// 在成品里只是噪声(实测 Notes_Boltzmann 8 处),清掉;其余文本原样保留。
+export function cleanFootnoteText(text) {
+  return String(text ?? "")
+    .replace(/\|\|+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 // 文本里的 $…$ / $$…$$ → 行内/行间公式 script;其余部分转义。
 export function wrapInlineMath(value) {
   const raw = String(value ?? "");
@@ -239,9 +248,9 @@ export function blockToMarkdown(block, { tableMode = "table" } = {}) {
     const combined = caption ? [caption, content].filter(Boolean).join("\n") : content;
     return looksLikeProseBlock(combined) ? joinProseLines(combined) : `\`\`\`\n${content}\n\`\`\``;
   }
-  // 脚注原样保留(引用块),加个页码便于对回原书。
+  // 脚注原样保留(引用块),加个页码便于对回原书;上游丢内容只剩「||」的残片清掉。
   if (type === "page_footnote" || type === "footnote") {
-    const note = String(block?.text ?? "").replace(/\s*\n\s*/g, " ").trim();
+    const note = cleanFootnoteText(String(block?.text ?? "").replace(/\s*\n\s*/g, " ").trim());
     if (!note) return "";
     const page = Number(block?.page) || 0;
     return `> ${note}${page ? `（第 ${page} 页）` : ""}`;

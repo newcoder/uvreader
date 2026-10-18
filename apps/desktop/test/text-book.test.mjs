@@ -220,3 +220,12 @@ test("printed page anchors from pdf_tool are dropped too", () => {
   assert.match(html, /<p>下文。<\/p>/);
   assert.ok(!html.includes("page:16") && !html.includes("printed:7"), "带印刷页码的锚点也不进成品");
 });
+
+test("markdownToHtml lets upstream <sup>/<sub> through but still escapes other HTML", () => {
+  const html = markdownToHtml("M<sup>ℓ</sup> 与 H<sub>2</sub>O,以及 <script>alert(1)</script> 和 **粗体**");
+  assert.match(html, /M<sup>ℓ<\/sup>/, "上游(MinerU)写的上标要保留,不能显示成字面 <sup>");
+  assert.match(html, /H<sub>2<\/sub>O/);
+  assert.ok(html.includes("&lt;script&gt;"), "其它标签照旧转义");
+  assert.match(html, /<strong>粗体<\/strong>/);
+  assert.ok(!/&lt;sup&gt;/.test(html), "不再出现字面的 &lt;sup&gt;");
+});

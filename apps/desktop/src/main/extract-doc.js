@@ -11,7 +11,7 @@ import { EXTRACT_MODES, IMAGE_INPUTS, extractionKind } from "../shared/extract-f
 import { textSourceKind } from "../shared/workshop-formats.js";
 import { joinContinuationLines, joinSplitCodeFences, splitMarkdownChapters, unwrapProseFences } from "../shared/markdown-fix.js";
 import { tocKey, tocLevel } from "../shared/printed-toc.js";
-import { blocksFromDoc, blocksToMarkdown } from "./formula-html.js";
+import { blocksFromDoc, blocksToMarkdown, cleanFootnoteText } from "./formula-html.js";
 import { buildTextDoc, createPdfTextReader, writeTextProducts } from "./pdf-text.js";
 import { removeTextSourceBridge, writeTextSourceBridge } from "./docvortex.js";
 import { removeFile, removeTree } from "./paths.js";
@@ -127,8 +127,11 @@ export function appendFootnotes(markdown, notes) {
   });
   if (!missing.length) return text;
   const body = missing
-    .map((note) => `> ${String(note.text || "").replace(/\s*\n\s*/g, " ").trim()}${note.page ? `（第 ${note.page} 页）` : ""}`)
+    .map((note) => ({ ...note, text: cleanFootnoteText(String(note.text || "").replace(/\s*\n\s*/g, " ").trim()) }))
+    .filter((note) => note.text)
+    .map((note) => `> ${note.text}${note.page ? `（第 ${note.page} 页）` : ""}`)
     .join("\n\n");
+  if (!body) return text;
   return `${text.replace(/\s*$/, "")}\n\n## 注释\n\n${body}\n`;
 }
 

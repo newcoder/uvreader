@@ -72,7 +72,15 @@ function escapeHtml(value) {
 }
 
 function inlineMarkdown(text) {
-  let html = escapeHtml(text);
+  // 上游(MinerU / pdf_tool)会写 <sup>ℓ</sup> / <sub>2</sub> 这类上下标:书稿内容可信,
+  // 放行这两个标签,其余 HTML 照旧转义 —— 否则成品里会显示成字面的 &lt;sup&gt;
+  // (实测 Notes_Boltzmann 这本书有 36+18 处)。用私用区槽位先藏起来再还原。
+  const keptTags = [];
+  const masked = String(text ?? "").replace(/<\/?(?:sup|sub)>/gi, (tag) => {
+    keptTags.push(tag.toLowerCase());
+    return `\uE001${keptTags.length - 1}\uE001`;
+  });
+  let html = escapeHtml(masked);
   // 图注/链接文字里常带方括号(「!(b) [五]」「[引自 A. B. …]」),允许一层嵌套的 [ ]。
   html = html.replace(/!\[((?:[^[\]]|\[[^[\]]*\])*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_m, alt, src) => `<img src="${src}" alt="${alt}"/>`);
   html = html.replace(/\[((?:[^[\]]|\[[^[\]]*\])*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_m, label, href) => `<a href="${href}">${label}</a>`);
@@ -81,7 +89,7 @@ function inlineMarkdown(text) {
   html = html.replace(/__([^_]+)__/g, "<strong>$1</strong>");
   html = html.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
   html = html.replace(/(^|[^_])_([^_\n]+)_/g, "$1<em>$2</em>");
-  return html;
+  return html.replace(/\uE001(\d+)\uE001/g, (_whole, index) => keptTags[Number(index)] || "");
 }
 
 // 数学片段:$…$ / $$…$$ / \(…\) / \[…\](渲染交给 renderMath;没有回调时保留原样)。

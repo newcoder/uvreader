@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { blocksFromDoc, blocksToHtml, blockToHtml, blockToMarkdown, escapeHtml, joinProseLines, stripMathDelimiters, wrapInlineMath } from "../src/main/formula-html.js";
+import { blocksFromDoc, blocksToHtml, blockToHtml, blockToMarkdown, cleanFootnoteText, escapeHtml, joinProseLines, stripMathDelimiters, wrapInlineMath } from "../src/main/formula-html.js";
 
 test("escapeHtml neutralizes markup", () => {
   assert.equal(escapeHtml('<b>"a" & b</b>'), "&lt;b&gt;&quot;a&quot; &amp; b&lt;/b&gt;");
@@ -140,4 +140,14 @@ test("page footnotes render as quotes instead of being dropped", () => {
   const md = blockToMarkdown(block);
   assert.match(md, /^> ① 原题: An Axiomatization of Set Theory。（第 17 页）$/);
   assert.equal(blockToHtml({ type: "page_footnote", text: "   " }), "");
+});
+
+test("footnote fragments that only kept the formula delimiters are dropped", () => {
+  // 上游(MinerU)偶尔把脚注里的公式丢成「||」:这种残片是噪声,不进成品。
+  assert.equal(cleanFootnoteText("||"), "");
+  assert.equal(cleanFootnoteText("  ||  "), "");
+  assert.equal(cleanFootnoteText("ε^(d−1)||"), "ε^(d−1)");
+  assert.equal(cleanFootnoteText("保留: |H| 正常文本"), "保留: |H| 正常文本");
+  assert.equal(blockToMarkdown({ type: "page_footnote", text: "||", page: 4 }), "");
+  assert.match(blockToMarkdown({ type: "page_footnote", text: "ε^(d−1)||", page: 4 }), /^> ε\^\(d−1\)（第 4 页）$/);
 });
