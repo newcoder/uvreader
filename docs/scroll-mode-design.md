@@ -1,5 +1,15 @@
 # 滚动模式（EPUB）几何与堆叠设计
 
+> **已回滚（2026-10-18）**：EPUB 滚动优化（堆叠滚动 + 多节常驻）**整体撤下**，EPUB 回到上游
+> foliate 的原生 scrolled 行为（一次只挂一节，滚到边缘由上层翻到相邻节）。原因：在单节分页器
+> 上外挂多节滚动器需要维护一整套影子模型（窗口表、高度表、预留/补偿、回收），回归一次比一次多，
+> **开工前没有做好技术评估**。回滚动作：`postinstall` 不再跑 `patch-foliate-scroll.cjs`（脚本已删）、
+> `desktop:check-scroll` 与 `apps/desktop/scripts/check-scroll-stack.mjs` 已删、`node_modules`
+> 的 `foliate-js/paginator.js` 恢复上游原文。PDF 滚动**未受影响**（走阅读器自己的 `pdf-paginator`）。
+> 保留下来的**独立**修复：工具栏「全书 当前页 / 总页」取自 foliate 的 location（不被覆盖）、
+> 目录面板高亮当前章（用引擎给的 section id，不依赖补丁）、滚到边缘时滚轮不被吞掉。
+> 下面这份设计文档保留作为证据链与"如果要重做"的参考。
+
 > 状态：**已启用（默认开启）**。真机断言 31 条全绿（`npm run desktop:check-scroll`）；桌面 e2e 全绿（`npm run desktop:e2e`，含开关打开后的那一轮）。
 > 这份文档记录的是「为什么会跳/会空白」的完整证据链，以及堆叠滚动的不变量与开启/回滚方式。
 

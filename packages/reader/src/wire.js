@@ -948,6 +948,8 @@ async function translateText(text, to = "ru") {
 function updateEngineLocation(view, detail) {
   if (!detail || view._closed) return;
   view._engineLocation = detail;
+  // 目录面板高亮当前章:引擎书用这一节在书里的 id 对齐目录条目(上游没有补丁也拿得到)。
+  view._engineSectionId = view.engine?.sectionId?.(detail.index) ?? null;
   const pct = Math.round(Math.max(0, Math.min(1, detail.fraction || 0)) * 100);
   if (view.pbarFill) view.pbarFill.style.width = `${pct}%`;
   view.pctEl?.setText(`${pct}%`);
@@ -2685,9 +2687,9 @@ function buildTocPanelFor(view, panel, { close, jump: openItem }) {
   const redraw = () => {
     list.empty();
     const activeSpread = view.pager ? view.pager.spread : 0;
-    // 引擎书(EPUB)没有 spread:用渲染器报的**当前节 id** 对齐目录条目,高亮当前章
+    // 引擎书(EPUB)没有 spread:用引擎给的**当前节 id** 对齐目录条目,高亮当前章
     // (目录条目带 href,section 的 id 就是 href 去掉片段那部分)。
-    const activeSection = view.engine ? (view._engineLocation?.sectionId || "") : "";
+    const activeSection = view.engine ? (view._engineSectionId || "") : "";
     let activeNode = null;
     let visible = 0;
     for (const entry of entries) {

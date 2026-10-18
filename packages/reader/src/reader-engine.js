@@ -365,11 +365,19 @@ export class EpubEngine {
         return direction === "prev" ? this.prev() : this.next();
     }
 
-    // 滚动模式:是否已经滚到「已挂载内容」的边缘(占位 padding 不算内容)。
+    // 滚动模式:是否滚到**当前节**的边缘。只用上游分页器的公开量(start/size/viewSize),
+    // 不依赖任何补丁 —— 上游 scrolled 模式只挂一节,滚到边缘由上层翻到相邻节。
     atScrollEdge(direction = "next") {
         const renderer = this.#view?.renderer;
-        if (typeof renderer?.atScrollEdge !== "function") return null;
-        return renderer.atScrollEdge(direction) === true;
+        if (!renderer?.scrolled) return null;
+        const { start, size, viewSize } = renderer;
+        if (![start, size, viewSize].every((value) => Number.isFinite(value))) return null;
+        return direction === "prev" ? start <= 2 : start + size >= viewSize - 2;
+    }
+    // 目录面板高亮当前章用:这一节在书里的 id(上游 book.sections[index].id)。
+    sectionId(index) {
+        if (!Number.isInteger(index)) return null;
+        return this.#book?.sections?.[index]?.id ?? null;
     }
     async goTo(target) {
         const view = this.#view;
