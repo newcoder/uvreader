@@ -12,7 +12,6 @@ import { createDocvortex, registerDocvortexRunners } from "./docvortex.js";
 import { registerExtractRunners } from "./extract-doc.js";
 import { clearMineruCaches, createMineruLocalService, resolveLocalBackend, resolveMineruKit } from "./mineru-local.js";
 import { registerTextConvertRunner } from "./pdf-text.js";
-import { createKindleSender } from "./kindle-send.js";
 import { createFormulaChain, pdfToolScriptCommand, registerFormulaRunners, resolveMineruToken } from "./workshop-formula.js";
 import { registerBookRunners } from "./workshop-book.js";
 import { createPdfOutlineReader } from "./pdf-outline.js";
@@ -49,16 +48,6 @@ const secretsPath = path.join(userData, "secrets.json");
 const pdfOcr = createPdfOcr({ cacheRoot: path.join(userData, "ocr-cache") });
 // 本地 MinerU 常驻服务:启动时自动拉起(设置里可关),书坊里检测;退出只收自己拉起的进程。
 const mineruLocal = createMineruLocalService({ uploadDir: path.join(userData, "mineru-service") });
-// 发送到 Kindle:邮件密码只存在 SecretStorage(safeStorage)里,下单时由主进程读取。
-const kindleSender = createKindleSender();
-const KINDLE_SECRET = "kindle-smtp";
-const kindlePassword = () => {
-  try {
-    return String(readSecrets()[KINDLE_SECRET] || "");
-  } catch {
-    return "";
-  }
-};
 // 书坊任务队列:串行执行,历史落盘(最近 20 条,不自动续跑)。W0-3+ 为各工具
 // 注册 runner;这里先提供「环境自检」(探测 OCR sidecar)。
 const workshop = createWorkshopQueue({
@@ -107,16 +96,6 @@ const readCoverImage = async (filePath) => {
 registerEpubRunners(workshop, { vaultRoot, cacheRoot: bookCacheRoot, coverRenderer, readImage: readCoverImage, docvortex, outlineReader: createPdfOutlineReader() });
 // 内容提取(PDF/Office/OFD/图片 → md/html/json):pdf_tool + DocVortex。
 registerExtractRunners(workshop, { docvortex, vaultRoot, cacheRoot: bookCacheRoot });
-// 发送到 Kindle:走同一条队列(任务里能看进度与结果)。
-workshop.register("kindle-send", async ({ payload, report }) => {
-  const settings = payload?.settings || {};
-  const files = (Array.isArray(payload?.files) ? payload.files : [])
-    .map((file) => (path.isAbsolute(String(file || "")) ? String(file) : path.join(vaultRoot, String(file || ""))));
-  report({ label: `发送 ${files.length} 本到 Kindle` });
-  const result = await kindleSender.send(settings, { files, password: kindlePassword() });
-  if (!result.ok) throw new Error(String(result.error || "发送失败"));
-  return { output: String(settings.kindleEmail || ""), detail: `${result.zipped ? "已打包 ZIP · " : ""}${result.attachment}` };
-});
 // 格式转换的「文本型」链路(本地 fitz 提取 → DocVortex;与公式优先同构)。
 registerTextConvertRunner(workshop, { docvortex, vaultRoot, cacheRoot: bookCacheRoot });
 // Online book downloads land in the library so they appear as regular books.
@@ -431,11 +410,6 @@ ipcMain.handle("qbr:mineru:status", (_event, settings) => mineruLocal.status(set
 ipcMain.handle("qbr:mineru:ensure", (_event, settings) => mineruLocal.ensure(settings || {}));
 ipcMain.handle("qbr:mineru:stop", () => mineruLocal.stop());
 ipcMain.handle("qbr:mineru:path", (_event, settings = {}) => ({ path: resolveMineruKit(settings || {}) }));
-ipcMain.handle("qbr:kindle:probe", (_event, settings = {}) => kindleSender.probe(settings || {}, { password: kindlePassword() }));
-ipcMain.handle("qbr:kindle:send", (_event, payload = {}) => kindleSender.send(payload?.settings || {}, {
-  files: Array.isArray(payload?.files) ? payload.files : [],
-  password: kindlePassword(),
-}));
 // 直接在设置页里跑的链路探测(不入队):文字层 / DocVortex / 公式 / Calibre。
 ipcMain.handle("qbr:probe:ocr", (_event, settings = {}) => pdfOcr.probe(settings || {}, OCR_PROBE_TIMEOUT));
 ipcMain.handle("qbr:probe:docvortex", (_event, settings = {}) => docvortex.probe(settings || {}));

@@ -2355,8 +2355,8 @@ async function runWorkshopScenario() {
         active: buttons.filter((b) => b.classList.contains("is-active")).map((b) => b.dataset.tool),
       };
     });
-    if (rail.count < 6) throw new Error(`the workshop rail should list every tool: ${JSON.stringify(rail)}`);
-    if (!rail.labels.includes("文字层") || !rail.labels.includes("发送到 Kindle")) {
+    if (rail.count < 5) throw new Error(`the workshop rail should list every tool: ${JSON.stringify(rail)}`);
+    if (!rail.labels.includes("文字层") || !rail.labels.includes("电子书制作")) {
       throw new Error(`unexpected workshop rail: ${JSON.stringify(rail.labels)}`);
     }
     // 处理组的顺序:文字层 → 格式转换 → 内容提取 → 电子书制作。
@@ -2456,12 +2456,11 @@ async function runWorkshopScenario() {
       const text = button?.closest(".qbr-workshop-row")?.querySelector(".qbr-mineru-status")?.textContent || "";
       // 链路探测要原地出结果(不再「已入队」跳到书坊任务)。
       const ocrButton = [...(body?.querySelectorAll("button") || [])].find((b) => b.textContent === "检测文字层链路");
-      const smtpButton = [...(body?.querySelectorAll("button") || [])].find((b) => b.textContent === "检测 SMTP");
       ocrButton?.click();
       await wait(2500);
       const ocrText = ocrButton?.closest(".qbr-workshop-row")?.querySelector(".qbr-mineru-status")?.textContent || "";
       document.querySelector('[data-route="workshop"]')?.click();
-      return { link: Boolean(link), tab: Boolean(tab), activeTab, tabLabels, wrapped, tabFlag, bodyTab, found: Boolean(button), text, ocrFound: Boolean(ocrButton), smtpFound: Boolean(smtpButton), ocrText, typedSaved: String(window.__qbrPlugin?.settings?.mineruLocalExe || "") };
+      return { link: Boolean(link), tab: Boolean(tab), activeTab, tabLabels, wrapped, tabFlag, bodyTab, found: Boolean(button), text, ocrFound: Boolean(ocrButton), ocrText, typedSaved: String(window.__qbrPlugin?.settings?.mineruLocalExe || "") };
     });
     if (!mineru.link || !mineru.tab) throw new Error(`「打开 设置 → 书坊」应跳到书坊 tab:${JSON.stringify(mineru)}`);
     if (!mineru.found) throw new Error(`书坊 tab 里应该有「检测本地 MinerU」:${JSON.stringify(mineru)}`);
@@ -2473,9 +2472,6 @@ async function runWorkshopScenario() {
     }
     if (mineru.typedSaved !== "C:\\no-such-dir\\mineru-kit.exe") {
       throw new Error(`刚输入的路径应立刻进设置(不用失焦):${JSON.stringify(mineru.typedSaved)}`);
-    }
-    if (!mineru.smtpFound) {
-      throw new Error(`书坊设置里应该有「发送到 Kindle」的 SMTP 段:${JSON.stringify(mineru)}`);
     }
     console.log("settings: 书坊 tab reports local MinerU —", mineru.text, "· text layer —", mineru.ocrText);
     // The nav route returns home and the workshop remembers the last tool.
@@ -3286,7 +3282,7 @@ async function runWorkshopBookScenario() {
       };
     });
     if (!panel.tools.some((label) => label.includes("EPUB → AZW3 / MOBI")) || !panel.tools.some((label) => label.includes("图片 → CBZ"))) {
-      throw new Error(`the book panel should offer the Kindle and CBZ tools: ${JSON.stringify(panel.tools)}`);
+      throw new Error(`the book panel should offer the AZW3 and CBZ tools: ${JSON.stringify(panel.tools)}`);
     }
     if (!panel.selects.some((values) => values.includes("azw3")) || !panel.selects.some((values) => values.includes("cbz"))) {
       throw new Error(`the book panel lost its target selects: ${JSON.stringify(panel.selects)}`);
