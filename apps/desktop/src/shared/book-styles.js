@@ -43,17 +43,14 @@ export function normalizeBookStyles(styles = {}) {  const merged = { ...BOOK_STY
   return merged;
 }
 
-export function renderBookCss(styles = {}, { fontFaces = [] } = {}) {  const s = normalizeBookStyles(styles);
+export function renderBookCss(styles = {}) {  const s = normalizeBookStyles(styles);
   const theme = BOOK_THEMES[s.theme];
-  const faces = fontFaces
-    .map((face) => `@font-face { font-family: '${face.family}'; src: url('${face.src}'); font-style: normal; font-weight: ${face.weight || 400}; font-display: swap; }`)
-    .join("\n");
   const colorBlock = theme.bg
     ? `html, body { background: ${theme.bg}; color: ${theme.fg}; }\nhr { border-top-color: ${theme.rule}; }\n`
     : "";
   const headingFont = s.headingFont ? `${s.headingFont}, ` : "";
   const bodyFont = s.latinFont ? `${s.bodyFont}, ${s.latinFont}` : s.bodyFont;
-  return `${faces ? `${faces}\n` : ""}/* 单栏流式排版:不写死宽度,交给阅读器分栏/分页 */
+  return `/* 单栏流式排版:不写死宽度,交给阅读器分栏/分页 */
 html { -webkit-text-size-adjust: 100%; }
 ${colorBlock}body {
   font-family: ${bodyFont};

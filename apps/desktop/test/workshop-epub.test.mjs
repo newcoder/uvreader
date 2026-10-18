@@ -9,8 +9,7 @@ import JSZip from "jszip";
 
 import { createWorkshopQueue } from "../src/main/workshop.js";
 import { countRawFormulas } from "../src/main/text-book.js";
-import { findPairing } from "../src/main/workshop-fonts.js";
-import { normalizeBookChapters, prepareFonts, registerEpubRunners } from "../src/main/workshop-epub.js";
+import { normalizeBookChapters, registerEpubRunners } from "../src/main/workshop-epub.js";
 import { waitForTask } from "./wait-for-task.mjs";
 
 function tempDir(prefix = "qbr-epub-run-") {
@@ -32,76 +31,10 @@ function fakeSpawn(handler) {
   return { spawnImpl, calls };
 }
 
-function fontBytesFetch(payload = "woff2-bytes") {
-  return async () => ({ ok: true, status: 200, arrayBuffer: async () => new TextEncoder().encode(payload).buffer, text: async () => "SIL OFL 1.1 许可文本" });
-}
-
-test("prepareFonts subsets local files and keeps the license", async () => {
-  const dir = tempDir();
-  const fontPath = path.join(dir, "MyFont.woff2");
-  fs.writeFileSync(fontPath, "font-bytes");
-  const fonts = await prepareFonts({
-    cacheDir: tempDir("qbr-fontcache-"),
-    files: [{ path: fontPath, family: "My Font" }],
-    chars: "甲乙丙",
-    workDir: tempDir("qbr-subset-"),
-    subsetter: {
-      subset: async ({ outPath }) => {
-        fs.writeFileSync(outPath, "subset-ttf");
-        return { ok: true, path: outPath };
-      },
-    },
-  });
-  assert.equal(fonts.length, 1);
-  assert.equal(fonts[0].fileName, "qbr-my-font.ttf");
-  assert.equal(fonts[0].family, "QBR My Font");
-  assert.equal(fonts[0].data.toString(), "subset-ttf");
-  assert.match(fonts[0].licenseText, /SIL Open Font License/);
-});
-
-test("prepareFonts falls back to the original file when subsetting fails", async () => {
-  const dir = tempDir();
-  const fontPath = path.join(dir, "WenKai.woff2");
-  fs.writeFileSync(fontPath, "full-woff2");
-  const fonts = await prepareFonts({
-    cacheDir: tempDir("qbr-fontcache-"),
-    files: [{ path: fontPath, family: "WenKai" }],
-    chars: "字",
-    workDir: tempDir("qbr-subset-"),
-    subsetter: { subset: async () => ({ ok: false, error: "no fontTools" }) },
-    log: () => {},
-  });
-  assert.equal(fonts[0].fileName, "WenKai.woff2", "the original file is embedded under its own name");
-  assert.equal(fonts[0].data.toString(), "full-woff2");
-});
-
-test("prepareFonts downloads a pairing and skips fonts that fail", async () => {
-  const fonts = await prepareFonts({
-    cacheDir: tempDir("qbr-fontcache-"),
-    pairing: findPairing("quiet"),
-    chars: "字",
-    workDir: tempDir("qbr-subset-"),
-    fetchImpl: fontBytesFetch(),
-    subsetter: { subset: async ({ outPath }) => { fs.writeFileSync(outPath, "ttf"); return { ok: true, path: outPath }; } },
-    log: () => {},
-  });
-  assert.equal(fonts.length, 3, "heading + body + latin");
-  for (const font of fonts) assert.match(font.family, /^QBR /);
-  const skipped = await prepareFonts({
-    cacheDir: tempDir("qbr-fontcache-"),
-    pairing: findPairing("quiet"),
-    chars: "字",
-    workDir: tempDir("qbr-subset-"),
-    fetchImpl: async () => { throw new Error("offline"); },
-    log: () => {},
-  });
-  assert.deepEqual(skipped, [], "no network means no embedded fonts, not a failure");
-});
-
-function makeQueue(cacheRoot, subsetter, extra = {}) {
+function makeQueue(cacheRoot, _subsetter, extra = {}) {
   const dir = tempDir("qbr-epub-queue-");
   const queue = createWorkshopQueue({ file: path.join(dir, "tasks.json"), onState: () => {}, log: { warn() {} } });
-  registerEpubRunners(queue, { vaultRoot: "D:/vault", cacheRoot, subsetter, log: () => {}, ...extra });
+  registerEpubRunners(queue, { vaultRoot: "D:/vault", cacheRoot, log: () => {}, ...extra });
   return { queue, dir };
 }
 

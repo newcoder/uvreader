@@ -32,8 +32,7 @@ test("renderBookCss emits a single-column reflow stylesheet", () => {
   assert.match(css, /img \{ max-width: 100%/);
   const followed = renderBookCss({ theme: "follow" });
   assert.ok(!/background: #/.test(followed.split("body")[0]), "the follow theme leaves colours to the reader");
-  const withFaces = renderBookCss({}, { fontFaces: [{ family: "QBR Wenkai", src: "fonts/wenkai.ttf" }] });
-  assert.match(withFaces, /@font-face \{ font-family: 'QBR Wenkai'; src: url\('fonts\/wenkai\.ttf'\)/);
+  assert.ok(!/@font-face/.test(renderBookCss({})), "字体不再嵌入:样式里没有 @font-face");
 });
 
 test("buildNcx numbers the reading order", () => {
@@ -83,7 +82,7 @@ test("buildEpub writes a valid reflowable EPUB with chapters, nav and cover", as
   assert.match(await zip.file("OEBPS/colophon.xhtml").async("string"), /由 UV Reader 生成/);
 });
 
-test("buildEpub embeds font files with their licenses", async () => {
+test("buildEpub ignores font payloads (fonts are no longer embedded)", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-epub-fonts-"));
   const out = path.join(dir, "fonts.epub");
   await buildEpub({
@@ -94,13 +93,9 @@ test("buildEpub embeds font files with their licenses", async () => {
   }, out);
   const zip = await JSZip.loadAsync(fs.readFileSync(out));
   const opf = await zip.file("OEBPS/content.opf").async("string");
-  assert.match(opf, /<item id="font-1" href="fonts\/qbr-wenkai\.ttf" media-type="font\/ttf"\/>/);
-  const css = await zip.file("OEBPS/styles.css").async("string");
-  assert.match(css, /@font-face \{ font-family: 'QBR Wenkai'; src: url\('fonts\/qbr-wenkai\.ttf'\)/);
-  const licenses = Object.keys(zip.files).filter((name) => name.startsWith("OEBPS/fonts/OFL-"));
-  assert.equal(licenses.length, 1);
-  assert.equal(await zip.file(licenses[0]).async("string"), "SIL OFL 1.1 文本");
-  assert.match(await zip.file("OEBPS/colophon.xhtml").async("string"), /字体许可/);
+  assert.ok(!/media-type="font\//.test(opf), "成品里没有字体条目");
+  assert.ok(!/@font-face/.test(await zip.file("OEBPS/styles.css").async("string")), "样式里没有 @font-face");
+  assert.equal(Object.keys(zip.files).filter((name) => name.startsWith("OEBPS/fonts/")).length, 0);
 });
 
 test("buildEpub refuses empty chapters", async () => {

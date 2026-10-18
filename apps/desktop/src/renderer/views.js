@@ -2,11 +2,9 @@ import { ItemView, Notice, setIcon } from "obsidian";
 
 import { iconResolver } from "./icons.js";
 import { DOCVORTEX_FORMATS, DOCVORTEX_INPUTS, EBOOK_TARGETS, IMAGE_BOOK_TARGETS, TEXT_SOURCE_EXTENSIONS, docvortexFormatExt } from "../shared/workshop-formats.js";
-import { BOOK_STYLE_DEFAULTS, BOOK_THEMES, COVER_PALETTES, renderBookCss } from "../shared/book-styles.js";
-import { FONT_PAIRINGS, findPairing, pairingStacks } from "../shared/book-fonts.js";
-import { coverHtml } from "../shared/cover-template.js";
+import { BOOK_STYLE_DEFAULTS, BOOK_THEMES, COVER_PALETTES } from "../shared/book-styles.js";
 import { chapterStats, mergeChapters, moveChapter, removeChapter, renameChapter, splitChapter } from "../shared/book-chapters.js";
-import { markdownToHtml, splitTextChapters } from "../main/text-book.js";
+import { splitTextChapters } from "../main/text-book.js";
 import { EXTRACT_MODES, IMAGE_INPUTS, extractionKind } from "../shared/extract-formats.js";
 import { splitMarkdownChapters, unwrapProseFences } from "../shared/markdown-fix.js";
 import { convertPath, uvtextPath } from "../shared/workshop-names.js";
@@ -21,42 +19,6 @@ function percentOf(plugin, path) {
 
 function formatOf(file) {
   return String(file?.extension || "").toUpperCase();
-}
-
-// 快速成书的示例文字(选中书稿后用它开头的内容做样张)。
-function bookSampleText() {
-  return [
-    "第一章 起风了",
-    "这是一段示例文字，用来看字号、行距、边距和缩进的效果。单栏流式排版交给阅读器分页，宽度自适应设备，不写死版心。",
-    "第二段用来观察段间距与两端对齐。中文标点也一起看看：“引号”、（括号）、——破折号。",
-  ].join("\n\n");
-}
-
-function bookSampleHtml(text) {
-  const blocks = String(text || "").replace(/\r\n?/g, "\n").split(/\n{2,}/)
-    .map((block) => block.trim())
-    .filter(Boolean)
-    .slice(0, 6);
-  const out = [];
-  blocks.forEach((block, index) => {
-    const first = block.split("\n")[0].trim();
-    const rest = block.split("\n").slice(1).map((line) => line.trim()).filter(Boolean).join("");
-    if (index === 0 && first.length <= 30) {
-      out.push(`<h1>${escapeHtmlText(first)}</h1>`);
-      if (rest) out.push(`<p>${escapeHtmlText(rest)}</p>`);
-      return;
-    }
-    out.push(`<p>${escapeHtmlText([first, rest].filter(Boolean).join(""))}</p>`);
-  });
-  if (!out.length) out.push("<h1>第一章</h1><p>这里显示书稿的排版样张。</p>");
-  return out.join("\n");
-}
-
-function escapeHtmlText(value) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
 }
 
 export function createHomeView(leaf, options) {
@@ -1595,12 +1557,8 @@ export function createWorkshopView(leaf, options) {
       return input;
     }
 
-    setBookPreviewWidth(mode) {
-      if (this._bookPreview) this._bookPreview.toggleClass("is-wide", mode === "wide");
-    }
-
     bookStyleState() {
-      const state = { pairing: String(this._bookPairing?.value || FONT_PAIRINGS[0].id) };
+      const state = {};
       for (const [key, control] of Object.entries(this._bookControls || {})) {
         state[key] = Number(control.input.value);
       }
@@ -1638,7 +1596,6 @@ export function createWorkshopView(leaf, options) {
     applyBookStyleState() {
       let saved = {};
       try { saved = JSON.parse(localStorage.getItem("qbr-workshop-book-style") || "{}"); } catch { saved = {}; }
-      if (saved.pairing && this._bookPairing) this._bookPairing.value = String(saved.pairing);
       for (const [key, control] of Object.entries(this._bookControls || {})) {
         const fallback = Number.isFinite(Number(BOOK_STYLE_DEFAULTS[key])) ? Number(BOOK_STYLE_DEFAULTS[key]) : control.input.value;
         control.input.value = String(Number.isFinite(Number(saved[key])) ? Number(saved[key]) : fallback);
@@ -1654,8 +1611,6 @@ export function createWorkshopView(leaf, options) {
       if (typeof saved.coverImage === "string") this._bookCoverImage = saved.coverImage;
       if (typeof saved.subtitle === "string") this._bookSubtitle.value = saved.subtitle;
       this.syncBookCoverRow();
-      void this.renderBookPreview();
-      this.renderBookCoverPreview();
       void this.renderBookChapters();
     }
 
@@ -1664,38 +1619,6 @@ export function createWorkshopView(leaf, options) {
         control.value.setText(`${control.input.value}${control.suffix}`);
       }
       try { localStorage.setItem("qbr-workshop-book-style", JSON.stringify(this.bookStyleState())); } catch { /* ignore */ }
-      clearTimeout(this._bookPreviewTimer);
-      this._bookPreviewTimer = setTimeout(() => {
-        void this.renderBookPreview();
-        this.renderBookCoverPreview();
-      }, 150);
-    }
-
-    // 模板封面预览:1600×2400 缩放成缩略图(系统近似字体)。
-    renderBookCoverPreview() {
-      const frame = this._bookCoverFrame;
-      if (!frame) return;
-      const state = this.bookStyleState();
-      if (state.coverMode !== "template" && state.coverMode !== "auto") {
-        if (this._bookCoverPreview) this._bookCoverPreview.hidden = true;
-        return;
-      }
-      if (this._bookCoverPreview) this._bookCoverPreview.hidden = false;
-      const stacks = pairingStacks(findPairing(state.pairing));
-      const fallbackTitle = String(this._bookSources?.[0] || "").split("/").pop()?.replace(/\.[^.]+$/, "") || "未命名";
-      const html = coverHtml({
-        title: state.title || fallbackTitle,
-        author: state.author,
-        subtitle: state.subtitle,
-        palette: state.coverPalette,
-        headingFamily: stacks.heading,
-        bodyFamily: stacks.body,
-      });
-      const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
-      const previous = this._bookCoverUrl;
-      this._bookCoverUrl = url;
-      frame.src = url;
-      if (previous) setTimeout(() => URL.revokeObjectURL(previous), 5000);
     }
 
     // 目录编辑:书库书稿可改名/合并/拆分/排序;本地文件在生成时自动识别。
@@ -1768,48 +1691,6 @@ export function createWorkshopView(leaf, options) {
       });
     }
 
-    // 预览:文本源直接读;非文本源优先读同目录的「内容提取」产物 <源名>.md;
-    // 都没有时退回示例文字。二进制文件绝不当文本读,避免乱码。
-    async renderBookPreview() {
-      const frame = this._bookPreviewFrame;
-      if (!frame) return;
-      const state = this.bookStyleState();
-      const stacks = pairingStacks(findPairing(state.pairing));
-      const css = renderBookCss({ ...state, bodyFont: stacks.body, headingFont: stacks.heading, latinFont: stacks.latin });
-      const rel = String(this._bookSources?.[0] || "");
-      const isMarkdown = /\.(md|markdown)$/i.test(rel);
-      const isPlain = /\.txt$/i.test(rel);
-      const readVault = async (file) => (file ? app.vault.read(file).catch(() => "") : "");
-      let note = "预览:未选择书稿,显示示例文字";
-      let body = bookSampleHtml(bookSampleText());
-      if (isMarkdown || isPlain) {
-        const text = await readVault(rel ? app?.vault?.getAbstractFileByPath?.(rel) : null);
-        note = isMarkdown ? "预览:书稿开头(Markdown 已渲染)" : "预览:书稿开头";
-        // 预览跑在渲染层,调不到 Python(LaTeX → MathML),公式这里只显示原文;
-        // 免得用户以为成品也这样,先说清楚。
-        if (isMarkdown && /\$|\\\(|\\\[/.test(text.slice(0, 6000))) note += ";预览不渲染公式,生成时才会转成 MathML";
-        body = text.trim()
-          ? (isMarkdown ? markdownToHtml(unwrapProseFences(text).slice(0, 6000)) : bookSampleHtml(text))
-          : bookSampleHtml("");
-      } else if (rel) {
-        const sibling = rel.replace(/\.[^./\\]+$/, ".md");
-        const extracted = await readVault(app?.vault?.getAbstractFileByPath?.(sibling));
-        if (extracted.trim()) {
-          note = `预览:同目录已提取的 ${sibling.split("/").pop()}`;
-          body = markdownToHtml(unwrapProseFences(extracted).slice(0, 6000));
-        } else {
-          note = "预览:生成时自动提取内容,这里先显示示例文字";
-        }
-      }
-      if (this._bookPreviewNote) this._bookPreviewNote.setText(note);
-      const html = `<!doctype html><html lang="zh"><head><meta charset="utf-8"><style>${css}</style></head><body>${body}</body></html>`;
-      const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
-      const previous = this._bookPreviewUrl;
-      this._bookPreviewUrl = url;
-      frame.src = url;
-      if (previous) setTimeout(() => URL.revokeObjectURL(previous), 5000);
-    }
-
     bookSourceFiles() {
       const wanted = ["txt", "md", "markdown", ...DOCVORTEX_INPUTS, ...IMAGE_INPUTS];
       return (app?.vault?.getFiles?.() || [])
@@ -1850,16 +1731,12 @@ export function createWorkshopView(leaf, options) {
       this._bookSources ||= [];
       if (path && !this._bookSources.includes(path)) this._bookSources.push(path);
       this.renderBookSourceChips();
-      void this.renderBookPreview();
-      this.renderBookCoverPreview();
       void this.renderBookChapters();
     }
 
     removeBookSource(path) {
       this._bookSources = (this._bookSources || []).filter((item) => item !== path);
       this.renderBookSourceChips();
-      void this.renderBookPreview();
-      this.renderBookCoverPreview();
       void this.renderBookChapters();
       this.refreshBookSourceList();
     }

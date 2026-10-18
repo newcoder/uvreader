@@ -141,7 +141,7 @@ ${points.join("\n")}
 `;
 }
 
-export function buildOpf({ book, chapters, files, hasCover, fontFiles = [], hasColophon }) {
+export function buildOpf({ book, chapters, files, hasCover, hasColophon }) {
   const manifest = [];
   manifest.push(`    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>`);
   manifest.push(`    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>`);
@@ -149,9 +149,6 @@ export function buildOpf({ book, chapters, files, hasCover, fontFiles = [], hasC
   for (const file of files) {
     const id = file.id || `img-${manifest.length}`;
     manifest.push(`    <item id="${escapeXml(id)}" href="${escapeXml(file.href)}" media-type="${escapeXml(file.mediaType)}"/>`);
-  }
-  for (const font of fontFiles) {
-    manifest.push(`    <item id="${escapeXml(font.id)}" href="${escapeXml(font.href)}" media-type="${escapeXml(font.mediaType)}"/>`);
   }
   chapters.forEach((chapter, index) => {
     manifest.push(`    <item id="chapter-${index + 1}" href="${escapeXml(chapter.file)}" media-type="application/xhtml+xml"/>`);
@@ -192,8 +189,8 @@ export const CONTAINER_XML = `<?xml version="1.0" encoding="UTF-8"?>
 </container>
 `;
 
-// 生成 EPUB(zip);fonts: [{ path, family, fileName, licenseText, licenseName }]。
-export async function buildEpub({ book = {}, styles = {}, chapters = [], fonts = [], cover = null, images = [], colophon = "", nav = null } = {}, out) {
+// 生成 EPUB(zip)。
+export async function buildEpub({ book = {}, styles = {}, chapters = [], cover = null, images = [], colophon = "", nav = null } = {}, out) {
   if (!chapters.length) throw new Error("没有章节可写");
   const title = String(book.title || "未命名");
   const identifier = String(book.identifier || `urn:qbr:${Date.now().toString(36)}`);
@@ -204,8 +201,7 @@ export async function buildEpub({ book = {}, styles = {}, chapters = [], fonts =
     title: String(chapter.title || `第 ${index + 1} 章`),
   }));
 
-  const fontFaces = fonts.map((font) => ({ family: font.family, src: `fonts/${font.fileName}`, weight: font.weight || 400 }));
-  const css = renderBookCss(styles, { fontFaces });
+  const css = renderBookCss(styles);
 
   const zip = new JSZip();
   zip.file("mimetype", "application/epub+zip", { compression: "STORE" });
@@ -241,35 +237,18 @@ export async function buildEpub({ book = {}, styles = {}, chapters = [], fonts =
     hasCover = true;
   }
 
-  const fontFiles = [];
-  fonts.forEach((font, index) => {
-    const entry = `fonts/${font.fileName}`;
-    const ext = path.extname(font.fileName).toLowerCase();
-    zip.file(`OEBPS/${entry}`, font.data);
-    fontFiles.push({ id: `font-${index + 1}`, href: entry, mediaType: ext === ".otf" ? "font/otf" : ext === ".woff2" ? "font/woff2" : "font/ttf" });
-  });
-  const licenses = fonts.filter((font) => font.licenseText);
-  licenses.forEach((font, index) => {
-    zip.file(`OEBPS/fonts/OFL-${index + 1}-${String(font.family || "font").replace(/[^\w.-]+/g, "-")}.txt`, String(font.licenseText));
-  });
-
-  const colophonHtml = [
-    colophon ? `<div>${colophon}</div>` : "",
-    licenses.length
-      ? `<h2>字体许可</h2><ul>${licenses.map((font) => `<li>${escapeXml(font.family)}${font.licenseName ? `（${escapeXml(font.licenseName)}）` : ""}</li>`).join("")}</ul><p>本书嵌入了字体子集，授权文本见 EPUB 内 fonts/ 目录。</p>`
-      : "",
-  ].filter(Boolean).join("\n");
+  const colophonHtml = [colophon ? `<div>${colophon}</div>` : ""].filter(Boolean).join("\n");
   const hasColophon = Boolean(colophonHtml);
   if (hasColophon) {
     zip.file("OEBPS/colophon.xhtml", xhtmlDocument({ title: "版权与字体", body: `<h1>版权与字体</h1>\n${colophonHtml}`, lang: book.language }));
   }
 
-  zip.file("OEBPS/content.opf", buildOpf({ book: { ...book, title, identifier, modified }, chapters: files, files: manifestFiles, hasCover, fontFiles, hasColophon }));
+  zip.file("OEBPS/content.opf", buildOpf({ book: { ...book, title, identifier, modified }, chapters: files, files: manifestFiles, hasCover, hasColophon }));
 
   const buffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 6 } });
   if (out) {
     fs.mkdirSync(path.dirname(out), { recursive: true });
     fs.writeFileSync(out, buffer);
   }
-  return { out, bytes: buffer.length, chapters: files.length, fonts: fonts.length, hasCover, buffer };
+  return { out, bytes: buffer.length, chapters: files.length, hasCover, buffer };
 }

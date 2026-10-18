@@ -1,4 +1,10 @@
-﻿// 书坊:电子书制作向导的构建 runner(txt/md → 章节 → 字体子集 → EPUB)。
+﻿// 封面用的系统字体栈:不再下载/嵌入字体,能命中系统字体就用,否则回退衬线。
+const COVER_FONTS = {
+  heading: "'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', Georgia, serif",
+  body: "'Noto Serif SC', 'Songti SC', SimSun, Georgia, serif",
+};
+
+// 书坊:电子书制作向导的构建 runner(txt/md → 章节 → 字体子集 → EPUB)。
 // 样式、字体搭配都来自面板;字体下载/子集失败时回退系统字体,不阻断生成。
 import fs from "node:fs";
 import crypto from "node:crypto";
@@ -13,8 +19,6 @@ import { createTextLayerReader } from "./text-layer.js";
 import { cleanChapterTitle, joinInlineFragment, looksLikeHeadingTitle, unwrapProseFences } from "../shared/markdown-fix.js";
 import { buildNavPlan, chapterKey, chapterStartPages, fillPageGaps, isPrintedTocChapter, lastPrintedPageOf, normalizeNavLevels, parsePrintedTocEntries, printedPageOf, stripPageMarkers, stripPrintedToc, tocKey } from "../shared/printed-toc.js";
 import { outlineToTocEntries } from "./pdf-outline.js";
-import { ensureFont, ensureFontLicense, createFontSubsetter, FONT_FAMILIES } from "./workshop-fonts.js";
-import { pairingStacks } from "../shared/book-fonts.js";
 import { convertPath } from "../shared/workshop-names.js";
 import { textSourceKind } from "../shared/workshop-formats.js";
 
@@ -99,63 +103,6 @@ export function normalizeBookChapters(chapters, bookTitle = "", { keepKeys = nul
   return { chapters: out, dropped, frontMatter };
 }
 
-// 组装要嵌入的字体:pairing(下载字库)或 files(本机/导入字体)。
-export async function prepareFonts({
-  cacheDir,
-  python = "python",
-  pairing = null,
-  files = [],
-  chars = "",
-  workDir = "",
-  fetchImpl = fetch,
-  subsetter = null,
-  log = () => {},
-} = {}) {
-  const selected = [];
-  if (Array.isArray(files) && files.length) {
-    for (const file of files) {
-      const fontPath = String(file?.path || file?.file || "");
-      if (!fontPath) continue;
-      selected.push({ path: fontPath, family: `QBR ${String(file.family || path.basename(fontPath, path.extname(fontPath)))}`, id: "" });
-    }
-  } else if (pairing) {
-    for (const id of [...new Set([pairing.heading, pairing.body, pairing.latin])]) {
-      const ensured = await ensureFont(id, { cacheDir, fetchImpl, log });
-      if (!ensured.ok) {
-        log("font skipped", id, ensured.error);
-        continue;
-      }
-      selected.push({ path: ensured.path, family: `QBR ${FONT_FAMILIES[id] || id}`, id });
-    }
-  }
-  const fonts = [];
-  for (const font of selected) {
-    if (!fs.existsSync(font.path)) continue;
-    let data = null;
-    let fileName = `${font.family.replace(/[^\w.-]+/g, "-").toLowerCase()}.ttf`;
-    const subset = subsetter
-      ? await subsetter.subset({ python, fontPath: font.path, chars, outPath: path.join(workDir, fileName), family: font.family, workDir })
-      : { ok: false };
-    if (subset.ok) {
-      data = fs.readFileSync(subset.path);
-    } else {
-      // 子集化不可用(没有 fontTools / 超时):直接嵌原文件,支持 woff2 的阅读器可用。
-      fileName = path.basename(font.path);
-      data = fs.readFileSync(font.path);
-      log("font subset fallback", font.id || font.family, subset.error || "");
-    }
-    const licenseText = font.id ? await ensureFontLicense(font.id, { cacheDir, fetchImpl }) : "";
-    fonts.push({
-      fileName,
-      family: font.family,
-      data,
-      licenseName: "SIL Open Font License 1.1",
-      licenseText: licenseText || "本字体以 SIL Open Font License 1.1 授权,见 https://openfontlicense.org",
-    });
-  }
-  return fonts;
-}
-
 // Markdown 里的第一张本地图片(AUTO 封面的候选)。
 export function firstMarkdownImage(text, sourceDir) {
   const match = String(text || "").match(/!\[[^\]]*\]\(([^)\s]+)/);
@@ -225,7 +172,7 @@ export async function resolveCover({ payload = {}, title = "", author = "", mark
     }
   }
   if (!coverRenderer) return null;
-  const stacks = pairingStacks(null);
+  const stacks = COVER_FONTS;
   const rendered = await coverRenderer.render({
     title,
     author,
@@ -241,7 +188,7 @@ export async function resolveCover({ payload = {}, title = "", author = "", mark
   return { data: rendered.data, mediaType: rendered.mediaType || "image/jpeg", fileName: "cover.jpg" };
 }
 
-export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", _subsetter = createFontSubsetter(), coverRenderer = null, readImage = null, docvortex = null, mathRenderer = createMathRenderer(), textLayer = createTextLayerReader(), outlineReader = null, spawnImpl = spawn, log = (...args) => console.log(...args) } = {}) {
+export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", coverRenderer = null, readImage = null, docvortex = null, mathRenderer = createMathRenderer(), textLayer = createTextLayerReader(), outlineReader = null, spawnImpl = spawn, log = (...args) => console.log(...args) } = {}) {
   const absolute = (raw) => {
     const value = String(raw || "");
     return path.isAbsolute(value) ? value : path.join(vaultRoot, value);
