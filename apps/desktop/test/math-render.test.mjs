@@ -88,8 +88,8 @@ test("renderMap reports a missing latex2mathml or a failing interpreter instead 
   assert.match(crashedResult.error, /boom/);
 });
 
-// 真跑一次 latex2mathml:上游(MinerU)把黑板体字母丢成空壳时会留下悬空上下标,
-// 第一条公式整条渲染不出来 —— 重试路径要能救回来。机器上没有 latex2mathml 就跳过。
+// 真跑一次 latex2mathml:上游链路把字体命令的字母丢成空壳(实测 pdf_tool 的水印行内剔除)
+// 时会留下悬空上下标,第一条公式整条渲染不出来 —— 重试路径要能救回来。机器上没有 latex2mathml 就跳过。
 test("the python helper repairs formulas whose symbol was dropped upstream", async (t) => {
   const renderer = createMathRenderer();
   const broken = "\\\\mathbb { } _ {j} \\\\lesssim \\\\varepsilon ^ { - (d - 1)}";

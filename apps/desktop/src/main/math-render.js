@@ -19,9 +19,10 @@ def clean(latex):
     return c.replace("&", "").strip()
 
 def repair(cleaned):
-    # MinerU 偶尔把黑板体/花体的字母丢成空壳(\\\\mathbb { }),留下没有基底的上下标 ——
-    # latex2mathml 会直接报错,整条公式退回原文(实测 Notes_Boltzmann 4 处)。空壳补方块
-    # (提示"这里少了个符号"),悬空上下标去掉,只在这一步失败后的重试里用。
+    # 上游链路偶尔把字体命令的字母丢成空壳(\\\\mathbb { }),留下没有基底的上下标 ——
+    # latex2mathml 会直接报错,整条公式退回原文(实测 Notes_Boltzmann 4 处;空壳来自
+    # pdf_tool 的水印行内剔除,见 pdf_tool/docs/reader-request-watermark-token-loss-2026-10-18.md)。
+    # 空壳补方块(提示"这里少了个符号"),悬空上下标去掉,只在这一步失败后的重试里用。
     r = re.sub(r"\\\\(mathbb|mathcal|mathfrak|mathbf|mathsf|mathtt|mathit|mathrm)\\s*\\{\\s*\\}", r"\\\\square", cleaned)
     r = re.sub(r"}\\s*(?=[_^]\\s*\\{)", "", r)
     r = re.sub(r"(?<![\\\\\\w}\\]])[_^]\\s*\\{([^{}]*)\\}", "", r)
