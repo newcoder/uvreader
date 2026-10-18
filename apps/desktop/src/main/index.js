@@ -16,6 +16,7 @@ import { createFormulaChain, pdfToolScriptCommand, registerFormulaRunners, resol
 import { registerBookRunners } from "./workshop-book.js";
 import { createPdfOutlineReader } from "./pdf-outline.js";
 import { registerEpubRunners } from "./workshop-epub.js";
+import { registerAiRunners } from "./workshop-ai.js";
 import { createPdfOcr, OCR_PROBE_TIMEOUT, resolveOcrOutput } from "./pdf-ocr.js";
 import { registerOcrRunners } from "./workshop-ocr.js";
 import { createWorkshopQueue } from "./workshop.js";
@@ -96,6 +97,8 @@ const readCoverImage = async (filePath) => {
 registerEpubRunners(workshop, { vaultRoot, cacheRoot: bookCacheRoot, coverRenderer, readImage: readCoverImage, docvortex, outlineReader: createPdfOutlineReader() });
 // 内容提取(PDF/Office/OFD/图片 → md/html/json):pdf_tool + DocVortex。
 registerExtractRunners(workshop, { docvortex, vaultRoot, cacheRoot: bookCacheRoot });
+// LLM 辅助(W2-1):AI 元数据推断 / AI 封面文案 —— 复用伴读的 AI 运行时与凭据。
+registerAiRunners(workshop, { aiRuntime });
 // 格式转换的「文本型」链路(本地 fitz 提取 → DocVortex;与公式优先同构)。
 registerTextConvertRunner(workshop, { docvortex, vaultRoot, cacheRoot: bookCacheRoot });
 // Online book downloads land in the library so they appear as regular books.

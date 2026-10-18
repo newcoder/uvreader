@@ -174,7 +174,7 @@
 - **后续(不在本阶段)**:~~阅读器的字体列表也可接入同一字库~~(字库已整体移除);导入字体与「用户自行安装」的说明见 `fonts/README.md`。
 5. **生成**:EPUB(主输出);可选同时导出 Markdown/HTML;可再转 AZW3/MOBI(Calibre);生成后可直接「发送到 Kindle」。
 
-**LLM 辅助任务**(全部可选、可撤销,复用伴读 AI 配置):AI 清理(OCR/断行/漏标题)、AI 分章建议、AI 元数据推断、AI 封面文案;进任务队列显示进度,失败不影响手动流程。
+**LLM 辅助任务**(全部可选、可撤销,复用伴读 AI 配置):AI 清理(OCR/断行/漏标题)、AI 分章建议、**AI 元数据推断 / AI 封面文案(已实现 2026-10-18)**;进任务队列显示进度,失败不影响手动流程。
 
 **批量**:多本排队,共享元数据与样式模板。
 
@@ -270,7 +270,7 @@ DocVortex 实测备注:输出 EPUB 结构合法(mimetype/container/OPF/nav + 图
 
 - **P0**:页面 + 导航;文字层 / 可搜索 PDF(批量,`.uvtext.pdf`);PDF → Markdown/HTML(pdf_tool);文档互转(DocVortex:docx/ppt/odt/html/epub/mhtml/ofd → md/html/docx/pdf);任务队列。
 - **P1**:电子书制作向导(**实时预览 + 样式 + 封面 + 目录**;Calibre → EPUB);**发送到 Kindle**(SMTP + 设置 + 右键/书坊入口);**EPUB → AZW3/MOBI**(Calibre,与直发并存);PDF → EPUB(先提取再制作);图片 → PDF/CBZ;DOCX → EPUB。
-- **P2**:**LLM 辅助**(AI 清理 / AI 分章建议 / AI 元数据 / AI 封面文案);批量制作与元数据/样式模板;~~Markdown → EPUB、EPUB → Markdown~~(✅ 已具备:向导吃 md/txt、格式转换吃 EPUB→md;2026-10-18 补「EPUB → Markdown」预设卡);EbookLib 内置构建(可选);题目抽取(后续)。
+- **P2**:**LLM 辅助**(AI 清理 / AI 分章建议 / **AI 元数据 / AI 封面文案 ✅ 2026-10-18**);批量制作与元数据/样式模板;~~Markdown → EPUB、EPUB → Markdown~~(✅ 已具备:向导吃 md/txt、格式转换吃 EPUB→md;2026-10-18 补「EPUB → Markdown」预设卡);EbookLib 内置构建(可选);题目抽取(后续)。
 
 ## 11. 非目标
 
@@ -291,5 +291,5 @@ DocVortex 实测备注:输出 EPUB 结构合法(mimetype/container/OPF/nav + 图
 8. ~~**发送到 Kindle**:走 Amazon 邮件通道,EPUB 直发;应用内配置 SMTP(授权码/应用密码走 safeStorage)与 Kindle 地址,含「测试连接」与失败提示;Amazon 侧需把发件邮箱加入「已批准的个人文档电子邮件列表」,单封 ≤25 附件 / ≤50MB(超出自动 ZIP)。~~ **已移除(2026-10-18)**。
 9. **EPUB → AZW3/MOBI 转换同时保留**(Calibre,USB 拷贝/离线/其它阅读器场景),与「发送到 Kindle」并存,不做二选一。
 10. ~~**预览与样式**:向导右侧实时预览(壳内 iframe + 与 EPUB 相同的 CSS),样式/封面/目录改动即时可见;EPUB 只在「生成」时构建。~~(预览与"阅读器说了算"的样式控件已移除 2026-10-18:面板只留缩进 / 段距 / 标题对齐)提取结果仍提供 Markdown/HTML/JSON 预览与结构树。
-11. **LLM 辅助**:AI 清理(OCR/断行/漏标题)、AI 分章建议、AI 元数据推断、AI 封面文案等复杂任务,复用现有 AI 配置;全部可选、可撤销、失败不阻塞手动流程。
+11. **LLM 辅助**:AI 清理(OCR/断行/漏标题)、AI 分章建议、AI 元数据推断、AI 封面文案等复杂任务,复用现有 AI 配置;全部可选、可撤销、失败不阻塞手动流程。**2026-10-18:元数据推断与封面文案已实现**(向导 ③ 的两个按钮;结果只作建议,应用时只填空着的字段);分章建议与 AI 清理待做。
 12. **Calibre 集成形式**:外置 **CLI 进程**(`ebook-convert`/`ebook-meta`),检测顺序=自定义路径 → 常见安装位置 → PATH,未找到给下载引导;体积大且 GPL-3 不随包分发,未安装时用 **EbookLib** 兜底构建 EPUB。

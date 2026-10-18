@@ -8,6 +8,16 @@ import { splitTextChapters } from "../main/text-book.js";
 import { EXTRACT_MODES, IMAGE_INPUTS, extractionKind } from "../shared/extract-formats.js";
 import { splitMarkdownChapters, unwrapProseFences } from "../shared/markdown-fix.js";
 import { convertPath, uvtextPath } from "../shared/workshop-names.js";
+import { createAiContext } from "../../../../packages/reader/src/ai-context.js";
+
+// 书坊的 AI 辅助复用伴读的配置读取(供应商 / 模型 / 密钥都从同一份设置与密钥库来,
+// 不新增设置项);这里只用 aiConfig,翻译与高亮定位给最小实现。
+const aiContext = createAiContext({
+  translate: (key) => String(key || ""),
+  platform: {},
+  win: typeof window === "undefined" ? undefined : window,
+  locateHl: () => null,
+});
 
 const BOOK_EXTENSIONS = ["epub", "fb2", "fbz", "mobi", "azw", "azw3", "cbz", "pdf"];
 
@@ -1266,6 +1276,18 @@ export function createWorkshopView(leaf, options) {
       metaRow.createSpan({ cls: "qbr-workshop-hint", text: "作者" });
       this._bookAuthor = metaRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "可选" } });
 
+      // AI 辅助(W2-1):结果只作建议,「应用」前不改任何字段(可选、可撤销)。
+      this._aiSuggestion = null;
+      this._aiDismissed ||= new Set();
+      const aiRow = metaStep.createDiv("qbr-workshop-row");
+      aiRow.createSpan({ cls: "qbr-workshop-hint", text: "AI 辅助" });
+      const aiMeta = aiRow.createEl("button", { text: "AI 推断书名 / 作者" });
+      aiMeta.addEventListener("click", () => void this.startAiSuggestion("ai-metadata"));
+      const aiCover = aiRow.createEl("button", { text: "AI 封面文案" });
+      aiCover.addEventListener("click", () => void this.startAiSuggestion("ai-cover-copy"));
+      aiRow.createSpan({ cls: "qbr-workshop-hint", text: "用书稿开头推断;只填空着的字段" });
+      this._bookAiSuggestion = metaStep.createDiv("qbr-workshop-ai-suggest");
+
       const coverRow = metaStep.createDiv("qbr-workshop-row");
       coverRow.createSpan({ cls: "qbr-workshop-hint", text: "封面" });
       this._bookCoverMode = coverRow.createEl("select", { cls: "qbr-workshop-select" });
@@ -1601,6 +1623,120 @@ export function createWorkshopView(leaf, options) {
         control.value.setText(`${control.input.value}${control.suffix}`);
       }
       try { localStorage.setItem("qbr-workshop-book-style", JSON.stringify(this.bookStyleState())); } catch { /* ignore */ }
+    }
+
+    // ── LLM 辅助(W2-1):AI 元数据推断 / AI 封面文案 ──────────────────────
+    // 伴读那份配置(供应商 / 模型 / 密钥);没配好返回 null,由调用方给可操作提示。
+    aiReadyConfig() {
+      const cfg = aiContext.aiConfig(plugin);
+      if (!cfg?.provider || !cfg.base || !cfg.model || (cfg.needsKey && !cfg.key)) return null;
+      return {
+        id: cfg.id,
+        name: cfg.provider?.label || cfg.id,
+        base: cfg.base,
+        model: cfg.model,
+        thinking: cfg.thinking === true,
+        supportsThinking: cfg.provider?.supportsThinking === true,
+        compat: cfg.provider?.compat || null,
+        key: cfg.key || "",
+        needsKey: cfg.needsKey === true,
+      };
+    }
+
+    // 提示词用的书稿开头:txt / md 直接读;PDF / Office 读同目录「内容提取」的 md 产物。
+    async bookSourceText(limit = 8000) {
+      const rel = String(this._bookSources?.[0] || "");
+      if (!rel) return "";
+      const readVault = async (target) => {
+        const file = app?.vault?.getAbstractFileByPath?.(target);
+        return file ? String(await app.vault.read(file).catch(() => "") || "") : "";
+      };
+      if (/\.(txt|md|markdown)$/i.test(rel)) return (await readVault(rel)).slice(0, limit);
+      const sibling = rel.replace(/\.[^./\\]+$/, ".md");
+      return (await readVault(sibling)).slice(0, limit);
+    }
+
+    async startAiSuggestion(kind) {
+      if (!bridge) return;
+      const rel = String(this._bookSources?.[0] || "");
+      if (!rel) {
+        new Notice("请先选择书稿");
+        return;
+      }
+      const config = this.aiReadyConfig();
+      if (!config) {
+        new Notice("AI 还没配置好:先在「设置 → AI 助读」里选好供应商、模型与密钥");
+        return;
+      }
+      const text = await this.bookSourceText();
+      if (text.trim().length < 20) {
+        new Notice("没有可用的正文:PDF / Office 书稿请先跑一次「内容提取」,或直接选 txt / Markdown");
+        return;
+      }
+      const fileName = rel.split("/").pop() || rel;
+      void bridge.start({
+        kind,
+        title: kind === "ai-metadata" ? "AI 推断元数据" : "AI 封面文案",
+        detail: rel,
+        payload: { config, text, fileName },
+      }).catch((error) => new Notice(String(error?.message || error)));
+      new Notice("AI 在后台处理,结果会出现在「书名与封面」这一步(只作建议)");
+    }
+
+    // 任务完成 → 记下建议;面板里显式「应用」才写进字段(可选、可撤销)。
+    captureAiSuggestions(tasks) {
+      const pending = (tasks || []).find((task) => (task.kind === "ai-metadata" || task.kind === "ai-cover-copy")
+        && task.status === "done" && task.result);
+      if (!pending) return;
+      if (this._aiSuggestion?.taskId === pending.id || this._aiDismissed?.has?.(pending.id)) return;
+      this._aiSuggestion = { kind: pending.kind, taskId: pending.id, data: pending.result };
+      this.renderAiSuggestion();
+    }
+
+    renderAiSuggestion() {
+      const host = this._bookAiSuggestion;
+      if (!host) return;
+      host.empty();
+      const suggestion = this._aiSuggestion;
+      if (!suggestion?.data) return;
+      const rows = suggestion.kind === "ai-metadata"
+        ? [["书名", suggestion.data.title], ["作者", suggestion.data.author], ["语言", suggestion.data.language], ["丛书", suggestion.data.series], ["标签", (suggestion.data.tags || []).join(" / ")]]
+        : [["书名", suggestion.data.title], ["副标题", suggestion.data.subtitle], ["系列", suggestion.data.series]];
+      const filled = rows.filter(([, value]) => String(value || "").trim());
+      if (!filled.length) {
+        host.createDiv({ cls: "qbr-workshop-hint", text: "AI 没有给出可用的建议(可以重试一次)" });
+        return;
+      }
+      host.createDiv({ cls: "qbr-workshop-hint", text: suggestion.kind === "ai-metadata" ? "AI 建议(应用时只填空着的字段):" : "AI 封面文案(应用时只填空着的字段):" });
+      for (const [label, value] of filled) host.createDiv({ cls: "qbr-workshop-hint", text: `${label}:${value}` });
+      const actions = host.createDiv("qbr-workshop-row");
+      const apply = actions.createEl("button", { cls: "mod-cta", text: "应用" });
+      apply.addEventListener("click", () => this.applyAiSuggestion());
+      const skip = actions.createEl("button", { text: "忽略" });
+      skip.addEventListener("click", () => {
+        this._aiDismissed?.add?.(suggestion.taskId);
+        this._aiSuggestion = null;
+        this.renderAiSuggestion();
+      });
+    }
+
+    applyAiSuggestion() {
+      const suggestion = this._aiSuggestion;
+      if (!suggestion?.data) return;
+      const fill = (input, value) => {
+        // 已有内容不覆盖(用户写的东西优先);只填空着的字段。
+        if (!input || !String(value || "").trim() || String(input.value || "").trim()) return false;
+        input.value = String(value);
+        return true;
+      };
+      const data = suggestion.data;
+      const touched = suggestion.kind === "ai-metadata"
+        ? [fill(this._bookTitle, data.title), fill(this._bookAuthor, data.author)]
+        : [fill(this._bookSubtitle, data.subtitle), fill(this._bookTitle, data.title)];
+      this.onBookStyleChange();
+      this._aiSuggestion = null;
+      this.renderAiSuggestion();
+      new Notice(touched.some(Boolean) ? "已填入空的字段(其余保持不变)" : "字段里已经有内容,没有覆盖");
     }
 
     // 目录编辑:书库书稿可改名/合并/拆分/排序;本地文件在生成时自动识别。
@@ -2117,6 +2253,7 @@ export function createWorkshopView(leaf, options) {
     renderTasks(state) {
       const tasks = Array.isArray(state?.tasks) ? state.tasks : [];
       this._lastState = state;
+      this.captureAiSuggestions(tasks);
       const running = tasks.filter((task) => task.status === "running");
       const queued = tasks.filter((task) => task.status === "queued");
       if (this._taskBadge) this._taskBadge.setText(running.length ? `${running.length} 运行中` : "");

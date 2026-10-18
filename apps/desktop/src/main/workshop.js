@@ -42,8 +42,15 @@ export function createWorkshopQueue({ file = "", onState = () => {}, log = conso
     };
   }
 
+  // 状态推送(给渲染层)带上结构化结果;历史落盘走 publicTask,不带它。
   function snapshot() {
-    return { running: Boolean(running), tasks: tasks.map(publicTask) };
+    return {
+      running: Boolean(running),
+      tasks: tasks.map((task) => ({
+        ...publicTask(task),
+        result: task.result && typeof task.result === "object" ? task.result : null,
+      })),
+    };
   }
 
   function persist() {
@@ -80,6 +87,7 @@ export function createWorkshopQueue({ file = "", onState = () => {}, log = conso
           error: String(entry.error || ""),
           done: Number(entry.done) || 0,
           total: Number(entry.total) || 0,
+          result: null,
           payload: null,
           controller: null,
         });
@@ -116,6 +124,7 @@ export function createWorkshopQueue({ file = "", onState = () => {}, log = conso
       label: "",
       output: "",
       error: "",
+      result: null,
       createdAt: Date.now(),
       startedAt: 0,
       finishedAt: 0,
@@ -152,6 +161,8 @@ export function createWorkshopQueue({ file = "", onState = () => {}, log = conso
         if (task.controller.signal.aborted) throw new CancelledError();
         task.status = "done";
         task.output = String(result?.output || "");
+        // 结构化结果(LLM 建议等):只留在内存里给面板「应用」,不落盘(见 publicTask)。
+        task.result = result?.result && typeof result.result === "object" ? result.result : null;
         if (result?.detail) task.detail = String(result.detail);
       } catch (error) {
         const cancelled = task.controller.signal.aborted || error?.cancelled === true || error?.name === "CancelledError";
