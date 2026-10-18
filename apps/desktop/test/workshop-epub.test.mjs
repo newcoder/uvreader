@@ -212,32 +212,24 @@ test("the book-build runner extracts pdf sources with the pdf_tool checkout", as
   assert.match(nav, /第二章 等级/);
 });
 
-test("the book-build runner embeds subsetted fonts", async () => {
+test("the book-build runner no longer embeds fonts", async () => {
   const vault = tempDir("qbr-epub-vault2-");
   const source = path.join(vault, "有字体.md");
   fs.writeFileSync(source, "# 第一章\n\n正文 犇。", "utf8");
   const fontPath = path.join(vault, "Font.woff2");
   fs.writeFileSync(fontPath, "font-bytes");
-  const { queue } = makeQueue(tempDir("qbr-epub-cache2-"), {
-    subset: async ({ outPath, chars }) => {
-      fs.writeFileSync(outPath, `subset:${chars.includes("犇") ? "has-" : ""}chars`);
-      return { ok: true, path: outPath };
-    },
-  });
+  const { queue } = makeQueue(tempDir("qbr-epub-cache2-"), {});
   const id = queue.start({
     kind: "book-build",
     title: "生成电子书",
     payload: { source, settings: {}, fonts: { files: [{ path: fontPath, family: "Test Font" }] } },
   });
   const task = await waitForTask(queue, id);
-  assert.equal(task.status, "done");
+  assert.equal(task.status, "done", task.error);
   const zip = await JSZip.loadAsync(fs.readFileSync(task.output));
   const opf = await zip.file("OEBPS/content.opf").async("string");
-  assert.match(opf, /media-type="font\/ttf"/);
-  const fontFiles = Object.keys(zip.files).filter((name) => name.startsWith("OEBPS/fonts/") && name.endsWith(".ttf"));
-  assert.equal(fontFiles.length, 1);
-  assert.match(await zip.file(fontFiles[0]).async("string"), /has-chars/);
-  assert.match(task.detail, /1 款字体/);
+  assert.ok(!/media-type="font\//.test(opf), "成品不再嵌入字体(阅读器用自己的字体)");
+  assert.equal(Object.keys(zip.files).filter((name) => name.startsWith("OEBPS/fonts/")).length, 0);
 });
 
 test("the book-build runner embeds local images and renders formulas as MathML", async () => {

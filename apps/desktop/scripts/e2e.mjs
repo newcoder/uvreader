@@ -3057,19 +3057,10 @@ async function runWorkshopEpubScenario() {
       throw new Error("the cover is missing from the opf");
     }
     console.log("workshop-epub: template cover", Math.round(coverImage.length / 1024) + "KB");
-    if (fs.existsSync(bundledFont)) {
-      const ttf = Object.keys(zip.files).filter((name) => name.startsWith("OEBPS/fonts/") && name.endsWith(".ttf"));
-      const woff2 = Object.keys(zip.files).filter((name) => name.startsWith("OEBPS/fonts/") && name.endsWith(".woff2"));
-      if (!ttf.length && !woff2.length) throw new Error("expected an embedded font inside the epub");
-      const entry = ttf[0] || woff2[0];
-      const bytes = (await zip.file(entry).async("nodebuffer")).length;
-      if (bytes <= 0) throw new Error(`the embedded font looks empty: ${bytes} bytes`);
-      if (ttf.length && bytes > 1_500_000) throw new Error(`the font subset looks wrong: ${bytes} bytes`);
-      const licenses = Object.keys(zip.files).filter((name) => name.startsWith("OEBPS/fonts/OFL-"));
-      if (!licenses.length) throw new Error("expected the OFL license inside the epub");
-      console.log("workshop-epub: font", ttf.length ? "subset" : "full (fontTools/brotli unavailable)", Math.round(bytes / 1024) + "KB with its license");
-    }
-    console.log("workshop-epub: txt → epub", fs.statSync(out).size, "bytes");
+    // 不再嵌入字体:成品里不该有 fonts/ 目录(阅读器用自己的字体)。
+    const fontEntries = Object.keys(zip.files).filter((name) => name.startsWith("OEBPS/fonts/"));
+    if (fontEntries.length) throw new Error(`the epub should not embed fonts any more: ${fontEntries.join(",")}`);
+    console.log("workshop-epub: txt → epub", fs.statSync(out).size, "bytes (no embedded fonts)");
     // 成品质量:Markdown 里的本地图片收进 EPUB,LaTeX 公式转 MathML(真实 latex2mathml)。
     const figBytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
     fs.mkdirSync(path.join(userData, "library", "Books", "mineru", "images"), { recursive: true });
@@ -3139,38 +3130,25 @@ async function runWorkshopEpubScenario() {
     if (!wizardPicked) throw new Error("the wizard did not list the txt manuscript");
     const layout = await page.evaluate(() => {
       const grid = document.querySelector(".qbr-workshop-panel[data-tool='book'] .qbr-workshop-wizard");
-      if (!grid) return null;
-      const controls = grid.querySelector(".qbr-workshop-wizard-controls")?.getBoundingClientRect();
-      const preview = grid.querySelector(".qbr-workshop-wizard-preview")?.getBoundingClientRect();
       return {
-        display: getComputedStyle(grid).display,
-        controlsRight: Math.round(controls?.right || 0),
-        previewLeft: Math.round(preview?.left || 0),
-        previewWidth: Math.round(preview?.width || 0),
+        hasGrid: Boolean(grid),
+        hasPreview: Boolean(document.querySelector(".qbr-workshop-panel[data-tool='book'] .qbr-workshop-wizard-preview")),
+        controls: grid ? grid.querySelectorAll(".qbr-workshop-wizard-controls input, .qbr-workshop-wizard-controls select, .qbr-workshop-wizard-controls button").length : 0,
       };
     });
-    if (!layout || layout.display !== "grid" || layout.previewWidth < 200 || layout.previewLeft < layout.controlsRight - 4) {
-      throw new Error(`the wizard should place controls and preview side by side: ${JSON.stringify(layout)}`);
-    }
-    console.log("workshop-epub: controls and preview sit side by side");
+    if (!layout.hasGrid || layout.controls < 6) throw new Error(`the wizard should keep its controls: ${JSON.stringify(layout)}`);
+    if (layout.hasPreview) throw new Error(`the wizard preview column should be gone: ${JSON.stringify(layout)}`);
+    console.log("workshop-epub: wizard keeps its controls; preview column removed");
     const ranges = await page.evaluate(() => [...document.querySelectorAll(".qbr-workshop-panel[data-tool='book'] input[type='range']")]
       .map((input) => `${input.min}-${input.max}:${input.value}`));
     if (ranges[0] !== "12-28:17" || ranges[1] !== "1.2-2.4:1.75" || ranges[2] !== "0-12:5") {
       throw new Error(`the wizard sliders should start at the defaults: ${ranges.join(", ")}`);
     }
-    const preview = await waitFor("wizard preview", () => page.evaluate(() => {
-      const doc = document.querySelector(".qbr-workshop-preview-frame")?.contentDocument;
-      const text = doc?.body?.innerText || "";
-      return text.includes("面板生成的正文") ? text.slice(0, 14) : "";
+    // 目录编辑(两章,改名第一章)。
+    const detected = await waitFor("detected chapters", () => page.evaluate(() => {
+      const inputs = [...document.querySelectorAll(".qbr-workshop-chapter .qbr-workshop-input")].map((input) => input.value);
+      return inputs.length ? inputs : "";
     }), 15_000);
-    console.log("workshop-epub: wizard preview shows", JSON.stringify(preview));
-    // 封面预览 + 目录编辑(两章,改名第一章)。
-    await waitFor("cover preview", () => page.evaluate(() => {
-      const doc = document.querySelector(".qbr-workshop-cover-preview .qbr-workshop-cover-frame")?.contentDocument;
-      const text = doc?.body?.innerText || "";
-      return text.includes("示例文稿") && text.includes("UV READER") ? text.slice(0, 12) : "";
-    }), 15_000);
-    const detected = await page.evaluate(() => [...document.querySelectorAll(".qbr-workshop-chapter .qbr-workshop-input")].map((input) => input.value));
     if (detected.length !== 2 || !detected[0].includes("面板")) {
       throw new Error(`expected two detected chapters, saw ${JSON.stringify(detected)}`);
     }
@@ -3179,7 +3157,7 @@ async function runWorkshopEpubScenario() {
       input.value = "改名后的第一章";
       input.dispatchEvent(new Event("change", { bubbles: true }));
     });
-    console.log("workshop-epub: cover preview ok,", detected.length, "chapters detected and renamed");
+    console.log("workshop-epub:", detected.length, "chapters detected and renamed");
     const before = await page.evaluate(async () => {
       const state = await window.qbrDesktop.workshop.list();
       return state.tasks.filter((task) => task.kind === "book-build").length;
@@ -3235,17 +3213,7 @@ async function runWorkshopEpubScenario() {
       };
     });
     if (!scanned.found) throw new Error(`the panel should list the scanned png once it exists: ${JSON.stringify(scanned)}`);
-    const scannedPreview = await waitFor("scanned preview", () => page.evaluate(() => {
-      const doc = document.querySelector(".qbr-workshop-preview-frame")?.contentDocument;
-      const text = doc?.body?.innerText || "";
-      return text.includes("识别出来的正文") ? text.slice(0, 14) : "";
-    }), 15_000);
-    const scannedNote = await page.evaluate(() => {
-      const note = document.querySelector(".qbr-workshop-panel[data-tool='book'] .qbr-workshop-wizard-preview .qbr-workshop-hint");
-      return note?.textContent || "";
-    });
-    if (!scannedNote.includes("同目录已提取")) throw new Error(`the preview should say it reads the extracted markdown: ${scannedNote}`);
-    console.log("workshop-epub: non-text preview shows", JSON.stringify(scannedPreview), "·", scannedNote.slice(0, 20));
+    console.log("workshop-epub: scanned png listed in the source picker");
     // 最后用阅读器打开生成物(阅读模式会隐藏导航,放到场景末尾)。
     await page.evaluate(async () => {
       const file = window.__qbrApp.vault.getAbstractFileByPath("Books/测试小说.epub");

@@ -13,7 +13,7 @@ import { createTextLayerReader } from "./text-layer.js";
 import { cleanChapterTitle, joinInlineFragment, looksLikeHeadingTitle, unwrapProseFences } from "../shared/markdown-fix.js";
 import { buildNavPlan, chapterKey, chapterStartPages, fillPageGaps, isPrintedTocChapter, lastPrintedPageOf, normalizeNavLevels, parsePrintedTocEntries, printedPageOf, stripPageMarkers, stripPrintedToc, tocKey } from "../shared/printed-toc.js";
 import { outlineToTocEntries } from "./pdf-outline.js";
-import { collectChars, createFontSubsetter, ensureFont, ensureFontLicense, findPairing, FONT_FAMILIES } from "./workshop-fonts.js";
+import { ensureFont, ensureFontLicense, createFontSubsetter, FONT_FAMILIES } from "./workshop-fonts.js";
 import { pairingStacks } from "../shared/book-fonts.js";
 import { convertPath } from "../shared/workshop-names.js";
 import { textSourceKind } from "../shared/workshop-formats.js";
@@ -203,7 +203,7 @@ export function chaptersToNavItems(chapters, { anchors = [], pages = [] } = {}) 
     }));
 }
 
-export async function resolveCover({ payload = {}, title = "", author = "", markdownText = "", sourceDir = "", pairing = null, cacheDir = "", coverRenderer = null, loadImage = null, log = () => {} } = {}) {
+export async function resolveCover({ payload = {}, title = "", author = "", markdownText = "", sourceDir = "", _pairing = null, _cacheDir = "", coverRenderer = null, loadImage = null, log = () => {} } = {}) {
   const cover = payload.cover || {};
   const mode = String(cover.mode || "none");
   if (mode === "none") return null;
@@ -225,20 +225,12 @@ export async function resolveCover({ payload = {}, title = "", author = "", mark
     }
   }
   if (!coverRenderer) return null;
-  const fonts = [];
-  if (pairing) {
-    for (const id of [...new Set([pairing.heading, pairing.body])]) {
-      const ensured = await ensureFont(id, { cacheDir, log });
-      if (ensured.ok) fonts.push({ path: ensured.path, family: `QBR ${FONT_FAMILIES[id] || id}` });
-    }
-  }
-  const stacks = pairingStacks(pairing);
+  const stacks = pairingStacks(null);
   const rendered = await coverRenderer.render({
     title,
     author,
     subtitle: cover.subtitle,
     palette: cover.palette,
-    fonts,
     headingFamily: stacks.heading,
     bodyFamily: stacks.body,
   });
@@ -249,7 +241,7 @@ export async function resolveCover({ payload = {}, title = "", author = "", mark
   return { data: rendered.data, mediaType: rendered.mediaType || "image/jpeg", fileName: "cover.jpg" };
 }
 
-export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", subsetter = createFontSubsetter(), coverRenderer = null, readImage = null, docvortex = null, mathRenderer = createMathRenderer(), textLayer = createTextLayerReader(), outlineReader = null, spawnImpl = spawn, log = (...args) => console.log(...args) } = {}) {
+export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", _subsetter = createFontSubsetter(), coverRenderer = null, readImage = null, docvortex = null, mathRenderer = createMathRenderer(), textLayer = createTextLayerReader(), outlineReader = null, spawnImpl = spawn, log = (...args) => console.log(...args) } = {}) {
   const absolute = (raw) => {
     const value = String(raw || "");
     return path.isAbsolute(value) ? value : path.join(vaultRoot, value);
@@ -467,23 +459,8 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     if (unrendered) log("book build raw formulas", unrendered, "个公式没能渲染成 MathML(成品里会显示 LaTeX 原文)");
     log("book build", source, "→", out, `${chapters.length} 章`);
 
-    report({ label: "准备字体" });
-    const pairing = payload?.fonts?.pairing ? findPairing(payload.fonts.pairing) : null;
-    const chars = collectChars(chapters.map((chapter) => `${chapter.title}${chapter.text}`));
-    const workDir = path.join(cacheRoot, "subset", path.basename(source).replace(/[^\w.-]+/g, "_").slice(0, 40) || "book");
-    fs.mkdirSync(workDir, { recursive: true });
-    const fonts = payload?.fonts?.embed === false
-      ? []
-      : await prepareFonts({
-        cacheDir: path.join(cacheRoot, "library"),
-        python: String(settings.ocrPython || "").trim() || "python",
-        pairing,
-        files: payload?.fonts?.files,
-        chars,
-        workDir,
-        subsetter,
-        log,
-      });
+    // 不再嵌入字体:阅读器用自己的字体,成品更小,也少一层下载/子集依赖。
+    const fonts = [];
     if (signal.aborted) throw new Error("任务已取消");
 
     report({ label: "准备封面" });
@@ -493,7 +470,6 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       author: String(payload?.author || "").trim(),
       markdownText: text || rawChapters.map((chapter) => chapter.text).join("\n"),
       sourceDir: baseDir,
-      pairing,
       cacheDir: path.join(cacheRoot, "library"),
       coverRenderer,
       loadImage,
