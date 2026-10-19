@@ -7,7 +7,8 @@ import { BOOK_EXTENSIONS, isBookFile } from "../shared/books.js";
 import { WORKSHOP_PICK_EXTENSIONS } from "../shared/workshop-formats.js";
 import { createAiRuntime } from "./ai-runtime.js";
 import { createEngineClient, describeEngineHealth } from "./engine-client.js";
-import { registerEngineComponentRunner, registerEngineInstallRunner } from "./engine-install.js";
+import { createEngineInstaller, registerEngineComponentRunner, registerEngineInstallRunner } from "./engine-install.js";
+import { createEngineService, portFromUrl } from "./engine-service.js";
 import { syncLocalMineruAddress } from "./engine-wiring.js";
 import { createCalibre } from "./calibre.js";
 import { createCoverRenderer } from "./cover-render.js";
@@ -116,6 +117,12 @@ registerTextConvertRunner(workshop, { docvortex, vaultRoot, cacheRoot: bookCache
 registerEngineInstallRunner(workshop, { engineRoot });
 // 可选组件(E4):把 DocVortex 这类「还要另外装」的东西装进引擎自己的 Python。
 registerEngineComponentRunner(workshop, { engine: engineClient });
+// 引擎进程的启停(设置页「启动引擎 / 停止引擎」+ 启动应用时自动开启)。
+const engineService = createEngineService({
+  engineRoot,
+  installer: createEngineInstaller(),
+  log: (...args) => log("[engine-service]", ...args),
+});
 // Online book downloads land in the library so they appear as regular books.
 const bookDownloads = createBookDownloads({
   downloadRoot: path.join(vaultRoot, "Books", "下载"),
@@ -460,6 +467,27 @@ ipcMain.handle("qbr:probe:engine", async (_event, settings = {}) => {
 ipcMain.handle("qbr:engine:config", (_event, settings = {}) => engineClient.config(settings || {}));
 ipcMain.handle("qbr:engine:save-config", (_event, payload = {}) => engineClient.saveConfig(payload?.settings || {}, payload?.patch || {}));
 ipcMain.handle("qbr:engine:jobs", (_event, payload = {}) => engineClient.jobs(payload?.settings || {}, payload?.limit || 20));
+// 引擎进程:状态 / 启动 / 停止 / 应用启动时自动开启(只动应用自己起的那个)。
+ipcMain.handle("qbr:engine:service", () => engineService.status());
+ipcMain.handle("qbr:engine:start", (_event, payload = {}) => {
+  const port = Math.min(65535, Math.max(1, Number(payload?.port) || portFromUrl(payload?.engineUrl)));
+  return engineService.start({ port });
+});
+ipcMain.handle("qbr:engine:stop", () => engineService.stop());
+ipcMain.handle("qbr:engine:auto-start", async (_event, settings = {}) => {
+  const value = settings || {};
+  if (value.engineAutoStart === false) return { skipped: "disabled" };
+  const state = await engineService.status();
+  if (!state.installed) return { skipped: "not-installed" };
+  const health = await engineClient.health(value);
+  if (health?.ok) return { skipped: "running", detail: describeEngineHealth(health.data || {}) };
+  try {
+    return await engineService.start({ port: portFromUrl(value.engineUrl) });
+  } catch (error) {
+    log("[engine] auto-start failed:", String(error?.message || error));
+    return { skipped: "failed", error: String(error?.message || error) };
+  }
+});
 // 离线安装:选一个本地引擎包(zip / tar.gz),交给 engine-install 任务。
 ipcMain.handle("qbr:engine:pick-bundle", async () => {
   const options = {

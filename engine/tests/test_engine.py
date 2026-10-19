@@ -288,6 +288,29 @@ def test_config_with_a_bom_is_still_read(tmp_path, monkeypatch):
     assert config["calibrePath"] == ""
 
 
+def test_config_exposes_defaults_and_detected_values(client, tmp_path):
+    """界面要能显示「缺省/自动」值:defaults + detected 必须随 /v1/config 一起回。"""
+    body = client.get("/v1/config", headers=AUTH).json()
+    assert body["defaults"]["workers"] == 2, "并发默认 2"
+    assert body["defaults"]["mineruModel"] == "vlm"
+    assert "mineruToken" not in body["defaults"], "默认值里不能带令牌字段"
+    detected = body["detected"]
+    for key in ("python", "pdfTool", "docvortex", "calibre", "boko"):
+        assert key in detected, f"detected 缺 {key}"
+        assert f"{key}Source" in detected
+    assert detected["python"] == sys.executable, "没配 python 就用引擎自己的解释器"
+    assert detected["pythonSource"] == "engine"
+    # pdf_tool:仓库里没有 pdf-tool/ → 探测不到就是空(不猜一个路径)
+    assert detected["pdfTool"] == "" or detected["pdfToolSource"] in ("bundled", "configured")
+    # 配了路径就用配置的(来源标 configured)
+    stub = tmp_path / "boko.exe"
+    stub.write_text("x", encoding="utf-8")
+    client.patch("/v1/config", headers=AUTH, json={"patch": {"bokoPath": str(stub)}})
+    body = client.get("/v1/config", headers=AUTH).json()
+    assert body["detected"]["boko"] == str(stub)
+    assert body["detected"]["bokoSource"] == "configured"
+
+
 # ── 可选组件(install-component)─────────────────────────────────────
 
 def test_capabilities_say_what_is_bundled_and_what_is_not(client):

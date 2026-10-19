@@ -554,6 +554,56 @@ export function createSettingsView(leaf, options) {
     const engineCard = root.createDiv("qbr-workshop-card");
     engineCard.createEl("h3", { text: "书坊引擎(后台能力)" });
     engineCard.createDiv({ cls: "qbr-workshop-hint", text: "把 Python / pdf_tool / DocVortex / 文字层这些后台能力做成一个可独立部署的本地服务;装上引擎后,下面那些路径都不用自己配。" });
+    // 引擎进程:状态 + 启动/停止 + 启动应用时自动开启。
+    // 引擎是独立服务,应用重启不会自动带起它 —— 这里给显式入口;停只停应用自己起的(pid 记录)。
+    const engineServiceRow = engineCard.createDiv("qbr-workshop-row");
+    const engineServiceStatus = engineServiceRow.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "检查中…" });
+    const engineStartBtn = engineServiceRow.createEl("button", { cls: "mod-cta", text: "启动引擎" });
+    const engineStopBtn = engineServiceRow.createEl("button", { text: "停止引擎" });
+    const engineAutoLabel = engineCard.createEl("label", { cls: "qbr-workshop-hint" });
+    const engineAuto = engineAutoLabel.createEl("input", { attr: { type: "checkbox" } });
+    engineAuto.checked = settings.engineAutoStart !== false;
+    engineAutoLabel.createSpan({ text: "启动应用时自动开启书坊引擎(引擎没装就什么都不做)" });
+    engineAuto.addEventListener("change", () => persist("engineAutoStart", engineAuto.checked));
+    const renderEngineService = (state) => {
+      if (!state) return;
+      engineServiceStatus.setText(String(state.detail || (state.installed ? (state.running ? "运行中" : "未运行") : "未安装")));
+      engineStartBtn.disabled = state.installed !== true || state.running === true;
+      engineStopBtn.disabled = state.running !== true;
+    };
+    const refreshEngineService = async () => {
+      if (!bridge?.engine?.service) return;
+      const state = await bridge.engine.service().catch(() => null);
+      renderEngineService(state);
+    };
+    engineStartBtn.addEventListener("click", async () => {
+      engineServiceStatus.setText("启动中…");
+      const result = await bridge?.engine?.start?.({ engineUrl: settings.engineUrl })
+        .catch((error) => ({ ok: false, detail: String(error?.message || error) }));
+      if (!result?.ok) {
+        engineServiceStatus.setText(`启动失败:${result?.detail || result?.error || "没有返回原因"}`);
+        void refreshEngineService();
+        return;
+      }
+      if (result.engineUrl) {
+        persist("engineUrl", result.engineUrl);
+        engineUrl.value = result.engineUrl;
+      }
+      if (result.token) {
+        persist("engineToken", result.token);
+        engineToken.value = result.token;
+      }
+      renderEngineService(result);
+      void checkEngine(true);
+    });
+    engineStopBtn.addEventListener("click", async () => {
+      engineServiceStatus.setText("停止中…");
+      const result = await bridge?.engine?.stop?.().catch((error) => ({ ok: false, detail: String(error?.message || error) }));
+      if (result?.ok) engineCaps.empty();
+      engineServiceStatus.setText(result?.ok ? "已停止" : String(result?.detail || "停止失败"));
+      void refreshEngineService();
+    });
+    void refreshEngineService();
     const engineUrlRow = engineCard.createDiv("qbr-workshop-row");
     engineUrlRow.createSpan({ cls: "qbr-workshop-hint", text: "服务地址" });
     const engineUrl = engineUrlRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空用 http://127.0.0.1:8760" } });
@@ -653,13 +703,16 @@ export function createSettingsView(leaf, options) {
       const input = row.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder } });
       engineFields[key] = input;
     };
-    engineField("pdf_tool 目录", "pdfToolDir", "内含 pdf_tool/pdf_to_doc.py");
+    engineField("pdf_tool 目录", "pdfToolDir", "内含 pdf_tool/pdf_to_doc.py;留空用引擎自带的");
     engineField("Python", "python", "跑 pdf_tool / DocVortex 的解释器;留空用引擎自带");
     engineField("DocVortex", "docvortexPath", "留空按引擎 Python / PATH 找");
     engineField("MinerU 服务地址", "mineruLocalUrl", "如 http://127.0.0.1:8000");
     engineField("MinerU token", "mineruToken", "已保存就留空(不回显)");
+    engineField("MinerU 本机程序", "mineruLocalExe", "mineru-kit 可执行文件(helper 靠它找 venv)");
+    engineField("MinerU 模型", "mineruModel", "默认 vlm");
     engineField("Calibre", "calibrePath", "ebook-convert;留空按 PATH / 常见位置找");
-    engineField("boko", "bokoPath", "boko 二进制;留空按 PATH 找");
+    engineField("boko", "bokoPath", "boko 二进制(单文件);留空按 PATH 找");
+    engineField("并发作业数", "workers", "默认 2");
     const engineActions = engineConfig.createDiv("qbr-workshop-row");
     const engineSave = engineActions.createEl("button", { cls: "mod-cta", text: "保存到引擎" });
     const engineSaveHint = engineActions.createSpan({ cls: "qbr-workshop-hint", text: "" });
@@ -703,9 +756,24 @@ export function createSettingsView(leaf, options) {
       const result = await bridge.engine.config(settings).catch(() => null);
       if (!result?.ok) return;
       const config = result.data?.config || {};
+      const detected = result.data?.detected || {};
+      const defaults = result.data?.defaults || {};
+      // 配置项 → 引擎探测到的对应值:界面拿它当**占位**(填了用填的,没填就是实际生效的值)。
+      const autoKeys = { pdfToolDir: "pdfTool", python: "python", docvortexPath: "docvortex", calibrePath: "calibre", bokoPath: "boko" };
+      const sourceLabel = { bundled: "自带", configured: "配置", path: "PATH", engine: "引擎 Python", "": "自动" };
       for (const [key, input] of Object.entries(engineFields)) {
         input.value = key === "mineruToken" ? "" : String(config[key] ?? "");
-        if (key === "mineruToken" && config.hasMineruToken) input.setAttribute("placeholder", "已保存;留空不修改");
+        if (key === "mineruToken") {
+          if (config.hasMineruToken) input.setAttribute("placeholder", "已保存;留空不修改");
+          continue;
+        }
+        if (input.value) continue;
+        const auto = autoKeys[key];
+        if (auto && detected[auto]) {
+          input.setAttribute("placeholder", `自动:${detected[auto]}(${sourceLabel[detected[`${auto}Source`]] || "自动"})`);
+        } else if (defaults[key] !== undefined && defaults[key] !== "") {
+          input.setAttribute("placeholder", `默认:${defaults[key]}`);
+        }
       }
     };
     const checkEngine = async (refresh = false) => {

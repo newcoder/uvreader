@@ -2532,6 +2532,12 @@ async function runWorkshopScenario() {
       const engineInstallButtons = [...(body?.querySelectorAll("button") || [])]
         .map((b) => b.textContent)
         .filter((text) => text === "下载并安装引擎" || text === "从本地包安装");
+      // 引擎进程入口:状态 + 启动/停止 + 启动应用时自动开启(引擎是独立服务,应用重启不会带起它)。
+      const engineServiceButtons = [...(body?.querySelectorAll("button") || [])]
+        .map((b) => b.textContent)
+        .filter((text) => text === "启动引擎" || text === "停止引擎");
+      const engineAutoStart = [...(body?.querySelectorAll("label") || [])]
+        .some((label) => /自动开启书坊引擎/.test(label.textContent || "") && Boolean(label.querySelector("input[type='checkbox']")));
       // E4:引擎能自己装的组件(DocVortex)要给「装到引擎」按钮。
       const engineComponentButton = [...(body?.querySelectorAll("button") || [])].find((b) => b.textContent === "装到引擎");
       const engineCaps = [...(body?.querySelectorAll(".qbr-workshop-engine-caps > div") || [])].map((el) => el.textContent || "");
@@ -2546,7 +2552,7 @@ async function runWorkshopScenario() {
       await wait(2500);
       const ocrText = ocrButton?.closest(".qbr-workshop-row")?.querySelector(".qbr-mineru-status")?.textContent || "";
       document.querySelector('[data-route="workshop"]')?.click();
-      return { link: Boolean(link), tab: Boolean(tab), activeTab, tabLabels, wrapped, tabFlag, bodyTab, found: Boolean(button), text, ocrFound: Boolean(ocrButton), ocrText, typedSaved: String(window.__qbrPlugin?.settings?.mineruLocalExe || ""), engineStatus, engineCaps, engineJobs, engineInstallButtons, engineComponentButton: Boolean(engineComponentButton), engineUrlSaved: String(window.__qbrPlugin?.settings?.engineUrl || "") };
+      return { link: Boolean(link), tab: Boolean(tab), activeTab, tabLabels, wrapped, tabFlag, bodyTab, found: Boolean(button), text, ocrFound: Boolean(ocrButton), ocrText, typedSaved: String(window.__qbrPlugin?.settings?.mineruLocalExe || ""), engineStatus, engineCaps, engineJobs, engineInstallButtons, engineServiceButtons, engineAutoStart, engineComponentButton: Boolean(engineComponentButton), engineUrlSaved: String(window.__qbrPlugin?.settings?.engineUrl || "") };
     }, stubPort);
     if (!mineru.link || !mineru.tab) throw new Error(`「打开 设置 → 书坊」应跳到书坊 tab:${JSON.stringify(mineru)}`);
     if (!mineru.found) throw new Error(`书坊 tab 里应该有「检测本地 MinerU」:${JSON.stringify(mineru)}`);
@@ -2585,6 +2591,13 @@ async function runWorkshopScenario() {
     }
     if (!mineru.engineComponentButton) {
       throw new Error(`DocVortex 不可用、引擎又能装时,要给「装到引擎」按钮:${JSON.stringify(mineru.engineCaps)}`);
+    }
+    // 引擎进程入口:启动 / 停止 / 启动应用时自动开启。
+    if (!mineru.engineServiceButtons.includes("启动引擎") || !mineru.engineServiceButtons.includes("停止引擎")) {
+      throw new Error(`引擎卡片要有「启动引擎」「停止引擎」:${JSON.stringify(mineru.engineServiceButtons)}`);
+    }
+    if (!mineru.engineAutoStart) {
+      throw new Error("引擎卡片要有「启动应用时自动开启书坊引擎」的勾选");
     }
     console.log("workshop: 书坊引擎探测与能力清单(带令牌)", String(mineru.engineStatus).slice(0, 40));
     // 服务停了之后再检测:要如实报「不可用」,不能装作还在。

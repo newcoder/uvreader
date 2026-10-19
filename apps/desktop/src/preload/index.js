@@ -109,6 +109,10 @@ window.qbrDesktop = {
     saveConfig: (settings, patch) => ipcRenderer.invoke("qbr:engine:save-config", { settings, patch }),
     jobs: (settings, limit) => ipcRenderer.invoke("qbr:engine:jobs", { settings, limit }),
     pickBundle: () => ipcRenderer.invoke("qbr:engine:pick-bundle"),
+    service: () => ipcRenderer.invoke("qbr:engine:service"),
+    start: (payload) => ipcRenderer.invoke("qbr:engine:start", payload),
+    stop: () => ipcRenderer.invoke("qbr:engine:stop"),
+    autoStart: (settings) => ipcRenderer.invoke("qbr:engine:auto-start", settings),
   },
   workshop: {
     list: () => ipcRenderer.invoke("qbr:workshop:list"),

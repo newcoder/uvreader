@@ -161,6 +161,26 @@ async function boot() {
       .catch((error) => console.warn("[qbr] local MinerU failed", String(error?.message || error)));
   }
 
+  // 书坊引擎:独立服务,应用重启不会自动带起它 —— 按设置自动拉起(没装就什么都不做)。
+  // 只拉应用自己装/起的引擎(有 pid 记录),手工起的那个不去碰。
+  if (!bridge.smoke) {
+    void bridge.engine?.autoStart?.({
+      engineUrl: String(plugin.settings?.engineUrl || ""),
+      engineToken: String(plugin.settings?.engineToken || ""),
+      engineAutoStart: plugin.settings?.engineAutoStart !== false,
+    })
+      .then((result) => {
+        if (result?.skipped === "disabled" || result?.skipped === "not-installed") return;
+        if (result?.skipped === "running") return;
+        if (result?.ok) {
+          console.log(`[qbr] workshop engine running ${result.engineUrl} v${result.version || "?"}`);
+        } else if (result?.skipped === "failed") {
+          console.log(`[qbr] workshop engine not started: ${String(result.error || "").slice(0, 120)}`);
+        }
+      })
+      .catch((error) => console.warn("[qbr] workshop engine auto-start failed", String(error?.message || error)));
+  }
+
   window.__qbrApp = app;
   window.__qbrPlugin = plugin;
 

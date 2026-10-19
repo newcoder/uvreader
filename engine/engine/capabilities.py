@@ -187,6 +187,54 @@ def reset_cache() -> None:
     _cache.update({"at": 0.0, "config_key": "", "value": None})
 
 
+def detected_config(config: dict) -> dict:
+    """自动探测到的**有效值**(给界面当缺省/占位):配置里填了用配置,否则给探测结果;空 = 没找到。
+
+    `*Source`:configured(配置里填的)/ bundled(引擎自带)/ path(PATH 上找到的)/
+    engine(引擎自己的 Python)/ ""(没找到)。界面用 `值 + 来源` 显示,不把探测结果写回配置。
+    """
+    import shutil
+
+    from .kinds import _pdf_tool_script, boko_command, calibre_command
+
+    python = str(config.get("python") or "").strip()
+    detected: dict = {
+        "python": python or sys.executable,
+        "pythonSource": "configured" if python else "engine",
+        "pdfTool": "",
+        "pdfToolSource": "",
+        "docvortex": "",
+        "docvortexSource": "",
+        "calibre": "",
+        "calibreSource": "",
+        "boko": "",
+        "bokoSource": "",
+    }
+    try:
+        detected["pdfTool"] = str(_pdf_tool_script(config))
+        detected["pdfToolSource"] = "configured" if str(config.get("pdfToolDir") or "").strip() else "bundled"
+    except Exception:  # noqa: BLE001 —— 没有就是没有,界面显示空
+        pass
+    custom_docvortex = str(config.get("docvortexPath") or "").strip()
+    if custom_docvortex:
+        detected["docvortex"], detected["docvortexSource"] = custom_docvortex, "configured"
+    else:
+        found = shutil.which("docvortex") or shutil.which("docvortex.exe")
+        if found:
+            detected["docvortex"], detected["docvortexSource"] = found, "path"
+        elif _has_module("docvortex"):
+            detected["docvortex"], detected["docvortexSource"] = "(引擎的 Python 里 import 得到)", "engine"
+    calibre = calibre_command(config)
+    if calibre:
+        detected["calibre"] = calibre[0]
+        detected["calibreSource"] = "configured" if str(config.get("calibrePath") or "").strip() else "path"
+    boko = boko_command(config)
+    if boko:
+        detected["boko"] = boko[0]
+        detected["bokoSource"] = "configured" if str(config.get("bokoPath") or "").strip() else "path"
+    return detected
+
+
 def summarize(capabilities: dict) -> list[str]:
     """给日志/状态行用:把能力压成 ['pymupdf ✓', 'pdfTool ✗', …]。"""
     return [f"{name} {'✓' if bool(info.get('ok')) else '✗'}" for name, info in capabilities.items() if isinstance(info, dict)]

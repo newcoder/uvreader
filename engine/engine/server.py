@@ -16,8 +16,8 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from . import __version__
-from .capabilities import probe_all, reset_cache, summarize
-from .config import load_config, public_config, save_config
+from .capabilities import detected_config, probe_all, reset_cache, summarize
+from .config import DEFAULTS, SECRET_KEYS, load_config, public_config, save_config
 from .jobs import TERMINAL, JobRegistry
 from .kinds import JOB_KINDS, render_math
 
@@ -88,7 +88,14 @@ def create_app(*, token: str = "", manifest_path: str | None = None, workers: in
 
     @app.get("/v1/config", dependencies=[Depends(require_token)])
     def read_config() -> dict:
-        return {"config": public_config(config), "path": str(Path(config_path_for_display()))}
+        # defaults + detected:界面拿它们当「缺省/占位」—— 填了用填的,没填就用探测到的,
+        # 探测不到的留空(别把一张猜出来的路径写回配置)。
+        return {
+            "config": public_config(config),
+            "defaults": {key: value for key, value in DEFAULTS.items() if key not in SECRET_KEYS},
+            "detected": detected_config(config),
+            "path": str(Path(config_path_for_display())),
+        }
 
     @app.patch("/v1/config", dependencies=[Depends(require_token)])
     def patch_config(request: ConfigPatch) -> dict:

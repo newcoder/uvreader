@@ -6,6 +6,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 
 import { removeTree } from "./paths.js";
+import { writePid } from "./engine-service.js";
 
 export const ENGINE_RELEASES_API = "https://api.github.com/repos/newcoder/uvreader/releases?per_page=30";
 
@@ -114,6 +115,8 @@ export function createEngineInstaller({
       env,
     });
     child.unref?.();
+    // 记下 pid:应用自己起的引擎,设置页才能停(手工起的没有这条记录,不去猜)。
+    writePid(engineRoot, { pid: child.pid, port, startedAt: Date.now() });
     log("[engine-install] started", python, "port", port);
     return { pid: child.pid, port, python };
   }
