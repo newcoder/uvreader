@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { BOOK_EXTENSIONS, isBookFile } from "../shared/books.js";
 import { WORKSHOP_PICK_EXTENSIONS } from "../shared/workshop-formats.js";
 import { createAiRuntime } from "./ai-runtime.js";
+import { createEngineClient, describeEngineHealth } from "./engine-client.js";
 import { createCalibre } from "./calibre.js";
 import { createCoverRenderer } from "./cover-render.js";
 import { createDocvortex, registerDocvortexRunners } from "./docvortex.js";
@@ -24,6 +25,7 @@ import { createBookDownloads } from "./book-downloads.js";
 import { bookSessionReady, closeBookSession, downloadBookFile, downloadBookFileFromPage, fetchBookPage, forgetBookSession, openBookLogin, searchPdfdrive, sessionFetch } from "./book-session.js";
 
 const aiRuntime = createAiRuntime();
+const engineClient = createEngineClient();
 
 if (process.env.QBR_USER_DATA) app.setPath("userData", process.env.QBR_USER_DATA);
 const userData = app.getPath("userData");
@@ -417,6 +419,12 @@ ipcMain.handle("qbr:mineru:path", (_event, settings = {}) => ({ path: resolveMin
 ipcMain.handle("qbr:probe:ocr", (_event, settings = {}) => pdfOcr.probe(settings || {}, OCR_PROBE_TIMEOUT));
 ipcMain.handle("qbr:probe:docvortex", (_event, settings = {}) => docvortex.probe(settings || {}));
 ipcMain.handle("qbr:probe:calibre", (_event, settings = {}) => calibre.probe(settings || {}));
+// 书坊引擎(本地 HTTP 服务):应用只做探测,能力清单由引擎的 /v1/health 上报。
+ipcMain.handle("qbr:probe:engine", async (_event, settings = {}) => {
+  const result = await engineClient.health(settings || {});
+  if (!result.ok) return { ok: false, detail: result.error || "连接不上引擎" };
+  return { ok: true, detail: describeEngineHealth(result.data || {}), health: result.data || {} };
+});
 ipcMain.handle("qbr:probe:formula", async (_event, settings = {}) => {
   const value = settings || {};
   const target = pdfToolScriptCommand(value);

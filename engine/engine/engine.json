@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "engineVersion": "0.1.0",
+  "platform": "dev",
+  "python": { "version": "" },
+  "packages": {},
+  "pdfTool": { "commit": "" },
+  "capabilities": {
+    "docvortex": false,
+    "pdfTool": false,
+    "mineruLocal": false,
+    "calibre": false,
+    "boko": false
+  }
+}

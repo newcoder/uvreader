@@ -101,6 +101,7 @@ window.qbrDesktop = {
     docvortex: (settings) => ipcRenderer.invoke("qbr:probe:docvortex", settings),
     formula: (settings) => ipcRenderer.invoke("qbr:probe:formula", settings),
     calibre: (settings) => ipcRenderer.invoke("qbr:probe:calibre", settings),
+    engine: (settings) => ipcRenderer.invoke("qbr:probe:engine", settings),
   },
   workshop: {
     list: () => ipcRenderer.invoke("qbr:workshop:list"),

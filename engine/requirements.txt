@@ -1,0 +1,9 @@
+# Runtime deps for the workshop engine (E1: service skeleton + math + text layer).
+# Keep this file ASCII-only: pip decodes it with the system locale on Windows and
+# a UTF-8 file without a BOM trips it up (GBK).
+# E2/E3 fold DocVortex and pdf_tool into the engine bundle (docs/workshop-engine-plan.md 4.5).
+fastapi>=0.115
+uvicorn>=0.30
+pymupdf>=1.24
+pillow>=10
+latex2mathml>=3.77

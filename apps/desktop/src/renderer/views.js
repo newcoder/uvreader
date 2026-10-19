@@ -548,7 +548,27 @@ export function createSettingsView(leaf, options) {
         .catch(() => {});
     }
 
-    // 4. DocVortex(本地解析 / 公式优先的渲染端)
+    // 4. 书坊引擎(可独立部署的本地 HTTP 服务:应用只探测与调用,能力由引擎上报)
+    //    E1 只做探测/状态;搬能力(E2)与一键安装(E3)见 docs/workshop-engine-plan.md。
+    const engineCard = root.createDiv("qbr-workshop-card");
+    engineCard.createEl("h3", { text: "书坊引擎(后台能力)" });
+    engineCard.createDiv({ cls: "qbr-workshop-hint", text: "把 Python / pdf_tool / DocVortex / 文字层这些后台能力做成一个可独立部署的本地服务;装上引擎后,下面那些路径都不用自己配。" });
+    const engineUrlRow = engineCard.createDiv("qbr-workshop-row");
+    engineUrlRow.createSpan({ cls: "qbr-workshop-hint", text: "服务地址" });
+    const engineUrl = engineUrlRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空用 http://127.0.0.1:8760" } });
+    engineUrl.value = String(settings.engineUrl || "");
+    bind(engineUrl, "engineUrl", "引擎地址已保存。");
+    const engineTokenRow = engineCard.createDiv("qbr-workshop-row");
+    engineTokenRow.createSpan({ cls: "qbr-workshop-hint", text: "令牌" });
+    const engineToken = engineTokenRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "引擎没设令牌就留空(仅本机)" } });
+    engineToken.value = String(settings.engineToken || "");
+    bind(engineToken, "engineToken", "引擎令牌已保存。");
+    const engineTools = engineCard.createDiv("qbr-workshop-row");
+    const engineProbe = engineTools.createEl("button", { text: "检测引擎" });
+    const engineStatus = engineTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
+    engineProbe.addEventListener("click", () => void runProbe(engineStatus, "", () => bridge?.probe?.engine(settings)));
+
+    // 5. DocVortex(本地解析 / 公式优先的渲染端)
     const docvortexCard = root.createDiv("qbr-workshop-card");
     docvortexCard.createEl("h3", { text: "DocVortex(格式转换 / 内容提取)" });
     const dvRow = docvortexCard.createDiv("qbr-workshop-row");
