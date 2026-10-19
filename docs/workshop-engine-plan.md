@@ -74,7 +74,8 @@ Electron 壳 + 阅读器 + 书坊面板 + **EPUB 构建器(纯 JS)** + 封面渲
 
 ### 4.2 不包含(可选组件 / 外部工具)
 
-- **本地 MinerU**(venv + 模型):可选组件;CPU 可用但慢,GPU 推荐;不装则用云端 token 或跳过。引擎的 job 参数里带 MinerU 源(本地 URL / 云端 token),与今天应用传给 pdf_tool 的一致。
+- **DocVortex**(文档互转 / 内容提取):不进引擎包,但引擎能**一键装进自己的 `components/`**(`install-component` 作业,白名单在 `engine/engine/components.py`)。实测大小(Windows / cp311):**下载 71.3 MB(47 个轮子),装完占盘 248.7 MB** —— onnxruntime 45.8 + numpy 33+20 + magika 的模型 25 + docvortex 本体 21 + PIL 15.5 …… 打进包会让引擎包从 53 MB 涨到约 180 MB,所以按外部组件处理。**不能只挑一部分装**:实测去掉 onnxruntime 后 `html → docx` 直接报 `ModuleNotFoundError`(DocVortex 的输入类型探测走 magika,magika 依赖 onnxruntime),只有 `docx → markdown` 这种靠扩展名认的能跑。
+- **本地 MinerU**(venv + 模型):可选组件;CPU 可用但慢,GPU 推荐;不装则用云端 token 或跳过。引擎的 job 参数里带 MinerU 源(本地 URL / 云端 token),与今天应用传给 pdf_tool 的一致;应用侧的本地服务地址会**自动同步**进引擎配置(本机服务活着、且引擎自己没配时才写)。
 - **Calibre / boko**(GPL-3 ⚠️):不进引擎包;引擎**探测并调用**它们(路径可配),能力经 `/v1/health` 上报;boko 轻得多 → 优先推 boko(EPUB→AZW3/KFX + 反向),MOBI 仍由 Calibre 提供。
 
 ### 4.3 服务契约(草案,v1)

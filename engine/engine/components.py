@@ -23,7 +23,9 @@ COMPONENTS: dict[str, dict] = {
         "packages": ["docvortex"],
         "label": "DocVortex",
         "need": "文档互转(Office / OFD / HTML / EPUB)与内容提取",
-        "size": "约 200 MB 下载(含 onnxruntime)",
+        # 实测(Windows / cp311):下载 71.3 MB(47 个轮子),装完占盘 248.7 MB
+        # (onnxruntime 45.8 + numpy 33+20 + magika 的模型 25 + docvortex 本体 21 + PIL 15.5 …)。
+        "size": "下载约 71 MB,装完约 250 MB",
     },
 }
 

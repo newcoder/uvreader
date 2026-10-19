@@ -67,8 +67,8 @@ jobs:
 
           **包里自带(装完不用再装)**:私有 Python、PyMuPDF / Pillow / latex2mathml、pdf_tool(固定 commit)、FastAPI + uvicorn。
 
-          **还需要另外装**:DocVortex(文档互转 / 内容提取;可 pip 装到引擎的 Python 里)、MinerU(公式 / 视觉提取;本地服务可选、模型按需下载,或云端 token)。
+          **还需要另外装**:DocVortex(文档互转 / 内容提取;下载约 71 MB、装完约 250 MB —— 不能只挑一部分装,实测去掉 onnxruntime 后连 html → docx 都会失败。最省事:应用里点「装到引擎」)、MinerU(公式 / 视觉提取;本地服务可选、模型按需下载,或云端 token)。
 
           **可选组件**:Calibre(EPUB → AZW3 / MOBI)、boko(EPUB → AZW3 / KFX)。这两个是 GPL-3,不随包发。
 
-          DocVortex 依赖 onnxruntime 等(装进来会让包大一倍以上),MinerU 的模型是 GB 级 —— 所以它们按「外部组件」处理,引擎只负责调用。"
+          DocVortex 依赖 onnxruntime / numpy / magika 等(装完约 250 MB,会让引擎包大两倍以上),MinerU 的模型是 GB 级 —— 所以它们按「外部组件」处理,引擎只负责调用。"
