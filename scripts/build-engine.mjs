@@ -122,7 +122,11 @@ if (platform.startsWith("win32")) {
     "darwin-x64": "x86_64-apple-darwin",
     "darwin-arm64": "aarch64-apple-darwin",
   }[platform];
-  const release = JSON.parse(run("curl", ["-sSL", "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest"]));
+  const release = JSON.parse(run("curl", [
+    "-sSL",
+    ...(process.env.GITHUB_TOKEN ? ["-H", `Authorization: Bearer ${process.env.GITHUB_TOKEN}`] : []),
+    "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest",
+  ]));
   const asset = (release.assets || []).find((item) => new RegExp(`^cpython-${PYTHON_MINOR}\\.\\d+\\+.*-${triple}-install_only\\.tar\\.gz$`).test(item.name));
   if (!asset) {
     console.error(`✗ 没找到 ${triple} 的 install_only 包(release ${release.tag_name})`);
@@ -149,8 +153,8 @@ console.log("· 安装依赖(pip --target,--only-binary)…");
 run("python", [
   "-m", "pip", "install", "--quiet", "--disable-pip-version-check",
   "--target", sitePackages,
+  // 只指定 Python 版本,平台用宿主机的标签(manylinux 的标签名各版本不一,硬写 --platform 会挑不到轮子)
   "--python-version", PYTHON_MINOR,
-  "--platform", PIP_PLATFORM,
   "--implementation", "cp",
   "--only-binary=:all:",
   "-r", path.join(engineRoot, "requirements.txt"),

@@ -36,6 +36,9 @@ jobs:
       # pdf_tool 用仓库里的快照(engine/vendor/pdf_tool,固定 commit;刷新见 scripts/vendor-pdf-tool.mjs)。
       - name: Build the engine bundle
         run: node scripts/build-engine.mjs --platform ${{ matrix.platform }}
+        env:
+          # python-build-standalone 的 release 查询要带 token,否则匿名 API 会被限流。
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Check the bundle (manifest, licenses, sha256)
         run: node scripts/check-engine-bundle.mjs dist/engine --platform ${{ matrix.platform }}
       - uses: actions/upload-artifact@v4
