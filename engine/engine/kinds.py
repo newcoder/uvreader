@@ -85,6 +85,64 @@ def run_text_layer(job: Job) -> dict:
     return {"pages": len(pages), "path": str(target), "chars": sum(len(page) for page in pages)}
 
 
+# ── PDF 自带大纲(/v1/jobs kind=outline)────────────────────────────────
+
+def run_outline(job: Job) -> dict:
+    """PDF 书签:[{level, title, page}];扫描件也常带(与有没有文字层无关)。"""
+    import fitz
+
+    source = str(job.args.get("source") or "")
+    if not source or not Path(source).exists():
+        raise FileNotFoundError(f"找不到 PDF:{source}")
+    report_progress(job, label="读取大纲…")
+    doc = fitz.open(source)
+    try:
+        entries: list[dict] = []
+        for item in doc.get_toc(simple=True):
+            try:
+                level, title, page = int(item[0]), str(item[1]).strip(), int(item[2])
+            except Exception:  # noqa: BLE001 —— 单条坏了跳过,别丢整份大纲
+                continue
+            if title:
+                entries.append({"level": level, "title": title, "page": page})
+    finally:
+        doc.close()
+    return {"count": len(entries), "entries": entries}
+
+
+# ── 图片 → PDF(/v1/jobs kind=images-to-pdf)────────────────────────────
+
+def run_images_to_pdf(job: Job) -> dict:
+    """每张图一页,尺寸按 150dpi 换算(不重采样;与应用里的脚本一致)。"""
+    from PIL import Image
+
+    images = [str(item) for item in (job.args.get("images") or []) if str(item).strip()]
+    out_path = str(job.args.get("out") or "").strip()
+    if not images:
+        raise ValueError("没有图片")
+    if not out_path:
+        raise ValueError("没有输出路径")
+    pages = []
+    total = len(images)
+    for index, path in enumerate(images, start=1):
+        if job.cancelled():
+            raise RuntimeError("已取消")
+        report_progress(job, done=index - 1, total=total, label=f"读图 {index}/{total}")
+        image = Image.open(path)
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+        image.info["dpi"] = (150, 150)
+        pages.append(image)
+    target = Path(out_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    pages[0].save(str(target), "PDF", save_all=True, append_images=pages[1:], dpi=(150, 150), resolution=150.0)
+    report_progress(job, done=total, total=total)
+    return {"path": str(target), "pages": len(pages)}
+
+
+# 作业类型注册表(放文件末尾:函数得先定义出来)。
 JOB_KINDS = {
     "text-layer": run_text_layer,
+    "outline": run_outline,
+    "images-to-pdf": run_images_to_pdf,
 }

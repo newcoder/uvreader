@@ -96,7 +96,7 @@ const readCoverImage = async (filePath) => {
   if (image.isEmpty()) return null;
   return { data: image.toJPEG(90), mediaType: "image/jpeg", fileName: "cover.jpg" };
 };
-registerEpubRunners(workshop, { vaultRoot, cacheRoot: bookCacheRoot, coverRenderer, readImage: readCoverImage, docvortex, outlineReader: createPdfOutlineReader() });
+registerEpubRunners(workshop, { vaultRoot, cacheRoot: bookCacheRoot, coverRenderer, readImage: readCoverImage, docvortex, outlineReader: createPdfOutlineReader({ engine: engineClient }) });
 // 内容提取(PDF/Office/OFD/图片 → md/html/json):pdf_tool + DocVortex。
 registerExtractRunners(workshop, { docvortex, vaultRoot, cacheRoot: bookCacheRoot });
 // LLM 辅助(W2-1):AI 元数据推断 / AI 封面文案 / AI 分章建议 / AI 清理 —— 复用伴读的 AI 运行时与凭据。

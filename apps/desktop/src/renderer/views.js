@@ -2452,6 +2452,9 @@ export function createWorkshopView(leaf, options) {
         mineruLocalUrl: String(settings.mineruLocalUrl || ""),
         mineruLocalExe: String(settings.mineruLocalExe || ""),
         mineruLocalAutoStart: settings.mineruLocalAutoStart !== false,
+        // 书坊引擎(可独立部署的本地 HTTP 服务):配了地址就优先走引擎,失败回退本机。
+        engineUrl: String(settings.engineUrl || ""),
+        engineToken: String(settings.engineToken || ""),
       };
     }
 

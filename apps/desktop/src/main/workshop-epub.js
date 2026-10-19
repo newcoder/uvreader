@@ -246,6 +246,8 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
         python: String(settings.ocrPython || "").trim() || "python",
         workDir: path.join(workRoot, "outline"),
         signal,
+        // 引擎配置(引擎可独立部署;给了就先走引擎,失败回退本机 python)
+        engineSettings: settings,
       });
       if (outline.ok) {
         const stripped = stripPageMarkers(outlineToTocEntries(outline.outline));

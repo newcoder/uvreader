@@ -9,6 +9,18 @@ permissions:
   contents: read
 
 jobs:
+  engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the engine's deps
+        run: pip install -r engine/requirements.txt -r engine/requirements-dev.txt
+      - name: Test the engine (contract, auth, config, capabilities, jobs)
+        run: python -m pytest engine/tests -q
+
   verify:
     runs-on: ubuntu-latest
     steps:

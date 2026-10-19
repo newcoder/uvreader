@@ -39,11 +39,18 @@ export function outlineToTocEntries(outline) {
     .filter(Boolean);
 }
 
-export function createPdfOutlineReader({ spawnImpl = spawn, timeoutMs = 60_000 } = {}) {
+export function createPdfOutlineReader({ spawnImpl = spawn, timeoutMs = 60_000, engine = null } = {}) {
   // 返回 { ok, outline }(outline[i] = { level, title, page });失败时 ok=false。
-  async function read(pdfPath, { python = "python", workDir = "", signal } = {}) {
+  // engine + engineSettings 给了就先走书坊引擎(可独立部署);引擎不可用再回退本机 python。
+  async function read(pdfPath, { python = "python", workDir = "", signal, engineSettings = null } = {}) {
     const source = String(pdfPath || "");
     if (!source || !fs.existsSync(source)) return { ok: false, error: `找不到 PDF:${source}` };
+    if (engine && engineSettings && String(engineSettings.engineUrl || "").trim()) {
+      const ran = await engine.runJob(engineSettings, "outline", { source }, { signal, timeoutMs });
+      if (ran.ok && Array.isArray(ran.result?.entries)) return { ok: true, outline: ran.result.entries, via: "engine" };
+      if (ran.cancelled) return { ok: false, error: "已取消", cancelled: true };
+      // 引擎不行就继续往下走本机 python(不把错误当结论)。
+    }
     const base = safeDir(String(workDir || path.dirname(source) || "."));
     try {
       fs.mkdirSync(base, { recursive: true });

@@ -101,5 +101,37 @@ export function createEngineClient({ fetchImpl = (...args) => fetch(...args), ti
     cancel: (settings, jobId) => call(settings, `/v1/jobs/${encodeURIComponent(String(jobId || ""))}`, { method: "DELETE" }),
     // 轻量同步接口。
     math: (settings, latex = []) => call(settings, "/v1/math", { method: "POST", body: { latex } }),
+    // 跑一个作业并等到结束:提交 → 轮询(进度回调)→ 取结果;取消/超时都会尽力取消作业。
+    // 应用侧所有「优先走引擎、失败回退本机」的链路都用这一个入口。
+    async runJob(settings, kind, args = {}, { onProgress = () => {}, signal = null, intervalMs = 500, timeoutMs = 30 * 60_000 } = {}) {
+      const submitted = await this.submit(settings, kind, args);
+      if (!submitted.ok) return { ok: false, error: submitted.error };
+      const jobId = String(submitted.data?.jobId || "");
+      if (!jobId) return { ok: false, error: "引擎没有返回 jobId" };
+      const deadline = Date.now() + Math.max(5000, Number(timeoutMs) || 0);
+      for (;;) {
+        if (signal?.aborted) {
+          await this.cancel(settings, jobId);
+          return { ok: false, cancelled: true, error: "已取消" };
+        }
+        const status = await this.status(settings, jobId);
+        if (!status.ok) return { ok: false, error: status.error };
+        const data = status.data || {};
+        onProgress({ status: data.status, done: data.done, total: data.total, label: data.label });
+        if (data.status === "done" || data.status === "failed" || data.status === "cancelled") {
+          if (data.status !== "done") {
+            return { ok: false, cancelled: data.status === "cancelled", error: data.error || `作业${data.status === "cancelled" ? "已取消" : "失败"}` };
+          }
+          const result = await this.result(settings, jobId);
+          if (!result.ok) return { ok: false, error: result.error };
+          return { ok: true, result: result.data?.result ?? null };
+        }
+        if (Date.now() > deadline) {
+          await this.cancel(settings, jobId);
+          return { ok: false, error: "引擎作业超时" };
+        }
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      }
+    },
   };
 }

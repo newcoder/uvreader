@@ -147,6 +147,56 @@ test("the client reads and patches the engine config", async () => {
   }
 });
 
+test("runJob polls a job to completion", async () => {
+  let polls = 0;
+  const { server, url } = await startServer((req, res) => {
+    if (req.method === "POST" && req.url === "/v1/jobs") return json(res, 200, { jobId: "j1" });
+    if (req.method === "GET" && req.url === "/v1/jobs/j1") {
+      polls += 1;
+      if (polls < 3) return json(res, 200, { status: "running", done: polls, total: 3, label: "跑着呢" });
+      return json(res, 200, { status: "done", done: 3, total: 3 });
+    }
+    if (req.method === "GET" && req.url === "/v1/jobs/j1/result") return json(res, 200, { ok: true, status: "done", result: { pages: 3 } });
+    json(res, 404, {});
+  });
+  try {
+    const client = createEngineClient();
+    const seen = [];
+    const ran = await client.runJob({ engineUrl: url }, "text-layer", { source: "x.pdf" }, { onProgress: (p) => seen.push(p.status), intervalMs: 10 });
+    assert.equal(ran.ok, true);
+    assert.deepEqual(ran.result, { pages: 3 });
+    assert.deepEqual(seen, ["running", "running", "done"], "进度回调按轮询来");
+  } finally {
+    server.close();
+  }
+});
+
+test("runJob surfaces failures and cancels when aborted", async () => {
+  const calls = [];
+  const { server, url } = await startServer((req, res) => {
+    calls.push(`${req.method} ${req.url}`);
+    if (req.method === "POST" && req.url === "/v1/jobs") return json(res, 200, { jobId: "j2" });
+    if (req.method === "GET" && req.url === "/v1/jobs/j2") return json(res, 200, { status: "failed", error: "读不到书稿" });
+    if (req.method === "DELETE" && req.url === "/v1/jobs/j2") return json(res, 200, { cancelled: true });
+    json(res, 404, {});
+  });
+  try {
+    const client = createEngineClient();
+    const failed = await client.runJob({ engineUrl: url }, "text-layer", {}, { intervalMs: 10 });
+    assert.equal(failed.ok, false);
+    assert.match(failed.error, /读不到书稿/);
+
+    const controller = new AbortController();
+    controller.abort();
+    const cancelled = await client.runJob({ engineUrl: url }, "text-layer", {}, { signal: controller.signal, intervalMs: 10 });
+    assert.equal(cancelled.ok, false);
+    assert.equal(cancelled.cancelled, true);
+    assert.ok(calls.includes("DELETE /v1/jobs/j2"), "取消要转给引擎");
+  } finally {
+    server.close();
+  }
+});
+
 test("a missing engine is reported instead of thrown", async () => {
   const client = createEngineClient({ timeoutMs: 1500 });
   // 127.0.0.1:1 基本不会有人监听;连不上要变成 { ok:false }。
