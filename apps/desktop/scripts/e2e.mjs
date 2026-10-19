@@ -2549,6 +2549,10 @@ async function runWorkshopScenario() {
         .filter((text) => text === "启动引擎" || text === "停止引擎");
       const engineAutoStart = [...(body?.querySelectorAll("label") || [])]
         .some((label) => /自动开启书坊引擎/.test(label.textContent || "") && Boolean(label.querySelector("input[type='checkbox']")));
+      const sectionTitles = [...(body?.querySelectorAll(".qbr-workshop-card") || [])].map((el) => (el.querySelector("h3")?.textContent || el.querySelector("summary")?.textContent || "").trim());
+      const fallback = body?.querySelector("details.qbr-workshop-fallback") || null;
+      const fallbackSummary = String(fallback?.querySelector("summary")?.textContent || "");
+      const fallbackCards = fallback ? [...fallback.querySelectorAll(".qbr-workshop-card h3")].map((h) => h.textContent.trim()) : [];
       // E4:引擎能自己装的组件(DocVortex)要给「装到引擎」按钮。
       const engineComponentButton = [...(body?.querySelectorAll("button") || [])].find((b) => b.textContent === "装到引擎");
       const engineCaps = [...(body?.querySelectorAll(".qbr-workshop-engine-caps > div") || [])].map((el) => el.textContent || "");
@@ -2567,7 +2571,7 @@ async function runWorkshopScenario() {
       const engineServiceBefore = await window.qbrDesktop.engine.service();
       const engineStop = await window.qbrDesktop.engine.stop();
       const engineServiceAfter = await window.qbrDesktop.engine.service();
-      return { link: Boolean(link), tab: Boolean(tab), activeTab, tabLabels, wrapped, tabFlag, bodyTab, found: Boolean(button), text, ocrFound: Boolean(ocrButton), ocrText, typedSaved: String(window.__qbrPlugin?.settings?.mineruLocalExe || ""), engineStatus, engineCaps, engineJobs, engineInstallButtons, engineServiceButtons, engineAutoStart, engineServiceBefore, engineStop, engineServiceAfter, engineComponentButton: Boolean(engineComponentButton), engineUrlSaved: String(window.__qbrPlugin?.settings?.engineUrl || "") };
+      return { link: Boolean(link), tab: Boolean(tab), activeTab, tabLabels, wrapped, tabFlag, bodyTab, found: Boolean(button), text, ocrFound: Boolean(ocrButton), ocrText, typedSaved: String(window.__qbrPlugin?.settings?.mineruLocalExe || ""), engineStatus, engineCaps, engineJobs, engineInstallButtons, engineServiceButtons, engineAutoStart, engineServiceBefore, engineStop, engineServiceAfter, sectionTitles, fallbackSummary, fallbackCards, engineComponentButton: Boolean(engineComponentButton), engineUrlSaved: String(window.__qbrPlugin?.settings?.engineUrl || "") };
     }, stubPort);
     if (!mineru.link || !mineru.tab) throw new Error(`「打开 设置 → 书坊」应跳到书坊 tab:${JSON.stringify(mineru)}`);
     if (!mineru.found) throw new Error(`书坊 tab 里应该有「检测本地 MinerU」:${JSON.stringify(mineru)}`);
@@ -2623,6 +2627,18 @@ async function runWorkshopScenario() {
     }
     if (mineru.engineServiceAfter?.running) {
       throw new Error(`停完不该还在运行:${JSON.stringify(mineru.engineServiceAfter)}`);
+    }
+    // 配置不再重复摆放:引擎卡在最前,「本机工具」折叠到最末,里面是三条回退路径。
+    if (!/^书坊$/.test(mineru.sectionTitles[0]) || !/书坊引擎/.test(mineru.sectionTitles[1] || "")) {
+      throw new Error(`书坊开关之后应该紧跟「书坊引擎」:${JSON.stringify(mineru.sectionTitles)}`);
+    }
+    if (!/本机工具/.test(mineru.fallbackSummary)) {
+      throw new Error(`要有「本机工具(回退用)」的折叠块:${JSON.stringify(mineru.fallbackSummary)}`);
+    }
+    for (const name of ["扫描版 PDF 文字层", "DocVortex", "Calibre"]) {
+      if (!mineru.fallbackCards.some((title) => title.includes(name))) {
+        throw new Error(`「${name}」应该收进本机回退块:${JSON.stringify(mineru.fallbackCards)}`);
+      }
     }
     console.log("workshop: 书坊引擎探测与能力清单(带令牌)", String(mineru.engineStatus).slice(0, 40));
     // 服务停了之后再检测:要如实报「不可用」,不能装作还在。

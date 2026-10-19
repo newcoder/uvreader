@@ -419,7 +419,7 @@ export function createSettingsView(leaf, options) {
       persist("workshopEnabled", Boolean(switchInput.checked));
       save("书坊开关已保存;导航立即生效。");
     });
-    toggleCard.createDiv({ cls: "qbr-workshop-hint", text: "书坊负责:文字层与可搜索 PDF、格式转换、内容提取、电子书制作。下面的配置对全部工具生效。" });
+    toggleCard.createDiv({ cls: "qbr-workshop-hint", text: "书坊负责:文字层与可搜索 PDF、格式转换、内容提取、电子书制作。后台能力的路径由「书坊引擎」管;下面的「本机工具」只在引擎不可用时回退。" });
 
     // 2. 文字层 / 扫描版 PDF(pdf_tool sidecar)
     const ocrCard = root.createDiv("qbr-workshop-card");
@@ -453,6 +453,7 @@ export function createSettingsView(leaf, options) {
     const mineruCard = root.createDiv("qbr-workshop-card");
     mineruCard.createEl("h3", { text: "MinerU(公式优先 / 内容提取)" });
     mineruCard.createDiv({ cls: "qbr-workshop-hint", text: "公式优先与内容提取的 MinerU 链路都用这里的配置:填了本地服务地址就优先本地(不出网、免凭据),否则用云端凭据。" });
+    mineruCard.createDiv({ cls: "qbr-workshop-hint", text: "有引擎时:本地服务地址会自动同步给引擎;凭据只在回退本机时用(引擎的凭据在「引擎配置」里)。" });
     const tokenRow = mineruCard.createDiv("qbr-workshop-row");
     tokenRow.createSpan({ cls: "qbr-workshop-hint", text: "MinerU 凭据" });
     const tokenInput = tokenRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "云端 token;留空用环境变量 MINERU_API_KEY" } });
@@ -857,6 +858,16 @@ export function createSettingsView(leaf, options) {
     const calibreStatus = calibreTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
     calibreProbe.addEventListener("click", () => void runProbe(calibreStatus, "", () => bridge?.probe?.calibre(settings)));
     calibreCard.createDiv({ cls: "qbr-workshop-hint", text: "装了书坊引擎后这里可以留空:Calibre / boko 的路径改在引擎配置里(引擎会自己探;boko 更轻)。" });
+
+    // 8. 本机回退:与引擎配置重复的「本机路径」收进一块折叠区(字段不删 —— 引擎不可用时靠它们回退本机)。
+    // 引擎是主路径:把它的卡片在 DOM 里提到最前(书坊开关之后),不用搬那一大段代码。
+    root.insertBefore(engineCard, toggleCard.nextSibling);
+    const fallbackCard = root.createEl("details", { cls: "qbr-workshop-card qbr-workshop-fallback" });
+    fallbackCard.createEl("summary", { text: "本机工具(仅引擎不可用时回退;引擎可用时这些设置不生效)" });
+    fallbackCard.createDiv({ cls: "qbr-workshop-hint", text: "引擎的路径改在「书坊引擎 → 引擎配置」里;这里是引擎没装 / 连不上时的回退路径(填了才用,留空按自动检测)。" });
+    fallbackCard.appendChild(ocrCard);
+    fallbackCard.appendChild(docvortexCard);
+    fallbackCard.appendChild(calibreCard);
 
     // 7. 一键自检:四条链路各入队一个检测任务,顺带刷新本地 MinerU 状态。
     const selfCheckRow = root.createDiv("qbr-workshop-row");
