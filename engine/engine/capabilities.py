@@ -29,7 +29,8 @@ FIX_DOCVORTEX = (
 )
 FIX_MINERU = (
     "没配本地 MinerU 地址,也没有云端 token:公式与视觉提取要用它。"
-    "可装本地 MinerU(可选,模型按需下载),或在引擎配置里填云端 MinerU token。"
+    "本地 MinerU 是可选的独立组件(模型首次使用时按需下载,几百 MB ~ GB):"
+    "装好后把服务地址填进引擎配置(设置页的「引擎配置 → MinerU 服务地址」),或填云端 MinerU token。"
 )
 FIX_CALIBRE = (
     "没找到 Calibre(ebook-convert):EPUB → AZW3 / MOBI(老格式)要用它。"
@@ -87,6 +88,16 @@ def _pdf_tool_capability(config: dict) -> dict:
     }
 
 
+def _calibre_available(config: dict) -> bool:
+    """Calibre 是否存在:与 kinds.calibre_command 同一套候选(配置 → 常见位置 → PATH)。"""
+    try:
+        from .kinds import calibre_command
+
+        return calibre_command(config) is not None
+    except Exception:  # noqa: BLE001 —— 探测失败就当没有
+        return bool(_which(str(config.get("calibrePath") or ""), ["ebook-convert", "ebook-convert.exe"]))
+
+
 def _mineru_capability(config: dict) -> dict:
     token = str(config.get("mineruToken") or "").strip()
     url = str(config.get("mineruLocalUrl") or "").strip()
@@ -115,7 +126,7 @@ def _probe(config: dict) -> dict:
     pillow_ok = _has_module("PIL")
     latex_ok = _has_module("latex2mathml")
     docvortex_ok = bool(_which(str(config.get("docvortexPath") or ""), ["docvortex", "docvortex.exe"])) or _has_module("docvortex")
-    calibre_ok = bool(_which(str(config.get("calibrePath") or ""), ["ebook-convert", "ebook-convert.exe"]))
+    calibre_ok = _calibre_available(config)
     boko_ok = bool(_which(str(config.get("bokoPath") or ""), ["boko", "boko.exe"]))
     capabilities = {
         "python": {"ok": True, "kind": "bundled", "detail": f"{sys.version.split()[0]} · {interpreter}"},
@@ -140,8 +151,7 @@ def _probe(config: dict) -> dict:
             "optional": True,
             "detail": "EPUB → AZW3 / MOBI(老格式)",
             **({} if calibre_ok else {"fix": FIX_CALIBRE}),
-        },
-        "boko": {
+        },        "boko": {
             "ok": boko_ok,
             "kind": "external",
             "optional": True,

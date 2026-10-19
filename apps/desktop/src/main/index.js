@@ -89,7 +89,7 @@ registerFormulaRunners(workshop, {
 });
 // 电子书制作:Calibre 互转(EPUB→AZW3/MOBI)+ 图片打包(CBZ/EPUB)。
 const calibre = createCalibre();
-registerBookRunners(workshop, { calibre, vaultRoot });
+registerBookRunners(workshop, { calibre, vaultRoot, engine: engineClient });
 // 电子书制作向导(W1-2):txt/md/PDF/Office → 章节 → 字体子集 → EPUB(含模板封面)。
 // 缓存布局:<book-cache>/library(字体)、/subset(字体子集)、/extract(非文本源的提取中间产物)。
 const bookCacheRoot = path.join(userData, "book-cache");

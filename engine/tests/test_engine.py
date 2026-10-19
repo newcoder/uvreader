@@ -97,7 +97,9 @@ def test_config_round_trip_masks_the_token(client, tmp_path):
     assert saved["config"]["hasMineruToken"] is True
     assert saved["config"]["calibrePath"] == "C:/nope/ebook-convert.exe"
     assert "unknown" not in saved["config"], "未知字段忽略"
-    assert saved["capabilities"]["calibre"]["ok"] is False, "路径不存在就是不可用"
+    # 「路径不存在」不等于不可用:还会看常见安装位置与 PATH(与应用侧 calibreCandidates 一致)。
+    assert saved["capabilities"]["calibre"]["kind"] == "external"
+    assert saved["capabilities"]["calibre"]["optional"] is True
 
     # 令牌留空 = 不改(面板「已保存;留空不修改」的语义)
     client.patch("/v1/config", headers=AUTH, json={"patch": {"mineruToken": ""}})
@@ -309,7 +311,7 @@ def test_component_install_job_runs_pip_into_the_engine_python(client, monkeypat
     result = client.get(f"/v1/jobs/{job_id}/result", headers=AUTH).json()["result"]
     assert result["installed"] == ["docvortex"]
     assert calls and calls[0]["packages"] == ["docvortex"]
-    assert calls[0]["target"].replace("\\", "/").endswith("site-packages"), "装到解释器自己在用的 site-packages"
+    assert calls[0]["target"].replace("\\", "/").endswith("components"), "装进独立的 components/(不碰解释器自己的 site-packages)"
     assert any("docvortex" in line for line in result["tail"])
 
 
@@ -333,3 +335,66 @@ def test_component_install_failure_surfaces_pip_output(client, monkeypatch):
     assert job["status"] == "failed"
     assert "安装失败" in (job.get("error") or "")
     assert "Could not find a version" in (job.get("error") or ""), "失败要把 pip 的关键输出带出来"
+
+
+# ── Calibre(ebook-convert)───────────────────────────────────────────
+
+def _calibre_stub(tmp_path: Path) -> Path:
+    """假的 ebook-convert:把源文件内容抄到输出(证明参数传对了)。"""
+    script = tmp_path / "stub-calibre.py"
+    script.write_text(
+        "import pathlib, sys\n"
+        "source, out = sys.argv[1], sys.argv[2]\n"
+        "pathlib.Path(out).write_text(pathlib.Path(source).read_text(encoding='utf-8') + '|converted', encoding='utf-8')\n"
+        "print('stub calibre ok')\n",
+        encoding="utf-8",
+    )
+    if os.name == "nt":
+        stub = tmp_path / "ebook-convert.cmd"
+        stub.write_text(f'@"{sys.executable}" "{script}" %*\r\n', encoding="utf-8")
+    else:
+        stub = tmp_path / "ebook-convert"
+        stub.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n', encoding="utf-8")
+        stub.chmod(0o755)
+    return stub
+
+
+def test_ebook_convert_job_runs_calibre(client, tmp_path):
+    stub = _calibre_stub(tmp_path)
+    patched = client.patch("/v1/config", headers=AUTH, json={"patch": {"calibrePath": str(stub)}})
+    assert patched.status_code == 200
+    assert patched.json()["capabilities"]["calibre"]["ok"] is True, "配置了路径就该报可用"
+    source = tmp_path / "book.epub"
+    source.write_text("epub-bytes", encoding="utf-8")
+    out = tmp_path / "book.azw3"
+    job_id = submit(client, "ebook-convert", {"source": str(source), "out": str(out)})
+    job = wait_for(client, job_id)
+    assert job["status"] == "done", job.get("error")
+    result = client.get(f"/v1/jobs/{job_id}/result", headers=AUTH).json()["result"]
+    assert result["out"] == str(out)
+    assert out.read_text(encoding="utf-8") == "epub-bytes|converted"
+    assert result["bytes"] > 0
+
+
+def test_ebook_convert_reports_missing_calibre_and_missing_source(client, tmp_path, monkeypatch):
+    from engine import capabilities
+
+    # 把常见安装位置与 PATH 都摘掉,确保「找不到 Calibre」这条分支真的被测到。
+    monkeypatch.setenv("PATH", "")
+    monkeypatch.delenv("ProgramFiles", raising=False)
+    monkeypatch.delenv("ProgramFiles(x86)", raising=False)
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+    capabilities.reset_cache()
+    patched = client.patch("/v1/config", headers=AUTH, json={"patch": {"calibrePath": str(tmp_path / "nope")}})
+    assert patched.json()["capabilities"]["calibre"]["ok"] is False
+    source = tmp_path / "book.epub"
+    source.write_text("x", encoding="utf-8")
+    job_id = submit(client, "ebook-convert", {"source": str(source), "out": str(tmp_path / "o.azw3")})
+    job = wait_for(client, job_id)
+    assert job["status"] == "failed"
+    assert "找不到 Calibre" in (job.get("error") or "")
+
+    missing = submit(client, "ebook-convert", {"source": str(tmp_path / "nope.epub"), "out": str(tmp_path / "o.azw3")})
+    job = wait_for(client, missing)
+    assert job["status"] == "failed"
+    assert "找不到源文件" in (job.get("error") or "")

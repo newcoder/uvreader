@@ -304,12 +304,17 @@ def run_extract(job: Job) -> dict:
 # ── 文档互转(DocVortex;kind=convert)──────────────────────────────────
 
 def _docvortex_commands(config: dict) -> list[list[str]]:
-    """DocVortex 的调用方式(按可用性排序):配置路径 → PATH 上的 CLI → `python -c` 直接调入口 → `-m`。
+    """DocVortex 的调用方式(按可用性排序):配置路径 → PATH 上的 CLI → `python -c` 调入口 → runpy 版。
+
     实测真装的 DocVortex(包)用 `python -m docvortex` 会报 `No module named docvortex.__main__`
     (它没有 __main__),console_scripts 入口是 `docvortex.cli:main`,所以 `-c` 那条是真装时唯一
-    可靠的;最后再留一条 `-m`,给「模块形态」的旧装法兜底。"""
+    可靠的;最后一条用 runpy 等价于 `-m`,给「模块形态」的旧装法兜底。两条都先把**组件目录**
+    塞进子进程的 sys.path —— 可选组件装在 <bundle>/components,而 embeddable 的 ._pth 会忽略
+    PYTHONPATH,只能这样传。
+    """
     import shutil
 
+    components = str(Path(__file__).resolve().parents[1] / "components")
     custom = str(config.get("docvortexPath") or "").strip()
     python = str(config.get("python") or "").strip() or sys.executable
     commands: list[list[str]] = []
@@ -318,8 +323,8 @@ def _docvortex_commands(config: dict) -> list[list[str]]:
     found = shutil.which("docvortex") or shutil.which("docvortex.exe")
     if found:
         commands.append([found])
-    commands.append([python, "-c", "import sys; from docvortex.cli import main; sys.exit(main())"])
-    commands.append([python, "-m", "docvortex"])
+    commands.append([python, "-c", f"import sys; sys.path.insert(0, {components!r}); from docvortex.cli import main; sys.exit(main())"])
+    commands.append([python, "-c", f"import runpy, sys; sys.path.insert(0, {components!r}); runpy.run_module('docvortex', run_name='__main__')"])
     return commands
 
 
@@ -392,6 +397,58 @@ def run_install_component(job: Job) -> dict:
     return {"installed": result["installed"], "target": result["target"], "tail": result["log"][-4:]}
 
 
+def calibre_command(config: dict) -> list[str] | None:
+    """Calibre 的 ebook-convert:配置 → 常见安装位置 → PATH(与应用侧 calibreCandidates 同一套)。"""
+    import shutil
+
+    custom = str(config.get("calibrePath") or "").strip()
+    if custom and Path(custom).exists():
+        return [custom]
+    candidates: list[Path] = []
+    if os.name == "nt":
+        for root in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)"), os.environ.get("LOCALAPPDATA")):
+            if root:
+                candidates.append(Path(root) / "Calibre2" / "ebook-convert.exe")
+                candidates.append(Path(root) / "Programs" / "Calibre2" / "ebook-convert.exe")
+    elif sys.platform == "darwin":
+        candidates.append(Path("/Applications/calibre.app/Contents/MacOS/ebook-convert"))
+    else:
+        candidates.append(Path("/opt/calibre/ebook-convert"))
+        candidates.append(Path("/snap/bin/ebook-convert"))
+    for candidate in candidates:
+        if candidate.exists():
+            return [str(candidate)]
+    found = shutil.which("ebook-convert") or shutil.which("ebook-convert.exe")
+    return [found] if found else None
+
+
+def run_ebook_convert(job: Job) -> dict:
+    """Calibre 的 ebook-convert(EPUB/MOBI/AZW3 → AZW3/MOBI…):与应用侧同一套参数与候选。"""
+    from .config import load_config
+
+    source = str(job.args.get("source") or "")
+    out = str(job.args.get("out") or "")
+    if not source or not Path(source).exists():
+        raise FileNotFoundError(f"找不到源文件:{source}")
+    if not out:
+        raise ValueError("没有给输出路径")
+    command = calibre_command(load_config())
+    if not command:
+        raise RuntimeError("找不到 Calibre 的 ebook-convert:装上 Calibre,或在引擎配置里填 calibrePath")
+    extra = [str(arg) for arg in (job.args.get("extraArgs") or [])]
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    code, output = run_process(
+        job, command[0], [*command[1:], source, out, *extra],
+        label="Calibre 转换中…",
+        timeout=float(job.args.get("timeoutMs") or 1_200_000) / 1000.0,
+    )
+    if code != 0:
+        raise RuntimeError(f"Calibre 转换失败(退出码 {code}):{output.strip()[-300:]}")
+    if not Path(out).exists():
+        raise RuntimeError("Calibre 没有生成输出文件")
+    return {"out": out, "bytes": Path(out).stat().st_size}
+
+
 # 作业类型注册表(**必须放文件末尾**:函数得先定义出来,否则 NameError)。
 JOB_KINDS = {
     "text-layer": run_text_layer,
@@ -402,4 +459,5 @@ JOB_KINDS = {
     "convert": run_convert,
     "pdf-text": run_pdf_text,
     "install-component": run_install_component,
+    "ebook-convert": run_ebook_convert,
 }

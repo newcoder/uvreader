@@ -10,10 +10,24 @@ import { convertPath } from "../shared/workshop-names.js";
 
 export { EBOOK_TARGETS, IMAGE_BOOK_TARGETS };
 
-export function registerBookRunners(workshop, { calibre, vaultRoot = "", log = (...args) => console.log(...args) } = {}) {
+export function registerBookRunners(workshop, { calibre, vaultRoot = "", engine = null, log = (...args) => console.log(...args) } = {}) {
   const absolute = (raw) => {
     const value = String(raw || "");
     return path.isAbsolute(value) ? value : path.join(vaultRoot, value);
+  };
+  // 引擎优先、失败回退本机(与其它链路同一条规则):配了 engineUrl 才走引擎。
+  const convertViaEngine = async (settings, { source, out, report, signal, label }) => {
+    if (!engine?.runJob || !String(settings?.engineUrl || "").trim()) return null;
+    report?.({ label: label || "引擎转换中…" });
+    const ran = await engine.runJob(settings, "ebook-convert", { source, out }, {
+      signal,
+      onProgress: (item) => report?.({ label: String(item?.label || label || "引擎转换中…") }),
+    });
+    if (!ran.ok) {
+      log("engine ebook-convert failed, falling back to the local Calibre:", ran.error);
+      return { ok: false, error: String(ran.error || "引擎转换失败") };
+    }
+    return { ok: true, out: String(ran.result?.out || out), bytes: Number(ran.result?.bytes || 0) };
   };
 
   // 检测 Calibre(ebook-convert);面板里的「检测 Calibre」按钮。
@@ -35,6 +49,10 @@ export function registerBookRunners(workshop, { calibre, vaultRoot = "", log = (
       : absolute(convertPath(payload?.source, ebookTargetExt(format))));
     report({ label: `转换为 ${format.toUpperCase()}` });
     log("ebook convert", source, "→", out);
+    const viaEngine = await convertViaEngine(settings, { source, out, report, signal, label: `引擎转换 ${format.toUpperCase()}` });
+    if (viaEngine?.ok) {
+      return { output: viaEngine.out, detail: `${format.toUpperCase()} · ${path.basename(viaEngine.out)}(引擎)` };
+    }
     const result = await calibre.convert(settings, { source, out, signal });
     if (signal.aborted) throw new Error("任务已取消");
     if (!result.ok) throw new Error(String(result.error || "转换失败"));
@@ -61,6 +79,10 @@ export function registerBookRunners(workshop, { calibre, vaultRoot = "", log = (
     // EPUB:CBZ → Calibre;输出与 CBZ 同目录、同名。
     const epubOut = payload?.out ? absolute(payload.out) : built.out.replace(/\.cbz$/i, ".epub");
     report({ label: "Calibre 转 EPUB" });
+    const viaEngine = await convertViaEngine(settings, { source: built.out, out: epubOut, report, signal, label: "引擎转 EPUB" });
+    if (viaEngine?.ok) {
+      return { output: viaEngine.out, detail: `EPUB · ${built.pages} 页(源 CBZ:${path.basename(built.out)} · 引擎)` };
+    }
     const converted = await calibre.convert(settings, { source: built.out, out: epubOut, signal });
     if (signal.aborted) throw new Error("任务已取消");
     if (!converted.ok) throw new Error(String(converted.error || "EPUB 转换失败"));
