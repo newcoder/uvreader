@@ -26,9 +26,14 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 0
 
+    import logging
+
     import uvicorn
 
     from .server import create_app
+
+    # 作业日志(engine.jobs)要能看见:root 先配好;uvicorn 的 dictConfig 不会把它拆掉。
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
     app = create_app(token=args.token, manifest_path=args.manifest or None, workers=args.workers)
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")

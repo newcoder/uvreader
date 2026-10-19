@@ -217,6 +217,19 @@ def test_extract_job_runs_pdf_tool_from_the_config(client, tmp_path, monkeypatch
     assert "pdf_tool" in failed["error"]
 
 
+def test_jobs_are_listed_for_manual_checks(client, tmp_path):
+    pdf = make_pdf(tmp_path / "listed.pdf")
+    first = submit(client, "outline", {"source": str(pdf)})
+    wait_for(client, first)
+    second = submit(client, "text-layer", {"source": str(pdf), "out": str(tmp_path / "listed.json")})
+    wait_for(client, second)
+    listed = client.get("/v1/jobs?limit=10", headers=AUTH).json()["jobs"]
+    kinds = [job["kind"] for job in listed]
+    assert kinds[0] == "text-layer", "新的在前"
+    assert "outline" in kinds
+    assert all("summary" in job and "status" in job for job in listed), "带参数摘要与状态"
+
+
 def test_pdf_text_job_reads_the_structure(client, tmp_path):
     pdf = make_pdf(tmp_path / "text.pdf")
     work = tmp_path / "work"

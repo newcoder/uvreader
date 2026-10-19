@@ -429,6 +429,7 @@ ipcMain.handle("qbr:probe:engine", async (_event, settings = {}) => {
 // 引擎自己的配置(路径 / 凭据 / 并发):配置的单一来源在引擎,应用只做 UI。
 ipcMain.handle("qbr:engine:config", (_event, settings = {}) => engineClient.config(settings || {}));
 ipcMain.handle("qbr:engine:save-config", (_event, payload = {}) => engineClient.saveConfig(payload?.settings || {}, payload?.patch || {}));
+ipcMain.handle("qbr:engine:jobs", (_event, payload = {}) => engineClient.jobs(payload?.settings || {}, payload?.limit || 20));
 ipcMain.handle("qbr:probe:formula", async (_event, settings = {}) => {
   const value = settings || {};
   const target = pdfToolScriptCommand(value);

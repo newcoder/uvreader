@@ -622,6 +622,24 @@ export function createSettingsView(leaf, options) {
     };
     engineProbe.addEventListener("click", () => void checkEngine(false));
     engineRefreshBtn.addEventListener("click", () => void checkEngine(true));
+    // 手工验证「这次是引擎干的」:看引擎自己的作业清单(新在前,带参数摘要与状态)。
+    const engineJobsBtn = engineTools.createEl("button", { text: "查看引擎作业" });
+    engineJobsBtn.addEventListener("click", async () => {
+      engineCaps.empty();
+      const result = await bridge?.engine?.jobs?.({ ...settings }, 8).catch(() => null);
+      if (!result?.ok) {
+        engineCaps.createDiv({ cls: "qbr-workshop-hint", text: `读不到作业清单:${result?.error || "没有返回原因"}` });
+        return;
+      }
+      const jobs = result.data?.jobs || [];
+      engineCaps.createDiv({ cls: "qbr-workshop-hint", text: jobs.length ? `最近 ${jobs.length} 个作业(新在前):` : "引擎还没跑过作业。" });
+      for (const job of jobs) {
+        const when = Number(job.finishedAt || job.startedAt || job.createdAt || 0);
+        const time = when ? new Date(when * 1000).toLocaleTimeString() : "";
+        const progress = Number(job.total) ? ` ${job.done}/${job.total}` : "";
+        engineCaps.createDiv({ cls: "qbr-workshop-hint", text: `${time} · ${job.kind} · ${job.status}${progress} · ${job.summary}` });
+      }
+    });
     engineSave.addEventListener("click", async () => {
       if (!bridge?.engine?.saveConfig) return;
       const patch = {};

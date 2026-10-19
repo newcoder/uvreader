@@ -98,6 +98,11 @@ def create_app(*, token: str = "", manifest_path: str | None = None, workers: in
     def math(request: MathRequest) -> dict:
         return {"mathml": render_math(list(request.latex or []))}
 
+    @app.get("/v1/jobs", dependencies=[Depends(require_token)])
+    def list_jobs(limit: int = 20) -> dict:
+        """最近的作业(新的在前):手工验证「这次是引擎干的」就看这里。"""
+        return {"jobs": registry.recent(limit)}
+
     @app.post("/v1/jobs", dependencies=[Depends(require_token)])
     def submit(request: JobRequest) -> dict:
         runner = JOB_KINDS.get(str(request.kind or ""))

@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+import json
+import logging
 import threading
 import time
 import uuid
@@ -12,7 +14,18 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+log = logging.getLogger("engine.jobs")
+
 TERMINAL = {"done", "failed", "cancelled"}
+
+
+def job_summary(args: dict | None, limit: int = 140) -> str:
+    """作业参数压成一行(手工排查用):路径 / 模式这些关键字段,长了就截断。"""
+    try:
+        text = json.dumps(args or {}, ensure_ascii=False, sort_keys=True)
+    except Exception:  # noqa: BLE001
+        text = str(args)
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 @dataclass
@@ -40,6 +53,7 @@ class Job:
             "done": self.done,
             "total": self.total,
             "error": self.error,
+            "summary": job_summary(self.args),
             "createdAt": self.created_at,
             "startedAt": self.started_at,
             "finishedAt": self.finished_at,
@@ -65,8 +79,16 @@ class JobRegistry:
             self._jobs[job.id] = job
             self._order.append(job.id)
             self._trim()
+        # 手工排查用:每个作业提交与结束都留一行日志(谁在干活一目了然)。
+        log.info("[job] %s submitted %s %s", job.id, job.kind, job_summary(job.args))
         self._pool.submit(self._run, job, runner)
         return job
+
+    def recent(self, limit: int = 20) -> list[dict]:
+        """最近的作业(新的在前)—— `GET /v1/jobs` 用它做「这次是谁干的」的证据。"""
+        with self._lock:
+            ids = list(reversed(self._order[-max(1, int(limit)):]))
+        return [job.public() for job in (self._jobs.get(job_id) for job_id in ids) if job is not None]
 
     def get(self, job_id: str) -> Job | None:
         return self._jobs.get(str(job_id or ""))
@@ -108,6 +130,7 @@ class JobRegistry:
             job.error = "" if job.cancelled() else str(exc)[:300]
         finally:
             job.finished_at = time.time()
+            log.info("[job] %s %s %s (%s)", job.id, job.kind, job.status, job_summary(job.args, 80))
 
 
 def report_progress(job: Job, *, done: int | None = None, total: int | None = None, label: str = "") -> None:

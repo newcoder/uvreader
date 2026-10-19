@@ -94,6 +94,8 @@ export function createEngineClient({ fetchImpl = (...args) => fetch(...args), ti
     // 引擎自己的配置(路径 / 凭据 / 并发):配置的单一来源在引擎,应用只做 UI。
     config: (settings = {}) => call(settings, "/v1/config"),
     saveConfig: (settings = {}, patch = {}) => call(settings, "/v1/config", { method: "PATCH", body: { patch } }),
+    // 最近的作业(新的在前):手工验证「这次是引擎干的」就看这里。
+    jobs: (settings = {}, limit = 20) => call(settings, `/v1/jobs?limit=${Math.max(1, Math.min(100, Number(limit) || 20))}`),
     // 作业:提交 → 轮询 → 取结果 / 取消(与应用任务队列语义对齐)。
     submit: (settings, kind, args = {}) => call(settings, "/v1/jobs", { method: "POST", body: { kind, args } }),
     status: (settings, jobId) => call(settings, `/v1/jobs/${encodeURIComponent(String(jobId || ""))}`),

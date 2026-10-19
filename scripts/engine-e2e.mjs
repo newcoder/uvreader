@@ -224,6 +224,12 @@ doc.close()
   check("未知作业类型被拒", badKind.ok === false && /未知的作业类型/.test(String(badKind.error)));
   const missing = await client.runJob(settings, "text-layer", { source: path.join(work, "missing.pdf") }, { intervalMs: 100, timeoutMs: 30_000 });
   check("缺文件给可读错误", missing.ok === false && /找不到 PDF/.test(String(missing.error)));
+
+  // 手工验证的入口:作业清单(新在前、带参数摘要与状态)。
+  const listed = await client.jobs(settings, 20);
+  const listedKinds = (listed.data?.jobs || []).map((job) => job.kind);
+  check("作业清单可查(手工验证用)", listed.ok === true && listedKinds.length >= 7 && listedKinds.includes("pdf-text") && listedKinds.includes("redact"), listedKinds.slice(0, 8).join(", "));
+  check("清单带参数摘要", (listed.data?.jobs || []).every((job) => typeof job.summary === "string" && typeof job.status === "string"));
 } finally {
   child.kill();
   fs.rmSync(work, { recursive: true, force: true });

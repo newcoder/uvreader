@@ -2461,6 +2461,12 @@ async function runWorkshopScenario() {
         return;
       }
       res.writeHead(200, { "Content-Type": "application/json" });
+      if (req.url.startsWith("/v1/jobs")) {
+        res.end(JSON.stringify({
+          jobs: [{ id: "stub-1", kind: "text-layer", status: "done", done: 3, total: 3, summary: "{\"source\": \"stub.pdf\"}", createdAt: Date.now() / 1000, finishedAt: Date.now() / 1000 }],
+        }));
+        return;
+      }
       if (req.url.startsWith("/v1/health")) {
         res.end(JSON.stringify({
           ok: true,
@@ -2523,13 +2529,18 @@ async function runWorkshopScenario() {
       await wait(1800);
       const engineStatus = engineButton?.closest(".qbr-workshop-row")?.querySelector(".qbr-mineru-status")?.textContent || "";
       const engineCaps = [...(body?.querySelectorAll(".qbr-workshop-engine-caps > div") || [])].map((el) => el.textContent || "");
+      // 手工验证入口:「查看引擎作业」要把引擎的作业清单渲染出来。
+      const jobsButton = [...(body?.querySelectorAll("button") || [])].find((b) => b.textContent === "查看引擎作业");
+      jobsButton?.click();
+      await wait(1200);
+      const engineJobs = [...(body?.querySelectorAll(".qbr-workshop-engine-caps > div") || [])].map((el) => el.textContent || "");
       // 链路探测要原地出结果(不再「已入队」跳到书坊任务)。
       const ocrButton = [...(body?.querySelectorAll("button") || [])].find((b) => b.textContent === "检测文字层链路");
       ocrButton?.click();
       await wait(2500);
       const ocrText = ocrButton?.closest(".qbr-workshop-row")?.querySelector(".qbr-mineru-status")?.textContent || "";
       document.querySelector('[data-route="workshop"]')?.click();
-      return { link: Boolean(link), tab: Boolean(tab), activeTab, tabLabels, wrapped, tabFlag, bodyTab, found: Boolean(button), text, ocrFound: Boolean(ocrButton), ocrText, typedSaved: String(window.__qbrPlugin?.settings?.mineruLocalExe || ""), engineStatus, engineCaps, engineUrlSaved: String(window.__qbrPlugin?.settings?.engineUrl || "") };
+      return { link: Boolean(link), tab: Boolean(tab), activeTab, tabLabels, wrapped, tabFlag, bodyTab, found: Boolean(button), text, ocrFound: Boolean(ocrButton), ocrText, typedSaved: String(window.__qbrPlugin?.settings?.mineruLocalExe || ""), engineStatus, engineCaps, engineJobs, engineUrlSaved: String(window.__qbrPlugin?.settings?.engineUrl || "") };
     }, stubPort);
     if (!mineru.link || !mineru.tab) throw new Error(`「打开 设置 → 书坊」应跳到书坊 tab:${JSON.stringify(mineru)}`);
     if (!mineru.found) throw new Error(`书坊 tab 里应该有「检测本地 MinerU」:${JSON.stringify(mineru)}`);
@@ -2552,6 +2563,12 @@ async function runWorkshopScenario() {
     }
     if (!engineCalls.some((call) => /GET \/v1\/health/.test(call))) {
       throw new Error(`应用应当真的去探测引擎:${JSON.stringify(engineCalls)}`);
+    }
+    if (!mineru.engineJobs.some((line) => /text-layer/.test(line) && /done/.test(line))) {
+      throw new Error(`「查看引擎作业」应渲染引擎的作业清单:${JSON.stringify(mineru.engineJobs)}`);
+    }
+    if (!engineCalls.some((call) => /GET \/v1\/jobs/.test(call))) {
+      throw new Error(`作业清单要走引擎的 /v1/jobs:${JSON.stringify(engineCalls)}`);
     }
     console.log("workshop: 书坊引擎探测与能力清单(带令牌)", String(mineru.engineStatus).slice(0, 40));
     // 服务停了之后再检测:要如实报「不可用」,不能装作还在。
