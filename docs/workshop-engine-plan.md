@@ -123,7 +123,7 @@ POST  /v1/math       { latex[] }     → { mathml[] }            # 轻量同步�
 | --- | --- | --- |
 | **E0** | 本计划(服务架构版) | 用户确认 ✓ |
 | **E1 ✅ 已完成(2026-10-19)** | **服务骨架 + 契约**:`engine/`(FastAPI:health / jobs / math)+ token + `engine.json`;应用侧 `engine-client` + 设置页「书坊引擎」状态行 + **回退现有 spawn** | 单测(客户端:探测/作业/取消/回退)✓ + 真机冒烟(health / 令牌 / math / text-layer 作业 36 页)✓ + e2e 待补 |
-| **E2 🚧 进行中** | **搬能力**:文字层 / pdf-text / outline / redact / images-to-pdf 从应用脚本搬进引擎;`extract`(pdf_tool)与 `convert`(DocVortex)作业化 | 五条链路用引擎跑通(真实素材);转换矩阵新增「引擎模式」一行 —— **E2a 已完成**:`outline` + `images-to-pdf` 搬好并接线(引擎优先、失败回退),引擎自测 7 项进 CI;**E2b 待办**:`pdf-text` / `redact` / `extract` / `convert` |
+| **E2 🚧 进行中** | **搬能力**:文字层 / pdf-text / outline / redact / images-to-pdf 从应用脚本搬进引擎;`extract`(pdf_tool)与 `convert`(DocVortex)作业化 | 五条链路用引擎跑通(真实素材);转换矩阵新增「引擎模式」一行 —— **E2a**:`outline` + `images-to-pdf` ✓;**E2b**:`redact` + `extract`(pdf_tool)+ `convert`(DocVortex)✓,应用侧三条链路都接成「引擎优先、失败回退」;**E2c 待办**:`pdf-text`(文本型提取,最大的一个) |
 | **E3** | **打包与一键安装**:三平台构建脚本 + 应用内「下载并安装/更新引擎」(sha256、解压到 `%LOCALAPPDATA%/UVReader/engine/<version>`、拉起、进度)+ 离线 zip 安装 | e2e(本地 zip 走完整流程)+ 断网 / 校验失败 / 版本过旧路径 |
 | **E4** | **可选组件与外部工具**:boko 接入(EPUB→AZW3/KFX + 反向)、Calibre 探测与调用、本地 MinerU 组件(模型按需下载 + 提示) | 转换矩阵用引擎跑一遍;boko 单测 + 矩阵 |
 | **E5** | **收口**:文档、发布说明、旧用户迁移说明、矩阵回归、远程部署说明(URL + token) | 全量门禁 + 三平台引擎产物可下载 |

@@ -94,7 +94,7 @@ function tail(text, limit = 300) {
   return String(text || "").trim().slice(-limit);
 }
 
-export function createDocvortex({ spawnImpl = spawn, timeoutMs = 10 * 60_000, probeTimeoutMs = 8_000 } = {}) {
+export function createDocvortex({ spawnImpl = spawn, timeoutMs = 10 * 60_000, probeTimeoutMs = 8_000, engine = null } = {}) {
   // 逐个候选跑 `--version`;第一个成功的即解析结果。
   function probe(settings = {}) {
     const candidates = docvortexCandidates(settings);
@@ -168,9 +168,15 @@ export function createDocvortex({ spawnImpl = spawn, timeoutMs = 10 * 60_000, pr
   }
 
   async function convert(settings, { source, format, out, signal, parseMode = "" } = {}) {
+    if (!fs.existsSync(source)) return { ok: false, error: `源文件不存在：${source}` };
+    // 引擎优先(可独立部署):引擎按自己的配置调 DocVortex;失败/没配再回退本机 CLI。
+    if (engine && String(settings.engineUrl || "").trim()) {
+      const ran = await engine.runJob(settings, "convert", { source, format, out, parseMode }, { signal });
+      if (ran.ok && ran.result?.out && fs.existsSync(ran.result.out)) return { ok: true, out: ran.result.out, via: "engine" };
+      if (ran.cancelled) return { ok: false, error: "已取消", cancelled: true };
+    }
     const resolved = await probe(settings);
     if (!resolved.ok) return { ok: false, error: resolved.detail };
-    if (!fs.existsSync(source)) return { ok: false, error: `源文件不存在：${source}` };
     const result = await run(resolved, convertArgs(source, format, out, { parseMode }), { signal });
     if (!result.ok) return result;
     if (!fs.existsSync(out)) return { ok: false, error: "转换完成但没有生成文件" };

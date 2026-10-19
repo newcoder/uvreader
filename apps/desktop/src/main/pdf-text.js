@@ -616,9 +616,9 @@ for page_number, boxes in rects.items():
 doc.save(job["out"], garbage=3, deflate=True)
 `;
 
-export function createPdfCleaner({ pdfText = createPdfTextReader(), spawnImpl = spawn, timeoutMs = 120_000 } = {}) {
+export function createPdfCleaner({ pdfText = createPdfTextReader(), spawnImpl = spawn, timeoutMs = 120_000, engine = null } = {}) {
   // 返回 { ok, path, removed }:没有家具时 path 就是原文件;失败由调用方回退原文件。
-  async function clean(source, { python = "python", workDir = "", signal } = {}) {
+  async function clean(source, { python = "python", workDir = "", signal, engineSettings = null } = {}) {
     const original = String(source || "");
     if (!original || !fs.existsSync(original)) return { ok: false, path: original, removed: 0, error: `找不到 PDF：${original}` };
     const read = await pdfText.read(original, { python, workDir, signal });
@@ -626,6 +626,15 @@ export function createPdfCleaner({ pdfText = createPdfTextReader(), spawnImpl = 
     const rects = furnitureRects(read.pages);
     if (!rects.length) return { ok: true, path: original, removed: 0 };
     const base = String(workDir || path.dirname(original) || ".");
+    const outPdf = path.join(base, path.basename(original));
+    // 引擎优先:红标清理走 /v1/jobs kind=redact(引擎自己按配置干活);失败再回退本机 python。
+    if (engine && engineSettings && String(engineSettings.engineUrl || "").trim()) {
+      const ran = await engine.runJob(engineSettings, "redact", { source: original, out: outPdf, rects }, { signal, timeoutMs });
+      if (ran.ok && ran.result?.path && fs.existsSync(ran.result.path)) {
+        return { ok: true, path: ran.result.path, removed: Number(ran.result.removed) || rects.length, via: "engine" };
+      }
+      if (ran.cancelled) return { ok: false, path: original, removed: 0, error: "已取消", cancelled: true };
+    }
     try {
       fs.mkdirSync(base, { recursive: true });
       const jobFile = path.join(base, "redact-job.json");
@@ -682,7 +691,7 @@ export async function cleanedPdfFor(source, { cleaner = null, settings = {}, cac
   const stem = path.basename(original).replace(/\.[^.]+$/, "");
   const workDir = path.join(String(cacheRoot || os.tmpdir()), "cleaned", `${stem}-${Date.now().toString(36)}`);
   const python = String(settings.ocrPython || settings.docvortexPython || "").trim() || "python";
-  const result = await cleaner.clean(original, { python, workDir, signal });
+  const result = await cleaner.clean(original, { python, workDir, signal, engineSettings: settings });
   if (!result.ok) {
     log("pdf clean skipped", result.error);
     return original;

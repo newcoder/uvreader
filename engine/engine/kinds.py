@@ -8,7 +8,10 @@ E2 再把 extract / convert / pdf-text / outline / redact / images-to-pdf / eboo
 from __future__ import annotations
 
 import json
+import os
 import re
+import sys
+import time
 from pathlib import Path
 
 from .jobs import Job, report_progress
@@ -140,9 +143,193 @@ def run_images_to_pdf(job: Job) -> dict:
     return {"path": str(target), "pages": len(pages)}
 
 
-# 作业类型注册表(放文件末尾:函数得先定义出来)。
+# ── 通用:跑外部命令(进度心跳 / 取消 / 超时)──────────────────────────
+
+def run_process(job: Job, command: str, args: list[str], *, cwd: str | None = None,
+                env: dict | None = None, timeout: float = 1800.0, label: str = "") -> tuple[int, str]:
+    """跑一个外部命令:每隔一会儿检查取消并报进度,取消/超时都 kill。返回 (退出码, 输出尾部)。"""
+    import subprocess
+
+    report_progress(job, label=label or "运行中…")
+    try:
+        child = subprocess.Popen(  # noqa: S603 —— 命令与参数都由引擎自己构造
+            [command, *args], cwd=cwd or None, env=env or None,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"找不到命令:{command}({exc})") from exc
+    deadline = time.time() + max(5.0, float(timeout))
+    output = ""
+    try:
+        while True:
+            if job.cancelled():
+                child.kill()
+                raise RuntimeError("已取消")
+            if time.time() > deadline:
+                child.kill()
+                raise RuntimeError(f"命令超时:{command}")
+            try:
+                chunk, _ = child.communicate(timeout=1.0)
+                output += chunk or ""
+                break
+            except subprocess.TimeoutExpired:
+                continue
+        return child.returncode or 0, output
+    finally:
+        if child.poll() is None:
+            try:
+                child.kill()
+            except Exception:  # noqa: BLE001
+                pass
+
+
+# ── PDF 红标清理(/v1/jobs kind=redact)──────────────────────────────────
+
+def run_redact(job: Job) -> dict:
+    """按页面矩形擦除(文字 / 图片 / 矢量一起),产出干净副本;与应用里的脚本一致。"""
+    import fitz
+
+    source = str(job.args.get("source") or "")
+    out_path = str(job.args.get("out") or "").strip()
+    if not source or not Path(source).exists():
+        raise FileNotFoundError(f"找不到 PDF:{source}")
+    if not out_path:
+        raise ValueError("没有输出路径")
+    grouped: dict[int, list] = {}
+    for item in job.args.get("rects") or []:
+        try:
+            page_number = int(item.get("page") or 0)
+            box = [float(value) for value in (item.get("rect") or [])]
+        except Exception:  # noqa: BLE001 —— 单条坏了跳过
+            continue
+        if page_number > 0 and len(box) == 4:
+            grouped.setdefault(page_number, []).append(box)
+    report_progress(job, label="擦除页眉页脚 / 水印…")
+    doc = fitz.open(source)
+    try:
+        total = len(grouped)
+        for index, (page_number, boxes) in enumerate(grouped.items(), start=1):
+            if job.cancelled():
+                raise RuntimeError("已取消")
+            report_progress(job, done=index - 1, total=total)
+            if not 1 <= page_number <= doc.page_count:
+                continue
+            page = doc[page_number - 1]
+            for box in boxes:
+                page.add_redact_annot(fitz.Rect(box))
+            page.apply_redactions(
+                images=fitz.PDF_REDACT_IMAGE_PIXELS,
+                graphics=fitz.PDF_REDACT_LINE_ART_REMOVE_IF_COVERED,
+                text=fitz.PDF_REDACT_TEXT_REMOVE,
+            )
+        target = Path(out_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        doc.save(str(target), garbage=3, deflate=True)
+    finally:
+        doc.close()
+    removed = sum(len(boxes) for boxes in grouped.values())
+    report_progress(job, done=len(grouped), total=len(grouped))
+    return {"path": str(target), "removed": removed}
+
+
+# ── PDF → Doc JSON(pdf_tool;kind=extract)──────────────────────────────
+
+def _pdf_tool_script(config: dict) -> Path:
+    directory = str(config.get("pdfToolDir") or "").strip()
+    if not directory:
+        raise RuntimeError("引擎没配置 pdf_tool 目录")
+    script = Path(directory) / "pdf_tool" / "pdf_to_doc.py"
+    if not script.exists():
+        raise RuntimeError(f"目录里没有 pdf_tool/pdf_to_doc.py:{directory}")
+    return script
+
+
+def run_extract(job: Job) -> dict:
+    """跑 pdf_tool 的 `pdf_to_doc.py --mode mineru --formats json`(与应用同一套参数与环境)。"""
+    from .config import load_config
+
+    config = load_config()
+    script = _pdf_tool_script(config)
+    source = str(job.args.get("source") or "")
+    out_dir = str(job.args.get("outDir") or "").strip()
+    if not source or not Path(source).exists():
+        raise FileNotFoundError(f"找不到 PDF:{source}")
+    if not out_dir:
+        raise ValueError("没有输出目录")
+    # 产物目录先建出来(真 pdf_tool 会自建;这样 stub / 只读场景也稳)
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    python = str(job.args.get("python") or config.get("python") or "").strip() or sys.executable
+    args = [str(script), "--pdf", source, "--mode", "mineru", "--formats", "json", "--out-dir", out_dir]
+    model = str(job.args.get("model") or config.get("mineruModel") or "").strip()
+    if model:
+        args.extend(["--mineru-model", model])
+    mineru_source = str(job.args.get("mineruSource") or "").strip()
+    if mineru_source and mineru_source != "auto":
+        args.extend(["--mineru-source", mineru_source])
+    pages = str(job.args.get("pages") or "").strip()
+    if pages:
+        args.extend(["--pages", pages])
+    env = dict(os.environ)
+    # 与应用的约定一致:地址 / 令牌 / 本地程序走环境;中文报错按 UTF-8 出来。
+    env["MINERU_LOCAL_URL"] = str(config.get("mineruLocalUrl") or "")
+    if str(config.get("mineruToken") or "").strip():
+        env["MINERU_TOKEN"] = str(config["mineruToken"])
+    if str(config.get("mineruLocalExe") or "").strip():
+        env["MINERU_LOCAL_CMD"] = str(config["mineruLocalExe"])
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    code, output = run_process(job, python, args, cwd=str(config.get("pdfToolDir") or "").strip() or None,
+                               env=env, timeout=float(job.args.get("timeoutMs") or 1800_000) / 1000.0,
+                               label="pdf_tool 提取中…")
+    if code != 0:
+        raise RuntimeError(f"pdf_tool 退出码 {code}:{output.strip()[-300:]}")
+    produced = sorted(str(path.name) for path in Path(out_dir).glob("*_doc.json"))
+    return {"outDir": out_dir, "produced": produced, "log": output.strip()[-400:]}
+
+
+# ── 文档互转(DocVortex;kind=convert)──────────────────────────────────
+
+def _docvortex_commands(config: dict) -> list[list[str]]:
+    custom = str(config.get("docvortexPath") or "").strip()
+    python = str(config.get("python") or "").strip() or sys.executable
+    commands: list[list[str]] = []
+    if custom:
+        commands.append([custom])
+    commands.append([python, "-m", "docvortex"])
+    return commands
+
+
+def run_convert(job: Job) -> dict:
+    """跑 DocVortex 的 `convert <源> --format <目标> --output <产物> --overwrite`。"""
+    from .config import load_config
+
+    config = load_config()
+    source = str(job.args.get("source") or "")
+    out_path = str(job.args.get("out") or "").strip()
+    target_format = str(job.args.get("format") or "markdown").strip()
+    if not source or not Path(source).exists():
+        raise FileNotFoundError(f"找不到源文件:{source}")
+    if not out_path:
+        raise ValueError("没有输出路径")
+    parse_mode = str(job.args.get("parseMode") or "").strip()
+    base = ["convert", source, "--format", target_format, "--output", out_path, "--overwrite"]
+    if parse_mode:
+        base.extend(["--parse-mode", parse_mode])
+    last_error = ""
+    for command in _docvortex_commands(config):
+        code, output = run_process(job, command[0], [*command[1:], *base], timeout=1800.0, label="DocVortex 转换中…")
+        if code == 0 and Path(out_path).exists():
+            return {"out": out_path, "log": output.strip()[-400:]}
+        last_error = f"退出码 {code}:{output.strip()[-300:]}"
+    raise RuntimeError(f"DocVortex 转换失败:{last_error}")
+
+
+# 作业类型注册表(**必须放文件末尾**:函数得先定义出来,否则 NameError)。
 JOB_KINDS = {
     "text-layer": run_text_layer,
     "outline": run_outline,
     "images-to-pdf": run_images_to_pdf,
+    "redact": run_redact,
+    "extract": run_extract,
+    "convert": run_convert,
 }

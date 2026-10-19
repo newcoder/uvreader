@@ -158,3 +158,84 @@ def test_bad_requests_are_rejected(client):
     job = wait_for(client, client.post("/v1/jobs", headers=AUTH, json={"kind": "images-to-pdf", "args": {"images": [], "out": "x.pdf"}}).json()["jobId"])
     assert job["status"] == "failed"
     assert "没有图片" in job["error"]
+
+
+def test_redact_job_removes_the_marked_text(client, tmp_path):
+    import fitz
+
+    pdf = tmp_path / "dirty.pdf"
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 40), "HEADER NOISE")
+    page.insert_text((72, 200), "BODY KEEP")
+    doc.save(str(pdf))
+    doc.close()
+
+    out = tmp_path / "clean.pdf"
+    rects = [{"page": 1, "rect": [60, 30, 260, 55]}]
+    job_id = submit(client, "redact", {"source": str(pdf), "out": str(out), "rects": rects})
+    job = wait_for(client, job_id)
+    assert job["status"] == "done", job.get("error")
+    result = client.get(f"/v1/jobs/{job_id}/result", headers=AUTH).json()["result"]
+    assert result["removed"] == 1
+    doc = fitz.open(str(out))
+    try:
+        text = doc[0].get_text()
+    finally:
+        doc.close()
+    assert "HEADER" not in text, "红标区域被擦掉"
+    assert "BODY KEEP" in text, "区域外的正文保留"
+
+
+def test_extract_job_runs_pdf_tool_from_the_config(client, tmp_path, monkeypatch):
+    # 假的 pdf_tool:一个把产物写出来的 stub(真机由引擎按配置调用真的 pdf_tool)。
+    pdf_tool_dir = tmp_path / "auto_chat"
+    script_dir = pdf_tool_dir / "pdf_tool"
+    script_dir.mkdir(parents=True)
+    (script_dir / "pdf_to_doc.py").write_text(
+        "import json, sys\n"
+        "out = sys.argv[sys.argv.index('--out-dir') + 1]\n"
+        "open(out + '/book_doc.json', 'w', encoding='utf-8').write(json.dumps({'mode': 'stub'}))\n"
+        "print('stub pdf_tool ok')\n",
+        encoding="utf-8",
+    )
+    pdf = make_pdf(tmp_path / "book.pdf")
+    client.patch("/v1/config", headers=AUTH, json={"patch": {"pdfToolDir": str(pdf_tool_dir)}})
+    out_dir = tmp_path / "extract"
+    job_id = submit(client, "extract", {"source": str(pdf), "outDir": str(out_dir), "model": "vlm"})
+    job = wait_for(client, job_id)
+    assert job["status"] == "done", job.get("error")
+    result = client.get(f"/v1/jobs/{job_id}/result", headers=AUTH).json()["result"]
+    assert result["produced"] == ["book_doc.json"]
+    assert (out_dir / "book_doc.json").exists()
+    assert "stub pdf_tool ok" in result["log"]
+
+    # 没配置 pdf_tool 目录时给可操作的错误
+    client.patch("/v1/config", headers=AUTH, json={"patch": {"pdfToolDir": ""}})
+    failed = wait_for(client, submit(client, "extract", {"source": str(pdf), "outDir": str(out_dir)}))
+    assert failed["status"] == "failed"
+    assert "pdf_tool" in failed["error"]
+
+
+def test_convert_job_runs_docvortex(client, tmp_path, monkeypatch):
+    # 假的 docvortex 模块:引擎用 `python -m docvortex` 调它(PYTHONPATH 指到 stub 目录)。
+    stub_dir = tmp_path / "stubs"
+    stub_dir.mkdir()
+    (stub_dir / "docvortex.py").write_text(
+        "import pathlib, sys\n"
+        "out = sys.argv[sys.argv.index('--output') + 1]\n"
+        "pathlib.Path(out).write_text('# converted', encoding='utf-8')\n"
+        "print('stub docvortex ok')\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PYTHONPATH", str(stub_dir))
+    source = tmp_path / "in.docx"
+    source.write_text("x", encoding="utf-8")
+    out = tmp_path / "out.md"
+    job_id = submit(client, "convert", {"source": str(source), "format": "markdown", "out": str(out), "parseMode": "ocr"})
+    job = wait_for(client, job_id)
+    assert job["status"] == "done", job.get("error")
+    result = client.get(f"/v1/jobs/{job_id}/result", headers=AUTH).json()["result"]
+    assert result["out"] == str(out)
+    assert out.read_text(encoding="utf-8") == "# converted"
+    assert "stub docvortex ok" in result["log"]

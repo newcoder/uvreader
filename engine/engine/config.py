@@ -20,6 +20,7 @@ DEFAULTS: dict = {
     "mineruLocalUrl": "",  # 本地 MinerU 服务地址(如 http://127.0.0.1:8000)
     "mineruToken": "",     # 云端 MinerU token(不回显)
     "mineruModel": "vlm",
+    "mineruLocalExe": "",  # mineru-kit 可执行文件(pdf_tool 的 helper 靠它找 venv)
     "calibrePath": "",     # ebook-convert 路径;留空按 PATH / 常见位置找
     "bokoPath": "",        # boko 二进制路径
     "workers": 2,          # 同时运行的作业数

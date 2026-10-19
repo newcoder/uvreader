@@ -106,7 +106,7 @@ export function formulaCacheDir(root, source, pages = "") {
   return path.join(String(root || ""), `${stem}-${key}`);
 }
 
-export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000, readEnv = readWindowsEnv, fetchImpl = (...args) => fetch(...args), textLayer = createTextLayerReader(), log = (...args) => console.log(...args) } = {}) {
+export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000, readEnv = readWindowsEnv, fetchImpl = (...args) => fetch(...args), textLayer = createTextLayerReader(), engine = null, log = (...args) => console.log(...args) } = {}) {
   function runCommand(command, args, { cwd, env, signal } = {}) {
     return new Promise((resolve) => {
       let child;
@@ -163,9 +163,34 @@ export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000,
       }
     })();
     let parsed = { ok: true, log: "" };
+    // 引擎优先(可独立部署的本地服务):pdf_tool 与 MinerU 凭据都在引擎侧配置,
+    // 应用只发意图;引擎失败/没配就回退到本机 checkout(下面那段)。
+    const runViaEngine = async () => {
+      if (!engine || !String(settings.engineUrl || "").trim()) return false;
+      report?.({ label: "书稿引擎解析" });
+      const ran = await engine.runJob(settings, "extract", {
+        source,
+        outDir: workDir,
+        model: String(settings.mineruModel || "").trim() || "vlm",
+        mineruSource: String(settings.mineruSource || "") === "local" ? "local" : "",
+        pages,
+      }, { signal, onProgress: (progress) => report?.({ label: progress.label || "书稿引擎解析中…" }) });
+      if (ran.cancelled) {
+        parsed = { ok: false, cancelled: true, error: "任务已取消" };
+        return true;
+      }
+      if (ran.ok) {
+        parsed = { ok: true, log: ran.result?.log || "" };
+        return true;
+      }
+      log("formula chain: engine extract failed, falling back to local pdf_tool", ran.error);
+      return false;
+    };
     if (reusable) {
       report?.({ label: "复用缓存的 MinerU 解析" });
       log("formula chain: reuse cached doc", docPath);
+    } else if (await runViaEngine()) {
+      // 引擎已经产出 Doc JSON(下面统一按 docPath 读)
     } else {
       const token = resolveMineruToken(settings, { readEnv });
       const backend = await resolveLocalBackend(settings, { fetchImpl, readEnv });

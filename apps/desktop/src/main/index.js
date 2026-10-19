@@ -12,7 +12,7 @@ import { createCoverRenderer } from "./cover-render.js";
 import { createDocvortex, registerDocvortexRunners } from "./docvortex.js";
 import { registerExtractRunners } from "./extract-doc.js";
 import { clearMineruCaches, createMineruLocalService, resolveLocalBackend, resolveMineruKit } from "./mineru-local.js";
-import { registerTextConvertRunner } from "./pdf-text.js";
+import { createPdfCleaner, registerTextConvertRunner } from "./pdf-text.js";
 import { createFormulaChain, pdfToolScriptCommand, registerFormulaRunners, resolveMineruToken } from "./workshop-formula.js";
 import { registerBookRunners } from "./workshop-book.js";
 import { createPdfOutlineReader } from "./pdf-outline.js";
@@ -71,10 +71,10 @@ workshop.register("probe", async ({ payload, report, signal }) => {
 // 文字层工具:批量生成文字层 / 导出可搜索 PDF(.uvtext.pdf)。
 registerOcrRunners(workshop, { pdfOcr, vaultRoot });
 // 文档互转(DocVortex):检测 + 转换。
-const docvortex = createDocvortex();
-registerDocvortexRunners(workshop, { docvortex, vaultRoot });
+const docvortex = createDocvortex({ engine: engineClient });
+registerDocvortexRunners(workshop, { docvortex, vaultRoot, cleaner: createPdfCleaner({ engine: engineClient }) });
 // 公式优先链路:pdf_tool(MinerU)→ HTML → DocVortex(真公式)。
-const formulaChain = createFormulaChain();
+const formulaChain = createFormulaChain({ engine: engineClient });
 registerFormulaRunners(workshop, {
   chain: formulaChain,
   docvortex,
