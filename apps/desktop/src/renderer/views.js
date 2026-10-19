@@ -648,7 +648,10 @@ export function createSettingsView(leaf, options) {
         });
       }
       for (const row of rows) {
-        const tag = row.kind === "bundled" ? "自带" : row.optional ? "另外装 · 可选" : "另外装";
+        // pdf_tool 走的是配置目录时,别标「自带」(它本来可以是自带的,但现在用的是配置的那份)。
+        const tag = row.kind === "bundled"
+          ? (row.detail.includes("配置 ·") ? "用配置的路径" : "自带")
+          : row.optional ? "另外装 · 可选" : "另外装";
         engineCaps.createDiv({ cls: "qbr-workshop-hint", text: `${row.ok ? "✓" : "✗"} ${row.label}${row.detail ? ` · ${row.detail}` : ""}${row.kind ? ` · ${tag}` : ""}` });
       }
       // 不可用时给「具体怎么补」,不只报错。
