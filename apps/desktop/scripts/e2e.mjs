@@ -2528,6 +2528,10 @@ async function runWorkshopScenario() {
       engineButton?.click();
       await wait(1800);
       const engineStatus = engineButton?.closest(".qbr-workshop-row")?.querySelector(".qbr-mineru-status")?.textContent || "";
+      // E3b:一键安装/更新的入口要在卡片里(真下载 130MB,不进 e2e;runner 由单元测试覆盖)。
+      const engineInstallButtons = [...(body?.querySelectorAll("button") || [])]
+        .map((b) => b.textContent)
+        .filter((text) => text === "下载并安装引擎" || text === "从本地包安装");
       const engineCaps = [...(body?.querySelectorAll(".qbr-workshop-engine-caps > div") || [])].map((el) => el.textContent || "");
       // 手工验证入口:「查看引擎作业」要把引擎的作业清单渲染出来。
       const jobsButton = [...(body?.querySelectorAll("button") || [])].find((b) => b.textContent === "查看引擎作业");
@@ -2540,7 +2544,7 @@ async function runWorkshopScenario() {
       await wait(2500);
       const ocrText = ocrButton?.closest(".qbr-workshop-row")?.querySelector(".qbr-mineru-status")?.textContent || "";
       document.querySelector('[data-route="workshop"]')?.click();
-      return { link: Boolean(link), tab: Boolean(tab), activeTab, tabLabels, wrapped, tabFlag, bodyTab, found: Boolean(button), text, ocrFound: Boolean(ocrButton), ocrText, typedSaved: String(window.__qbrPlugin?.settings?.mineruLocalExe || ""), engineStatus, engineCaps, engineJobs, engineUrlSaved: String(window.__qbrPlugin?.settings?.engineUrl || "") };
+      return { link: Boolean(link), tab: Boolean(tab), activeTab, tabLabels, wrapped, tabFlag, bodyTab, found: Boolean(button), text, ocrFound: Boolean(ocrButton), ocrText, typedSaved: String(window.__qbrPlugin?.settings?.mineruLocalExe || ""), engineStatus, engineCaps, engineJobs, engineInstallButtons, engineUrlSaved: String(window.__qbrPlugin?.settings?.engineUrl || "") };
     }, stubPort);
     if (!mineru.link || !mineru.tab) throw new Error(`「打开 设置 → 书坊」应跳到书坊 tab:${JSON.stringify(mineru)}`);
     if (!mineru.found) throw new Error(`书坊 tab 里应该有「检测本地 MinerU」:${JSON.stringify(mineru)}`);
@@ -2569,6 +2573,9 @@ async function runWorkshopScenario() {
     }
     if (!engineCalls.some((call) => /GET \/v1\/jobs/.test(call))) {
       throw new Error(`作业清单要走引擎的 /v1/jobs:${JSON.stringify(engineCalls)}`);
+    }
+    if (mineru.engineInstallButtons.length !== 2) {
+      throw new Error(`引擎卡片要有「下载并安装引擎」与「从本地包安装」:${JSON.stringify(mineru.engineInstallButtons)}`);
     }
     console.log("workshop: 书坊引擎探测与能力清单(带令牌)", String(mineru.engineStatus).slice(0, 40));
     // 服务停了之后再检测:要如实报「不可用」,不能装作还在。

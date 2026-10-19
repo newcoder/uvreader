@@ -108,6 +108,7 @@ window.qbrDesktop = {
     config: (settings) => ipcRenderer.invoke("qbr:engine:config", settings),
     saveConfig: (settings, patch) => ipcRenderer.invoke("qbr:engine:save-config", { settings, patch }),
     jobs: (settings, limit) => ipcRenderer.invoke("qbr:engine:jobs", { settings, limit }),
+    pickBundle: () => ipcRenderer.invoke("qbr:engine:pick-bundle"),
   },
   workshop: {
     list: () => ipcRenderer.invoke("qbr:workshop:list"),

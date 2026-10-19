@@ -7,6 +7,7 @@ import { BOOK_EXTENSIONS, isBookFile } from "../shared/books.js";
 import { WORKSHOP_PICK_EXTENSIONS } from "../shared/workshop-formats.js";
 import { createAiRuntime } from "./ai-runtime.js";
 import { createEngineClient, describeEngineHealth } from "./engine-client.js";
+import { registerEngineInstallRunner } from "./engine-install.js";
 import { createCalibre } from "./calibre.js";
 import { createCoverRenderer } from "./cover-render.js";
 import { createDocvortex, registerDocvortexRunners } from "./docvortex.js";
@@ -46,6 +47,11 @@ try {
 const dataRoot = path.join(userData, "data");
 const vaultRoot = path.join(userData, "library");
 const secretsPath = path.join(userData, "secrets.json");
+// 书坊引擎装在这里:Windows 用 %LOCALAPPDATA%\UVReader\engine\<版本>(与手工部署的
+// venv/token.txt 同一个根,方便找);其他平台放应用数据目录。
+const engineRoot = process.platform === "win32" && process.env.LOCALAPPDATA
+  ? path.join(process.env.LOCALAPPDATA, "UVReader", "engine")
+  : path.join(userData, "engine");
 // The sidecar's page cache lives with the app profile: the second open of a
 // book is a cache hit instead of a re-OCR.
 const pdfOcr = createPdfOcr({ cacheRoot: path.join(userData, "ocr-cache") });
@@ -103,6 +109,9 @@ registerExtractRunners(workshop, { docvortex, vaultRoot, cacheRoot: bookCacheRoo
 registerAiRunners(workshop, { aiRuntime, vaultRoot, cacheRoot: bookCacheRoot });
 // 格式转换的「文本型」链路(本地 fitz 提取 → DocVortex;与公式优先同构)。
 registerTextConvertRunner(workshop, { docvortex, vaultRoot, cacheRoot: bookCacheRoot, pdfText: createPdfTextReader({ engine: engineClient }) });
+// 书坊引擎的安装/更新(E3b):查最新 engine-v* 资产(或本地包)→ 下载 + sha256 → 解压 → 拉起;
+// 结果(engineUrl / engineToken)回给设置页,由面板写进设置。
+registerEngineInstallRunner(workshop, { engineRoot });
 // Online book downloads land in the library so they appear as regular books.
 const bookDownloads = createBookDownloads({
   downloadRoot: path.join(vaultRoot, "Books", "下载"),
@@ -430,6 +439,19 @@ ipcMain.handle("qbr:probe:engine", async (_event, settings = {}) => {
 ipcMain.handle("qbr:engine:config", (_event, settings = {}) => engineClient.config(settings || {}));
 ipcMain.handle("qbr:engine:save-config", (_event, payload = {}) => engineClient.saveConfig(payload?.settings || {}, payload?.patch || {}));
 ipcMain.handle("qbr:engine:jobs", (_event, payload = {}) => engineClient.jobs(payload?.settings || {}, payload?.limit || 20));
+// 离线安装:选一个本地引擎包(zip / tar.gz),交给 engine-install 任务。
+ipcMain.handle("qbr:engine:pick-bundle", async () => {
+  const options = {
+    title: "选择书坊引擎安装包",
+    properties: ["openFile"],
+    filters: [
+      { name: "引擎包", extensions: ["zip", "gz", "tgz"] },
+      { name: "所有文件", extensions: ["*"] },
+    ],
+  };
+  const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+  return result.canceled ? "" : String(result.filePaths?.[0] || "");
+});
 ipcMain.handle("qbr:probe:formula", async (_event, settings = {}) => {
   const value = settings || {};
   const target = pdfToolScriptCommand(value);

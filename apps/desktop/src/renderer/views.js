@@ -564,6 +564,51 @@ export function createSettingsView(leaf, options) {
     const engineToken = engineTokenRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "引擎没设令牌就留空(仅本机)" } });
     engineToken.value = String(settings.engineToken || "");
     bind(engineToken, "engineToken", "引擎令牌已保存。");
+    // E3b 一键安装/更新:下载 + sha256 校验 + 解压 + 拉起都在主进程做,进度走任务队列;
+    // 装完把地址与令牌回填到上面两行(用户不用自己抄)。
+    const engineInstallRow = engineCard.createDiv("qbr-workshop-row");
+    const engineInstallBtn = engineInstallRow.createEl("button", { cls: "mod-cta", text: "下载并安装引擎" });
+    const engineInstallLocalBtn = engineInstallRow.createEl("button", { text: "从本地包安装" });
+    const engineInstallStatus = engineInstallRow.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "" });
+    const applyEngineInstall = (result) => {
+      if (!result?.engineUrl) return;
+      persist("engineUrl", result.engineUrl);
+      engineUrl.value = result.engineUrl;
+      if (result.engineToken) {
+        persist("engineToken", result.engineToken);
+        engineToken.value = result.engineToken;
+      }
+      engineInstallStatus.setText(`引擎 ${result.version || ""} 已装好并启动 ✓`);
+      void checkEngine(true);
+    };
+    const watchEngineInstall = (taskId) => {
+      if (!bridge?.workshop?.onState) return;
+      const stop = bridge.workshop.onState((state) => {
+        const task = (state?.tasks || []).find((row) => row.id === taskId);
+        if (!task) return;
+        if (task.status === "queued" || task.status === "running") {
+          if (task.label) engineInstallStatus.setText(String(task.label));
+          return;
+        }
+        stop?.();
+        if (task.status === "done") applyEngineInstall(task.result);
+        else if (task.status === "cancelled") engineInstallStatus.setText("安装已取消。");
+        else engineInstallStatus.setText(`安装失败:${task.error || "看任务详情"}`);
+      });
+    };
+    const startEngineInstall = (payload, detail) => {
+      if (!bridge?.workshop?.start) return;
+      engineInstallStatus.setText("排队中…");
+      void bridge.workshop.start({ kind: "engine-install", title: "安装书坊引擎", detail, payload })
+        .then((taskId) => watchEngineInstall(String(taskId || "")))
+        .catch((error) => engineInstallStatus.setText(`启动失败:${String(error?.message || error)}`));
+    };
+    engineInstallBtn.addEventListener("click", () => startEngineInstall({ port: 8760 }, "最新版"));
+    engineInstallLocalBtn.addEventListener("click", async () => {
+      const file = await bridge?.engine?.pickBundle?.().catch(() => "");
+      if (!file) return;
+      startEngineInstall({ archivePath: String(file) }, "本地包");
+    });
     const engineTools = engineCard.createDiv("qbr-workshop-row");
     const engineProbe = engineTools.createEl("button", { text: "检测引擎" });
     const engineRefreshBtn = engineTools.createEl("button", { text: "重探能力" });
