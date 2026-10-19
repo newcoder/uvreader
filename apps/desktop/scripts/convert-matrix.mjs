@@ -17,6 +17,7 @@ import { registerExtractRunners } from "../src/main/extract-doc.js";
 import { createPdfTextReader, registerTextConvertRunner } from "../src/main/pdf-text.js";
 import { createWorkshopQueue } from "../src/main/workshop.js";
 import { removeFile } from "../src/main/paths.js";
+import { createTextLayerReader } from "../src/main/text-layer.js";
 import { registerBookRunners } from "../src/main/workshop-book.js";
 import { DOCVORTEX_FORMATS } from "../src/shared/workshop-formats.js";
 
@@ -179,7 +180,7 @@ const docvortex = createDocvortex({ engine: engineClient });
 const calibre = createCalibre();
 registerDocvortexRunners(queue, { docvortex, vaultRoot, engine: engineClient });
 registerBookRunners(queue, { calibre, vaultRoot, engine: engineClient });
-registerExtractRunners(queue, { docvortex, vaultRoot, cacheRoot, engine: engineClient, pdfText: createPdfTextReader({ engine: engineClient }) });
+registerExtractRunners(queue, { docvortex, vaultRoot, cacheRoot, engine: engineClient, pdfText: createPdfTextReader({ engine: engineClient }), textLayer: createTextLayerReader({ engine: engineClient }) });
 registerTextConvertRunner(queue, { docvortex, vaultRoot, cacheRoot, engine: engineClient });
 
 function runTask(request, timeoutMs = 300_000) {

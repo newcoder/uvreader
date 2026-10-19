@@ -376,7 +376,7 @@ export function writeExtractMark(cacheRoot, source, { mode, model, stat, outputs
 
 // pdf_tool 的 Doc JSON + PDF 文字层 → 互补后的 Markdown(正文逐字、公式 LaTeX)。
 // 拿不到文字层(扫描件 / 没装 PyMuPDF)或定位失败时返回 "",调用方保留 MinerU 产物。
-export async function mergePdfMarkdown({ docPath, source, python = "python", workDir = "", signal, textLayer = null, assetPrefix = "", log = () => {} } = {}) {
+export async function mergePdfMarkdown({ docPath, source, python = "python", workDir = "", signal, textLayer = null, settings = {}, assetPrefix = "", log = () => {} } = {}) {
   if (!textLayer || !docPath || !fs.existsSync(docPath)) return "";
   try {
     const doc = JSON.parse(fs.readFileSync(docPath, "utf8"));
@@ -387,7 +387,7 @@ export async function mergePdfMarkdown({ docPath, source, python = "python", wor
       return "";
     }
     const blocks = blocksFromDoc(doc);
-    const layer = await textLayer.read(source, { python, workDir, signal });
+    const layer = await textLayer.read(source, { python, workDir, signal, settings });
     if (!layer.ok) {
       log("text layer skipped", layer.error);
       return "";
@@ -488,6 +488,7 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
       docPath: files.json || cachedDoc,
       source,
       python: docvortexPython(settings),
+      settings,
       workDir,
       signal,
       textLayer,

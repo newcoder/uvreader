@@ -22,6 +22,7 @@ import { registerEpubRunners } from "./workshop-epub.js";
 import { registerAiRunners } from "./workshop-ai.js";
 import { createPdfOcr, OCR_PROBE_TIMEOUT, resolveOcrOutput } from "./pdf-ocr.js";
 import { registerOcrRunners } from "./workshop-ocr.js";
+import { createTextLayerReader } from "./text-layer.js";
 import { createWorkshopQueue } from "./workshop.js";
 import { createBookDownloads } from "./book-downloads.js";
 import { bookSessionReady, closeBookSession, downloadBookFile, downloadBookFileFromPage, fetchBookPage, forgetBookSession, openBookLogin, searchPdfdrive, sessionFetch } from "./book-session.js";
@@ -81,7 +82,7 @@ registerOcrRunners(workshop, { pdfOcr, vaultRoot });
 const docvortex = createDocvortex({ engine: engineClient });
 registerDocvortexRunners(workshop, { docvortex, vaultRoot, cleaner: createPdfCleaner({ engine: engineClient, pdfText: createPdfTextReader({ engine: engineClient }) }) });
 // 公式优先链路:pdf_tool(MinerU)→ HTML → DocVortex(真公式)。
-const formulaChain = createFormulaChain({ engine: engineClient });
+const formulaChain = createFormulaChain({ engine: engineClient, textLayer: createTextLayerReader({ engine: engineClient }) });
 registerFormulaRunners(workshop, {
   chain: formulaChain,
   docvortex,
@@ -103,9 +104,9 @@ const readCoverImage = async (filePath) => {
   if (image.isEmpty()) return null;
   return { data: image.toJPEG(90), mediaType: "image/jpeg", fileName: "cover.jpg" };
 };
-registerEpubRunners(workshop, { vaultRoot, cacheRoot: bookCacheRoot, coverRenderer, readImage: readCoverImage, docvortex, outlineReader: createPdfOutlineReader({ engine: engineClient }), engine: engineClient });
+registerEpubRunners(workshop, { vaultRoot, cacheRoot: bookCacheRoot, coverRenderer, readImage: readCoverImage, docvortex, outlineReader: createPdfOutlineReader({ engine: engineClient }), textLayer: createTextLayerReader({ engine: engineClient }), engine: engineClient });
 // 内容提取(PDF/Office/OFD/图片 → md/html/json):pdf_tool + DocVortex。
-registerExtractRunners(workshop, { docvortex, vaultRoot, cacheRoot: bookCacheRoot, pdfText: createPdfTextReader({ engine: engineClient }), engine: engineClient });
+registerExtractRunners(workshop, { docvortex, vaultRoot, cacheRoot: bookCacheRoot, pdfText: createPdfTextReader({ engine: engineClient }), textLayer: createTextLayerReader({ engine: engineClient }), engine: engineClient });
 // LLM 辅助(W2-1):AI 元数据推断 / AI 封面文案 / AI 分章建议 / AI 清理 —— 复用伴读的 AI 运行时与凭据。
 registerAiRunners(workshop, { aiRuntime, vaultRoot, cacheRoot: bookCacheRoot });
 // 格式转换的「文本型」链路(本地 fitz 提取 → DocVortex;与公式优先同构)。

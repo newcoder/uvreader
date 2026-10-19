@@ -236,7 +236,7 @@ export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000,
     // 文字层互补:正文逐字取 PDF 文字层(补 MinerU 丢的字/符号),公式保留 MinerU 的 LaTeX。
     if (textLayer) {
       report?.({ label: "文字层校正" });
-      const layer = await textLayer.read(source, { python: String(settings.ocrPython || "").trim() || "python", workDir, signal });
+      const layer = await textLayer.read(source, { python: String(settings.ocrPython || "").trim() || "python", workDir, signal, settings });
       if (layer.ok) blocks = mergeBlocksWithTextLayer(blocks, layer.pages, { log });
       else log("text layer skipped", layer.error);
     }

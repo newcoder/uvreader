@@ -19,15 +19,25 @@ export function safeDir(raw) {
   return [...parts, last].join(path.sep) || ".";
 }
 
-export function createTextLayerReader({ spawnImpl = spawn, timeoutMs = 120_000 } = {}) {
-  // 返回 { ok, pages }(pages[i] = 第 i+1 页的纯文本)。
-  async function read(pdfPath, { python = "python", workDir = "", signal } = {}) {
+export function createTextLayerReader({ spawnImpl = spawn, timeoutMs = 120_000, engine = null } = {}) {
+  // 返回 { ok, pages, via }(pages[i] = 第 i+1 页的纯文本)。
+  // **引擎优先、失败回退本机**(与其它链路同一条规则):传了 settings.engineUrl 才走引擎;
+  // 引擎没配 / 失败 / 产物为空 → 照旧跑本机脚本。via 让调用方与日志能说清这次是谁干的。
+  async function read(pdfPath, { python = "python", workDir = "", signal, settings = null } = {}) {
     const source = String(pdfPath || "");
     if (!source || !fs.existsSync(source)) return { ok: false, error: `找不到 PDF：${source}` };
     const base = safeDir(String(workDir || path.dirname(source) || "."));
     try {
       fs.mkdirSync(base, { recursive: true });
       const outFile = path.join(base, "text-layer.json");
+      if (engine?.runJob && String(settings?.engineUrl || "").trim()) {
+        const ran = await engine.runJob(settings, "text-layer", { source, out: outFile }, { signal });
+        if (ran.ok && fs.existsSync(outFile)) {
+          const pages = JSON.parse(fs.readFileSync(outFile, "utf8"));
+          if (Array.isArray(pages) && pages.length) return { ok: true, pages, path: outFile, via: "engine" };
+        }
+        if (ran.cancelled || signal?.aborted) return { ok: false, cancelled: true, error: "任务已取消" };
+      }
       const result = await new Promise((resolve) => {
         let child;
         try {
@@ -63,7 +73,7 @@ export function createTextLayerReader({ spawnImpl = spawn, timeoutMs = 120_000 }
       if (!fs.existsSync(outFile)) return { ok: false, error: "没有生成文字层文件" };
       const pages = JSON.parse(fs.readFileSync(outFile, "utf8"));
       if (!Array.isArray(pages) || !pages.length) return { ok: false, error: "文字层为空（可能是扫描件）" };
-      return { ok: true, pages, path: outFile };
+      return { ok: true, pages, path: outFile, via: "local" };
     } catch (error) {
       return { ok: false, error: String(error?.message || error) };
     }
