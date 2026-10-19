@@ -259,7 +259,9 @@ def run_extract(job: Job) -> dict:
     # 产物目录先建出来(真 pdf_tool 会自建;这样 stub / 只读场景也稳)
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     python = str(job.args.get("python") or config.get("python") or "").strip() or sys.executable
-    args = [str(script), "--pdf", source, "--mode", "mineru", "--formats", "json", "--out-dir", out_dir]
+    mode = str(job.args.get("mode") or "mineru").strip() or "mineru"
+    formats = str(job.args.get("formats") or "json").strip() or "json"
+    args = [str(script), "--pdf", source, "--mode", mode, "--formats", formats, "--out-dir", out_dir]
     model = str(job.args.get("model") or config.get("mineruModel") or "").strip()
     if model:
         args.extend(["--mineru-model", model])

@@ -401,7 +401,7 @@ export async function mergePdfMarkdown({ docPath, source, python = "python", wor
 }
 
 // 供向导调用:把任意来源转成 Markdown(中间产物放缓存目录,用户无感)。
-export async function extractMarkdown(source, { kind, settings = {}, docvortex, workDir, signal, log = () => {}, spawnImpl = spawn, textLayer = null, refresh = false } = {}) {
+export async function extractMarkdown(source, { kind, settings = {}, docvortex, workDir, signal, log = () => {}, spawnImpl = spawn, textLayer = null, refresh = false, engine = null, report = null } = {}) {
   const resolvedKind = kind || extractionKind(source);
   // 提取产物里的「假代码块」(MinerU 把正文段落包进围栏)按段落还原,公式才会渲染。
   const readMarkdown = (file) => {
@@ -439,28 +439,45 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
     // refresh = 忽略缓存重新提取:连 Doc JSON 也不复用,真的再跑一次上游。
     const cachedDoc = refresh ? undefined : docCandidates.find(fresh);
     if (!cachedDoc) {
-      // 交给 pdf_tool 前先去掉页眉页脚 / 页码 / 水印。
-      const args = pdfToolArgs(target.script, { source, outDir: workDir, model: String(settings.mineruModel || "").trim() || "vlm" });
-      const modeIndex = args.indexOf("--mode");
-      if (modeIndex >= 0) args[modeIndex + 1] = String(settings.extractMode || "auto");
-      const formatsIndex = args.indexOf("--formats");
-      if (formatsIndex >= 0) args[formatsIndex + 1] = "json,md,html";
-      else args.push("--formats", "json,md,html");
-      const token = String(settings.mineruToken || "").trim()
-        || String(process.env.MINERU_API_KEY || process.env.MINERU_TOKEN || "").trim();
-      const backend = await resolveLocalBackend(settings);
-      // MINERU_LOCAL_URL 显式给(可能空):挡掉父进程继承来的死地址。
-      const env = { PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8", MINERU_LOCAL_URL: backend.url };
-      if (token) env.MINERU_API_KEY = token;
-      if (backend.exe) env.MINERU_LOCAL_CMD = backend.exe;
-      const result = await runExtractCommand(target.command, args, {
-        cwd: target.cwd,
-        env,
-        signal,
-        log,
-        spawnImpl,
-      });
-      if (!result.ok) return { ok: false, error: result.error };
+      // 引擎优先(可独立部署):pdf_tool 与 MinerU 凭据都在引擎侧配置;失败再回退本机 checkout。
+      const viaEngine = engine && String(settings.engineUrl || "").trim()
+        ? await engine.runJob(settings, "extract", {
+          source,
+          outDir: workDir,
+          mode: String(settings.extractMode || "auto"),
+          formats: "json,md,html",
+          model: String(settings.mineruModel || "").trim() || "vlm",
+          mineruSource: String(settings.mineruSource || "") === "local" ? "local" : "",
+        }, { signal, onProgress: (progress) => report?.({ label: progress.label || "书稿引擎解析中…" }) })
+        : null;
+      if (viaEngine?.ok) {
+        log("extract: pdf_tool via engine");
+      } else {
+        if (viaEngine?.cancelled) return { ok: false, cancelled: true, error: "任务已取消" };
+        if (viaEngine) log("extract: engine failed, falling back to local pdf_tool", viaEngine.error);
+        // 交给 pdf_tool 前先去掉页眉页脚 / 页码 / 水印。
+        const args = pdfToolArgs(target.script, { source, outDir: workDir, model: String(settings.mineruModel || "").trim() || "vlm" });
+        const modeIndex = args.indexOf("--mode");
+        if (modeIndex >= 0) args[modeIndex + 1] = String(settings.extractMode || "auto");
+        const formatsIndex = args.indexOf("--formats");
+        if (formatsIndex >= 0) args[formatsIndex + 1] = "json,md,html";
+        else args.push("--formats", "json,md,html");
+        const token = String(settings.mineruToken || "").trim()
+          || String(process.env.MINERU_API_KEY || process.env.MINERU_TOKEN || "").trim();
+        const backend = await resolveLocalBackend(settings);
+        // MINERU_LOCAL_URL 显式给(可能空):挡掉父进程继承来的死地址。
+        const env = { PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8", MINERU_LOCAL_URL: backend.url };
+        if (token) env.MINERU_API_KEY = token;
+        if (backend.exe) env.MINERU_LOCAL_CMD = backend.exe;
+        const result = await runExtractCommand(target.command, args, {
+          cwd: target.cwd,
+          env,
+          signal,
+          log,
+          spawnImpl,
+        });
+        if (!result.ok) return { ok: false, error: result.error };
+      }
     } else {
       log("extract: reuse cached doc json", cachedDoc);
     }
@@ -511,7 +528,7 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
   return { ok: true, markdown: readMarkdown(out), path: out };
 }
 
-export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", cacheRoot = "", spawnImpl = spawn, textLayer = createTextLayerReader(), pdfText = createPdfTextReader(), log = (...args) => console.log(...args) } = {}) {
+export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", cacheRoot = "", spawnImpl = spawn, textLayer = createTextLayerReader(), pdfText = createPdfTextReader(), engine = null, log = (...args) => console.log(...args) } = {}) {
   const absolute = (raw) => {
     const value = String(raw || "");
     return path.isAbsolute(value) ? value : path.join(vaultRoot, value);
@@ -586,31 +603,50 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", ca
       writeExtractMark(cacheRoot, source, { mode, model, stat, outputs: files });
       return { output: files.md, detail: `Markdown · ${Math.round(fs.statSync(files.md).size / 1024)} KB`, outputs: files };
     }
-    const target = pdfToolScriptCommand(settings);
-    if (target.error) throw new Error(target.error);
-    // 交给 pdf_tool 前先去掉页眉页脚 / 页码 / 水印(MinerU 会丢一部分,文本 / vision 模式不会)。
-    const args = pdfToolArgs(target.script, { source, outDir, model });
-    const modeIndex = args.indexOf("--mode");
-    if (modeIndex >= 0) args[modeIndex + 1] = mode;
-    const formatsIndex = args.indexOf("--formats");
-    if (formatsIndex >= 0) args[formatsIndex + 1] = "json,md,html";
-    else args.push("--formats", "json,md,html");
-    // 凭据 / 本地后端走子进程环境:MINERU_LOCAL_URL 显式给(可能空),挡掉父进程继承来的死地址;
-    // PYTHONUTF8/PYTHONIOENCODING 让 pdf_tool(Python)的中文报错按 UTF-8 出来,不在书坊里乱码。
-    const token = String(settings.mineruToken || "").trim();
-    const backend = await resolveLocalBackend(settings);
-    const env = { PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8", MINERU_LOCAL_URL: backend.url };
-    if (token) env.MINERU_API_KEY = token;
-    if (backend.exe) env.MINERU_LOCAL_CMD = backend.exe;
-    const result = await runExtractCommand(target.command, args, {
-      cwd: target.cwd,
-      env,
-      signal,
-      log,
-      spawnImpl,
-    });
-    if (signal.aborted) throw new Error("任务已取消");
-    if (!result.ok) throw new Error(String(result.error || "提取失败"));
+    // 引擎优先(可独立部署):pdf_tool 与 MinerU 凭据都在引擎侧配置;失败再回退本机 checkout。
+    let viaEngine = null;
+    if (engine && String(settings.engineUrl || "").trim()) {
+      report({ label: "书稿引擎解析" });
+      viaEngine = await engine.runJob(settings, "extract", {
+        source,
+        outDir,
+        mode,
+        formats: "json,md,html",
+        model,
+        mineruSource: String(settings.mineruSource || "") === "local" ? "local" : "",
+      }, { signal, onProgress: (progress) => report?.({ label: progress.label || "书稿引擎解析中…" }) });
+    }
+    if (viaEngine?.ok) {
+      log("extract: pdf_tool via engine");
+    } else {
+      if (viaEngine?.cancelled) throw new Error("任务已取消");
+      if (viaEngine) log("extract: engine failed, falling back to local pdf_tool", viaEngine.error);
+      const target = pdfToolScriptCommand(settings);
+      if (target.error) throw new Error(target.error);
+      // 交给 pdf_tool 前先去掉页眉页脚 / 页码 / 水印(MinerU 会丢一部分,文本 / vision 模式不会)。
+      const args = pdfToolArgs(target.script, { source, outDir, model });
+      const modeIndex = args.indexOf("--mode");
+      if (modeIndex >= 0) args[modeIndex + 1] = mode;
+      const formatsIndex = args.indexOf("--formats");
+      if (formatsIndex >= 0) args[formatsIndex + 1] = "json,md,html";
+      else args.push("--formats", "json,md,html");
+      // 凭据 / 本地后端走子进程环境:MINERU_LOCAL_URL 显式给(可能空),挡掉父进程继承来的死地址;
+      // PYTHONUTF8/PYTHONIOENCODING 让 pdf_tool(Python)的中文报错按 UTF-8 出来,不在书坊里乱码。
+      const token = String(settings.mineruToken || "").trim();
+      const backend = await resolveLocalBackend(settings);
+      const env = { PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8", MINERU_LOCAL_URL: backend.url };
+      if (token) env.MINERU_API_KEY = token;
+      if (backend.exe) env.MINERU_LOCAL_CMD = backend.exe;
+      const result = await runExtractCommand(target.command, args, {
+        cwd: target.cwd,
+        env,
+        signal,
+        log,
+        spawnImpl,
+      });
+      if (signal.aborted) throw new Error("任务已取消");
+      if (!result.ok) throw new Error(String(result.error || "提取失败"));
+    }
     const files = adoptPdfToolOutputs(outDir, stem);
     if (!files.md) throw new Error("提取完成但没有找到 Markdown 产物");
     // 文字层互补:正文逐字取 PDF 文字层(补 MinerU 丢的字),公式仍是 LaTeX;失败保留 MinerU 的 md。
