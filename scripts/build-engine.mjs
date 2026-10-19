@@ -24,8 +24,11 @@ const flag = (name, fallback = "") => {
   return index >= 0 && args[index + 1] ? args[index + 1] : fallback;
 };
 
-const PYTHON_VERSION = "3.11.9";
+const PYTHON_VERSION = "3.11.9";        // Windows:python.org 的 embeddable
 const PYTHON_MINOR = "3.11";
+// macOS/Linux 用 python-build-standalone:钉死 release tag 与 cpython 版本(不再查 API —— 匿名会被限流)。
+const STANDALONE_TAG = "20261013";
+const STANDALONE_VERSION = "3.11.17";
 
 const hostPlatform = `${process.platform}-${process.arch}`;
 const platform = flag("platform", hostPlatform);
@@ -115,26 +118,18 @@ if (platform.startsWith("win32")) {
     console.log("· 已改", pth, "指向 .. / ..\\site-packages / ..\\pdf-tool");
   }
 } else {
-  // python-build-standalone:取最新 release 里匹配的 install_only 包
+  // python-build-standalone(install_only):钉死 tag + 版本,直接拼下载地址
   const triple = {
     "linux-x64": "x86_64-unknown-linux-gnu",
     "linux-arm64": "aarch64-unknown-linux-gnu",
     "darwin-x64": "x86_64-apple-darwin",
     "darwin-arm64": "aarch64-apple-darwin",
   }[platform];
-  const release = JSON.parse(run("curl", [
-    "-sSL",
-    ...(process.env.GITHUB_TOKEN ? ["-H", `Authorization: Bearer ${process.env.GITHUB_TOKEN}`] : []),
-    "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest",
-  ]));
-  const asset = (release.assets || []).find((item) => new RegExp(`^cpython-${PYTHON_MINOR}\\.\\d+\\+.*-${triple}-install_only\\.tar\\.gz$`).test(item.name));
-  if (!asset) {
-    console.error(`✗ 没找到 ${triple} 的 install_only 包(release ${release.tag_name})`);
-    process.exit(1);
-  }
+  const asset = `cpython-${STANDALONE_VERSION}+${STANDALONE_TAG}-${triple}-install_only.tar.gz`;
+  const url = `https://github.com/astral-sh/python-build-standalone/releases/download/${STANDALONE_TAG}/${asset}`;
   const file = path.join(stage, "python-standalone.tar.gz");
-  console.log("· 下载 python-build-standalone:", asset.name);
-  run("curl", ["-sSL", "-o", file, asset.browser_download_url]);
+  console.log("· 下载 python-build-standalone:", asset);
+  run("curl", ["-sSL", "-o", file, url]);
   run("tar", ["-xzf", file, "-C", stage]);
   fs.rmSync(file, { force: true });
   // 解压出来是 python/ 目录(install_only 的约定)
