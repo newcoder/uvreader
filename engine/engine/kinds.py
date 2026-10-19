@@ -304,10 +304,10 @@ def run_extract(job: Job) -> dict:
 # ── 文档互转(DocVortex;kind=convert)──────────────────────────────────
 
 def _docvortex_commands(config: dict) -> list[list[str]]:
-    """DocVortex 的调用方式(按可用性排序):配置路径 → PATH 上的 CLI → `python -c` 直接调入口。
-    实测 `python -m docvortex` 会报 `No module named docvortex.__main__`(没有 __main__),
-    而 console_scripts 入口是 `docvortex.cli:main` —— 打包版(embeddable python 没有 Scripts)
-    就靠最后这条。"""
+    """DocVortex 的调用方式(按可用性排序):配置路径 → PATH 上的 CLI → `python -c` 直接调入口 → `-m`。
+    实测真装的 DocVortex(包)用 `python -m docvortex` 会报 `No module named docvortex.__main__`
+    (它没有 __main__),console_scripts 入口是 `docvortex.cli:main`,所以 `-c` 那条是真装时唯一
+    可靠的;最后再留一条 `-m`,给「模块形态」的旧装法兜底。"""
     import shutil
 
     custom = str(config.get("docvortexPath") or "").strip()
@@ -319,6 +319,7 @@ def _docvortex_commands(config: dict) -> list[list[str]]:
     if found:
         commands.append([found])
     commands.append([python, "-c", "import sys; from docvortex.cli import main; sys.exit(main())"])
+    commands.append([python, "-m", "docvortex"])
     return commands
 
 

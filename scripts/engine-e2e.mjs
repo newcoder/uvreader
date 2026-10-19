@@ -72,11 +72,23 @@ fs.writeFileSync(path.join(stubPdfTool, "pdf_tool", "pdf_to_doc.py"), [
   "print('stub pdf_tool ok')",
 ].join("\n"), "utf8");
 fs.mkdirSync(stubDocvortex, { recursive: true });
-fs.writeFileSync(path.join(stubDocvortex, "docvortex.py"), [
+// 桩做成**真 DocVortex 的形态**:包 + `docvortex.cli:main`(console_scripts 入口)。
+// 引擎的候选顺序是 配置路径 → PATH → `python -c "from docvortex.cli import main"` → `-m`,
+// 所以这样能测到真装时唯一可靠的那条。
+fs.mkdirSync(path.join(stubDocvortex, "docvortex"), { recursive: true });
+fs.writeFileSync(path.join(stubDocvortex, "docvortex", "__init__.py"), "__version__ = \"0.0.0-stub\"\n", "utf8");
+fs.writeFileSync(path.join(stubDocvortex, "docvortex", "cli.py"), [
   "import pathlib, sys",
-  "out = sys.argv[sys.argv.index('--output') + 1]",
-  "pathlib.Path(out).write_text('# converted', encoding='utf-8')",
-  "print('stub docvortex ok')",
+  "",
+  "def main(argv=None):",
+  "    argv = list(sys.argv[1:] if argv is None else argv)",
+  "    out = argv[argv.index('--output') + 1]",
+  "    pathlib.Path(out).write_text('# converted', encoding='utf-8')",
+  "    print('stub docvortex ok')",
+  "    return 0",
+  "",
+  "if __name__ == '__main__':",
+  "    raise SystemExit(main())",
 ].join("\n"), "utf8");
 
 const fixtureScript = `
