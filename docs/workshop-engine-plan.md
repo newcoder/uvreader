@@ -118,7 +118,6 @@ POST  /v1/math       { latex[] }     → { mathml[] }            # 轻量同步�
 - 体积预估:基础包 200–300MB;本地 MinerU 组件 3–6GB(可选)。
 
 ## 5. 分阶段计划
-
 | 阶段 | 内容 | 验收 |
 | --- | --- | --- |
 | **E0** | 本计划(服务架构版) | 用户确认 ✓ |
@@ -129,12 +128,18 @@ POST  /v1/math       { latex[] }     → { mathml[] }            # 轻量同步�
 | **E5** | **收口**:文档、发布说明、旧用户迁移说明、矩阵回归、远程部署说明(URL + token) | 全量门禁 + 三平台引擎产物可下载 |
 
 ### 5.1 E1 落地记录(2026-10-19)
-
 - **引擎**(`engine/`,FastAPI + uvicorn):`/v1/health`(读 `engine.json`,上报版本 / 平台 / Python / 包版本 / **能力** + `jobKinds`)、`/v1/jobs`(**作业模型**:提交 → `status/done/total/label` 轮询 → 结果 / `DELETE` 取消;2 个工人、历史 50 条)、`/v1/math`(同步;从应用搬来:清 `\tag` 与环境外壳、空壳 `\square` + 悬空上下标**修复重试**)、`/v1/jobs kind=text-layer`(PyMuPDF 逐页取文本,带进度)。Bearer 令牌(设了就必须带;默认只绑 `127.0.0.1`);CLI:`python -m engine serve --port 8760 --token …`。
 - **应用侧**:`main/engine-client.js`(`health / submit / status / result / cancel / math` + `normalizeEngineUrl` + `describeEngineHealth`)、IPC `qbr:probe:engine` + preload、设置 → 书坊 新增「**书坊引擎(后台能力)**」卡片(地址 / 令牌 / 检测 + 状态行)。**回退不变**:引擎只是新增能力,现有本机 spawn 链路照旧。
 - **验证**:`engine-client` 单测 5 项(mock HTTP:health、令牌、作业全流程、连不上给可读原因;真引擎冒烟在缺依赖时自动跳过)+ **真机冒烟**(临时 venv 起引擎):health `0.1.0 · 1 类作业`、不带令牌 401、两条公式(含 `\mathbb { }` 空壳)都出 MathML、**text-layer 作业** 36 页 / 87,919 字符、产物文本正确。
 - **踩坑**:`engine/requirements.txt` 写中文注释会让 pip 按 GBK 解码报错 → 该文件保持 ASCII;`python -m engine` 要在 `engine/` 目录里跑(否则外层目录成为命名空间包、撞名)。
 - **E2 要补**:引擎的 **Python 侧测试 + CI 作业**(现在真引擎冒烟只在有依赖的机器上跑);搬能力时把应用的脚本删掉(避免两份实现)。
+
+### 5.2 e2e 覆盖(2026-10-19,打包前)
+
+按用户要求「先把 e2e 做详细,再打包」,两层:
+
+1. **引擎 ↔ 真客户端**(`scripts/engine-e2e.mjs`):起**真服务**(临时 `ENGINE_CONFIG`、随机端口、Bearer 令牌),用应用的真客户端跑 **27 项** —— health(版本 / 七类作业 / 能力形状)、不带令牌被拒、配置往返(令牌不回显、未知字段忽略、**能力随配置变化**、落盘在引擎侧)、`math`(含 `\mathbb { }` 空壳修复)、**七类作业各跑一遍**(文字层产物与进度 / 大纲层级 / pdf-text 结构化行 / 红标擦掉标区且保留区外 / 图片→PDF 页数 / extract 走假 pdf_tool / convert 走假 docvortex)、取消、未知作业类型、缺文件的可读错误。依赖缺失本地默认跳过,CI 用 `--require` 直接失败;**已进 CI 的 engine 作业**。
+2. **应用 ↔ 引擎**(e2e `workshop` 场景扩展):用本地 **stub 服务**验证设置页「书坊引擎」卡片 —— 填地址与令牌 → 「检测引擎」→ 状态行显示版本与能力、**能力清单逐项 ✓/✗**、地址存进设置、应用真的打了 `/v1/health`;**服务停掉后再检测 → 如实报「不可用」**。真引擎与应用的联调(任务级)留给 E3 的一键安装后回归。
 
 ## 6. 风险与对策
 

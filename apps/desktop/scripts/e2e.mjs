@@ -2444,7 +2444,40 @@ async function runWorkshopScenario() {
     }
     console.log("workshop: EPUB → Markdown preselects the markdown target");
     // 「打开 设置 → 书坊」应当直接落在书坊 tab 上,并在那里原地给检测结果。
-    const mineru = await page.evaluate(async () => {
+    // 书坊引擎:用本地 stub 服务验证「设置 → 书坊」的探测、令牌与能力清单(真引擎由 scripts/engine-e2e.mjs 覆盖)。
+    const stubPort = await new Promise((resolve) => {
+      const probe = http.createServer();
+      probe.listen(0, "127.0.0.1", () => {
+        const { port } = probe.address();
+        probe.close(() => resolve(port));
+      });
+    });
+    const engineCalls = [];
+    const engineStub = http.createServer((req, res) => {
+      engineCalls.push(`${req.method} ${req.url}`);
+      if (String(req.headers.authorization || "") !== "Bearer stub-token") {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ detail: "令牌不对" }));
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      if (req.url.startsWith("/v1/health")) {
+        res.end(JSON.stringify({
+          ok: true,
+          engineVersion: "9.9.9",
+          capabilities: {
+            python: { ok: true, detail: "3.12.0" },
+            pdfTool: { ok: true, detail: "pdf_tool · stub" },
+            docvortex: { ok: false, detail: "没配置 DocVortex" },
+            jobKinds: ["text-layer"],
+          },
+        }));
+        return;
+      }
+      res.end(JSON.stringify({ config: { pdfToolDir: "", hasMineruToken: false }, path: "stub" }));
+    });
+    await new Promise((resolve) => engineStub.listen(stubPort, "127.0.0.1", resolve));
+    const mineru = await page.evaluate(async (enginePort) => {
       const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       const link = [...document.querySelectorAll(".qbr-workshop-panel[data-tool='convert'] button")]
         .find((b) => b.textContent === "打开 设置 → 书坊");
@@ -2470,14 +2503,34 @@ async function runWorkshopScenario() {
       button?.click();
       await wait(1600);
       const text = button?.closest(".qbr-workshop-row")?.querySelector(".qbr-mineru-status")?.textContent || "";
+      // 书坊引擎:填 stub 地址 + 令牌 → 「检测引擎」→ 状态行与能力清单。
+      const findRow = (label) => [...(body?.querySelectorAll(".qbr-workshop-row") || [])].find((row) => (row.textContent || "").includes(label));
+      const engineUrlField = findRow("服务地址")?.querySelector("input");
+      if (engineUrlField) {
+        engineUrlField.value = `http://127.0.0.1:${enginePort}`;
+        engineUrlField.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      const tokenField = [...(body?.querySelectorAll(".qbr-workshop-row") || [])]
+        .filter((row) => (row.textContent || "").includes("令牌"))
+        .map((row) => row.querySelector("input"))
+        .find((input) => input && input.value === "");
+      if (tokenField) {
+        tokenField.value = "stub-token";
+        tokenField.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      const engineButton = [...(body?.querySelectorAll("button") || [])].find((b) => b.textContent === "检测引擎");
+      engineButton?.click();
+      await wait(1800);
+      const engineStatus = engineButton?.closest(".qbr-workshop-row")?.querySelector(".qbr-mineru-status")?.textContent || "";
+      const engineCaps = [...(body?.querySelectorAll(".qbr-workshop-engine-caps > div") || [])].map((el) => el.textContent || "");
       // 链路探测要原地出结果(不再「已入队」跳到书坊任务)。
       const ocrButton = [...(body?.querySelectorAll("button") || [])].find((b) => b.textContent === "检测文字层链路");
       ocrButton?.click();
       await wait(2500);
       const ocrText = ocrButton?.closest(".qbr-workshop-row")?.querySelector(".qbr-mineru-status")?.textContent || "";
       document.querySelector('[data-route="workshop"]')?.click();
-      return { link: Boolean(link), tab: Boolean(tab), activeTab, tabLabels, wrapped, tabFlag, bodyTab, found: Boolean(button), text, ocrFound: Boolean(ocrButton), ocrText, typedSaved: String(window.__qbrPlugin?.settings?.mineruLocalExe || "") };
-    });
+      return { link: Boolean(link), tab: Boolean(tab), activeTab, tabLabels, wrapped, tabFlag, bodyTab, found: Boolean(button), text, ocrFound: Boolean(ocrButton), ocrText, typedSaved: String(window.__qbrPlugin?.settings?.mineruLocalExe || ""), engineStatus, engineCaps, engineUrlSaved: String(window.__qbrPlugin?.settings?.engineUrl || "") };
+    }, stubPort);
     if (!mineru.link || !mineru.tab) throw new Error(`「打开 设置 → 书坊」应跳到书坊 tab:${JSON.stringify(mineru)}`);
     if (!mineru.found) throw new Error(`书坊 tab 里应该有「检测本地 MinerU」:${JSON.stringify(mineru)}`);
     if (/不支持/.test(mineru.text) || /检测中/.test(mineru.text) || /未检测/.test(mineru.text)) {
@@ -2486,6 +2539,33 @@ async function runWorkshopScenario() {
     if (!mineru.ocrFound || /未检测|检测中|已入队/.test(mineru.ocrText)) {
       throw new Error(`检测文字层链路 should report inline: ${JSON.stringify(mineru)}`);
     }
+    // 书坊引擎:状态行要显示 stub 的版本与能力,能力清单逐项给 ✓/✗,地址要存进设置。
+    if (!/9\.9\.9/.test(mineru.engineStatus) || !/pdf_tool/.test(mineru.engineStatus)) {
+      throw new Error(`检测引擎 should show the stub's version and capabilities: ${JSON.stringify(mineru.engineStatus)}`);
+    }
+    if (!mineru.engineCaps.some((line) => /pdf_tool/.test(line) && line.includes("✓"))
+      || !mineru.engineCaps.some((line) => /DocVortex/.test(line) && line.includes("✗"))) {
+      throw new Error(`能力清单应逐项给 ✓/✗ 与说明:${JSON.stringify(mineru.engineCaps)}`);
+    }
+    if (!String(mineru.engineUrlSaved).includes("127.0.0.1")) {
+      throw new Error(`引擎地址要存进设置:${mineru.engineUrlSaved}`);
+    }
+    if (!engineCalls.some((call) => /GET \/v1\/health/.test(call))) {
+      throw new Error(`应用应当真的去探测引擎:${JSON.stringify(engineCalls)}`);
+    }
+    console.log("workshop: 书坊引擎探测与能力清单(带令牌)", String(mineru.engineStatus).slice(0, 40));
+    // 服务停了之后再检测:要如实报「不可用」,不能装作还在。
+    await new Promise((resolve) => engineStub.close(resolve));
+    const engineDown = await page.evaluate(async () => {
+      const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const body = document.querySelector(".qiaomu-reader-set-body");
+      const button = [...(body?.querySelectorAll("button") || [])].find((b) => b.textContent === "检测引擎");
+      button?.click();
+      await wait(2500);
+      return button?.closest(".qbr-workshop-row")?.querySelector(".qbr-mineru-status")?.textContent || "";
+    });
+    if (!/不可用/.test(engineDown)) throw new Error(`引擎停了应报不可用:${engineDown}`);
+    console.log("workshop: 引擎不可用时如实报错");
     if (mineru.typedSaved !== "C:\\no-such-dir\\mineru-kit.exe") {
       throw new Error(`刚输入的路径应立刻进设置(不用失焦):${JSON.stringify(mineru.typedSaved)}`);
     }

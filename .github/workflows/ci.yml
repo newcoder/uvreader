@@ -20,6 +20,11 @@ jobs:
         run: pip install -r engine/requirements.txt -r engine/requirements-dev.txt
       - name: Test the engine (contract, auth, config, capabilities, jobs)
         run: python -m pytest engine/tests -q
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: End-to-end the engine with the real client
+        run: node scripts/engine-e2e.mjs --require
 
   verify:
     runs-on: ubuntu-latest
