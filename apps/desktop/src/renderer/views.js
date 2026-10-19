@@ -1835,7 +1835,7 @@ export function createWorkshopView(leaf, options) {
       const scan = scanChapterIssues(chapters);
       if (!scan.rows.length) {
         this._bookIssues = null;
-        host.createDiv({ cls: "qbr-workshop-hint", text: "没有发现可疑内容(怪字符 / 乱码片段 / 重复字 / 疑似吞标题 / 疑似断行 都没有)。" });
+        host.createDiv({ cls: "qbr-workshop-hint", text: "没有发现可疑内容(怪字符 / 乱码片段 / 疑似吞标题 / 疑似断行 都没有)。" });
         return;
       }
       this._bookIssues = { rows: scan.rows, selected: new Set(scan.rows.map((row) => row.index)) };

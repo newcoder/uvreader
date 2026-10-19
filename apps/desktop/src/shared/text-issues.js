@@ -7,12 +7,11 @@
 const ODD_CHAR_RE = /[\uE000-\uF8FF\uFFFD\u0000-\u0008\u000B\u000C\u000E-\u001F]/g;
 // 乱码片段:UTF-8 被当 Latin-1 读出来的「Â¡ Ã¢」这类连续重音字母(整段算一条)。
 const MOJIBAKE_RE = /(?:[\u00C0-\u00FF]{2,}|[\u00C2\u00C3\u00D0\u00D1][\u0080-\u00BF])+/g;
-// 同一个汉字连写 4 次以上(「的的的的」):正常行文几乎不会出现。
-const REPEAT_RE = /([\p{Script=Han}])\1{3,}/gu;
 // 行首就是章名、但整行太长(标题后面直接接着正文):标题被吞进正文。
 const SWALLOWED_HEAD_RE = /^(?:#{1,4}\s+)?第[零一二三四五六七八九十百千万〇0-9]{1,10}[章节回卷篇部集幕][\s:：.、-]/;
 // 断行碎片:连续 3 行都很短、且不以句末标点结尾。
 const SENTENCE_END_RE = /[。！？…”』」]$/;
+// 注意:不查「重复字」——「哈哈哈哈」「啊啊啊啊」这类在对话里很常见,是正常内容。
 
 function clip(value, max = 60) {
   const text = String(value ?? "").replace(/\s+/g, " ").trim();
@@ -26,10 +25,9 @@ function sampleAround(text, index, span = 24) {
 // 一章的体检:四类可疑 + 总评分(0 = 干净)。纯本地,不联网。
 export function scanTextIssues(text) {
   const source = String(text ?? "");
-  const issues = { oddChars: [], mojibake: [], repeats: [], swallowedHeadings: [], brokenLines: [] };
+  const issues = { oddChars: [], mojibake: [], swallowedHeadings: [], brokenLines: [] };
   for (const match of source.matchAll(ODD_CHAR_RE)) issues.oddChars.push(sampleAround(source, match.index));
   for (const match of source.matchAll(MOJIBAKE_RE)) issues.mojibake.push(sampleAround(source, match.index));
-  for (const match of source.matchAll(REPEAT_RE)) issues.repeats.push(clip(match[0], 30));
   const lines = source.split(/\r?\n/);
   let shortRun = 0;
   for (const line of lines) {
@@ -45,8 +43,7 @@ export function scanTextIssues(text) {
     const trimmed = line.trim();
     if (trimmed.length > 30 && SWALLOWED_HEAD_RE.test(trimmed)) issues.swallowedHeadings.push(clip(trimmed, 70));
   }
-  const score = issues.oddChars.length * 2 + issues.mojibake.length * 2 + issues.repeats.length
-    + issues.swallowedHeadings.length * 2 + issues.brokenLines.length;
+  const score = issues.oddChars.length * 2 + issues.mojibake.length * 2 + issues.swallowedHeadings.length * 2 + issues.brokenLines.length;
   return { score, issues };
 }
 
@@ -55,7 +52,6 @@ export function describeIssues(scan) {
   const labels = {
     oddChars: "怪字符",
     mojibake: "乱码片段",
-    repeats: "重复字",
     swallowedHeadings: "疑似吞标题",
     brokenLines: "疑似断行",
   };

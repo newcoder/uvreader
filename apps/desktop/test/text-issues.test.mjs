@@ -12,7 +12,7 @@ import {
   splitParagraphs,
 } from "../src/shared/text-issues.js";
 
-test("scanTextIssues finds the five suspicious shapes", () => {
+test("scanTextIssues finds the four suspicious shapes", () => {
   const text = [
     "他囚为害怕,口口口口地站着。",
     "这是正常的一段话,写得很完整,没有问题。",
@@ -25,12 +25,18 @@ test("scanTextIssues finds the five suspicious shapes", () => {
   ].join("\n");
   const scan = scanTextIssues(text);
   assert.equal(scan.issues.oddChars.length, 0, "「口」是正常汉字,不算怪字符");
-  assert.equal(scan.issues.repeats.length, 1, "口口口口 是重复字");
+  assert.equal("repeats" in scan.issues, false, "不再查重复字");
   assert.equal(scan.issues.mojibake.length, 1, "Â¡Ã© 是乱码片段");
   assert.equal(scan.issues.swallowedHeadings.length, 1, "标题后直接接正文 = 疑似吞标题");
   assert.equal(scan.issues.brokenLines.length, 1, "连续三行短行 = 疑似断行");
-  assert.ok(scan.score >= 5);
-  assert.match(describeIssues(scan), /重复字/);
+  assert.ok(scan.score >= 4);
+  assert.match(describeIssues(scan), /乱码片段/);
+});
+
+test("repeats in dialogue are not suspicious", () => {
+  // 用户实测反馈:「哈哈哈哈哈哈」「啊啊啊啊」这类是对话的一部分,不该被当成可疑内容。
+  const scan = scanTextIssues("他笑道:「哈哈哈哈哈哈!」\n\n她尖叫着:「啊啊啊啊啊!」\n\n「的的的的」也别管。");
+  assert.equal(scan.score, 0, "对话里的重复字不算问题");
 });
 
 test("scanTextIssues flags private-use and replacement characters", () => {
@@ -42,13 +48,13 @@ test("scanTextIssues flags private-use and replacement characters", () => {
 test("scanChapterIssues ranks suspects and totals the issues", () => {
   const chapters = [
     { title: "干净", text: "正常的一段话,写得很完整,没有问题。" },
-    { title: "可疑", text: "他囚为害怕,口口口口地站着。".repeat(3) },
+    { title: "可疑", text: "Â¡Ã© 这段是乱码片段。".repeat(3) },
   ];
   const scan = scanChapterIssues(chapters);
   assert.equal(scan.suspects, 1);
   assert.equal(scan.rows[0].index, 1);
-  assert.ok(scan.totals.repeats >= 1);
-  assert.match(describeIssues({ issues: scan.totals }), /重复字/);
+  assert.ok(scan.totals.mojibake >= 1);
+  assert.match(describeIssues({ issues: scan.totals }), /乱码片段/);
 });
 
 test("splitParagraphs and splitCleanupBlocks keep paragraphs whole", () => {
