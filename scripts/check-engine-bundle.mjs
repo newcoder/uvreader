@@ -60,9 +60,11 @@ const hostPlatform = `${process.platform}-${process.arch}`;
 if (platform === hostPlatform) {
   const python = path.join(work, "python", process.platform === "win32" ? "python.exe" : path.join("bin", "python3"));
   if (fs.existsSync(python)) {
-    const probe = spawnSync(python, ["-c", "import engine, fitz, PIL, latex2mathml, fastapi, uvicorn; print('ok')"], { encoding: "utf8", timeout: 120_000 });
+    // 引擎包在 <bundle>/engine,import engine 需要 <bundle> 在路径上(Windows 由 ._pth 提供)
+    const probeEnv = { ...process.env, PYTHONPATH: work };
+    const probe = spawnSync(python, ["-c", "import engine, fitz, PIL, latex2mathml, fastapi, uvicorn; print('ok')"], { encoding: "utf8", timeout: 120_000, env: probeEnv });
     check("包内解释器能 import 引擎与依赖", String(probe.stdout || "").trim() === "ok", String(probe.stderr || "").slice(-160));
-    const version = spawnSync(python, ["-m", "engine", "--version"], { encoding: "utf8", timeout: 120_000 });
+    const version = spawnSync(python, ["-m", "engine", "--version"], { encoding: "utf8", timeout: 120_000, env: probeEnv });
     check("包内能跑 python -m engine", /workshop engine/.test(String(version.stdout || version.stderr || "")), String(version.stdout || version.stderr || "").trim().slice(0, 80));
   } else {
     console.log("  · 包里没有本机解释器(跳过 import 检查)");

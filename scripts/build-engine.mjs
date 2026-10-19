@@ -141,7 +141,12 @@ if (platform.startsWith("win32")) {
 }
 
 // ── 3. 依赖(wheel only;GPL 组件不进包)──────────────────────────────
-const sitePackages = path.join(stage, "site-packages");
+// Windows 的 embeddable 靠 ._pth 指到 <bundle>/site-packages;
+// macOS/Linux 的 python-build-standalone 不读 ._pth —— 直接装进它自己的 site-packages。
+const sitePackages = platform.startsWith("win32")
+  ? path.join(stage, "site-packages")
+  : path.join(runtimeDir, "lib", `python${PYTHON_MINOR}`, "site-packages");
+fs.mkdirSync(sitePackages, { recursive: true });
 // 用户 pip 配置里常有 install.user=yes(与 --target 冲突):用环境变量压掉,同时保留镜像源。
 const pipEnv = { ...process.env, PIP_USER: "0" };
 console.log("· 安装依赖(pip --target,--only-binary)…");
@@ -191,7 +196,7 @@ if (platform.startsWith("win32")) {
   fs.writeFileSync(script, [
     "#!/bin/sh",
     "HERE=$(cd \"$(dirname \"$0\")\" && pwd)",
-    "export PYTHONPATH=\"$HERE/engine\"",
+    "export PYTHONPATH=\"$HERE\"",
     "exec \"$HERE/python/bin/python3\" -m engine serve --port \"${QBR_ENGINE_PORT:-8760}\" --token \"${QBR_ENGINE_TOKEN:-}\" \"$@\"",
   ].join("\n") + "\n", "utf8");
   fs.chmodSync(script, 0o755);
