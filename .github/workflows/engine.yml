@@ -1,4 +1,5 @@
-# 书坊引擎的三平台打包:运行时 + 依赖 + 引擎代码 + pdf_tool → Release 资产。
+# 书坊引擎的打包:运行时 + 依赖 + 引擎代码 + pdf_tool → Release 资产。
+# 只做 Windows 与 macOS(arm64 / x64);其它平台先不考虑。
 # 触发:打 engine-v* tag(会发布);或手动 workflow_dispatch(只出 artifacts)。
 name: Engine
 
@@ -22,8 +23,6 @@ jobs:
             platform: darwin-arm64
           - os: macos-15-intel
             platform: darwin-x64
-          - os: ubuntu-latest
-            platform: linux-x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -62,4 +61,14 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" artifacts/* \
             --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" \
-            --notes "UV Reader 书坊引擎(独立部署的本地 HTTP 服务):解压后按 README.txt 启动,在应用的「设置 → 书坊 → 书坊引擎」里填地址与令牌。GPL 组件(Calibre / boko)不在包内。"
+            --notes "UV Reader 书坊引擎(独立部署的本地 HTTP 服务,Windows 与 macOS)。
+
+          解压后按包内 README.txt 启动,或在应用的「设置 → 书坊 → 书坊引擎」里点「从本地包安装」;应用里也有「下载并安装引擎」会自动下载对应的包并填好地址与令牌。
+
+          **包里自带(装完不用再装)**:私有 Python、PyMuPDF / Pillow / latex2mathml、pdf_tool(固定 commit)、FastAPI + uvicorn。
+
+          **还需要另外装**:DocVortex(文档互转 / 内容提取;可 pip 装到引擎的 Python 里)、MinerU(公式 / 视觉提取;本地服务可选、模型按需下载,或云端 token)。
+
+          **可选组件**:Calibre(EPUB → AZW3 / MOBI)、boko(EPUB → AZW3 / KFX)。这两个是 GPL-3,不随包发。
+
+          DocVortex 依赖 onnxruntime 等(装进来会让包大一倍以上),MinerU 的模型是 GB 级 —— 所以它们按「外部组件」处理,引擎只负责调用。"

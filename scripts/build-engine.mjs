@@ -172,6 +172,7 @@ fs.writeFileSync(path.join(stage, "licenses.json"), JSON.stringify(licenses.sort
 console.log(`· 许可清单:${licenses.length} 个包`);
 
 // ── 4. 清单 / 启动器 / 说明 ─────────────────────────────────────────
+// 清单要**如实**:自带什么、什么还要另外装(别让用户以为装上引擎就什么都有了)。
 const manifest = {
   schemaVersion: 1,
   engineVersion,
@@ -179,7 +180,23 @@ const manifest = {
   python: { version: PYTHON_VERSION },
   packages: Object.fromEntries(licenses.map((item) => [item.name, item.version])),
   pdfTool: { bundled: Boolean(pdfToolDir), source: fs.existsSync(path.join(stage, "pdf-tool", "SOURCE.txt")) ? fs.readFileSync(path.join(stage, "pdf-tool", "SOURCE.txt"), "utf8").trim() : "" },
-  capabilities: { docvortex: true, pdfTool: Boolean(pdfToolDir), mineruLocal: false, calibre: false, boko: false },
+  bundled: {
+    python: true,
+    pymupdf: true,
+    pillow: true,
+    latex2mathml: true,
+    pdfTool: Boolean(pdfToolDir),
+    docvortex: false,
+    mineru: false,
+    calibre: false,
+    boko: false,
+  },
+  external: [
+    { name: "DocVortex", need: "文档互转(Office / OFD / HTML / EPUB)与内容提取", how: "引擎目录下 python -m pip install docvortex,或在引擎配置里填 docvortexPath" },
+    { name: "MinerU", need: "公式 / 视觉提取", how: "本地 MinerU 服务(可选组件,模型按需下载),或在引擎配置里填云端 token" },
+    { name: "Calibre", need: "EPUB → AZW3 / MOBI(老格式)", how: "可选;装完在引擎配置里填 calibrePath,或放进 PATH" },
+    { name: "boko", need: "EPUB → AZW3 / KFX 的轻量替代", how: "可选;装完在引擎配置里填 bokoPath,或放进 PATH" },
+  ],
 };
 fs.writeFileSync(path.join(stage, "engine.json"), JSON.stringify(manifest, null, 2), "utf8");
 
@@ -205,8 +222,33 @@ fs.writeFileSync(path.join(stage, "README.txt"), [
   "UV Reader 书坊引擎(独立部署的本地 HTTP 服务)",
   "",
   "启动:",
-  platform.startsWith("win32") ? "  set QBR_ENGINE_PORT=8760 & set QBR_ENGINE_TOKEN=<令牌> & run-engine.cmd" : "  QBR_ENGINE_PORT=8760 QBR_ENGINE_TOKEN=<令牌> ./run-engine.sh",
+  platform.startsWith("win32")
+    ? "  set QBR_ENGINE_PORT=8760 & set QBR_ENGINE_TOKEN=<令牌> & run-engine.cmd"
+    : "  QBR_ENGINE_PORT=8760 QBR_ENGINE_TOKEN=<令牌> ./run-engine.sh",
   "然后在 UV Reader 的「设置 → 书坊 → 书坊引擎」里填服务地址与同一个令牌。",
+  "(应用里也有「下载并安装引擎 / 从本地包安装」,会自动填好地址与令牌。)",
+  "",
+  "── 这个包里自带什么(装完不用再装)─────────────────────────────",
+  `  · 私有 Python ${PYTHON_VERSION}(不碰你机器上的 Python)`,
+  "  · PyMuPDF / Pillow / latex2mathml(文字层、图片→PDF、公式)",
+  `  · pdf_tool${pdfToolDir ? "(自带快照,commit 见 pdf-tool/SOURCE.txt)" : ""}`,
+  "  · FastAPI + uvicorn(服务本体)",
+  "",
+  "── 还需要另外装(引擎会用它们,但不随包发)──────────────────────",
+  "  · DocVortex —— 文档互转(Office / OFD / HTML / EPUB)与内容提取",
+  "      装到引擎的 Python 里:python -m pip install docvortex",
+  "      或在引擎配置里填 docvortexPath",
+  "  · MinerU —— 公式 / 视觉提取",
+  "      本地 MinerU 服务(可选组件;模型首次使用时按需下载,几百 MB ~ GB)",
+  "      或在引擎配置里填云端 MinerU token",
+  "",
+  "── 可选组件(不装也能用其它功能)────────────────────────────────",
+  "  · Calibre(ebook-convert)—— EPUB → AZW3 / MOBI(老格式);装完填 calibrePath",
+  "  · boko —— EPUB → AZW3 / KFX 的轻量替代;装完填 bokoPath",
+  "",
+  "── 为什么这些不随包发 ──────────────────────────────────────────",
+  "  DocVortex 依赖 onnxruntime 等,装进来会让包大一倍以上;MinerU 的模型是 GB 级;",
+  "  Calibre / boko 是 GPL-3,按「外部程序」处理。引擎只负责调用它们。",
   "",
   "配置:~/.uvreader-engine/config.json(ENGINE_CONFIG 可改位置);pdf_tool 自带在 pdf-tool/。",
   `引擎版本:${engineVersion} · 平台:${platform} · Python:${PYTHON_VERSION}`,

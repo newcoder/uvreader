@@ -27,7 +27,8 @@ export function describeEngineHealth(health = {}) {
   return `引擎 ${version}${ready.length ? ` · ${ready.join(" / ")}` : ""}${kinds ? ` · ${kinds} 类作业` : ""}`;
 }
 
-// 设置页的能力清单:按「先内置、后外部」排序,给 { label, ok, detail }。
+// 设置页的能力清单:按「先内置、后外部」排序,给 { label, ok, detail, kind, optional, fix }。
+// kind/optional 由引擎上报(自带 / 另外装 / 可选),fix 是「不可用时具体怎么补」。
 export function engineCapabilityRows(health = {}) {
   const capabilities = health?.capabilities || {};
   const order = ["python", "pymupdf", "pillow", "latex2mathml", "pdfTool", "docvortex", "mineru", "calibre", "boko"];
@@ -49,7 +50,23 @@ export function engineCapabilityRows(health = {}) {
       label: labels[key] || key,
       ok: capabilities[key]?.ok === true,
       detail: String(capabilities[key]?.detail || ""),
+      kind: String(capabilities[key]?.kind || ""),
+      optional: capabilities[key]?.optional === true,
+      fix: String(capabilities[key]?.fix || ""),
     }));
+}
+
+// 「引擎包里有什么、什么还要另外装」——设置页如实说明用,文案不夸大。
+export function engineComponentSummary(health = {}) {
+  const rows = engineCapabilityRows(health);
+  const names = { python: "Python", pymupdf: "PyMuPDF", pillow: "Pillow", latex2mathml: "latex2mathml", pdfTool: "pdf_tool", docvortex: "DocVortex", mineru: "MinerU", calibre: "Calibre", boko: "boko" };
+  const pick = (list) => list.map((row) => names[row.key] || row.label);
+  return {
+    bundled: pick(rows.filter((row) => row.kind === "bundled")),
+    external: pick(rows.filter((row) => row.kind === "external" && !row.optional)),
+    optional: pick(rows.filter((row) => row.kind === "external" && row.optional)),
+    missing: rows.filter((row) => !row.ok).map((row) => ({ key: row.key, label: names[row.key] || row.label, optional: row.optional, fix: row.fix })),
+  };
 }
 
 export function createEngineClient({ fetchImpl = (...args) => fetch(...args), timeoutMs = 8000 } = {}) {

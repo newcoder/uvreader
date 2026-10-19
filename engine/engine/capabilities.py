@@ -1,8 +1,11 @@
 """能力检测:引擎自己探自己的环境(应用不再逐个探测)。
 
-`/v1/health` 上报的就是这里的结果 —— 每项给 `{ok, detail}`:
-- 内置能力(Python / PyMuPDF / Pillow / latex2mathml):直接看解释器里有没有;
-- 外部组件(DocVortex / pdf_tool / MinerU / Calibre / boko):按配置路径 + PATH + 常见位置找,
+`/v1/health` 上报的就是这里的结果 —— 每项给 `{ok, detail, kind, optional, fix}`:
+- `kind`: `bundled`(引擎包里自带)/ `external`(要用外部程序或服务);
+- `optional`: 外部组件里「不装也能用其它功能」的那些(Calibre / boko);
+- `fix`: 不可用时**具体怎么补**(应用直接把它显示给用户);
+- 内置能力(Python / PyMuPDF / Pillow / latex2mathml / 自带 pdf_tool):直接看解释器里有没有;
+- 外部组件(DocVortex / MinerU / Calibre / boko):按配置路径 + PATH 找,
   MinerU 本地服务还会真的打一次 `/v1/health`(短超时)。
 结果带 TTL 缓存(默认 30s),避免应用轮询时反复做 IO。
 """
@@ -17,6 +20,26 @@ from pathlib import Path
 
 CACHE_TTL_SECONDS = 30
 _cache: dict = {"at": 0.0, "config_key": "", "value": None}
+
+# 「包里没带、要另外装」的组件怎么补 —— 这些字会直接显示在应用的引擎卡片里。
+FIX_DOCVORTEX = (
+    "没装 DocVortex:文档互转(Office / OFD / HTML / EPUB)与内容提取要用它。"
+    "可装到引擎自己的 Python 里(引擎目录下执行 python -m pip install docvortex),"
+    "或在引擎配置里填 docvortexPath。"
+)
+FIX_MINERU = (
+    "没配本地 MinerU 地址,也没有云端 token:公式与视觉提取要用它。"
+    "可装本地 MinerU(可选,模型按需下载),或在引擎配置里填云端 MinerU token。"
+)
+FIX_CALIBRE = (
+    "没找到 Calibre(ebook-convert):EPUB → AZW3 / MOBI(老格式)要用它。"
+    "装完在引擎配置里填 calibrePath,或让它出现在 PATH 里。"
+)
+FIX_BOKO = (
+    "没找到 boko:EPUB → AZW3 / KFX 的轻量替代(可选)。"
+    "装完在引擎配置里填 bokoPath,或让它出现在 PATH 里。"
+)
+FIX_BUNDLED_DEP = "引擎自带的 Python 里缺这个依赖:重装引擎包,或 pip 装到引擎的 Python 里。"
 
 
 def _has_module(name: str) -> bool:
@@ -45,18 +68,29 @@ def _pdf_tool_capability(config: dict) -> dict:
     if bundled.exists():
         candidates.append(bundled)
     if not candidates:
-        return {"ok": False, "detail": "引擎包里没带 pdf_tool,配置里也没填 pdfToolDir"}
+        return {
+            "ok": False,
+            "kind": "bundled",
+            "detail": "PDF → Markdown / 内容提取 / 公式链",
+            "fix": "引擎包里没带 pdf_tool,配置里也没填 pdfToolDir:重装引擎包,或填 pdfToolDir。",
+        }
     for candidate in candidates:
         for script in (candidate / "pdf_tool" / "pdf_to_doc.py", candidate / "pdf_to_doc.py"):
             if script.exists():
                 where = "自带" if candidate == bundled else f"配置 · {candidate.name}"
-                return {"ok": True, "detail": f"pdf_tool({where})"}
-    return {"ok": False, "detail": f"目录里没有 pdf_tool/pdf_to_doc.py:{candidates[0]}"}
+                return {"ok": True, "kind": "bundled", "detail": f"pdf_tool({where})"}
+    return {
+        "ok": False,
+        "kind": "bundled",
+        "detail": "PDF → Markdown / 内容提取 / 公式链",
+        "fix": f"目录里没有 pdf_tool/pdf_to_doc.py:{candidates[0]};改 pdfToolDir,或清空它用引擎自带的。",
+    }
 
 
 def _mineru_capability(config: dict) -> dict:
     token = str(config.get("mineruToken") or "").strip()
     url = str(config.get("mineruLocalUrl") or "").strip()
+    base = {"kind": "external", "detail": "公式 / 视觉提取(本地服务或云端)"}
     if url:
         try:
             import urllib.request
@@ -64,38 +98,52 @@ def _mineru_capability(config: dict) -> dict:
             request = urllib.request.Request(url.rstrip("/") + "/v1/health", method="GET")
             with urllib.request.urlopen(request, timeout=2) as response:  # noqa: S310 —— 只连本机/用户配的地址
                 body = response.read(2000).decode("utf-8", "ignore")
-            return {"ok": True, "detail": f"本地服务在跑:{url}", "mode": "local", "body": body[:200]}
+            return {**base, "ok": True, "detail": f"本地服务在跑:{url}", "mode": "local", "body": body[:200]}
         except Exception as exc:  # noqa: BLE001 —— 连不上就退到云端/未配置
             if token:
-                return {"ok": True, "detail": f"本地服务连不上({exc.__class__.__name__}),有云端 token", "mode": "cloud"}
-            return {"ok": False, "detail": f"本地服务连不上:{url}"}
+                return {**base, "ok": True, "detail": f"本地服务连不上({exc.__class__.__name__}),有云端 token", "mode": "cloud"}
+            return {**base, "ok": False, "detail": f"本地服务连不上:{url}", "fix": FIX_MINERU}
     if token:
-        return {"ok": True, "detail": "云端 token 已配置", "mode": "cloud"}
-    return {"ok": False, "detail": "没配置本地服务地址,也没有云端 token"}
+        return {**base, "ok": True, "detail": "云端 token 已配置", "mode": "cloud"}
+    return {**base, "ok": False, "fix": FIX_MINERU}
 
 
 def _probe(config: dict) -> dict:
     python = str(config.get("python") or "").strip()
     interpreter = python or sys.executable
+    pymupdf_ok = _has_module("pymupdf") or _has_module("fitz")
+    pillow_ok = _has_module("PIL")
+    latex_ok = _has_module("latex2mathml")
+    docvortex_ok = bool(_which(str(config.get("docvortexPath") or ""), ["docvortex", "docvortex.exe"])) or _has_module("docvortex")
+    calibre_ok = bool(_which(str(config.get("calibrePath") or ""), ["ebook-convert", "ebook-convert.exe"]))
+    boko_ok = bool(_which(str(config.get("bokoPath") or ""), ["boko", "boko.exe"]))
     capabilities = {
-        "python": {"ok": True, "detail": f"{sys.version.split()[0]} · {interpreter}"},
-        "pymupdf": {"ok": _has_module("pymupdf") or _has_module("fitz"), "detail": "文字层 / 文本型提取 / 红标清理"},
-        "pillow": {"ok": _has_module("PIL"), "detail": "图片 → 单页 PDF"},
-        "latex2mathml": {"ok": _has_module("latex2mathml"), "detail": "LaTeX → MathML"},
+        "python": {"ok": True, "kind": "bundled", "detail": f"{sys.version.split()[0]} · {interpreter}"},
+        "pymupdf": {"ok": pymupdf_ok, "kind": "bundled", "detail": "文字层 / 文本型提取 / 红标清理", **({} if pymupdf_ok else {"fix": FIX_BUNDLED_DEP})},
+        "pillow": {"ok": pillow_ok, "kind": "bundled", "detail": "图片 → 单页 PDF", **({} if pillow_ok else {"fix": FIX_BUNDLED_DEP})},
+        "latex2mathml": {"ok": latex_ok, "kind": "bundled", "detail": "LaTeX → MathML", **({} if latex_ok else {"fix": FIX_BUNDLED_DEP})},
         "pdfTool": _pdf_tool_capability(config),
         "docvortex": {
-            # 能跑才算:CLI 在 PATH 上,或能 import(实测 `python -m docvortex` 不可用,见 kinds._docvortex_commands)
-            "ok": bool(_which(str(config.get("docvortexPath") or ""), ["docvortex", "docvortex.exe"])) or _has_module("docvortex"),
+            # 能跑才算:CLI 在 PATH 上,或能 import(真装的包没有 __main__,见 kinds._docvortex_commands)
+            "ok": docvortex_ok,
+            "kind": "external",
             "detail": "文档互转(Office / OFD / HTML / EPUB)",
+            **({} if docvortex_ok else {"fix": FIX_DOCVORTEX}),
         },
         "mineru": _mineru_capability(config),
         "calibre": {
-            "ok": bool(_which(str(config.get("calibrePath") or ""), ["ebook-convert", "ebook-convert.exe"])),
+            "ok": calibre_ok,
+            "kind": "external",
+            "optional": True,
             "detail": "EPUB → AZW3 / MOBI(老格式)",
+            **({} if calibre_ok else {"fix": FIX_CALIBRE}),
         },
         "boko": {
-            "ok": bool(_which(str(config.get("bokoPath") or ""), ["boko", "boko.exe"])),
+            "ok": boko_ok,
+            "kind": "external",
+            "optional": True,
             "detail": "EPUB → AZW3 / KFX(+ 反向),轻量替代",
+            **({} if boko_ok else {"fix": FIX_BOKO}),
         },
     }
     return capabilities

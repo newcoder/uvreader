@@ -9,7 +9,7 @@ import { EXTRACT_MODES, IMAGE_INPUTS, extractionKind } from "../shared/extract-f
 import { splitMarkdownChapters, unwrapProseFences } from "../shared/markdown-fix.js";
 import { convertPath, uvtextPath } from "../shared/workshop-names.js";
 import { createAiContext } from "../../../../packages/reader/src/ai-context.js";
-import { engineCapabilityRows } from "../main/engine-client.js";
+import { engineCapabilityRows, engineComponentSummary } from "../main/engine-client.js";
 import { decodeText } from "../shared/text-encoding.js";
 import { applyChapterRule, describeChapterRule } from "../shared/chapter-rules.js";
 import { describeIssues, scanChapterIssues, splitCleanupBlocks } from "../shared/text-issues.js";
@@ -638,8 +638,23 @@ export function createSettingsView(leaf, options) {
       engineCaps.empty();
       const rows = engineCapabilityRows(health);
       if (!rows.length) return;
+      // 如实说明:包里自带什么、什么还要另外装(别让用户以为装上引擎就什么都有了)。
+      const summary = engineComponentSummary(health);
+      if (summary.bundled.length || summary.external.length) {
+        engineCaps.createDiv({ cls: "qbr-workshop-hint", text: `引擎包里自带:${summary.bundled.join(" / ") || "—"}` });
+        engineCaps.createDiv({
+          cls: "qbr-workshop-hint",
+          text: `还要另外装:${summary.external.join(" / ") || "—"}${summary.optional.length ? `(可选:${summary.optional.join(" / ")})` : ""}`,
+        });
+      }
       for (const row of rows) {
-        engineCaps.createDiv({ cls: "qbr-workshop-hint", text: `${row.ok ? "✓" : "✗"} ${row.label}${row.detail ? ` · ${row.detail}` : ""}` });
+        const tag = row.kind === "bundled" ? "自带" : row.optional ? "另外装 · 可选" : "另外装";
+        engineCaps.createDiv({ cls: "qbr-workshop-hint", text: `${row.ok ? "✓" : "✗"} ${row.label}${row.detail ? ` · ${row.detail}` : ""}${row.kind ? ` · ${tag}` : ""}` });
+      }
+      // 不可用时给「具体怎么补」,不只报错。
+      for (const item of summary.missing) {
+        if (!item.fix) continue;
+        engineCaps.createDiv({ cls: "qbr-workshop-hint", text: `→ ${item.label}:${item.fix}` });
       }
     };
     const loadEngineConfig = async () => {

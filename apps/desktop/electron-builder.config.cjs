@@ -32,12 +32,7 @@ module.exports = {
     target: [{ target: "dmg", arch: ["arm64", "x64"] }],
   },
   dmg: { artifactName: "UV-Reader-${version}-${arch}.${ext}" },
-  linux: {
-    icon: "build/icon.png",
-    category: "Office",
-    target: [{ target: "AppImage", arch: ["x64"] }],
-    artifactName: "UV-Reader-${version}-${arch}.${ext}",
-  },
+  // Linux 目标先不产出(AppImage 留待以后);配置留着便于恢复。
   fileAssociations: [
     { ext: ["epub"], name: "EPUB 电子书", role: "Viewer" },
     { ext: ["pdf"], name: "PDF 文档", role: "Viewer" },

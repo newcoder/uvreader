@@ -4,7 +4,9 @@
 # E2/E3 fold DocVortex and pdf_tool into the engine bundle (docs/workshop-engine-plan.md 4.5).
 fastapi>=0.115
 uvicorn>=0.30
-pymupdf>=1.24
+# 只用 fitz 的基础能力(引擎与自带 pdf_tool 都是);2.x 会把 onnxruntime / pymupdf4llm /
+# pymupdf-layout 一起拖进包(Windows 上实测多 100MB+),所以钉在 1.x。
+pymupdf>=1.24,<2
 pillow>=10
 latex2mathml>=3.77
 requests>=2.31

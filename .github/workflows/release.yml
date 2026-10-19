@@ -44,8 +44,6 @@ jobs:
             artifact: windows
           - os: macos-latest
             artifact: macos
-          - os: ubuntu-latest
-            artifact: linux
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -71,7 +69,6 @@ jobs:
           path: |
             apps/desktop/release/*.exe
             apps/desktop/release/*.dmg
-            apps/desktop/release/*.AppImage
           if-no-files-found: error
 
   release:
