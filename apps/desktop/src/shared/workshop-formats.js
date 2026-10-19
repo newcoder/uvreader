@@ -45,6 +45,7 @@ export function docvortexFormatExt(target) {
 // 电子书产物统一归「电子书制作」:互转目标 + 图片打包目标。
 export const EBOOK_TARGETS = [
   { id: "azw3", label: "AZW3(Kindle 主流)", ext: "azw3" },
+  { id: "kfx", label: "KFX(Kindle 新格式,需 boko)", ext: "kfx" },
   { id: "mobi", label: "MOBI(旧 Kindle)", ext: "mobi" },
 ];
 

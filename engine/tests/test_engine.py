@@ -274,6 +274,20 @@ def test_convert_job_runs_docvortex(client, tmp_path, monkeypatch):    # 假的 
     assert "stub docvortex ok" in result["log"]
 
 
+def test_config_with_a_bom_is_still_read(tmp_path, monkeypatch):
+    """记事本(Windows)会在 UTF-8 前面写 BOM:那份配置必须照样读得出来,不能被静默忽略。"""
+    from engine.config import load_config
+
+    config_file = tmp_path / "config.json"
+    config_file.write_bytes(b"\xef\xbb\xbf" + json.dumps({"bokoPath": "C:/boko/boko.exe", "workers": 3}).encode("utf-8"))
+    monkeypatch.setenv("ENGINE_CONFIG", str(config_file))
+    config = load_config()
+    assert config["bokoPath"] == "C:/boko/boko.exe", "带 BOM 的配置不能被忽略"
+    assert config["workers"] == 3
+    # 顺带:配置是**启动时读一次**(之后靠 /v1/config 改),手工改文件要重启引擎才生效。
+    assert config["calibrePath"] == ""
+
+
 # ── 可选组件(install-component)─────────────────────────────────────
 
 def test_capabilities_say_what_is_bundled_and_what_is_not(client):
@@ -398,3 +412,67 @@ def test_ebook_convert_reports_missing_calibre_and_missing_source(client, tmp_pa
     job = wait_for(client, missing)
     assert job["status"] == "failed"
     assert "找不到源文件" in (job.get("error") or "")
+
+
+# ── boko(EPUB / KFX / AZW3 互转)──────────────────────────────────────
+
+def _boko_stub(tmp_path: Path) -> Path:
+    """假的 boko:按 `convert <输入> <输出>` 写产物(证明参数传对了)。"""
+    script = tmp_path / "stub-boko.py"
+    script.write_text(
+        "import pathlib, sys\n"
+        "args = sys.argv[1:]\n"
+        "if not args or args[0] != 'convert':\n"
+        "    print('unexpected args:', args)\n"
+        "    sys.exit(2)\n"
+        "source, out = args[1], args[2]\n"
+        "pathlib.Path(out).write_text(pathlib.Path(source).read_text(encoding='utf-8') + '|boko', encoding='utf-8')\n"
+        "print('stub boko ok')\n",
+        encoding="utf-8",
+    )
+    if os.name == "nt":
+        stub = tmp_path / "boko.cmd"
+        stub.write_text(f'@"{sys.executable}" "{script}" %*\r\n', encoding="utf-8")
+    else:
+        stub = tmp_path / "boko"
+        stub.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n', encoding="utf-8")
+        stub.chmod(0o755)
+    return stub
+
+
+def test_boko_convert_job_runs_boko_and_passes_the_paths(client, tmp_path):
+    stub = _boko_stub(tmp_path)
+    patched = client.patch("/v1/config", headers=AUTH, json={"patch": {"bokoPath": str(stub)}})
+    assert patched.json()["capabilities"]["boko"]["ok"] is True, "配置了路径就该报可用"
+    assert "KFX" in patched.json()["capabilities"]["boko"]["detail"], "能力说明要如实:EPUB / KFX / AZW3"
+    source = tmp_path / "book.epub"
+    source.write_text("epub-bytes", encoding="utf-8")
+    out = tmp_path / "book.kfx"
+    job_id = submit(client, "boko-convert", {"source": str(source), "out": str(out)})
+    job = wait_for(client, job_id)
+    assert job["status"] == "done", job.get("error")
+    result = client.get(f"/v1/jobs/{job_id}/result", headers=AUTH).json()["result"]
+    assert result["out"] == str(out)
+    assert out.read_text(encoding="utf-8") == "epub-bytes|boko"
+    assert result["bytes"] > 0
+
+
+def test_boko_convert_refuses_mobi_output_and_reports_missing_boko(client, tmp_path, monkeypatch):
+    stub = _boko_stub(tmp_path)
+    client.patch("/v1/config", headers=AUTH, json={"patch": {"bokoPath": str(stub)}})
+    source = tmp_path / "book.epub"
+    source.write_text("x", encoding="utf-8")
+    # MOBI:引擎自己就拒(实测 boko 也拒:"MOBI output is not supported; use .azw3 instead")
+    job_id = submit(client, "boko-convert", {"source": str(source), "out": str(tmp_path / "book.mobi")})
+    job = wait_for(client, job_id)
+    assert job["status"] == "failed"
+    assert "不能写 MOBI" in (job.get("error") or "")
+
+    # 没配 + PATH 里也没有:要报「怎么补」,不是一句「失败」
+    monkeypatch.setenv("PATH", "")
+    client.patch("/v1/config", headers=AUTH, json={"patch": {"bokoPath": ""}})
+    missing = submit(client, "boko-convert", {"source": str(source), "out": str(tmp_path / "book.azw3")})
+    job = wait_for(client, missing)
+    assert job["status"] == "failed"
+    assert "找不到 boko" in (job.get("error") or "")
+    assert "bokoPath" in (job.get("error") or "")

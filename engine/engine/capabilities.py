@@ -88,6 +88,16 @@ def _pdf_tool_capability(config: dict) -> dict:
     }
 
 
+def _boko_available(config: dict) -> bool:
+    """boko 是否存在:与 kinds.boko_command 同一套候选(配置 → PATH)。"""
+    try:
+        from .kinds import boko_command
+
+        return boko_command(config) is not None
+    except Exception:  # noqa: BLE001 —— 探测失败就当没有
+        return bool(_which(str(config.get("bokoPath") or ""), ["boko", "boko.exe"]))
+
+
 def _calibre_available(config: dict) -> bool:
     """Calibre 是否存在:与 kinds.calibre_command 同一套候选(配置 → 常见位置 → PATH)。"""
     try:
@@ -127,7 +137,7 @@ def _probe(config: dict) -> dict:
     latex_ok = _has_module("latex2mathml")
     docvortex_ok = bool(_which(str(config.get("docvortexPath") or ""), ["docvortex", "docvortex.exe"])) or _has_module("docvortex")
     calibre_ok = _calibre_available(config)
-    boko_ok = bool(_which(str(config.get("bokoPath") or ""), ["boko", "boko.exe"]))
+    boko_ok = _boko_available(config)
     capabilities = {
         "python": {"ok": True, "kind": "bundled", "detail": f"{sys.version.split()[0]} · {interpreter}"},
         "pymupdf": {"ok": pymupdf_ok, "kind": "bundled", "detail": "文字层 / 文本型提取 / 红标清理", **({} if pymupdf_ok else {"fix": FIX_BUNDLED_DEP})},
@@ -155,7 +165,8 @@ def _probe(config: dict) -> dict:
             "ok": boko_ok,
             "kind": "external",
             "optional": True,
-            "detail": "EPUB → AZW3 / KFX(+ 反向),轻量替代",
+            # 实测 v0.5.0:EPUB/KFX/AZW3 读写、MOBI 只读;MOBI 输出会被 boko 自己拒绝。
+            "detail": "EPUB / KFX / AZW3 互转(快,MOBI 只读)",
             **({} if boko_ok else {"fix": FIX_BOKO}),
         },
     }

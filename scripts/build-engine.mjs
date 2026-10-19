@@ -257,13 +257,16 @@ fs.writeFileSync(path.join(stage, "README.txt"), [
   "",
   "── 可选组件(不装也能用其它功能)────────────────────────────────",
   "  · Calibre(ebook-convert)—— EPUB → AZW3 / MOBI(老格式);装完填 calibrePath",
-  "  · boko —— EPUB → AZW3 / KFX 的轻量替代;装完填 bokoPath",
+  "  · boko —— 单文件程序(约 6 MB),负责 KFX 与 AZW3(实测比 Calibre 快很多);",
+  "      KFX 只有它能写(Calibre 那条要 Kindle Previewer),但它**只读 MOBI**(写 MOBI 会被它拒绝);",
+  "      官方有各平台预编译包;装完填 bokoPath(或放进 PATH)",
   "",
   "── 为什么这些不随包发 ──────────────────────────────────────────",
   "  DocVortex 依赖 onnxruntime 等,装进来会让包大一倍以上;MinerU 的模型是 GB 级;",
   "  Calibre / boko 是 GPL-3,按「外部程序」处理。引擎只负责调用它们。",
   "",
   "配置:~/.uvreader-engine/config.json(ENGINE_CONFIG 可改位置);pdf_tool 自带在 pdf-tool/。",
+  "  配置是**启动时读一次**:手工改过配置文件要重启引擎才生效(应用里的「引擎配置」面板改的是同一份,改完即时生效)。",
   `引擎版本:${engineVersion} · 平台:${platform} · Python:${PYTHON_VERSION}`,
 ].join("\n"), "utf8");
 

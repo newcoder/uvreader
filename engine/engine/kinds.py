@@ -449,6 +449,55 @@ def run_ebook_convert(job: Job) -> dict:
     return {"out": out, "bytes": Path(out).stat().st_size}
 
 
+def boko_command(config: dict) -> list[str] | None:
+    """boko(单文件 Rust 转换器):配置 → PATH。"""
+    import shutil
+
+    custom = str(config.get("bokoPath") or "").strip()
+    if custom and Path(custom).exists():
+        return [custom]
+    found = shutil.which("boko") or shutil.which("boko.exe")
+    return [found] if found else None
+
+
+def run_boko_convert(job: Job) -> dict:
+    """boko 的 `convert <输入> <输出>`:格式按扩展名推断,可用 --from/--to 覆盖。
+
+    实测(v0.5.0 / Windows,单文件 exe):EPUB→AZW3 0.1s、EPUB→KFX <1s、AZW3→EPUB ✓;
+    **MOBI 只读不写**(boko 自己报 "MOBI output is not supported; use .azw3 instead"),
+    所以 MOBI 仍走 Calibre。KFX 只有 boko 能写(Calibre 那条要 Kindle Previewer)。
+    """
+    from .config import load_config
+
+    source = str(job.args.get("source") or "")
+    out = str(job.args.get("out") or "")
+    if not source or not Path(source).exists():
+        raise FileNotFoundError(f"找不到源文件:{source}")
+    if not out:
+        raise ValueError("没有给输出路径")
+    if Path(out).suffix.lower() == ".mobi":
+        raise ValueError("boko 不能写 MOBI(它只读 MOBI):MOBI 请用 Calibre 转")
+    command = boko_command(load_config())
+    if not command:
+        raise RuntimeError("找不到 boko:装上 boko(单文件程序,官方有各平台预编译),或在引擎配置里填 bokoPath")
+    extra: list[str] = []
+    if job.args.get("from"):
+        extra += ["--from", str(job.args["from"])]
+    if job.args.get("to"):
+        extra += ["--to", str(job.args["to"])]
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    code, output = run_process(
+        job, command[0], [*command[1:], "convert", source, out, *extra],
+        label="boko 转换中…",
+        timeout=float(job.args.get("timeoutMs") or 600_000) / 1000.0,
+    )
+    if code != 0:
+        raise RuntimeError(f"boko 转换失败(退出码 {code}):{output.strip()[-300:]}")
+    if not Path(out).exists():
+        raise RuntimeError("boko 没有生成输出文件")
+    return {"out": out, "bytes": Path(out).stat().st_size}
+
+
 # 作业类型注册表(**必须放文件末尾**:函数得先定义出来,否则 NameError)。
 JOB_KINDS = {
     "text-layer": run_text_layer,
@@ -460,4 +509,5 @@ JOB_KINDS = {
     "pdf-text": run_pdf_text,
     "install-component": run_install_component,
     "ebook-convert": run_ebook_convert,
+    "boko-convert": run_boko_convert,
 }

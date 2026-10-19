@@ -38,17 +38,35 @@ export function registerBookRunners(workshop, { calibre, vaultRoot = "", engine 
     return { output: String(result.detail), detail: `${result.kind} · ${result.command}` };
   });
 
-  // 电子书互转:EPUB/MOBI/AZW3… → AZW3/MOBI(Calibre ebook-convert)。
+  // 电子书互转:EPUB/MOBI/AZW3/KFX… → AZW3/MOBI/KFX(Calibre ebook-convert / boko)。
+  // boko(单文件 Rust 转换器)负责 KFX 与 AZW3:实测 EPUB→AZW3 0.1s(Calibre 3.1s)、EPUB→KFX <1s;
+  // KFX 只有它能写(Calibre 那条要 Kindle Previewer),而它**只读 MOBI** → MOBI 仍走 Calibre。
   workshop.register("ebook-convert", async ({ payload, report, signal }) => {
     const settings = payload?.settings || {};
     const source = absolute(payload?.source);
-    const format = String(payload?.format || "azw3");
+    const format = String(payload?.format || "azw3").toLowerCase();
     // 同名不覆盖:本地文件也要按 §7 加序号(渲染层的书库判断看不到本地文件)。
     const out = uniqueFile(payload?.out
       ? absolute(payload.out)
       : absolute(convertPath(payload?.source, ebookTargetExt(format))));
     report({ label: `转换为 ${format.toUpperCase()}` });
     log("ebook convert", source, "→", out);
+    const wantsBoko = format === "kfx" || format === "azw3" || /\.kfx$/i.test(source);
+    if (wantsBoko && engine?.runJob && String(settings.engineUrl || "").trim()) {
+      report({ label: `boko 转 ${format.toUpperCase()}` });
+      const ran = await engine.runJob(settings, "boko-convert", { source, out }, {
+        signal,
+        onProgress: (item) => report({ label: String(item?.label || `boko 转 ${format.toUpperCase()}`) }),
+      });
+      if (ran.ok) {
+        return { output: String(ran.result?.out || out), detail: `${format.toUpperCase()} · ${path.basename(out)}(引擎 · boko)` };
+      }
+      if (format === "kfx") throw new Error(`KFX 需要 boko:${String(ran.error || "引擎转换失败")}`);
+      log("engine boko-convert failed, falling back to Calibre:", ran.error);
+    }
+    if (format === "kfx") {
+      throw new Error("KFX 需要 boko(Calibre 写 KFX 要装 Kindle Previewer):在引擎配置里填 bokoPath,或先装 boko");
+    }
     const viaEngine = await convertViaEngine(settings, { source, out, report, signal, label: `引擎转换 ${format.toUpperCase()}` });
     if (viaEngine?.ok) {
       return { output: viaEngine.out, detail: `${format.toUpperCase()} · ${path.basename(viaEngine.out)}(引擎)` };

@@ -41,7 +41,9 @@ def load_config() -> dict:
     path = config_path()
     try:
         if path.exists():
-            data = json.loads(path.read_text(encoding="utf-8"))
+            # utf-8-sig:用户拿记事本(Windows 会写 BOM)改过的配置也要能读 —— 实测带 BOM 时
+            # json.loads 直接抛,配置被**静默忽略**(退回默认值),人却以为改生效了。
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
             if isinstance(data, dict):
                 for key, value in data.items():
                     if key in DEFAULTS:

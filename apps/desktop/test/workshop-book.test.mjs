@@ -111,7 +111,7 @@ test("ebook-convert prefers the engine and leaves the local Calibre alone", asyn
   const task = await waitForTask(queue, id);
   assert.equal(task.status, "done");
   assert.equal(engineCalls.length, 1);
-  assert.equal(engineCalls[0].kind, "ebook-convert", "Calibre 走引擎的 ebook-convert 作业");
+  assert.equal(engineCalls[0].kind, "boko-convert", "AZW3 优先走 boko(实测 0.1s vs Calibre 3.1s)");
   assert.equal(local.length, 0, "引擎成功时不该再跑本机 Calibre");
   assert.match(task.detail, /引擎/);
 });
@@ -187,4 +187,88 @@ test("images-epub packs a CBZ first and hands it to Calibre", async () => {
   assert.match(calls[0].source, /\.cbz$/);
   assert.equal(calls[0].out, task.output);
   assert.ok(fs.existsSync(task.output));
+});
+
+test("KFX goes through the engine's boko-convert, not Calibre", async () => {
+  const engineCalls = [];
+  const local = [];
+  const { queue } = makeQueue({
+    probe: async () => ({ ok: true }),
+    convert: async (_settings, request) => {
+      local.push(request);
+      return { ok: true, out: request.out };
+    },
+  }, {
+    runJob: async (_settings, kind, args) => {
+      engineCalls.push({ kind, args });
+      return { ok: true, result: { out: args.out, bytes: 2048 } };
+    },
+  });
+  const id = queue.start({
+    kind: "ebook-convert",
+    title: "转为 KFX",
+    payload: {
+      settings: { engineUrl: "http://127.0.0.1:8760" },
+      source: "Books/示例书库/Alice in Wonderland.epub",
+      format: "kfx",
+      out: "Books/示例书库/Alice in Wonderland.kfx",
+    },
+  });
+  await sleep(80);
+  const task = await waitForTask(queue, id);
+  assert.equal(task.status, "done", task.error);
+  assert.equal(engineCalls.length, 1);
+  assert.equal(engineCalls[0].kind, "boko-convert", "KFX 只有 boko 能写");
+  assert.match(task.detail, /boko/);
+  assert.equal(local.length, 0, "KFX 不该落到 Calibre");
+});
+
+test("AZW3 prefers boko and falls back to Calibre when boko fails", async () => {
+  const kinds = [];
+  const local = [];
+  const { queue } = makeQueue({
+    probe: async () => ({ ok: true }),
+    convert: async (_settings, request) => {
+      local.push(request);
+      return { ok: true, out: request.out };
+    },
+  }, {
+    runJob: async (_settings, kind, args) => {
+      kinds.push(kind);
+      if (kind === "boko-convert") return { ok: false, error: "找不到 boko" };
+      return { ok: true, result: { out: args.out, bytes: 1024 } };
+    },
+  });
+  const id = queue.start({
+    kind: "ebook-convert",
+    title: "转为 AZW3",
+    payload: {
+      settings: { engineUrl: "http://127.0.0.1:8760" },
+      source: "Books/示例书库/Alice in Wonderland.epub",
+      format: "azw3",
+      out: "Books/示例书库/Alice in Wonderland.azw3",
+    },
+  });
+  await sleep(80);
+  const task = await waitForTask(queue, id);
+  assert.equal(task.status, "done", task.error);
+  assert.deepEqual(kinds, ["boko-convert", "ebook-convert"], "先试 boko,失败再让引擎跑 Calibre");
+  assert.equal(local.length, 0, "引擎的 Calibre 成功就不该跑本机");
+});
+
+test("KFX without an engine says what to install instead of failing vaguely", async () => {
+  const { queue } = makeQueue({
+    probe: async () => ({ ok: true }),
+    convert: async () => ({ ok: true }),
+  });
+  const id = queue.start({
+    kind: "ebook-convert",
+    title: "转为 KFX",
+    payload: { settings: {}, source: "Books/示例书库/Alice in Wonderland.epub", format: "kfx", out: "Books/示例书库/Alice in Wonderland.kfx" },
+  });
+  await sleep(80);
+  const task = await waitForTask(queue, id);
+  assert.equal(task.status, "failed");
+  assert.match(task.error, /boko/);
+  assert.match(task.error, /bokoPath/);
 });
