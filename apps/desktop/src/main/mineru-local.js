@@ -294,7 +294,7 @@ export function createMineruLocalService({
       }
       await sleep(1000);
     }
-    state = { status: "error", url, tried, tail: tail.slice(-200), detail: `启动超时(${Math.round((Number(startTimeoutMs) || MINERU_START_TIMEOUT) / 1000)}s):${(tail || "没有健康响应").slice(-160)}` };
+    state = { status: "error", url, tail: tail.slice(-200), detail: `启动超时(${Math.round((Number(startTimeoutMs) || MINERU_START_TIMEOUT) / 1000)}s):${(tail || "没有健康响应").slice(-160)}` };
     return { ...state, managed };
   }
 

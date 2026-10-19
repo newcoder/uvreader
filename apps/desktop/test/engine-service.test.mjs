@@ -144,6 +144,25 @@ test("stop only kills engines the app started and says so for foreign ones", asy
   assert.equal(readPid(dir), null, "停完清掉 pid 记录");
 });
 
+test("a broken logger never breaks start or stop", async () => {
+  // 0.7.4 的真实故障:主进程把 `log` 传成了一个自引用的箭头函数 → 一调用就 ReferenceError,
+  // 启停跟着失败。日志函数坏了,启停也必须照常工作。
+  const root = tempRoot();
+  const dir = makeEngine(root, "0.1.3", { token: "t" });
+  const service = createEngineService({
+    engineRoot: root,
+    log: () => { throw new ReferenceError("log is not defined"); },
+    installer: { start: () => ({ pid: 321 }), waitHealthy: async () => ({ ok: true }) },
+    kill: () => {},
+  });
+  const started = await service.start({ port: 8764 });
+  assert.equal(started.ok, true, "日志炸了也要能启动");
+  writePid(dir, { pid: 321, port: 8764 });
+  const stopped = await service.stop();
+  assert.equal(stopped.ok, true, "日志炸了也要能停止");
+  assert.equal(readPid(dir), null);
+});
+
 test("stop treats an already-dead pid as stopped", async () => {
   const root = tempRoot();
   const dir = makeEngine(root, "0.1.3");

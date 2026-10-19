@@ -47,6 +47,9 @@ try {
     } catch { /* logging must never break the app */ }
   };
 } catch { /* console keeps working */ }
+// 主进程自己的日志入口:走 console.error(上面已经接管,会同时落到 userData/qbr.log)。
+// 注意:调用方要把**这个函数**传进去(别再写 `log: (...args) => log(...)` 那种自引用)。
+const log = (...args) => console.error("[qbr]", ...args);
 const dataRoot = path.join(userData, "data");
 const vaultRoot = path.join(userData, "library");
 const secretsPath = path.join(userData, "secrets.json");
@@ -121,7 +124,7 @@ registerEngineComponentRunner(workshop, { engine: engineClient });
 const engineService = createEngineService({
   engineRoot,
   installer: createEngineInstaller(),
-  log: (...args) => log("[engine-service]", ...args),
+  log,
 });
 // Online book downloads land in the library so they appear as regular books.
 const bookDownloads = createBookDownloads({

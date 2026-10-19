@@ -71,6 +71,38 @@ export default [
     },
   },
   {
+    // 主进程 / preload / shared 是「会真的在 Node 里跑」的代码:开 no-undef,
+    // 免得再出现引用不存在的变量(2026-10-19 的 `log is not defined` 就是这么漏掉的)。
+    files: ["apps/desktop/src/main/**/*.js", "apps/desktop/src/preload/**/*.js", "apps/desktop/src/shared/**/*.js"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "module",
+      globals: {
+        setImmediate: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+        queueMicrotask: "readonly",
+        process: "readonly",
+        console: "readonly",
+        Buffer: "readonly",
+        URL: "readonly",
+        URLSearchParams: "readonly",
+        AbortController: "readonly",
+        AbortSignal: "readonly",
+        fetch: "readonly",
+        structuredClone: "readonly",
+        TextEncoder: "readonly",
+        TextDecoder: "readonly",
+        __dirname: "readonly",
+        // preload 跑在渲染进程的隔离世界里:window 是它的宿主(不是 Node 全局)。
+        window: "readonly",
+      },
+    },
+    rules: {
+      "no-undef": "error",
+    },
+  },
+  {
     files: ["tests/**/*.mjs", "scripts/**/*.mjs", "packages/host-shim/**/*.js", "packages/host-shim/**/*.mjs", "apps/desktop/**/*.js", "apps/desktop/**/*.mjs"],
     languageOptions: {
       ecmaVersion: 2022,

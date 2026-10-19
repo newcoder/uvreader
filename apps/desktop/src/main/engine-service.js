@@ -88,6 +88,12 @@ export function portFromUrl(url, fallback = 8760) {
 }
 
 export function createEngineService({ engineRoot = "", installer = null, tokenBytes = 24, log = () => {}, kill = process.kill } = {}) {
+  // 主进程把日志函数当参数传进来;传错了(比如引用了不存在的变量)不能让**启停**跟着失败。
+  const logSafe = (...args) => {
+    try {
+      log(...args);
+    } catch { /* logging must never break start/stop */ }
+  };
   async function status() {
     const engine = pickEngine(engineRoot);
     if (!engine) return { ok: false, installed: false, running: false, detail: "还没装书坊引擎" };
@@ -121,7 +127,7 @@ export function createEngineService({ engineRoot = "", installer = null, tokenBy
       token = crypto.randomBytes(tokenBytes).toString("hex");
       fs.writeFileSync(tokenFile, token, "utf8");
     }
-    log("[engine-service] starting", engine.dir, "port", port);
+    logSafe("[engine-service] starting", engine.dir, "port", port);
     const started = installer.start({ engineRoot: engine.dir, port, token });
     writePid(engine.dir, { pid: started.pid, port, startedAt: Date.now() });
     const health = await installer.waitHealthy({ port, token });
@@ -164,7 +170,7 @@ export function createEngineService({ engineRoot = "", installer = null, tokenBy
       if (error?.code !== "ESRCH") throw error;
     }
     clearPid(engine.dir);
-    log("[engine-service] stopped", engine.dir, "pid", info.pid);
+    logSafe("[engine-service] stopped", engine.dir, "pid", info.pid);
     return { ok: true, installed: true, running: false, version: engine.version, pid: info.pid };
   }
 

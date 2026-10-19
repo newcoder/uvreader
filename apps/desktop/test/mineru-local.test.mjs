@@ -126,6 +126,26 @@ test("ensure turns a missing mineru-kit into an actionable state", async () => {
   assert.ok(Array.isArray(result.tried), "the status carries what was searched (for the ASCII console line)");
 });
 
+test("ensure reports a start timeout instead of throwing on an undefined variable", async () => {
+  // 潜伏 bug(0.7.5 修):超时分支引用了块外的 `tried` → 抛 ReferenceError,
+  // 用户看到的是莫名其妙的报错而不是「启动超时」。只有「子进程不退 + 探活一直失败」才会走到那条。
+  const { spawnImpl } = fakeSpawn(() => { /* 不退出、不给健康响应 */ });
+  const exeDir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-kit-"));
+  const exePath = path.join(exeDir, "mineru-kit.exe");
+  fs.writeFileSync(exePath, "stub");
+  const service = createMineruLocalService({
+    ...quiet,
+    spawnImpl,
+    healthTimeoutMs: 20,
+    startTimeoutMs: 500,
+    fetchImpl: async () => jsonResponse({}, false, 503),
+  });
+  const result = await service.ensure({ mineruLocalExe: exePath, mineruLocalUrl: "http://127.0.0.1:9001" });
+  assert.equal(result.status, "error", JSON.stringify(result));
+  assert.match(String(result.detail), /启动超时/);
+  service.stop();
+});
+
 test("ensure leaves foreign urls alone and honours autoStart=false", async () => {
   const { spawnImpl, calls } = fakeSpawn(() => {});
   const service = createMineruLocalService({ ...quiet, spawnImpl, fetchImpl: async () => jsonResponse({}, false, 503) });
