@@ -717,6 +717,10 @@ export function createSettingsView(leaf, options) {
       if (result?.ok) {
         renderEngineHealth(result.health);
         void loadEngineConfig();
+        // 自动接线:本机有活着的本地 MinerU 时,地址已经顺手写进引擎配置(要如实说出来)。
+        if (result.synced?.url) {
+          engineCaps.createDiv({ cls: "qbr-workshop-hint", text: `已把本机本地 MinerU 地址同步给引擎:${result.synced.url}` });
+        }
       } else {
         engineCaps.empty();
       }

@@ -729,6 +729,18 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", ca
       : path.join(path.dirname(first), `${path.basename(first).replace(/\.[^.]+$/, "")}.pdf`));
     report({ label: `合成 ${images.length} 张图片`, total: images.length });
     log("images → pdf", images.length, "→", out);
+    // 引擎优先、失败回退本机(与其它链路同一条规则;配了 engineUrl 才走引擎)。
+    if (engine && String(settings.engineUrl || "").trim()) {
+      const ran = await engine.runJob(settings, "images-to-pdf", { images, out }, {
+        signal,
+        onProgress: (item) => report({ label: String(item?.label || `合成 ${images.length} 张图片`), total: images.length }),
+      });
+      if (ran.ok) {
+        report({ done: images.length, total: images.length });
+        return { output: String(ran.result?.out || out), detail: `PDF · ${images.length} 页 · ${path.basename(out)}(引擎)` };
+      }
+      log("engine images-to-pdf failed, falling back to the local script:", ran.error);
+    }
     const result = await imagesToPdf(images, out, { python: docvortexPython(settings), signal, log, spawnImpl });
     if (signal.aborted) throw new Error("任务已取消");
     if (!result.ok) throw new Error(String(result.error || "合成 PDF 失败"));

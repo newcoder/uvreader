@@ -73,8 +73,11 @@ const copyTree = (from, to, { skip = () => false } = {}) => {
   }
 };
 
-// 引擎代码(去掉 __pycache__)
-copyTree(path.join(engineRoot, "engine"), path.join(stage, "engine"), { skip: (source) => path.basename(source) === "__pycache__" });
+// 引擎代码(去掉 __pycache__;dev 清单不进包 —— 包根的 engine.json 才是真的,
+// 里面那份会带着开发版本号,server.load_manifest 也只认非 dev 的)
+copyTree(path.join(engineRoot, "engine"), path.join(stage, "engine"), {
+  skip: (source) => path.basename(source) === "__pycache__" || source === path.join(engineRoot, "engine", "engine.json"),
+});
 
 // pdf_tool(可选):--pdf-tool 给「仓库根」或「pdf_tool 包目录」都行
 if (pdfToolDir) {

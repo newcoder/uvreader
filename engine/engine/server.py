@@ -38,14 +38,21 @@ class ConfigPatch(BaseModel):
 
 
 def load_manifest(path: str | os.PathLike[str] | None = None) -> dict:
-    """engine.json(随包清单:构建时写死版本与打包内容);读不到就给一份最小清单。"""
+    """engine.json(随包清单:构建时写死版本与打包内容)。
+
+    打包版在**包根**(`<bundle>/engine.json`,由 scripts/build-engine.mjs 写;engine 包在 `<bundle>/engine/`),
+    开发态在 `engine/engine.json`(dev 清单,版本停在开发号)。
+    **包根优先** —— 否则打包版会读到包内那份 dev 清单,`/v1/health` 就会报出过期的版本与 "dev" 平台。
+    读不到就给一份最小清单。
+    """
     candidates = [Path(path)] if path else []
-    candidates.append(Path(__file__).with_name("engine.json"))
+    candidates.append(Path(__file__).resolve().parents[1] / "engine.json")  # 包根(打包版)
+    candidates.append(Path(__file__).with_name("engine.json"))  # engine/engine.json(开发态)
     for candidate in candidates:
         try:
             if candidate and candidate.exists():
                 data = json.loads(candidate.read_text(encoding="utf-8"))
-                if isinstance(data, dict):
+                if isinstance(data, dict) and str(data.get("platform") or "") != "dev":
                     return data
         except Exception:  # noqa: BLE001 —— 清单坏了不该拦住服务
             continue

@@ -12,9 +12,11 @@ import JSZip from "jszip";
 
 import { createCalibre } from "../src/main/calibre.js";
 import { createDocvortex, registerDocvortexRunners } from "../src/main/docvortex.js";
+import { createEngineClient } from "../src/main/engine-client.js";
 import { registerExtractRunners } from "../src/main/extract-doc.js";
 import { createPdfTextReader, registerTextConvertRunner } from "../src/main/pdf-text.js";
 import { createWorkshopQueue } from "../src/main/workshop.js";
+import { removeFile } from "../src/main/paths.js";
 import { registerBookRunners } from "../src/main/workshop-book.js";
 import { DOCVORTEX_FORMATS } from "../src/shared/workshop-formats.js";
 
@@ -22,6 +24,14 @@ const PDF_FIXTURE = process.env.QBR_MATRIX_PDF || "D:/projects/auto_chat/pdf_too
 const PDF_MARKER = process.env.QBR_MATRIX_PDF_MARKER || "阅读程序";
 const MARKER = "矩阵回归标记";
 const ONLY = new Set((process.env.QBR_MATRIX_ONLY || "").split(",").map((name) => name.trim()).filter(Boolean));
+// 走引擎跑矩阵:设 QBR_MATRIX_ENGINE_URL(+ QBR_MATRIX_ENGINE_TOKEN)就把引擎设置合进每个任务;
+// 不设 = 全走本机(和以前一样)。用来验证「矩阵里的每步都是引擎干的」。
+const ENGINE_SETTINGS = String(process.env.QBR_MATRIX_ENGINE_URL || "").trim()
+  ? {
+    engineUrl: String(process.env.QBR_MATRIX_ENGINE_URL).trim(),
+    engineToken: String(process.env.QBR_MATRIX_ENGINE_TOKEN || "").trim(),
+  }
+  : {};
 
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-matrix-"));
 const vaultRoot = path.join(work, "vault");
@@ -162,12 +172,15 @@ const PNG_1PX = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUl
 
 // ---------------------------------------------------------------- 队列与 runner
 const queue = createWorkshopQueue({ file: path.join(work, "tasks.json"), onState: () => {}, log: { warn() {} } });
-const docvortex = createDocvortex();
+// 设了 QBR_MATRIX_ENGINE_URL 就把引擎客户端交给每个 runner(引擎优先、失败回退本机)。
+const engineClient = Object.keys(ENGINE_SETTINGS).length ? createEngineClient({ timeoutMs: 120_000 }) : null;
+if (engineClient) console.log(`矩阵走引擎:${ENGINE_SETTINGS.engineUrl}\n`);
+const docvortex = createDocvortex({ engine: engineClient });
 const calibre = createCalibre();
-registerDocvortexRunners(queue, { docvortex, vaultRoot });
-registerBookRunners(queue, { calibre, vaultRoot });
-registerExtractRunners(queue, { docvortex, vaultRoot, cacheRoot });
-registerTextConvertRunner(queue, { docvortex, vaultRoot, cacheRoot });
+registerDocvortexRunners(queue, { docvortex, vaultRoot, engine: engineClient });
+registerBookRunners(queue, { calibre, vaultRoot, engine: engineClient });
+registerExtractRunners(queue, { docvortex, vaultRoot, cacheRoot, engine: engineClient, pdfText: createPdfTextReader({ engine: engineClient }) });
+registerTextConvertRunner(queue, { docvortex, vaultRoot, cacheRoot, engine: engineClient });
 
 function runTask(request, timeoutMs = 300_000) {
   return new Promise((resolve) => {
@@ -283,7 +296,7 @@ async function docvortexMatrix() {
         source: file,
         format: format.id,
         out,
-        settings: {},
+        settings: ENGINE_SETTINGS,
       }, { marker, kind: format.id === "docx" ? "docx" : format.id === "pdf" ? "pdf" : "text" });
     }
   }
@@ -304,7 +317,7 @@ async function pdfModes() {
       source: PDF_LOCAL,
       format: format.id,
       out,
-      settings: {},
+      settings: ENGINE_SETTINGS,
     }, { marker: PDF_MARKER, kind: format.id === "docx" ? "docx" : format.id === "pdf" ? "pdf" : "text" });
   }
 }
@@ -315,9 +328,10 @@ async function extraction() {
   const settings = {
     ocrSidecarDir: process.env.QBR_OCR_SIDECAR || "D:/projects/auto_chat",
     ocrPython: process.env.QBR_OCR_PYTHON || "python",
+    ...ENGINE_SETTINGS,
   };
   const docx = path.join(srcDir, "矩阵.docx");
-  await convert("extract-docvortex", "docx 提取 → md/json", { source: docx, settings: {} });
+  await convert("extract-docvortex", "docx 提取 → md/json", { source: docx, settings: ENGINE_SETTINGS });
   await convert("extract-pdf", "PDF 提取(文本型)", { source: PDF_LOCAL, mode: "text", settings }, { marker: PDF_MARKER });
   if (process.env.QBR_MATRIX_MINERU === "1") {
     await convert("extract-pdf", "PDF 提取(MinerU)", { source: PDF_LOCAL, mode: "mineru", settings }, { marker: PDF_MARKER });
@@ -333,7 +347,7 @@ async function extraction() {
   const pack = path.join(srcDir, "out3", "pages.pdf");
   fs.mkdirSync(path.dirname(pack), { recursive: true });
   const packStarted = Date.now();
-  const packTask = await runTask({ kind: "images-pdf", title: "images → pdf", payload: { images, out: pack } });
+  const packTask = await runTask({ kind: "images-pdf", title: "images → pdf", payload: { images, out: pack, settings: ENGINE_SETTINGS } });
   if (packTask.status !== "done") {
     record("images-pdf", "图片 → PDF", "FAIL", String(packTask.error || packTask.status).slice(0, 120), Date.now() - packStarted);
   } else {
@@ -370,7 +384,7 @@ async function ebookMatrix() {
     if (ONLY.size && !ONLY.has(`calibre->${format}`)) continue;
     const out = path.join(srcDir, "out4", outName("epub", format, format));
     fs.mkdirSync(path.dirname(out), { recursive: true });
-    await convert("ebook-convert", `epub → ${format}`, { source: epub, format, out, settings: {} }, { kind: format === "epub" ? "epub" : "binary" });
+    await convert("ebook-convert", `epub → ${format}`, { source: epub, format, out, settings: ENGINE_SETTINGS }, { kind: format === "epub" ? "epub" : "binary" });
   }
 }
 
@@ -396,8 +410,10 @@ const calibreProbe = await calibre.probe({});
 if (calibreProbe.ok) {
   for (const format of ["rtf", "odt"]) {
     const target = path.join(srcDir, `矩阵.${format}`);
-    fs.rmSync(target, { force: true });
-    const task = await runTask({ kind: "ebook-convert", title: "fixture", payload: { source: path.join(srcDir, "矩阵.epub"), format, out: target, settings: {} } });
+    // 用仓库的 removeFile:fs.rmSync 在 Windows 上对非 ASCII 名字(「矩阵.odt」)会静默不删,
+    // 上次矩阵就是因此让 Calibre 撞上 PermissionError。
+    removeFile(target);
+    const task = await runTask({ kind: "ebook-convert", title: "fixture", payload: { source: path.join(srcDir, "矩阵.epub"), format, out: target, settings: ENGINE_SETTINGS } });
     console.log(`夹具:epub → ${format} ${task.status === "done" ? `ok ${Math.round(fs.statSync(target).size / 1024)}KB` : `失败(${String(task.error || task.status).slice(0, 80)})`}`);
   }
 } else {
