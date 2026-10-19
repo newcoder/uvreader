@@ -58,12 +58,26 @@ if (has("licenses.json")) {
 // 本机平台一致时,真跑一下包里的解释器
 const hostPlatform = `${process.platform}-${process.arch}`;
 if (platform === hostPlatform) {
+  // 依赖该在解释器自己的 site-packages 里:Windows 是 <bundle>/site-packages(._pth 指过去),
+  // macOS/Linux 是 <bundle>/python/lib/python3.x/site-packages。
+  const sitePackages = platform.startsWith("win32")
+    ? [path.join(work, "site-packages")]
+    : fs.existsSync(path.join(work, "python", "lib"))
+      ? fs.readdirSync(path.join(work, "python", "lib"))
+        .filter((name) => name.startsWith("python"))
+        .map((name) => path.join(work, "python", "lib", name, "site-packages"))
+        .filter((dir) => fs.existsSync(dir))
+      : [];
+  const hasFitz = sitePackages.some((dir) => fs.existsSync(path.join(dir, "fitz")) || fs.existsSync(path.join(dir, "pymupdf")));
+  check("依赖落在解释器的 site-packages 里", sitePackages.length > 0 && hasFitz, sitePackages.join(", ") || "(没找到 site-packages)");
+
   const python = path.join(work, "python", process.platform === "win32" ? "python.exe" : path.join("bin", "python3"));
   if (fs.existsSync(python)) {
     // 引擎包在 <bundle>/engine,import engine 需要 <bundle> 在路径上(Windows 由 ._pth 提供)
     const probeEnv = { ...process.env, PYTHONPATH: work };
     const probe = spawnSync(python, ["-c", "import engine, fitz, PIL, latex2mathml, fastapi, uvicorn; print('ok')"], { encoding: "utf8", timeout: 120_000, env: probeEnv });
-    check("包内解释器能 import 引擎与依赖", String(probe.stdout || "").trim() === "ok", String(probe.stderr || "").slice(-160));
+    const probeOut = `${String(probe.stdout || "")}${String(probe.stderr || "")}`.trim();
+    check("包内解释器能 import 引擎与依赖", probeOut === "ok", probeOut.slice(-400));
     const version = spawnSync(python, ["-m", "engine", "--version"], { encoding: "utf8", timeout: 120_000, env: probeEnv });
     check("包内能跑 python -m engine", /workshop engine/.test(String(version.stdout || version.stderr || "")), String(version.stdout || version.stderr || "").trim().slice(0, 80));
   } else {
