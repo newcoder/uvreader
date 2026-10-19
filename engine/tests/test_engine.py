@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -244,7 +245,7 @@ def test_pdf_text_job_reads_the_structure(client, tmp_path):
 
 
 def test_convert_job_runs_docvortex(client, tmp_path, monkeypatch):
-    # 假的 docvortex 模块:引擎用 `python -m docvortex` 调它(PYTHONPATH 指到 stub 目录)。
+    # 假的 docvortex CLI:放在 PATH 最前面(引擎按 配置路径 → PATH → python -m 的顺序找)。
     stub_dir = tmp_path / "stubs"
     stub_dir.mkdir()
     (stub_dir / "docvortex.py").write_text(
@@ -254,7 +255,12 @@ def test_convert_job_runs_docvortex(client, tmp_path, monkeypatch):
         "print('stub docvortex ok')\n",
         encoding="utf-8",
     )
-    monkeypatch.setenv("PYTHONPATH", str(stub_dir))
+    sh_stub = stub_dir / "docvortex"
+    sh_stub.write_text(f"#!/bin/sh\nexec \"{sys.executable}\" \"{stub_dir / 'docvortex.py'}\" \"$@\"\n", encoding="utf-8")
+    sh_stub.chmod(0o755)
+    cmd_stub = stub_dir / "docvortex.cmd"
+    cmd_stub.write_text(f"@\"{sys.executable}\" \"{stub_dir / 'docvortex.py'}\" %*\r\n", encoding="utf-8")
+    monkeypatch.setenv("PATH", str(stub_dir) + os.pathsep + os.environ.get("PATH", ""))
     source = tmp_path / "in.docx"
     source.write_text("x", encoding="utf-8")
     out = tmp_path / "out.md"

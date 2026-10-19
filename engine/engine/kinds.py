@@ -290,11 +290,19 @@ def run_extract(job: Job) -> dict:
 # ── 文档互转(DocVortex;kind=convert)──────────────────────────────────
 
 def _docvortex_commands(config: dict) -> list[list[str]]:
+    """DocVortex 的调用方式(按可用性排序):配置路径 → PATH 上的 CLI → `python -m docvortex`。
+    实测 `python -m docvortex` 会报 `No module named docvortex.__main__`(它没有 __main__),
+    所以 CLI 必须排在前面。"""
+    import shutil
+
     custom = str(config.get("docvortexPath") or "").strip()
     python = str(config.get("python") or "").strip() or sys.executable
     commands: list[list[str]] = []
     if custom:
         commands.append([custom])
+    found = shutil.which("docvortex") or shutil.which("docvortex.exe")
+    if found:
+        commands.append([found])
     commands.append([python, "-m", "docvortex"])
     return commands
 

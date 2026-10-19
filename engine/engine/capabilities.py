@@ -77,7 +77,8 @@ def _probe(config: dict) -> dict:
         "latex2mathml": {"ok": _has_module("latex2mathml"), "detail": "LaTeX → MathML"},
         "pdfTool": _pdf_tool_capability(config),
         "docvortex": {
-            "ok": _has_module("docvortex") or bool(_which(str(config.get("docvortexPath") or ""), ["docvortex"])),
+            # 能跑才算:CLI 在 PATH 上,或能 import(实测 `python -m docvortex` 不可用,见 kinds._docvortex_commands)
+            "ok": bool(_which(str(config.get("docvortexPath") or ""), ["docvortex", "docvortex.exe"])) or _has_module("docvortex"),
             "detail": "文档互转(Office / OFD / HTML / EPUB)",
         },
         "mineru": _mineru_capability(config),

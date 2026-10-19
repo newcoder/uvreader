@@ -117,8 +117,14 @@ const settings = { engineUrl: `http://127.0.0.1:${port}`, engineToken: token };
 const client = createEngineClient({ timeoutMs: 15_000 });
 const child = spawn(python, ["-m", "engine", "serve", "--port", String(port), "--token", token], {
   cwd: engineRoot,
-  // stubDocvortex 也放进引擎的 PYTHONPATH:`python -m docvortex` 会命中假模块(子进程继承)。
-  env: { ...process.env, PYTHONPATH: [engineRoot, stubDocvortex].join(path.delimiter), ENGINE_CONFIG: configFile },
+  // stub 目录放在 PATH / PYTHONPATH 最前:引擎按 配置路径 → PATH → python -m 找 DocVortex,
+  // 这样夹具用的假 CLI 一定被选中(真机上 PATH 里有真 docvortex)。
+  env: {
+    ...process.env,
+    PYTHONPATH: [engineRoot, stubDocvortex].join(path.delimiter),
+    PATH: [stubDocvortex, process.env.PATH || ""].join(path.delimiter),
+    ENGINE_CONFIG: configFile,
+  },
   stdio: ["ignore", "pipe", "pipe"],
 });
 let serverLog = "";

@@ -168,6 +168,13 @@ POST  /v1/math       { latex[] }     → { mathml[] }            # 轻量同步�
 
 **两条前提**:① 只有**配了 `engineUrl`** 才会走引擎(没配 = 零开销);② 引擎**不可用或失败**时会**回退本机** —— 这时清单里没有对应记录,所以「清单里有没有」正好能区分两条路。
 
+### 5.4 本机(开发机)运行引擎
+
+- **安装位置**:venv 在 `%LOCALAPPDATA%\UVReader\engine\venv`;启动器 `…\engine\start-engine.cmd`(读同目录 `token.txt`,端口 8760,日志 `engine.log`);引擎配置 `~/.uvreader-engine/config.json`。
+- **启动/停止**:双击 `start-engine.cmd`(或 `node scripts/engine-e2e.mjs` 会自己起临时实例);停止 = 关掉那个窗口,或按端口杀:`Get-NetTCPConnection -LocalPort 8760 | Stop-Process -Id {$_.OwningProcess}`。
+- **应用侧**:`设置 → 书坊 → 书坊引擎` 里填 `http://127.0.0.1:8760` + 令牌(`token.txt`),或直接写进 `%APPDATA%\qiaomu-reader-desktop\data\data.json` 的 `settings.engineUrl` / `settings.engineToken`(应用没在跑时)。
+- **DocVortex 的调用顺序**(实测坑):**配置路径 → PATH 上的 `docvortex`(CLI,Windows 是 `docvortex.exe`)→ `python -m docvortex`** —— 最后一个在 0.5.16 上会报 `No module named docvortex.__main__`,只能当兜底。
+
 ## 6. 风险与对策
 
 | 风险 | 对策 |
