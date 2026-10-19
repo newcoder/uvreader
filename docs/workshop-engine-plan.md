@@ -123,7 +123,7 @@ POST  /v1/math       { latex[] }     → { mathml[] }            # 轻量同步�
 | **E0** | 本计划(服务架构版) | 用户确认 ✓ |
 | **E1 ✅ 已完成(2026-10-19)** | **服务骨架 + 契约**:`engine/`(FastAPI:health / jobs / math)+ token + `engine.json`;应用侧 `engine-client` + 设置页「书坊引擎」状态行 + **回退现有 spawn** | 单测(客户端:探测/作业/取消/回退)✓ + 真机冒烟(health / 令牌 / math / text-layer 作业 36 页)✓ + e2e 待补 |
 | **E2 ✅ 已完成(2026-10-19)** | **搬能力**:文字层 / pdf-text / outline / redact / images-to-pdf 从应用脚本搬进引擎;`extract`(pdf_tool)与 `convert`(DocVortex)作业化 | 七类作业全部搬好并接线(引擎优先、失败回退);引擎自测 **11 项**进 CI。注:应用里的 Python 脚本**保留**作为「没有引擎」的兜底,等 E3 把引擎变成默认后可以删 |
-| **E3** | **打包与一键安装**:三平台构建脚本 + 应用内「下载并安装/更新引擎」(sha256、解压到 `%LOCALAPPDATA%/UVReader/engine/<version>`、拉起、进度)+ 离线 zip 安装 | e2e(本地 zip 走完整流程)+ 断网 / 校验失败 / 版本过旧路径 |
+| **E3 🚧 进行中** | **打包与一键安装**:三平台构建脚本 + 应用内「下载并安装/更新引擎」(sha256、解压到 `%LOCALAPPDATA%/UVReader/engine/<version>`、拉起、进度)+ 离线 zip 安装 | **E3a ✅ 已完成(2026-10-19)**:`scripts/build-engine.mjs`(私有 Python + wheel-only 依赖 + 引擎代码 + **自带 pdf_tool** + `engine.json` / `licenses.json` / 启动器 → zip/tar.gz + sha256)+ `scripts/check-engine-bundle.mjs`(包校验,CI 里跑)+ `.github/workflows/engine.yml`(四平台:win32-x64 / darwin-arm64 / darwin-x64 / linux-x64;`engine-v*` tag → Release 资产)。Windows 包实测 **258.5 MB**,包内冒烟:pdf-text 1.6s / outline 1.5s / **extract 4.6s(包里的 Python + 包里的 pdf_tool + 本地 MinerU)**;**E3b 待办**:应用内一键安装/更新 + 离线 zip 安装 |
 | **E4** | **可选组件与外部工具**:boko 接入(EPUB→AZW3/KFX + 反向)、Calibre 探测与调用、本地 MinerU 组件(模型按需下载 + 提示) | 转换矩阵用引擎跑一遍;boko 单测 + 矩阵 |
 | **E5** | **收口**:文档、发布说明、旧用户迁移说明、矩阵回归、远程部署说明(URL + token) | 全量门禁 + 三平台引擎产物可下载 |
 

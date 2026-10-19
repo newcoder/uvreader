@@ -235,13 +235,25 @@ def run_redact(job: Job) -> dict:
 # ── PDF → Doc JSON(pdf_tool;kind=extract)──────────────────────────────
 
 def _pdf_tool_script(config: dict) -> Path:
+    """pdf_tool 的位置:配置优先,没配就用引擎自带的(打包时放进 <engine_root>/pdf_tool)。"""
     directory = str(config.get("pdfToolDir") or "").strip()
-    if not directory:
-        raise RuntimeError("引擎没配置 pdf_tool 目录")
-    script = Path(directory) / "pdf_tool" / "pdf_to_doc.py"
-    if not script.exists():
-        raise RuntimeError(f"目录里没有 pdf_tool/pdf_to_doc.py:{directory}")
-    return script
+    candidates = []
+    if directory:
+        candidates.append(Path(directory))
+    bundled = Path(__file__).resolve().parents[1] / "pdf-tool"
+    if bundled.exists():
+        candidates.append(bundled)
+    if not candidates:
+        raise RuntimeError("没有 pdf_tool:引擎包里没带,配置里也没填 pdfToolDir")
+    for candidate in candidates:
+        script = candidate / "pdf_tool" / "pdf_to_doc.py"
+        if script.exists():
+            return script
+        # 自带的可能是仓库根(pdf_tool/pdf_to_doc.py 的上一层就是根)
+        script = candidate / "pdf_to_doc.py"
+        if script.exists():
+            return script
+    raise RuntimeError(f"目录里没有 pdf_tool/pdf_to_doc.py:{candidates[0]}")
 
 
 def run_extract(job: Job) -> dict:
@@ -292,9 +304,10 @@ def run_extract(job: Job) -> dict:
 # ── 文档互转(DocVortex;kind=convert)──────────────────────────────────
 
 def _docvortex_commands(config: dict) -> list[list[str]]:
-    """DocVortex 的调用方式(按可用性排序):配置路径 → PATH 上的 CLI → `python -m docvortex`。
-    实测 `python -m docvortex` 会报 `No module named docvortex.__main__`(它没有 __main__),
-    所以 CLI 必须排在前面。"""
+    """DocVortex 的调用方式(按可用性排序):配置路径 → PATH 上的 CLI → `python -c` 直接调入口。
+    实测 `python -m docvortex` 会报 `No module named docvortex.__main__`(没有 __main__),
+    而 console_scripts 入口是 `docvortex.cli:main` —— 打包版(embeddable python 没有 Scripts)
+    就靠最后这条。"""
     import shutil
 
     custom = str(config.get("docvortexPath") or "").strip()
@@ -305,7 +318,7 @@ def _docvortex_commands(config: dict) -> list[list[str]]:
     found = shutil.which("docvortex") or shutil.which("docvortex.exe")
     if found:
         commands.append([found])
-    commands.append([python, "-m", "docvortex"])
+    commands.append([python, "-c", "import sys; from docvortex.cli import main; sys.exit(main())"])
     return commands
 
 

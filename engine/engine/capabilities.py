@@ -38,13 +38,20 @@ def _which(value: str, names: list[str]) -> str:
 
 
 def _pdf_tool_capability(config: dict) -> dict:
+    """与 kinds._pdf_tool_script 同一套候选:配置目录 → 引擎自带的 pdf_tool/。"""
     directory = str(config.get("pdfToolDir") or "").strip()
-    if not directory:
-        return {"ok": False, "detail": "没配置 pdf_tool 目录"}
-    script = Path(directory) / "pdf_tool" / "pdf_to_doc.py"
-    if not script.exists():
-        return {"ok": False, "detail": f"目录里没有 pdf_tool/pdf_to_doc.py:{directory}"}
-    return {"ok": True, "detail": f"pdf_tool · {Path(directory).name}"}
+    candidates = [Path(directory)] if directory else []
+    bundled = Path(__file__).resolve().parents[1] / "pdf-tool"
+    if bundled.exists():
+        candidates.append(bundled)
+    if not candidates:
+        return {"ok": False, "detail": "引擎包里没带 pdf_tool,配置里也没填 pdfToolDir"}
+    for candidate in candidates:
+        for script in (candidate / "pdf_tool" / "pdf_to_doc.py", candidate / "pdf_to_doc.py"):
+            if script.exists():
+                where = "自带" if candidate == bundled else f"配置 · {candidate.name}"
+                return {"ok": True, "detail": f"pdf_tool({where})"}
+    return {"ok": False, "detail": f"目录里没有 pdf_tool/pdf_to_doc.py:{candidates[0]}"}
 
 
 def _mineru_capability(config: dict) -> dict:

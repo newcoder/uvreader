@@ -1,0 +1,65 @@
+# 书坊引擎的三平台打包:运行时 + 依赖 + 引擎代码 + pdf_tool → Release 资产。
+# 触发:打 engine-v* tag(会发布);或手动 workflow_dispatch(只出 artifacts)。
+name: Engine
+
+on:
+  push:
+    tags: ["engine-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win32-x64
+          - os: macos-14
+            platform: darwin-arm64
+          - os: macos-13
+            platform: darwin-x64
+          - os: ubuntu-latest
+            platform: linux-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # pdf_tool 是另一个仓库:取一个固定 ref(默认 main;SOURCE.txt 会记下 commit)。
+      - name: Vendor pdf_tool
+        run: |
+          git clone --depth 1 --branch "${{ vars.PDF_TOOL_REF || 'main' }}" https://github.com/newcoder/auto_chat.git vendor/auto_chat
+      - name: Build the engine bundle
+        run: node scripts/build-engine.mjs --platform ${{ matrix.platform }} --pdf-tool vendor/auto_chat
+      - name: Check the bundle (manifest, licenses, sha256)
+        run: node scripts/check-engine-bundle.mjs dist/engine --platform ${{ matrix.platform }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engine-${{ matrix.platform }}
+          path: dist/engine/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/engine-v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Publish the engine release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" artifacts/* \
+            --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" \
+            --notes "UV Reader 书坊引擎(独立部署的本地 HTTP 服务):解压后按 README.txt 启动,在应用的「设置 → 书坊 → 书坊引擎」里填地址与令牌。GPL 组件(Calibre / boko)不在包内。"
