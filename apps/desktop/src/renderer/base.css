@@ -232,6 +232,12 @@ body.qbr-reading #app-nav {
   color: var(--text-muted);
 }
 
+/* display 由上面的类决定,会盖过浏览器给 [hidden] 的 display:none ——
+   不写这条,`button.hidden = true` 只改属性、按钮照样显示(书坊关闭时踩过)。 */
+.qbr-nav-btn[hidden] {
+  display: none;
+}
+
 .qbr-nav-btn .qbr-raster-icon {
   width: 16px;
   height: 16px;

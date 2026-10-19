@@ -2703,10 +2703,15 @@ async function runWorkshopScenario() {
       const plugin = window.__qbrPlugin;
       const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       const button = () => [...document.querySelectorAll("[data-route]")].find((entry) => entry.dataset.route === "workshop");
+      const visible = () => {
+        const node = button();
+        return Boolean(node) && getComputedStyle(node).display !== "none";
+      };
       plugin.settings.workshopEnabled = false;
       window.__qbrApp.workspace.trigger("layout-change");
       await wait(80);
-      const hidden = Boolean(button()?.hidden);
+      // 查**计算样式**,不是 button.hidden —— 类选择器的 display 会盖过 [hidden],只查属性会漏(踩过)。
+      const hidden = !visible();
       document.querySelector('[data-route="settings"]')?.click();
       await wait(500);
       const tab = [...document.querySelectorAll(".qiaomu-reader-set-tab")].find((entry) => (entry.textContent || "").trim() === "书坊");
@@ -2723,7 +2728,7 @@ async function runWorkshopScenario() {
         hidden,
         settingsTab: Boolean(tab),
         switchFound: Boolean(switchInput),
-        shown: !button()?.hidden,
+        shown: visible(),
         enabled: plugin.settings?.workshopEnabled !== false,
       };
     });
