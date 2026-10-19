@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>题目预览 - question_bank</title>
+<style>
+  :root { --line:#e3e4e8; --muted:#8a8f98; --card:#fff; --bg:#f4f5f7; --accent:#2f6fed; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.7 "Segoe UI", "Microsoft YaHei", sans-serif;
+         background:var(--bg); color:#222; }
+  header { position:sticky; top:0; background:#fff; border-bottom:1px solid var(--line);
+           padding:14px 24px; z-index:5; }
+  h1 { margin:0 0 6px; font-size:20px; }
+  .meta { color:var(--muted); font-size:13px; }
+  main { max-width: 880px; margin: 0 auto; padding: 18px 16px 80px; }
+  .stats { display:flex; gap:10px; flex-wrap:wrap; margin:10px 0 18px; }
+  .stat { background:#fff; border:1px solid var(--line); border-radius:10px;
+          padding:8px 16px; font-size:13px; }
+  .stat b { font-size:18px; display:block; }
+  .category { background:#eef2fb; border:1px solid #d4ddf3; border-radius:10px;
+              padding:8px 14px; margin:14px 0 6px; font-weight:600; font-size:15px; }
+  .category small { font-weight:400; color:var(--muted); margin-left:8px; }
+  .qcard { background:var(--card); border:1px solid var(--line); border-radius:12px;
+           padding:16px 18px; margin:10px 0; }
+  .qhead { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+  .qno { font-weight:700; font-size:15px; }
+  .badge { font-size:12px; padding:2px 10px; border-radius:99px; color:#fff; }
+  .b-choice-single { background:#2f6fed; } .b-choice-multiple { background:#7c4dff; }
+  .b-true-false { background:#0d9b6e; } .b-fill-blank { background:#e08600; }
+  .b-short-answer { background:#d64545; } .b-programming { background:#4b5563; }
+  .b-other { background:#8a8f98; }
+  .qtext { white-space:pre-wrap; word-break:break-word; }
+  .qtext code { background:#f0f1f3; border-radius:4px; padding:0 5px;
+                font-family:Consolas,monospace; font-size:13px; }
+  .qtext pre { background:#f6f7f9; border:1px solid var(--line); border-radius:8px;
+               padding:10px 14px; overflow-x:auto; }
+  .qtext img { max-width: 100%; border:1px solid var(--line); border-radius:8px;
+               margin:6px 0; background:#fff; }
+  .mdtable { border-collapse:collapse; margin:8px 0; width:auto; background:#fff; }
+  .mdtable th, .mdtable td { border:1px solid var(--line); padding:4px 12px; text-align:center; }
+  .mdtable th { background:#f0f3fa; font-weight:600; }
+  .options { margin:8px 0 2px 4px; }
+  .option { display:flex; gap:8px; padding:3px 0; align-items:flex-start; }
+  .option .key { font-weight:700; min-width:26px; }
+  .blank { display:inline-block; min-width:90px; border-bottom:2px solid var(--accent);
+           background:#f3f7ff; border-radius:4px; text-align:center; color:#8ab; margin:0 2px; }
+  .answerbox { margin-top:10px; padding:10px 14px; border-left:4px solid #0d9b6e;
+               background:#f2fbf6; font-size:13px; }
+  .answerbox b { color:#0d9b6e; }
+  .hint { color:var(--muted); font-size:12px; margin-top:6px; }
+  .examnotes { background:#fffdf3; border:1px solid #efe3b8; border-radius:10px;
+               padding:12px 16px; margin:0 0 14px; white-space:pre-wrap; font-size:14px; }
+  .examnotes b { display:block; margin-bottom:6px; color:#8a6d1a; }
+  .posbadge { color:var(--muted); font-size:12px; font-weight:400; margin-left:8px; }
+  .figimg { display:block; max-width:100%; border:1px solid var(--line); border-radius:8px;
+            margin:6px 0; background:#fff; }
+  .toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .toolbar input[type=file] { font-size:13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">题目预览</h1>
+  <div class="toolbar">
+    <span class="meta" id="meta"></span>
+    <input type="file" id="file" accept=".json" title="加载其它题目 JSON">
+  </div>
+</header>
+<main id="main"></main>
+<script>
+const SAMPLE = {"blocks": [{"type": "text", "position": "Page 1", "content": "算法创意实践挑战赛小学组（全年级）初赛\n总分100分"}, {"type": "text", "position": "Page 1", "content": "单选题"}, {"type": "question", "position": "Page 1", "number": "1", "stem": "运行下列程序段，输出的结果是（ ）\n\nint n = 572765;\ncout << n / 10 % 10; (5 分)", "options": {"A": "5", "B": "6", "C": "4", "D": "1"}, "answer": "B", "explanation": "", "images": []}, {"type": "question", "position": "Page 1", "number": "2", "stem": "假设有两个城市：城市A和城市B。每个城市的温度都在-50到50摄氏度之间。当且仅当只有一个城市的温度低于0时，输出1，也就是说，如果城市A的温度低于0而城市B大于等于0；或者如果城市A的温度大于等于0而B小于0，则输出1，否则输出0。补全①和②处的代码。\n\n#include<iostream>\nusing namespace std;\nint main()\n{\n    int a,b;\n    cin >> a >> b;\n    if(①)\n    {\n        if(②)\n        {\n            cout << 1;\n            return 0;\n        }\n    }\n\n    if(a >= 0)\n    {\n        if(b < 0)\n        {\n            cout << 1;\n            return 0;\n        }\n    }\n    cout << 0;\n    return 0;\n} (5 分)", "options": {"A": "a < 0   b >= 0", "B": "a > 0   b <= 0", "C": "a >= 0   b >= 0", "D": "a < 0   b < 0"}, "answer": "A", "explanation": "", "images": []}, {"type": "question", "position": "Page 2", "number": "3", "stem": "执行以下代码段，变量x和y的值分别是（ ）\n\nint x = 7;\nint y = x / 2 * 3; (5 分)", "options": {"A": "x=7, y=10.5", "B": "x=7, y=10", "C": "x=7, y=12", "D": "x=7, y=9"}, "answer": "D", "explanation": "", "images": []}, {"type": "question", "position": "Page 2", "number": "4", "stem": "在C++中，输出指令是（ ）(5 分)", "options": {"A": "cin", "B": "cout", "C": "clog", "D": "int"}, "answer": "B", "explanation": "", "images": []}, {"type": "question", "position": "Page 2", "number": "5", "stem": "小A有一个神奇口袋，里面可以装各个平方数。口袋的负载量就是口袋里所有数字之和。当负载量超过L的时候不能再装平方数。现在给定n个数，从左往右筛选其中的平方数，并依次将平方数放进口袋，编成程序，输出口袋里能装下几个平方数。平方数就是一个整数乘以自己的结果（例如：1、4、9、16、……）。补全①、②和③处的代码。\n例如：\n输入L为100，n为5，接下来的5个数分别是49、19、36、25、73，则口袋里只装了49和36两个平方数，所以输出2。\n\n#include <iostream>\nusing namespace std;\nint main()\n{\n\n    int L,n,cnt = 0,sum = 0;\n    cin >> L >> n;\n    for(int i=1; i<=n; i++)\n    {\n        int x;\n        bool flag = false;\n        cin >> x;\n        for(int j=1; j<x; j++)\n        {\n            if(①)\n            {\n                flag = true;\n                break;\n            }\n        }\n        if(flag == true)\n        {\n            if(②)\n            {\n                sum += x;\n                cnt++;\n            }\n            else\n            {\n                ③\n            }\n        }\n    }\n    cout << cnt;\n    return 0;\n} (5 分)", "options": {"A": "j*j == x   sum + x <= L   continue;", "B": "j*j == x   sum + x <= L   break;", "C": "x / j == i   sum <= L   continue;", "D": "x / j == i   sum <= L   break;"}, "answer": "B", "explanation": "", "images": []}, {"type": "question", "position": "Page 3", "number": "6", "stem": "在C++中，表示布尔数据类型的关键字是（ ）(5 分)", "options": {"A": "int", "B": "bool", "C": "double", "D": "string"}, "answer": "B", "explanation": "", "images": []}, {"type": "question", "position": "Page 3", "number": "7", "stem": "下列关于C++语言中变量的叙述，不正确的是（ ）(5 分)", "options": {"A": "变量定义时可以不初始化", "B": "变量被赋值之后的类型不变", "C": "变量没有定义也能够使用", "D": "变量名必须是合法的标识符"}, "answer": "C", "explanation": "", "images": []}, {"type": "question", "position": "Page 3", "number": "8", "stem": "在C++中，以下正确的变量命名是（ ）(5 分)", "options": {"A": "2things", "B": "_myVariable", "C": "my-variable", "D": "None of the above"}, "answer": "B", "explanation": "", "images": []}, {"type": "question", "position": "Page 3", "number": "9", "stem": "执行以下程序段，输出的结果是（ ）\n\nfor (int j = 1; j <= 6; j++)\n{\n    if (j % 3 == 0)\n    {\n        break;\n    }\n    cout << j << ' ';\n} (5 分)", "options": {"A": "1 2", "B": "1 2 3", "C": "1 2 3 4 5 6", "D": "1 2 4 5 6"}, "answer": "A", "explanation": "", "images": []}, {"type": "question", "position": "Page 3", "number": "10", "stem": "如果我们想在终端输出变量x的值，正确的代码是（ ）(5 分)", "options": {"A": "cin >> x;", "B": "cout << x;", "C": "cout >> x;", "D": "cin << x;"}, "answer": "B", "explanation": "", "images": []}, {"type": "question", "position": "Page 4", "number": "11", "stem": "运行以下程序，输出的结果是（ ）\n\n#include\nusing namespace std;\n\nint main()\n{\n    cout << \"Hello\" << ' ';\n    cout << \"World\";\n    return 0;\n} (5 分)", "options": {"A": "Hello, World!", "B": "Hello World", "C": "语法错误", "D": "无任何输出"}, "answer": "D", "explanation": "", "images": []}, {"type": "question", "position": "Page 4", "number": "12", "stem": "输出1到10之间的所有偶数，请补全以下代码。\n\n#include <iostream>\nusing namespace std;\n\nint main()\n{\n    for (int i = 1; i <= 10; i++)\n    {\n        if (①)\n        {\n            cout << i << endl;\n        }\n    }\n    return 0;\n} (5 分)", "options": {"A": "i % 2 == 0", "B": "i % 2 != 0", "C": "i % 2 == 1", "D": "i % 2"}, "answer": "A", "explanation": "", "images": []}, {"type": "question", "position": "Page 4", "number": "13", "stem": "以下可以作为变量名的是（ ）(5 分)", "options": {"A": "cnt_1", "B": "1_cnt", "C": "cnt1_#", "D": "@cnt"}, "answer": "A", "explanation": "", "images": []}, {"type": "question", "position": "Page 4", "number": "14", "stem": "运行以下程序，输出的结果是（ ）\n\n#include\n\nusing namespace std;\n\nint main()\n{\n    int a = 5;\n    int b = a + 3;\n    int c = b - 2;\n    cout << c;\n    return 0;\n} (5 分)", "options": {"A": "6", "B": "8", "C": "5", "D": "10"}, "answer": "A", "explanation": "", "images": []}, {"type": "question", "position": "Page 5", "number": "15", "stem": "下面代码实现的是判断n是否是质数的功能，补全①和②处的代码。\n\n#include <iostream>\nusing namespace std;\nint main()\n{\n    int n;\n    cin >> n;\n    ①\n    for(int i=2; i < n; i++)\n    {\n        if(②)\n        {\n            isprime = false;\n            break;\n        }\n    }\n    cout << isprime << endl;\n    return 0;\n} (5 分)", "options": {"A": "bool isprime = true;   n%i == 0", "B": "bool isprime = false;   n%i != 0", "C": "bool isprime = true;   n%i != 0", "D": "bool isprime = false;   n%i == 0"}, "answer": "A", "explanation": "", "images": []}, {"type": "text", "position": "Page 5", "content": "判断题"}, {"type": "question", "position": "Page 5", "number": "16", "stem": "在C++中，&& 和 || 分别代表逻辑与和逻辑或运算。(5 分)", "options": {"A": "正确", "B": "错误"}, "answer": "A", "explanation": "", "images": []}, {"type": "question", "position": "Page 5", "number": "17", "stem": "在C++中，for循环至少执行一次。(5 分)", "options": {"A": "正确", "B": "错误"}, "answer": "B", "explanation": "", "images": []}, {"type": "question", "position": "Page 5", "number": "18", "stem": "在C++中，cout用于输入，而cin用于输出。(5 分)", "options": {"A": "正确", "B": "错误"}, "answer": "B", "explanation": "", "images": []}, {"type": "question", "position": "Page 5", "number": "19", "stem": "在C++中，变量声明后，如果不初始化，其值是确定的。(5 分)", "options": {"A": "正确", "B": "错误"}, "answer": "B", "explanation": "", "images": []}, {"type": "question", "position": "Page 5", "number": "20", "stem": "在C++中，所有变量都必须在使用前声明其数据类型。(5 分)", "options": {"A": "正确", "B": "错误"}, "answer": "A", "explanation": "", "images": []}], "_box_stats": {"pages": 5, "boxes": 0, "referenced": 0, "unknown_refs": [], "backstopped": [], "ok": true}};
+
+const TYPE_LABEL = {
+  multiple_choice_single: '单选题', multiple_choice_multiple: '多选题',
+  true_false: '判断题', fill_blank: '填空题', short_answer: '简答题',
+  programming: '编程题'
+};
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* 把 markdown 表格段转为真实 <table>；其余行做行内渲染 */
+function renderTables(lines) {
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.indexOf('|') === 0) {
+      const rows = [];
+      while (i < lines.length && lines[i].indexOf('|') === 0) {
+        const cells = lines[i].slice(1, -1).split('|').map(c => c.trim());
+        rows.push(cells);
+        i++;
+      }
+      // 去掉可能的分隔行（|---|）
+      const dataRows = rows.filter(r => !(r.length && /^:?-{2,}:?$/.test(r[0]) &&
+        r.every(c => /^:?-{2,}:?$/.test(c))));
+      if (dataRows.length) {
+        const head = dataRows[0];
+        let h = '<table class="mdtable"><thead><tr>' +
+          head.map(c => '<th>' + inlineMd(c) + '</th>').join('') + '</tr></thead><tbody>';
+        for (let r = 1; r < dataRows.length; r++) {
+          h += '<tr>' + dataRows[r].map(c => '<td>' + inlineMd(c || '') + '</td>').join('') +
+            '</tr>';
+        }
+        out.push(h + '</tbody></table>');
+        continue;
+      }
+      out.push(esc(line));
+      continue;
+    }
+    out.push(inlineMd(line));
+    i++;
+  }
+  return out.join('\n');
+}
+
+function inlineMd(s) {
+  let h = esc(s);
+  h = h.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g,
+    (m, alt, src) => /^(data:|\.\.?\/|[a-z]+:\/\/)/.test(src)
+      ? '<img src="' + src + '" alt="' + alt + '" loading="lazy">' : m);
+  h = h.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, label, href) =>
+    /^(https?:|mailto:|#|\/)/.test(href)
+      ? '<a href="' + href + '" target="_blank">' + label + '</a>' : m);
+  h = h.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+  h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
+  return h;
+}
+
+function mdRender(text) {
+  if (!text) return '';
+  const blocks = [];
+  const parts = String(text).split(/```/);
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 1) { blocks.push('<pre>' + esc(parts[i]) + '</pre>'); continue; }
+    blocks.push(renderTables(parts[i].split('\n')).replace(/\n/g, '\n'));
+  }
+  return blocks.join('');
+}
+
+function renderBlank(text) {
+  // 填空题：把 ____ 换成输入框样式的占位
+  return mdRender(text).replace(/(_+)/g, '<span class="blank">&nbsp;</span>');
+}
+
+const SAFE_TYPES = { multiple_choice_single: 1, multiple_choice_multiple: 1, true_false: 1,
+                     fill_blank: 1, short_answer: 1, programming: 1 };
+function typeBadge(t) {
+  const safe = SAFE_TYPES[t] ? t : 'other';
+  return '<span class="badge b-' + safe + '">' + esc(TYPE_LABEL[t] || t || '未知') + '</span>';
+}
+
+/* ---------- blocks 格式（--mode box 输出）---------- */
+
+function asText(v) {
+  if (v == null) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (Array.isArray(v)) return v.map(asText).filter(Boolean).join('\n');
+  if (typeof v === 'object') {
+    if (typeof v.text === 'string') return v.text;
+    if (typeof v.content === 'string') return v.content;
+    if (Array.isArray(v.steps)) return v.steps.map(asText).filter(Boolean).join('\n');
+  }
+  return String(v);
+}
+
+function srcUrl(s) {
+  const m = /!\[[^\]]*\]\(([^)\s]+)\)/.exec(String(s || ''));
+  return m ? m[1] : String(s || '');
+}
+
+function refKeys(text) {
+  const out = new Set();
+  const re = /!\[插图(\d+)\]/g;
+  let m;
+  while ((m = re.exec(String(text || '')))) out.add(m[1]);
+  return out;
+}
+
+function figHtml(src, alt) {
+  const u = srcUrl(src);
+  if (!/^(data:|https?:|\.{0,2}\/)/.test(u)) return '';
+  return '<img class="figimg" src="' + u + '" alt="' + esc(asText(alt)) + '" loading="lazy">';
+}
+
+function tableHtml(headers, rows) {
+  let h = '<table class="mdtable"><thead><tr>' +
+    (headers || []).map(x => '<th>' + inlineMd(asText(x)) + '</th>').join('') +
+    '</tr></thead><tbody>';
+  (rows || []).forEach(r => {
+    h += '<tr>' + r.map(c => '<td>' + inlineMd(asText(c)) +
+      '</td>').join('') + '</tr>';
+  });
+  return h + '</tbody></table>';
+}
+
+function renderBlock(b) {
+  const pos = b.position ? '<span class="posbadge">' + esc(b.position) + '</span>' : '';
+  if (b.type === 'question') {
+    const h = ['<div class="qcard">'];
+    h.push('<div class="qhead"><span class="qno">题 ' + esc(b.number) + '</span>' + pos +
+      '</div>');
+    const stem = asText(b.stem);
+    h.push('<div class="qtext">' + mdRender(stem) + '</div>');
+    const inText = refKeys(stem);
+    (b.images || []).forEach(im => {
+      const k = /插图(\d+)/.exec(String(im.src || ''));
+      if (k && inText.has(k[1])) return;  // 已在正文原位置渲染
+      h.push(figHtml(im.src, im.alt));
+    });
+    const opts = b.options;
+    let items = [];
+    if (Array.isArray(opts)) items = opts.map((v, i) => [String.fromCharCode(65 + i), v]);
+    else if (opts && typeof opts === 'object') items = Object.keys(opts).map(k => [k, opts[k]]);
+    if (items.length) {
+      h.push('<div class="options">');
+      items.forEach(pair => {
+        const k = pair[0], v = pair[1];
+        const t = (v && typeof v === 'object') ? (v.text || '') : (v == null ? '' : v);
+        let line = '<div class="option"><span class="key">' + esc(k) + '.</span>' +
+          '<span class="qtext">' + mdRender(asText(t)) + '</span>';
+        if (v && typeof v === 'object' && v.image && typeof v.image === 'object') {
+          const kk = /插图(\d+)/.exec(String(v.image.src || ''));
+          if (!(kk && (inText.has(kk[1]) || refKeys(asText(t)).has(kk[1])))) {
+            line += figHtml(v.image.src, v.image.alt);
+          }
+        }
+        h.push(line + '</div>');
+      });
+      h.push('</div>');
+    }
+    if (b.table && (b.table.headers || b.table.rows)) {
+      h.push(tableHtml(b.table.headers, b.table.rows));
+    }
+    if (b.answer) {
+      h.push('<div class="answerbox"><b>答案：</b>' + esc(asText(b.answer)) +
+        (b.explanation ? '<br><b>解析：</b>' + mdRender(asText(b.explanation)) : '') +
+        '</div>');
+    }
+    h.push('</div>');
+    return h.join('');
+  }
+  if (b.type === 'text') {
+    return '<div class="examnotes">' + pos +
+      mdRender(asText(b.content != null ? b.content : b.text)) + '</div>';
+  }
+  if (b.type === 'image') {
+    return figHtml((b.image || {}).src || b.src, (b.image || {}).alt);
+  }
+  if (b.type === 'table') {
+    const tb = b.table || b;
+    return tableHtml(tb.headers, tb.rows);
+  }
+  if (b.type === 'code') {
+    return '<pre>' + esc(b.content || b.code || '') + '</pre>';
+  }
+  return '';
+}
+
+function renderBlocks(data) {
+  const blocks = data.blocks || [];
+  const qs = blocks.filter(b => b.type === 'question');
+  document.title = '题目预览';
+  document.getElementById('title').textContent = '题目预览';
+  document.getElementById('meta').textContent =
+    '题目:' + qs.length + ' | 内容块:' + blocks.length;
+  document.getElementById('main').innerHTML =
+    '<div class="stats">' +
+    '<div class="stat"><b>' + qs.length + '</b>题目</div>' +
+    '<div class="stat"><b>' + blocks.length + '</b>内容块</div>' +
+    '</div>' +
+    blocks.map(renderBlock).join('');
+}
+
+function renderQuestion(q) {
+  const h = [];
+  h.push('<div class="qcard">');
+  h.push('<div class="qhead"><span class="qno">' + esc(q.question_no) + '.</span>' +
+    typeBadge(q.question_type) + '</div>');
+  h.push('<div class="qtext">' + renderBlank(q.question_text || '') + '</div>');
+  const opts = q.options || [];
+  if (opts.length) {
+    h.push('<div class="options">');
+    opts.forEach(o => h.push('<div class="option"><span class="key">' +
+      esc(o.option_id || o.key) + '.</span><span class="qtext">' +
+      renderBlank(o.option_text || '') + '</span></div>'));
+    h.push('</div>');
+  }
+  if ((q.answer || q.explanation) && String(q.answer) !== 'null') {
+    h.push('<div class="answerbox"><b>答案：</b>' + esc(q.answer || '—') +
+      (q.explanation ? '<br><b>解析：</b>' + esc(q.explanation) : '') + '</div>');
+  }
+  h.push('</div>');
+  return h.join('');
+}
+
+function render(data) {
+  if (Array.isArray(data.blocks)) { renderBlocks(data); return; }
+  document.title = data.exam_info && data.exam_info.title ? data.exam_info.title : '题目预览';
+  document.getElementById('title').textContent =
+    (data.exam_info && data.exam_info.title) || '题目预览';
+  const ei = data.exam_info || {};
+  document.getElementById('meta').textContent =
+    ['总分:' + (ei.total_score || '?'), '题量:' + (ei.question_count || data.questions.length),
+     '时限:' + (ei.time_limit || '?')].filter(Boolean).join(' | ');
+  const main = document.getElementById('main');
+  const qs = data.questions || [];
+  const countBy = {};
+  qs.forEach(q => { countBy[q.question_type] = (countBy[q.question_type] || 0) + 1; });
+  const notesByAfter = {};
+  (data.document_notes || []).forEach(n => {
+    const key = n.after_question_id || '__start__';
+    (notesByAfter[key] = notesByAfter[key] || []).push(String(n.text || ''));
+  });
+  const notesHtml = key => (notesByAfter[key] || []).map(t =>
+    '<div class="examnotes">' + esc(t) + '</div>').join('');
+  main.innerHTML =
+    notesHtml('__start__') +
+    '<div class="stats">' +
+    '<div class="stat"><b>' + qs.length + '</b>总题数</div>' +
+    Object.keys(countBy).map(k => '<div class="stat"><b>' + countBy[k] + '</b>' +
+      esc(TYPE_LABEL[k] || k || '') + '</div>').join('') +
+    '</div>' +
+    qs.map(q => renderQuestion(q) + notesHtml(q.question_id)).join('');
+}
+
+/* 数据里图片已内嵌为 data: URI（make_viewer.py 注入），无需额外处理 */
+function loadFromFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try { render(JSON.parse(reader.result)); } catch (e) { alert('JSON 解析失败: ' + e.message); }
+  };
+  reader.readAsText(file, 'utf-8');
+}
+
+document.getElementById('file').addEventListener('change', e => {
+  const f = e.target.files && e.target.files[0];
+  if (f) loadFromFile(f);
+});
+
+render(SAMPLE);
+</script>
+</body>
+</html>

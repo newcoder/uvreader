@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>题目预览 - question_bank</title>
+<style>
+  :root { --line:#e3e4e8; --muted:#8a8f98; --card:#fff; --bg:#f4f5f7; --accent:#2f6fed; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.7 "Segoe UI", "Microsoft YaHei", sans-serif;
+         background:var(--bg); color:#222; }
+  header { position:sticky; top:0; background:#fff; border-bottom:1px solid var(--line);
+           padding:14px 24px; z-index:5; }
+  h1 { margin:0 0 6px; font-size:20px; }
+  .meta { color:var(--muted); font-size:13px; }
+  main { max-width: 880px; margin: 0 auto; padding: 18px 16px 80px; }
+  .stats { display:flex; gap:10px; flex-wrap:wrap; margin:10px 0 18px; }
+  .stat { background:#fff; border:1px solid var(--line); border-radius:10px;
+          padding:8px 16px; font-size:13px; }
+  .stat b { font-size:18px; display:block; }
+  .category { background:#eef2fb; border:1px solid #d4ddf3; border-radius:10px;
+              padding:8px 14px; margin:14px 0 6px; font-weight:600; font-size:15px; }
+  .category small { font-weight:400; color:var(--muted); margin-left:8px; }
+  .qcard { background:var(--card); border:1px solid var(--line); border-radius:12px;
+           padding:16px 18px; margin:10px 0; }
+  .qhead { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+  .qno { font-weight:700; font-size:15px; }
+  .badge { font-size:12px; padding:2px 10px; border-radius:99px; color:#fff; }
+  .b-choice-single { background:#2f6fed; } .b-choice-multiple { background:#7c4dff; }
+  .b-true-false { background:#0d9b6e; } .b-fill-blank { background:#e08600; }
+  .b-short-answer { background:#d64545; } .b-programming { background:#4b5563; }
+  .b-other { background:#8a8f98; }
+  .qtext { white-space:pre-wrap; word-break:break-word; }
+  .qtext code { background:#f0f1f3; border-radius:4px; padding:0 5px;
+                font-family:Consolas,monospace; font-size:13px; }
+  .qtext pre { background:#f6f7f9; border:1px solid var(--line); border-radius:8px;
+               padding:10px 14px; overflow-x:auto; }
+  .qtext img { max-width: 100%; border:1px solid var(--line); border-radius:8px;
+               margin:6px 0; background:#fff; }
+  .mdtable { border-collapse:collapse; margin:8px 0; width:auto; background:#fff; }
+  .mdtable th, .mdtable td { border:1px solid var(--line); padding:4px 12px; text-align:center; }
+  .mdtable th { background:#f0f3fa; font-weight:600; }
+  .options { margin:8px 0 2px 4px; }
+  .option { display:flex; gap:8px; padding:3px 0; align-items:flex-start; }
+  .option .key { font-weight:700; min-width:26px; }
+  .blank { display:inline-block; min-width:90px; border-bottom:2px solid var(--accent);
+           background:#f3f7ff; border-radius:4px; text-align:center; color:#8ab; margin:0 2px; }
+  .answerbox { margin-top:10px; padding:10px 14px; border-left:4px solid #0d9b6e;
+               background:#f2fbf6; font-size:13px; }
+  .answerbox b { color:#0d9b6e; }
+  .hint { color:var(--muted); font-size:12px; margin-top:6px; }
+  .examnotes { background:#fffdf3; border:1px solid #efe3b8; border-radius:10px;
+               padding:12px 16px; margin:0 0 14px; white-space:pre-wrap; font-size:14px; }
+  .examnotes b { display:block; margin-bottom:6px; color:#8a6d1a; }
+  .posbadge { color:var(--muted); font-size:12px; font-weight:400; margin-left:8px; }
+  .figimg { display:block; max-width:100%; border:1px solid var(--line); border-radius:8px;
+            margin:6px 0; background:#fff; }
+  .toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .toolbar input[type=file] { font-size:13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">题目预览</h1>
+  <div class="toolbar">
+    <span class="meta" id="meta"></span>
+    <input type="file" id="file" accept=".json" title="加载其它题目 JSON">
+  </div>
+</header>
+<main id="main"></main>
+<script>
+const SAMPLE = {"exam_info": {"title": "2021 CCF 非专业级别软件能力认证第一轮（CSP-J1）入门级 C++语言试题", "total_score": "100", "question_count": "43", "time_limit": "2021 年 9 月 19 日 14:30~16:30"}, "question_categories": [{"category_id": "cat1", "category_name": "一、单项选择题", "description": "共 15 题，每题 2 分，共计 30 分；每题有且仅有一个正确选项", "question_count": "15", "score_per_question": null}, {"category_id": "cat2", "category_name": "二、阅读程序", "description": "程序输入不超过数组或字符串定义的范围；判断题正确填√，错误填×；除特殊说明外，判断题 1.5 分，选择题 3 分，共计 40 分", "question_count": "18", "score_per_question": null}, {"category_id": "cat3", "category_name": "三、完善程序", "description": "单选题，每小题 3 分，共计 30 分", "question_count": "10", "score_per_question": null}], "questions": [{"question_no": "1", "question_id": "q1", "question_type": "multiple_choice_single", "question_text": "以下不属于面向对象程序设计语言的是（    ）。", "blank_positions": [], "options": [{"option_id": "A", "option_text": "C++"}, {"option_id": "B", "option_text": "Python"}, {"option_id": "C", "option_text": "Java"}, {"option_id": "D", "option_text": "C"}], "answer": null, "score": "2", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "2", "question_id": "q2", "question_type": "multiple_choice_single", "question_text": "以下奖项与计算机领域最相关的是（    ）。", "blank_positions": [], "options": [{"option_id": "A", "option_text": "奥斯卡奖"}, {"option_id": "B", "option_text": "图灵奖"}, {"option_id": "C", "option_text": "诺贝尔奖"}, {"option_id": "D", "option_text": "普利策奖"}], "answer": null, "score": "2", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "3", "question_id": "q3", "question_type": "multiple_choice_single", "question_text": "目前主流的计算机储存数据最终都是转换成（山西）数据进行储存。", "blank_positions": [], "options": [{"option_id": "A", "option_text": "二进制"}, {"option_id": "B", "option_text": "十进制"}, {"option_id": "C", "option_text": "八进制"}, {"option_id": "D", "option_text": "十六进制"}], "answer": null, "score": "2", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "4", "question_id": "q4", "question_type": "multiple_choice_single", "question_text": "以比较作为基本运算，在 N 个数中找出最大数，最坏情况下所需要的最少的比较次数为（    ）。", "blank_positions": [], "options": [{"option_id": "A", "option_text": "N2"}, {"option_id": "B", "option_text": "N"}, {"option_id": "C", "option_text": "N-1"}, {"option_id": "D", "option_text": "N+1"}], "answer": null, "score": "2", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "5", "question_id": "q5", "question_type": "multiple_choice_single", "question_text": "对于入栈顺序为 a, b, c, d, e 的序列，下列（    ）不是合法的出栈序列。", "blank_positions": [], "options": [{"option_id": "A", "option_text": "a, b, c, d, e"}, {"option_id": "B", "option_text": "e, d, c, b, a"}, {"option_id": "C", "option_text": "b, a, c, d, e 山西"}, {"option_id": "D", "option_text": "c, d, a, e, b"}], "answer": null, "score": "2", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "6", "question_id": "q6", "question_type": "multiple_choice_single", "question_text": "对于有 n 个顶点、m 条边的无向连通图 (m>n)，需要删掉（    ）条边才能使其成为一棵树。", "blank_positions": [], "options": [{"option_id": "A", "option_text": "n-1"}, {"option_id": "B", "option_text": "m-n"}, {"option_id": "C", "option_text": "m-n-1"}, {"option_id": "D", "option_text": "m-n+1"}], "answer": null, "score": "2", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "7", "question_id": "q7", "question_type": "multiple_choice_single", "question_text": "二进制数 101.11 对应的十进制数是（   ）。", "blank_positions": [], "options": [{"option_id": "A", "option_text": "6.5"}, {"option_id": "B", "option_text": "5.5"}, {"option_id": "C", "option_text": "5.75"}, {"option_id": "D", "option_text": "5.25"}], "answer": null, "score": "2", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "8", "question_id": "q8", "question_type": "multiple_choice_single", "question_text": "如果一棵二叉树只有根结点，那么这棵二叉树高度为 1。请问高度为 5 的完全二叉树有（    ）种不同的形态？", "blank_positions": [], "options": [{"option_id": "A", "option_text": "16"}, {"option_id": "B", "option_text": "15"}, {"option_id": "C", "option_text": "17"}, {"option_id": "D", "option_text": "32"}], "answer": null, "score": "2", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "9", "question_id": "q9", "question_type": "multiple_choice_single", "question_text": "表达式 a*(b+c)*d 的后缀表达式为(  )，其中“*”和“+”是运算符。", "blank_positions": [], "options": [{"option_id": "A", "option_text": "**a+bcd"}, {"option_id": "B", "option_text": "abc+*d*"}, {"option_id": "C", "option_text": "abc+d**"}, {"option_id": "D", "option_text": "*a*+bcd"}], "answer": null, "score": "2", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "10", "question_id": "q10", "question_type": "multiple_choice_single", "question_text": "6 个人，两个人组一队，总共组成三队，不区分队伍的编号。不同的组队情况有（山西      ）种。", "blank_positions": [], "options": [{"option_id": "A", "option_text": "10"}, {"option_id": "B", "option_text": "15"}, {"option_id": "C", "option_text": "30"}, {"option_id": "D", "option_text": "20"}], "answer": null, "score": "2", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "11", "question_id": "q11", "question_type": "multiple_choice_single", "question_text": "在数据压缩编码中的哈夫曼编码方法，在本质上是一种（    ）的策略。", "blank_positions": [], "options": [{"option_id": "A", "option_text": "枚举"}, {"option_id": "B", "option_text": "贪心"}, {"option_id": "C", "option_text": "递归"}, {"option_id": "D", "option_text": "动态规划"}], "answer": null, "score": "2", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "12", "question_id": "q12", "question_type": "multiple_choice_single", "question_text": "由 1，1，2，2，3 这五个数字组成不同的三位数有（    ）种。", "blank_positions": [], "options": [{"option_id": "A", "option_text": "18"}, {"option_id": "B", "option_text": "15"}, {"option_id": "C", "option_text": "12"}, {"option_id": "D", "option_text": "24"}], "answer": null, "score": "2", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "13", "question_id": "q13", "question_type": "multiple_choice_single", "question_text": "考虑如下递归算法\n\nsolve(n)\n\nif n<=1 return 1\n\nelse if n>=5 return n*solve(n-2)\n\nelse return n*solve(n-1)\n\n则调用 solve(7)得到的返回结果为（    ）。", "blank_positions": [], "options": [{"option_id": "A", "option_text": "105"}, {"option_id": "B", "option_text": "840"}, {"option_id": "C", "option_text": "210"}, {"option_id": "D", "option_text": "420"}], "answer": null, "score": "2", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "14", "question_id": "q14", "question_type": "multiple_choice_single", "question_text": "以 a 为起点，对右边的无向图进行深度优先遍历，则 b、 c、 d、 e 四个点中有可能作为最后一个遍历到的点的个数为（    ）。      a\n\nA. 1\n\nB. 2       b       c\n\nC. 3\n\nD. 4       d       e", "blank_positions": [], "options": [{"option_id": "A", "option_text": "1"}, {"option_id": "B", "option_text": "2"}, {"option_id": "C", "option_text": "3"}, {"option_id": "D", "option_text": "4"}], "answer": null, "score": "2", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "15", "question_id": "q15", "question_type": "multiple_choice_single", "question_text": "有四个人要从 A 点坐一条船过河到 B 点，船一开始在 A 点。该船一次最多可坐两个人。已知这四个人中每个人独自坐船的过河时间分别为 1, 2, 4, 8, 且两个人坐船的过河时间为两人独自过河时间的较大者。则最短（    ）时间可以让四个人都过河到 B 点（包括从 B 点把船开回 A 点的时间）。", "blank_positions": [], "options": [{"option_id": "A", "option_text": "14"}, {"option_id": "B", "option_text": "15"}, {"option_id": "C", "option_text": "16"}, {"option_id": "D", "option_text": "17"}], "answer": null, "score": "2", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "16", "question_id": "q16", "question_type": "true_false", "question_text": "(1)\n\n```cpp\n01 #include <iostream>\n02 using namespace std;\n03\n04 int n;\n05 int a[1000];\n06\n07 int f(int x)\n08 {\n09     int ret = 0;\n10     for (; x; x &= x - 1) ret++;\n11     return ret;\n13\n14 int g(int x)\n15 {\n16     return x & -x;\n18\n19 int main()\n20 {\n21     cin >> n;\n22     for (int i = 0; i < n; i++) cin >> a[i];\n23     for (int i = 0; i < n; i++)\n24         cout << f(a[i]) + g(a[i]) << ' ';\n25     cout << endl;\n26     return 0;\n```\n\n判断题\n\n输入的 n 等于 1001 时，程序不会发生下标越界。（    ）", "blank_positions": [], "options": [], "answer": null, "score": "1.5", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "17", "question_id": "q17", "question_type": "true_false", "question_text": "输入的 a[i] 必须全为正整数，否则程序将陷入死循环。（    ）", "blank_positions": [], "options": [], "answer": null, "score": "1.5", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "18", "question_id": "q18", "question_type": "true_false", "question_text": "当输入为“5 2 11 9 16 10”时，输出为“3 4 3 17 5”。（    ）", "blank_positions": [], "options": [], "answer": null, "score": "1.5", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "19", "question_id": "q19", "question_type": "true_false", "question_text": "当输入为“1 511998”时，输出为“山西18”。（    ）", "blank_positions": [], "options": [], "answer": null, "score": "1.5", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "20", "question_id": "q20", "question_type": "true_false", "question_text": "将源代码中 g 函数的定义（14-17 行）移到 main 函数的后面，程序可以正常编译运行。（    ）", "blank_positions": [], "options": [], "answer": null, "score": "1.5", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "21", "question_id": "q21", "question_type": "multiple_choice_single", "question_text": "单选题\n\n当输入为“2 -65536 2147483647”时，输出为（    ）。", "blank_positions": [], "options": [{"option_id": "A", "option_text": "“65532 33”"}, {"option_id": "B", "option_text": "“65552 32”"}, {"option_id": "C", "option_text": "“65535 34”"}, {"option_id": "D", "option_text": "“65554 33”"}], "answer": null, "score": "3", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "22", "question_id": "q22", "question_type": "true_false", "question_text": "(2)\n\n```cpp\n01 #include <iostream>\n02 #include <string>\n03 using namespace std;\n04\n05 char base[64];\n06 char table[256];\n07\n08 void init()\n09 {\n10     for (int i = 0; i < 26; i++) base[i] = 'A' + i;\n11     for (int i = 0; i < 26; i++) base[26 + i] = 'a' + i;\n12     for (int i = 0; i < 10; i++) base[52 + i] = '0' + i;\n13     base[62] = '+', base[63] = '/';\n14\n15     for (int i = 0; i < 256; i++) table[i] = 0xff;\n16     for (int i = 0; i < 64; i++) table[base[i]] = i;\n17     table['='] = 0;\n19\n20 string decode(string str)\n21 {\n22     string ret;\n23     int i;\n24     for (i = 0; i < str.size(); i += 4) {\n25         ret += table[str[i]] << 2 | table[str[i + 1]] >> 4;\n26         if (str[i + 2] != '=')\n27             ret += (table[str[i + 1]] & 0x0f) << 4 | table[str[i +\n\n2]] >> 2;\n\n33       山西\n\n28         if (str[i + 3] != '=')\n29             ret += table[str[i + 2]] << 6 | table[str[i + 3]];\n31     return ret;\n34 int main()\n35 {\n36     init();\n37     cout << int(table[0]) << endl;\n38\n39     string str;\n40     cin >> str;\n41     cout << decode(str) << endl;\n42     return 0;\n```\n\n判断题\n\n输出的第二行一定是由小写字母、大写字母、数字和“+”、“/”、“=”构成的字符串。（    ）", "blank_positions": [], "options": [], "answer": null, "score": "1.5", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "23", "question_id": "q23", "question_type": "true_false", "question_text": "可能存在输入不同，但输出的第二行相同的情形。（    ）", "blank_positions": [], "options": [], "answer": null, "score": "1.5", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "24", "question_id": "q24", "question_type": "true_false", "question_text": "输出的第一行为“-1”。（   ）", "blank_positions": [], "options": [], "answer": null, "score": "1.5", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "25", "question_id": "q25", "question_type": "multiple_choice_single", "question_text": "单选题\n\n设输入字符串长度为 n，decode 函数的时间复杂度为（    ）。", "blank_positions": [], "options": [{"option_id": "A", "option_text": "Θ(√𝑛)"}, {"option_id": "B", "option_text": "Θ(𝑛)"}, {"option_id": "C", "option_text": "Θ(𝑛log 𝑛)"}, {"option_id": "D", "option_text": "Θ(𝑛!)"}], "answer": null, "score": "3", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "26", "question_id": "q26", "question_type": "multiple_choice_single", "question_text": "山西当输入为“Y3Nx”时，输出的第二行为（    ）。", "blank_positions": [], "options": [{"option_id": "A", "option_text": "“csp”"}, {"option_id": "B", "option_text": "“csq”"}, {"option_id": "C", "option_text": "“CSP”"}, {"option_id": "D", "option_text": "“Csp”"}], "answer": null, "score": "3", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "27", "question_id": "q27", "question_type": "multiple_choice_single", "question_text": "（3.5 分）当输入为“Y2NmIDIwMjE=”时，输出的第二行为（    ）。", "blank_positions": [], "options": [{"option_id": "A", "option_text": "“ccf2021”"}, {"option_id": "B", "option_text": "“ccf2022”"}, {"option_id": "C", "option_text": "“ccf 2021”"}, {"option_id": "D", "option_text": "“ccf 2022”"}], "answer": null, "score": "3.5", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "28", "question_id": "q28", "question_type": "true_false", "question_text": "(3)\n\n```cpp\n01 #include <iostream>\n02 using namespace std;\n03\n04 const int n = 100000;\n05 const int N = n + 1;\n06\n07 int m;\n08 int a[N], b[N], c[N], d[N];\n14     for (int i = 2; i <= n; i++) { 山西\n09 int f[N], g[N];\n10\n11 void init()\n12 {\n13     f[1] = g[1] = 1;\n15         if (!a[i]) {\n16             b[m++] = i;\n17             c[i] = 1, f[i] = 2;\n18             d[i] = 1, g[i] = i + 1;\n20         for (int j = 0; j < m && b[j] * i <= n; j++) {\n21             int k = b[j];\n22             a[i * k] = 1;\n23             if (i % k == 0) {\n24                 c[i * k] = c[i] + 1;\n25                 f[i * k] = f[i] / c[i * k] * (c[i * k] + 1);\n26                 d[i * k] = d[i];\n27                 g[i * k] = g[i] * k + d[i];\n28                 break;\n30             else {\n31                 c[i * k] = 1;\n32                 f[i * k] = 2 * f[i];\n33                 d[i * k] = g[i];\n34                 g[i * k] = g[i] * (k + 1);\n39\n40 int main()\n41 {\n42     init();\n43\n44     int x;\n45     cin >> x;\n46     cout << f[x] << ' ' << g[x] << endl;\n47     return 0;\n```\n\n假设输入的 x 是不超过 1000 的自然数，完成下面的判断题和单选题：\n\n判断题\n\n若输入不为“1”，把第 13 行删去不会影响输出的结果。（    ）", "blank_positions": [], "options": [], "answer": null, "score": "1.5", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "29", "question_id": "q29", "question_type": "true_false", "question_text": "（2 分）第 25 行的“f[i] / c[i * k]”可能存在无法整除而向下取整的情况。（    ）", "blank_positions": [], "options": [], "answer": null, "score": "2", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "30", "question_id": "q30", "question_type": "true_false", "question_text": "（2 分）在执行完 init()后，f 数组不是单调递增的，但 g 数组是单调递增的。（    ）", "blank_positions": [], "options": [], "answer": null, "score": "2", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "31", "question_id": "q31", "question_type": "multiple_choice_single", "question_text": "单选题\n\ninit 函数的时间复杂度为（    ）。", "blank_positions": [], "options": [{"option_id": "A", "option_text": "Θ(𝑛)"}, {"option_id": "B", "option_text": "Θ(𝑛log 𝑛)"}, {"option_id": "C", "option_text": "Θ)𝑛√𝑛*"}, {"option_id": "D", "option_text": "Θ(𝑛!)"}], "answer": null, "score": "3", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "32", "question_id": "q32", "question_type": "multiple_choice_single", "question_text": "在执行完 init()后，f[1], f[2], f[3] …… f[100]中有（    ）个等于 2。", "blank_positions": [], "options": [{"option_id": "A", "option_text": "23"}, {"option_id": "B", "option_text": "24"}, {"option_id": "C", "option_text": "25"}, {"option_id": "D", "option_text": "26"}], "answer": null, "score": "3", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "33", "question_id": "q33", "question_type": "multiple_choice_single", "question_text": "（4 分）当输入为“1000”时，输出为（    ）。", "blank_positions": [], "options": [{"option_id": "A", "option_text": "“15 1340”"}, {"option_id": "B", "option_text": "“15 2340”"}, {"option_id": "C", "option_text": "“16 2340”"}, {"option_id": "D", "option_text": "“16 1340”"}], "answer": null, "score": "4", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "34", "question_id": "q34", "question_type": "multiple_choice_single", "question_text": "（1）（Josephus 问题）有 𝑛  个人围成一个圈，依次标号 0 至  𝑛−1。从  0 号开始，依次  0, 1, 0, 1, … 交替报数，报到  1 的人会离开，直至圈中只剩下一个人。求最后剩下人的编号。\n\n试补全模拟程序。\n\n```cpp\n01 #include <iostream>\n02\n03 using namespace std;\n04\n05 const int MAXN = 1000000;\n06 int F[MAXN];\n07\n08 int main() {\n09     int n;\n10     cin >> n;\n11     int i = 0, p = 0, c = 0;\n12     while (①) {\n13         if (F[i] == 0) {\n14             if (②) {\n15                 F[i] = 1;\n16                 ③;\n18             ④;\n24         if (F[i] == 0)       山西\n20         ⑤;\n22     int ans = -1;\n23     for (i = 0; i < n; i++)\n25             ans = i;\n26     cout << ans << endl;\n27     return 0;\n```\n\n①处应填（ ）", "blank_positions": [], "options": [{"option_id": "A", "option_text": "i < n"}, {"option_id": "B", "option_text": "c < n"}, {"option_id": "C", "option_text": "i < n - 1"}, {"option_id": "D", "option_text": "c < n - 1"}], "answer": null, "score": "3", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "35", "question_id": "q35", "question_type": "multiple_choice_single", "question_text": "②处应填（  ）", "blank_positions": [], "options": [{"option_id": "A", "option_text": "i % 2 == 0"}, {"option_id": "B", "option_text": "i % 2 == 1"}, {"option_id": "C", "option_text": "p"}, {"option_id": "D", "option_text": "!p"}], "answer": null, "score": "3", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "36", "question_id": "q36", "question_type": "multiple_choice_single", "question_text": "③处应填（  ）", "blank_positions": [], "options": [{"option_id": "A", "option_text": "i++"}, {"option_id": "B", "option_text": "i = (i + 1) % n"}, {"option_id": "C", "option_text": "c++"}, {"option_id": "D", "option_text": "p ^= 1"}], "answer": null, "score": "3", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "37", "question_id": "q37", "question_type": "multiple_choice_single", "question_text": "④处应填（  ）", "blank_positions": [], "options": [{"option_id": "A", "option_text": "i++"}, {"option_id": "B", "option_text": "i = (i + 1) % n"}, {"option_id": "C", "option_text": "c++"}, {"option_id": "D", "option_text": "p ^= 1"}], "answer": null, "score": "3", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "38", "question_id": "q38", "question_type": "multiple_choice_single", "question_text": "⑤处应填（  ）", "blank_positions": [], "options": [{"option_id": "A", "option_text": "i++"}, {"option_id": "B", "option_text": "i = (i + 1) % n"}, {"option_id": "C", "option_text": "c++"}, {"option_id": "D", "option_text": "p ^= 1"}], "answer": null, "score": "3", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "39", "question_id": "q39", "question_type": "multiple_choice_single", "question_text": "（2） （矩形计数）平面上有  𝑛  个关键点，求有多少个四条边都和 x 轴或者 y 轴平行的矩形，满足四个顶点都是关键点。给出的关键点可能有重复，但完全重合的矩形只计一次。\n\n试补全枚举算法。\n\n```cpp\n01 #include <iostream>\n02\n03 using namespace std;\n04\n05 struct point {\n06     int x, y, id;\n07 };\n08\n14     return ①;       山西\n09 bool equals(point a, point b) {\n10     return a.x == b.x && a.y == b.y;\n12\n13 bool cmp(point a, point b) {\n16\n17 void sort(point A[], int n) {\n18     for (int i = 0; i < n; i++)\n19         for (int j = 1; j < n; j++)\n20             if (cmp(A[j], A[j - 1])) {\n21                 point t = A[j];\n22                 A[j] = A[j - 1];\n23                 A[j - 1] = t;\n26\n27 int unique(point A[], int n) {\n28     int t = 0;\n29     for (int i = 0; i < n; i++)\n30         if (②)\n31             A[t++] = A[i];\n32     return t;\n34\n35 bool binary_search(point A[], int n, int x, int y) {\n36     point p;\n37     p.x = x;\n38     p.y = y;\n39     p.id = n;\n40     int a = 0, b = n - 1;\n41     while (a < b) {\n42         int mid = ③;\n43         if (④)\n44             a = mid + 1;\n45         else\n46             b = mid;\n48     return equals(A[a], p);\n50\n51 const int MAXN = 1000;\n52 point A[MAXN];\n58         cin >> A[i].x >> A[i].y; 山西\n53\n54 int main() {\n55     int n;\n56     cin >> n;\n57     for (int i = 0; i < n; i++) {\n59         A[i].id = i;\n61     sort(A, n);\n62     n = unique(A, n);\n63     int ans = 0;\n64     for (int i = 0; i < n; i++)\n65         for (int j = 0; j < n; j++)\n66             if (⑤ && binary_search(A, n, A[i].x, A[j].y) &&\n\nbinary_search(A, n, A[j].x, A[i].y)) {\n67                 ans++;\n69     cout << ans << endl;\n70     return 0;\n```\n\n①处应填（   ）", "blank_positions": [], "options": [{"option_id": "A", "option_text": "a.x != b.x ? a.x < b.x : a.id < b.id"}, {"option_id": "B", "option_text": "a.x != b.x ? a.x < b.x : a.y < b.y"}, {"option_id": "C", "option_text": "equals(a, b) ? a.id < b.id : a.x < b.x"}, {"option_id": "D", "option_text": "equals(a, b) ? a.id < b.id : (a.x != b.x ? a.x < b.x : a.y < b.y)"}], "answer": null, "score": "3", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "40", "question_id": "q40", "question_type": "multiple_choice_single", "question_text": "②处应填（  ）", "blank_positions": [], "options": [{"option_id": "A", "option_text": "i == 0 || cmp(A[i], A[i - 1])"}, {"option_id": "B", "option_text": "t == 0 || equals(A[i], A[t - 1])"}, {"option_id": "C", "option_text": "i == 0 || !cmp(A[i], A[i - 1])"}, {"option_id": "D", "option_text": "t == 0 || !equals(A[i], A[t - 1])"}], "answer": null, "score": "3", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "41", "question_id": "q41", "question_type": "multiple_choice_single", "question_text": "③处应填（  ）", "blank_positions": [], "options": [{"option_id": "A", "option_text": "b - (b - a) / 2 + 1"}, {"option_id": "B", "option_text": "(a + b + 1) >> 1"}, {"option_id": "C", "option_text": "(a + b) >> 1"}, {"option_id": "D", "option_text": "a + (b - a + 1) / 2"}], "answer": null, "score": "3", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "42", "question_id": "q42", "question_type": "multiple_choice_single", "question_text": "④处应填（  ）", "blank_positions": [], "options": [{"option_id": "A", "option_text": "!cmp(A[mid], p)"}, {"option_id": "B", "option_text": "cmp(A[mid], p)"}, {"option_id": "C", "option_text": "cmp(p, A[mid])"}, {"option_id": "D", "option_text": "!cmp(p, A[mid])"}], "answer": null, "score": "3", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}, {"question_no": "43", "question_id": "q43", "question_type": "multiple_choice_single", "question_text": "⑤处应填（  ）", "blank_positions": [], "options": [{"option_id": "A", "option_text": "A[i].x == A[j].x"}, {"option_id": "B", "option_text": "A[i].id < A[j].id"}, {"option_id": "C", "option_text": "A[i].x == A[j].x && A[i].id < A[j].id"}, {"option_id": "D", "option_text": "A[i].x < A[j].x && A[i].y < A[j].y"}], "answer": null, "score": "3", "difficulty": null, "explanation": null, "sample_input_output": {"input": null, "output": null}, "grading_criteria": null, "reference_code": null, "input_description": null, "output_description": null, "additional_tips": null}], "document_notes": [{"after_question_id": null, "text": "考生注意事项：\n\nl    试题纸共有 12 页，答题纸共有 1 页，满分 100 分。请在答题纸上作答，写在试题纸上的\n\n一律无效。\n\nl    不得使用任何电子设备（如计算器、手机、电子词典等）或查阅任何书籍资料。"}, {"after_question_id": null, "text": "一、单项选择题\n共 15 题，每题 2 分，共计 30 分；每题有且仅有一个正确选项"}, {"after_question_id": "q15", "text": "二、阅读程序\n程序输入不超过数组或字符串定义的范围；判断题正确填√，错误填×；除特殊说明外，判断题 1.5 分，选择题 3 分，共计 40 分"}, {"after_question_id": "q33", "text": "三、完善程序\n单选题，每小题 3 分，共计 30 分"}]};
+
+const TYPE_LABEL = {
+  multiple_choice_single: '单选题', multiple_choice_multiple: '多选题',
+  true_false: '判断题', fill_blank: '填空题', short_answer: '简答题',
+  programming: '编程题'
+};
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* 把 markdown 表格段转为真实 <table>；其余行做行内渲染 */
+function renderTables(lines) {
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.indexOf('|') === 0) {
+      const rows = [];
+      while (i < lines.length && lines[i].indexOf('|') === 0) {
+        const cells = lines[i].slice(1, -1).split('|').map(c => c.trim());
+        rows.push(cells);
+        i++;
+      }
+      // 去掉可能的分隔行（|---|）
+      const dataRows = rows.filter(r => !(r.length && /^:?-{2,}:?$/.test(r[0]) &&
+        r.every(c => /^:?-{2,}:?$/.test(c))));
+      if (dataRows.length) {
+        const head = dataRows[0];
+        let h = '<table class="mdtable"><thead><tr>' +
+          head.map(c => '<th>' + inlineMd(c) + '</th>').join('') + '</tr></thead><tbody>';
+        for (let r = 1; r < dataRows.length; r++) {
+          h += '<tr>' + dataRows[r].map(c => '<td>' + inlineMd(c || '') + '</td>').join('') +
+            '</tr>';
+        }
+        out.push(h + '</tbody></table>');
+        continue;
+      }
+      out.push(esc(line));
+      continue;
+    }
+    out.push(inlineMd(line));
+    i++;
+  }
+  return out.join('\n');
+}
+
+function inlineMd(s) {
+  let h = esc(s);
+  h = h.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g,
+    (m, alt, src) => /^(data:|\.\.?\/|[a-z]+:\/\/)/.test(src)
+      ? '<img src="' + src + '" alt="' + alt + '" loading="lazy">' : m);
+  h = h.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, label, href) =>
+    /^(https?:|mailto:|#|\/)/.test(href)
+      ? '<a href="' + href + '" target="_blank">' + label + '</a>' : m);
+  h = h.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+  h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
+  return h;
+}
+
+function mdRender(text) {
+  if (!text) return '';
+  const blocks = [];
+  const parts = String(text).split(/```/);
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 1) { blocks.push('<pre>' + esc(parts[i]) + '</pre>'); continue; }
+    blocks.push(renderTables(parts[i].split('\n')).replace(/\n/g, '\n'));
+  }
+  return blocks.join('');
+}
+
+function renderBlank(text) {
+  // 填空题：把 ____ 换成输入框样式的占位
+  return mdRender(text).replace(/(_+)/g, '<span class="blank">&nbsp;</span>');
+}
+
+const SAFE_TYPES = { multiple_choice_single: 1, multiple_choice_multiple: 1, true_false: 1,
+                     fill_blank: 1, short_answer: 1, programming: 1 };
+function typeBadge(t) {
+  const safe = SAFE_TYPES[t] ? t : 'other';
+  return '<span class="badge b-' + safe + '">' + esc(TYPE_LABEL[t] || t || '未知') + '</span>';
+}
+
+/* ---------- blocks 格式（--mode box 输出）---------- */
+
+function asText(v) {
+  if (v == null) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (Array.isArray(v)) return v.map(asText).filter(Boolean).join('\n');
+  if (typeof v === 'object') {
+    if (typeof v.text === 'string') return v.text;
+    if (typeof v.content === 'string') return v.content;
+    if (Array.isArray(v.steps)) return v.steps.map(asText).filter(Boolean).join('\n');
+  }
+  return String(v);
+}
+
+function srcUrl(s) {
+  const m = /!\[[^\]]*\]\(([^)\s]+)\)/.exec(String(s || ''));
+  return m ? m[1] : String(s || '');
+}
+
+function refKeys(text) {
+  const out = new Set();
+  const re = /!\[插图(\d+)\]/g;
+  let m;
+  while ((m = re.exec(String(text || '')))) out.add(m[1]);
+  return out;
+}
+
+function figHtml(src, alt) {
+  const u = srcUrl(src);
+  if (!/^(data:|https?:|\.{0,2}\/)/.test(u)) return '';
+  return '<img class="figimg" src="' + u + '" alt="' + esc(asText(alt)) + '" loading="lazy">';
+}
+
+function tableHtml(headers, rows) {
+  let h = '<table class="mdtable"><thead><tr>' +
+    (headers || []).map(x => '<th>' + inlineMd(asText(x)) + '</th>').join('') +
+    '</tr></thead><tbody>';
+  (rows || []).forEach(r => {
+    h += '<tr>' + r.map(c => '<td>' + inlineMd(asText(c)) +
+      '</td>').join('') + '</tr>';
+  });
+  return h + '</tbody></table>';
+}
+
+function renderBlock(b) {
+  const pos = b.position ? '<span class="posbadge">' + esc(b.position) + '</span>' : '';
+  if (b.type === 'question') {
+    const h = ['<div class="qcard">'];
+    h.push('<div class="qhead"><span class="qno">题 ' + esc(b.number) + '</span>' + pos +
+      '</div>');
+    const stem = asText(b.stem);
+    h.push('<div class="qtext">' + mdRender(stem) + '</div>');
+    const inText = refKeys(stem);
+    (b.images || []).forEach(im => {
+      const k = /插图(\d+)/.exec(String(im.src || ''));
+      if (k && inText.has(k[1])) return;  // 已在正文原位置渲染
+      h.push(figHtml(im.src, im.alt));
+    });
+    const opts = b.options;
+    let items = [];
+    if (Array.isArray(opts)) items = opts.map((v, i) => [String.fromCharCode(65 + i), v]);
+    else if (opts && typeof opts === 'object') items = Object.keys(opts).map(k => [k, opts[k]]);
+    if (items.length) {
+      h.push('<div class="options">');
+      items.forEach(pair => {
+        const k = pair[0], v = pair[1];
+        const t = (v && typeof v === 'object') ? (v.text || '') : (v == null ? '' : v);
+        let line = '<div class="option"><span class="key">' + esc(k) + '.</span>' +
+          '<span class="qtext">' + mdRender(asText(t)) + '</span>';
+        if (v && typeof v === 'object' && v.image && typeof v.image === 'object') {
+          const kk = /插图(\d+)/.exec(String(v.image.src || ''));
+          if (!(kk && (inText.has(kk[1]) || refKeys(asText(t)).has(kk[1])))) {
+            line += figHtml(v.image.src, v.image.alt);
+          }
+        }
+        h.push(line + '</div>');
+      });
+      h.push('</div>');
+    }
+    if (b.table && (b.table.headers || b.table.rows)) {
+      h.push(tableHtml(b.table.headers, b.table.rows));
+    }
+    if (b.answer) {
+      h.push('<div class="answerbox"><b>答案：</b>' + esc(asText(b.answer)) +
+        (b.explanation ? '<br><b>解析：</b>' + mdRender(asText(b.explanation)) : '') +
+        '</div>');
+    }
+    h.push('</div>');
+    return h.join('');
+  }
+  if (b.type === 'text') {
+    return '<div class="examnotes">' + pos +
+      mdRender(asText(b.content != null ? b.content : b.text)) + '</div>';
+  }
+  if (b.type === 'image') {
+    return figHtml((b.image || {}).src || b.src, (b.image || {}).alt);
+  }
+  if (b.type === 'equation') {  // MinerU：优先公式裁剪图，缺失时显示 LaTeX 源
+    const fig = (b.image && b.image.src) ? figHtml(b.image.src, '公式') : '';
+    if (fig) return fig;
+    return '<div class="examnotes">' + esc(asText(b.text)) + '</div>';
+  }
+  if (b.type === 'table') {
+    const tb = b.table || b;
+    return tableHtml(tb.headers, tb.rows);
+  }
+  if (b.type === 'code') {
+    return '<pre>' + esc(b.content || b.code || '') + '</pre>';
+  }
+  return '';
+}
+
+function renderBlocks(data) {
+  const blocks = data.blocks || [];
+  const qs = blocks.filter(b => b.type === 'question');
+  document.title = '题目预览';
+  document.getElementById('title').textContent = '题目预览';
+  document.getElementById('meta').textContent =
+    '题目:' + qs.length + ' | 内容块:' + blocks.length;
+  document.getElementById('main').innerHTML =
+    '<div class="stats">' +
+    '<div class="stat"><b>' + qs.length + '</b>题目</div>' +
+    '<div class="stat"><b>' + blocks.length + '</b>内容块</div>' +
+    '</div>' +
+    blocks.map(renderBlock).join('');
+}
+
+function renderQuestion(q) {
+  const h = [];
+  h.push('<div class="qcard">');
+  h.push('<div class="qhead"><span class="qno">' + esc(q.question_no) + '.</span>' +
+    typeBadge(q.question_type) + '</div>');
+  h.push('<div class="qtext">' + renderBlank(q.question_text || '') + '</div>');
+  const opts = q.options || [];
+  if (opts.length) {
+    h.push('<div class="options">');
+    opts.forEach(o => h.push('<div class="option"><span class="key">' +
+      esc(o.option_id || o.key) + '.</span><span class="qtext">' +
+      renderBlank(o.option_text || '') + '</span></div>'));
+    h.push('</div>');
+  }
+  if ((q.answer || q.explanation) && String(q.answer) !== 'null') {
+    h.push('<div class="answerbox"><b>答案：</b>' + esc(q.answer || '—') +
+      (q.explanation ? '<br><b>解析：</b>' + esc(q.explanation) : '') + '</div>');
+  }
+  h.push('</div>');
+  return h.join('');
+}
+
+function render(data) {
+  if (Array.isArray(data.blocks)) { renderBlocks(data); return; }
+  document.title = data.exam_info && data.exam_info.title ? data.exam_info.title : '题目预览';
+  document.getElementById('title').textContent =
+    (data.exam_info && data.exam_info.title) || '题目预览';
+  const ei = data.exam_info || {};
+  document.getElementById('meta').textContent =
+    ['总分:' + (ei.total_score || '?'), '题量:' + (ei.question_count || data.questions.length),
+     '时限:' + (ei.time_limit || '?')].filter(Boolean).join(' | ');
+  const main = document.getElementById('main');
+  const qs = data.questions || [];
+  const countBy = {};
+  qs.forEach(q => { countBy[q.question_type] = (countBy[q.question_type] || 0) + 1; });
+  const notesByAfter = {};
+  (data.document_notes || []).forEach(n => {
+    const key = n.after_question_id || '__start__';
+    (notesByAfter[key] = notesByAfter[key] || []).push(String(n.text || ''));
+  });
+  const notesHtml = key => (notesByAfter[key] || []).map(t =>
+    '<div class="examnotes">' + esc(t) + '</div>').join('');
+  main.innerHTML =
+    notesHtml('__start__') +
+    '<div class="stats">' +
+    '<div class="stat"><b>' + qs.length + '</b>总题数</div>' +
+    Object.keys(countBy).map(k => '<div class="stat"><b>' + countBy[k] + '</b>' +
+      esc(TYPE_LABEL[k] || k || '') + '</div>').join('') +
+    '</div>' +
+    qs.map(q => renderQuestion(q) + notesHtml(q.question_id)).join('');
+}
+
+/* 数据里图片已内嵌为 data: URI（make_viewer.py 注入），无需额外处理 */
+function loadFromFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try { render(JSON.parse(reader.result)); } catch (e) { alert('JSON 解析失败: ' + e.message); }
+  };
+  reader.readAsText(file, 'utf-8');
+}
+
+document.getElementById('file').addEventListener('change', e => {
+  const f = e.target.files && e.target.files[0];
+  if (f) loadFromFile(f);
+});
+
+render(SAMPLE);
+</script>
+</body>
+</html>

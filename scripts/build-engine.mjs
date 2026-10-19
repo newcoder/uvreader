@@ -30,7 +30,7 @@ const PYTHON_MINOR = "3.11";
 const hostPlatform = `${process.platform}-${process.arch}`;
 const platform = flag("platform", hostPlatform);
 const outDir = path.resolve(flag("out", path.join(repoRoot, "dist", "engine")));
-const pdfToolDir = flag("pdf-tool", "");
+const pdfToolDir = flag("pdf-tool", path.join(engineRoot, "vendor", "pdf_tool"));
 const keepStage = args.includes("--keep-stage");
 
 const PIP_PLATFORM = {

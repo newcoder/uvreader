@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>题目预览 - question_bank</title>
+<style>
+  :root { --line:#e3e4e8; --muted:#8a8f98; --card:#fff; --bg:#f4f5f7; --accent:#2f6fed; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.7 "Segoe UI", "Microsoft YaHei", sans-serif;
+         background:var(--bg); color:#222; }
+  header { position:sticky; top:0; background:#fff; border-bottom:1px solid var(--line);
+           padding:14px 24px; z-index:5; }
+  h1 { margin:0 0 6px; font-size:20px; }
+  .meta { color:var(--muted); font-size:13px; }
+  main { max-width: 880px; margin: 0 auto; padding: 18px 16px 80px; }
+  .stats { display:flex; gap:10px; flex-wrap:wrap; margin:10px 0 18px; }
+  .stat { background:#fff; border:1px solid var(--line); border-radius:10px;
+          padding:8px 16px; font-size:13px; }
+  .stat b { font-size:18px; display:block; }
+  .category { background:#eef2fb; border:1px solid #d4ddf3; border-radius:10px;
+              padding:8px 14px; margin:14px 0 6px; font-weight:600; font-size:15px; }
+  .category small { font-weight:400; color:var(--muted); margin-left:8px; }
+  .qcard { background:var(--card); border:1px solid var(--line); border-radius:12px;
+           padding:16px 18px; margin:10px 0; }
+  .qhead { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+  .qno { font-weight:700; font-size:15px; }
+  .badge { font-size:12px; padding:2px 10px; border-radius:99px; color:#fff; }
+  .b-choice-single { background:#2f6fed; } .b-choice-multiple { background:#7c4dff; }
+  .b-true-false { background:#0d9b6e; } .b-fill-blank { background:#e08600; }
+  .b-short-answer { background:#d64545; } .b-programming { background:#4b5563; }
+  .b-other { background:#8a8f98; }
+  .qtext { white-space:pre-wrap; word-break:break-word; }
+  .qtext code { background:#f0f1f3; border-radius:4px; padding:0 5px;
+                font-family:Consolas,monospace; font-size:13px; }
+  .qtext pre { background:#f6f7f9; border:1px solid var(--line); border-radius:8px;
+               padding:10px 14px; overflow-x:auto; }
+  .qtext img { max-width: 100%; border:1px solid var(--line); border-radius:8px;
+               margin:6px 0; background:#fff; }
+  .mdtable { border-collapse:collapse; margin:8px 0; width:auto; background:#fff; }
+  .mdtable th, .mdtable td { border:1px solid var(--line); padding:4px 12px; text-align:center; }
+  .mdtable th { background:#f0f3fa; font-weight:600; }
+  .options { margin:8px 0 2px 4px; }
+  .option { display:flex; gap:8px; padding:3px 0; align-items:flex-start; }
+  .option .key { font-weight:700; min-width:26px; }
+  .blank { display:inline-block; min-width:90px; border-bottom:2px solid var(--accent);
+           background:#f3f7ff; border-radius:4px; text-align:center; color:#8ab; margin:0 2px; }
+  .answerbox { margin-top:10px; padding:10px 14px; border-left:4px solid #0d9b6e;
+               background:#f2fbf6; font-size:13px; }
+  .answerbox b { color:#0d9b6e; }
+  .hint { color:var(--muted); font-size:12px; margin-top:6px; }
+  .examnotes { background:#fffdf3; border:1px solid #efe3b8; border-radius:10px;
+               padding:12px 16px; margin:0 0 14px; white-space:pre-wrap; font-size:14px; }
+  .examnotes b { display:block; margin-bottom:6px; color:#8a6d1a; }
+  .posbadge { color:var(--muted); font-size:12px; font-weight:400; margin-left:8px; }
+  .figimg { display:block; max-width:100%; border:1px solid var(--line); border-radius:8px;
+            margin:6px 0; background:#fff; }
+  .toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .toolbar input[type=file] { font-size:13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">题目预览</h1>
+  <div class="toolbar">
+    <span class="meta" id="meta"></span>
+    <input type="file" id="file" accept=".json" title="加载其它题目 JSON">
+  </div>
+</header>
+<main id="main"></main>
+<script>
+const SAMPLE = {"blocks": [{"type": "heading", "position": "Page 1", "level": 1, "text": "2019CCF 非专业级别软件能力认证第一轮"}, {"type": "heading", "position": "Page 1", "level": 2, "text": "(CSP-J) 入门级 C++ 语言试题 A 卷"}, {"type": "text", "position": "Page 1", "text": "认证时间：2019年10月19日14:30~16:30"}, {"type": "text", "position": "Page 1", "text": "考生注意事项：\n- 试题纸共有9页，答题纸共有1页，满分100分。请在答题纸上作答，写在试题纸上的一律无效。\n- 不得使用任何电子设备（如计算器、手机、电子词典等）或查阅任何书籍资料。"}, {"type": "heading", "position": "Page 1", "level": 2, "text": "一、单项选择题（共 15 题，每题 2 分，共计 30 分；每题有且仅有一个正确选项）"}, {"type": "text", "position": "Page 1", "text": "1. 中国的国家顶级域名是（）\nA. .cn    B. .ch    C. .chn    D. .china"}, {"type": "text", "position": "Page 1", "text": "2. 二进制数 11 1011 1001 0111 和 01 0110 1110 1011 进行逻辑与运算的结果是（）。A. 01 0010 1000 1011 B. 01 0010 1001 0011 C. 01 0010 1000 0001 D. 01 0010 1000 0011"}, {"type": "text", "position": "Page 1", "text": "3. 一个 32 位整型变量占用（）个字节。"}, {"type": "text", "position": "Page 1", "text": "4. 若有如下程序段，其中 s、a、b、c 均已定义为整型变量，且 a、c 均已赋值（c 大于 0）\ns = a;\nfor (b = 1; b <= c; b++) s = s - 1;\n则与上述程序段功能等价的赋值语句是（）\nA. s = a - c; B. s = a - b; C. s = s - c; D. s = b - c;"}, {"type": "text", "position": "Page 1", "text": "5. 设有 100 个已排好序的数据元素，采用折半查找时，最大比较次数为（）"}, {"type": "text", "position": "Page 1", "text": "6. 链表不具有的特点是（）\nA. 插入删除不需要移动元素\nB. 不必事先估计存储空间\nC. 所需空间与线性表长度成正比\nD. 可随机访问任一元素"}, {"type": "text", "position": "Page 1", "text": "7. 把 8 个同样的球放在 5 个同样的袋子里, 允许有的袋子空着不放, 问共有多少种不同的分法? ( ) 提示: 如果 8 个球都放在一个袋子里, 无论是哪个袋子, 都只算同一种分法"}, {"type": "image", "position": "Page 2", "image": {"src": "data:image/jpeg;base64,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", "alt": "插图"}}, {"type": "text", "position": "Page 2", "text": "8. 一棵二叉树如右图所示, 若采用顺序存储结构, 即用一维数组元素存储该二叉树中的结点 (根结点的下标为 1 , 若某结点的下标为 i , 则其左孩子位于下标 2i 处、右孩子位于下标 2i+1 处), 则该数组的最大下标至少为 ( )。 A. 6 B. 10 C. 15"}, {"type": "text", "position": "Page 2", "text": "9. 100 以内最大的素数是（）。A. 89 B. 97 C. 91 D. 93"}, {"type": "text", "position": "Page 2", "text": "10.319 和 377 的最大公约数是（）。A. 27 B. 33 C. 29 D. 31"}, {"type": "text", "position": "Page 2", "text": "11. 新学期开学了, 小胖想减肥, 健身教练给小胖制定了两个训练方案。方案一: 每次连续跑 3 公里可以消耗 300 千卡 (耗时半小时); 方案二: 每次连续跑 5 公里可以消耗 600 千卡 (耗时 1 小时)。小胖每周周一到周四能抽出半小时跑步, 周五到周日能抽出一小时跑步。另外, 教练建议小胖每周最多跑 21 公里, 否则会损伤膝盖。请问如果小胖想严格执行教练的训练方案, 并且不想损伤膝盖, 每周最多通过跑步消耗多少千卡? ( )"}, {"type": "text", "position": "Page 2", "text": "12. 一副纸牌除掉大小王有 52 张牌, 四种花色, 每种花色 13 张。假设从这 52 张牌中随机抽取 13 张纸牌, 则至少 ( ) 张牌的花色一致。\nA. 4\nB. 2\nC. 3\nD. 5"}, {"type": "text", "position": "Page 2", "text": "13. 一些数字可以颠倒过来看，例如 0、1、8 颠倒过来还是本身，6 颠倒过来是 9，9 颠倒过来看还是 6，其他数字颠倒过来都不构成数字。类似的，一些多位数也可以颠倒过来看，比如 106 颠倒过来是 901。假设某个城市的车牌只由 5 位数字组成，每一位都可以取 0 到 9。请问这个城市最多有多少个车牌倒过来恰好还是原来的车牌？（）"}, {"type": "text", "position": "Page 2", "text": "14. 假设一棵二叉树的后序遍历序列为 DGJHEBIFCA, 中序遍历序列为 DBGEHJACIF, 则其前序遍历序列为（）。 A. ABCDEFGHIJ B. ABDEGHJCFI C. ABDEGJHCFI D. ABDEGHJFIC"}, {"type": "text", "position": "Page 2", "text": "15. 以下哪个奖项是计算机科学领域的最高奖？（）\nA. 图灵奖    B. 鲁班奖    C. 诺贝尔奖    D. 普利策奖"}, {"type": "heading", "position": "Page 3", "level": 2, "text": "二、阅读程序（程序输入不超过数组或字符串定义的范围；判断题正确填√，错误填×；除特殊说明外，判断题1.5分，选择题3分，共计40分）"}, {"type": "code", "position": "Page 3", "lang": "cpp", "content": "#include <cstdio>\n#include <cstring>\nusing namespace std;\nchar st[100];\nint main() {\n    scanf(\"%s\", st);\n    int n = strlen(st);\n    for (int i = 1; i <= n; ++i) {\n    if (n % i == 0) {\n    char c = st[i - 1];\n    if (c >= 'a')\n    st[i - 1] = c - 'a' + 'A';\n    }\n    }\n    printf(\"%s\", st);\n    return 0;\n}"}, {"type": "text", "position": "Page 3", "text": "- 判断题\n\n1）输入的字符串只能由小写字母或大写字母组成。（）\n\n2）若将第8行的“i = 1”改为“i = 0”，程序运行时会发生错误。（）\n\n3）若将第8行的“i <= n”改为“i * i <= n”，程序运行结果不会改变。（）\n\n4）若输入的字符串全部由大写字母组成，那么输出的字符串就跟输入的字符串一样。（）"}, {"type": "text", "position": "Page 3", "text": "• 选择题\n\n5）若输入的字符串长度为 18，那么输入的字符串跟输出的字符串相比，至多有（）个字符不同。\n\n6) 若输入的字符串长度为（），那么输入的字符串跟输出的字符串相比，至多有36个字符不同。"}, {"type": "code", "position": "Page 4", "lang": "cpp", "content": "#include <cstdio>\nusing namespace std;\nint n, m;\nint a[100], b[100];\nint main() {\n    scanf(\"%d%d\", &n, &m);\n    for (int i = 1; i <= n; ++i)\n    a[i] = b[i] = 0;\n    for (int i = 1; i <= m; ++i) {\n    int x, y;\n    scanf(\"%d%d\", &x, &y);\n    if (a[x] < y && b[y] < x) {\n    if (a[x] > 0)\n    b[a[x]] = 0;\n    if (b[y] > 0)\n    a[b[y]] = 0;\n    a[x] = y;\n    b[y] = x;\n    }\n    }\n    int ans = 0;\n    for (int i = 1; i <= n; ++i) {\n    if (a[i] == 0)\n    ++ans;\n    if (b[i] == 0)\n    ++ans;\n    }\n    printf(\"%d\\n\", ans);\n    return 0;\n}"}, {"type": "text", "position": "Page 4", "text": "假设输入的 n 和 m 都是正整数，x 和 y 都是在 [1, n] 的范围内的整数，完成下面的判断题和单选题：\n\n- 判断题\n\n1）当 m > 0 时，输出的值一定小于 2n 。（）\n\n2）执行完第 27 行的 “++ans” 时，ans 一定是偶数。（）\n\n3）a[i]和b[i]不可能同时大于θ。（）"}, {"type": "text", "position": "Page 5", "text": "4）若程序执行到第 13 行时，x 总是小于 y，那么第 15 行不会被执行。（）\n\n- 选择题\n\n5）若 m 个 x 两两不同，且 m 个 y 两两不同，则输出的值为（）\nA. 2n-2m B. 2n+2 C. 2n-2 D. 2n\n\n6) 若 m 个 x 两两不同，且 m 个 y 都相等，则输出的值为（）\nA. 2n-2 B. 2n C. 2m D. 2n-2m"}, {"type": "text", "position": "Page 5", "text": "3."}, {"type": "code", "position": "Page 5", "lang": "cpp", "content": "#include <iostream>\nusing namespace std;\nconst int maxn = 10000;\nint n;\nint a[maxn];\nint b[maxn];\nint f(int l, int r, int depth) {\n    if (l > r)\n    return 0;\n    int min = maxn, mink;\n    for (int i = l; i <= r; ++i) {\n    if (min > a[i]) {\n    min = a[i];\n    mink = i;\n    }\n    }\n    int lres = f(l, mink - 1, depth + 1);\n    int rres = f(mink + 1, r, depth + 1);\n    return lres + rres + depth * b[mink];\n}\n\nint main() {\n    cin >> n;\n    for (int i = 0; i < n; ++i)\n    cin >> a[i];\n    for (int i = 0; i < n; ++i)\n    cin >> b[i];\n    cout << f(0, n - 1, 1) << endl;\n    return 0;\n}"}, {"type": "text", "position": "Page 5", "text": "- 判断题\n\n1）如果 a 数组有重复的数字，则程序运行时会发生错误。（）"}, {"type": "text", "position": "Page 6", "text": "2）如果 b 数组全为 0，则输出为 0。（）\n\n- 选择题\n\n3）当 n=100 时，最坏情况下，与第 12 行的比较运算执行的次数最接近的是：（）。A. 5000 B. 600 C. 6 D. 100\n\n4) 当 n = 100 时, 最好情况下, 与第 12 行的比较运算执行的次数最接近的是: ( )。\n\n5）当 n=10 时，若 b 数组满足，对任意 0 ≤ i < n ，都有 b[i] = i + 1 ，那么输出最大为（）。A. 386 B. 383 C. 384 D. 385\n\n6) （4 分）当 n=100 时，若 b 数组满足，对任意 0 ≤ i < n ，都有 b[i] = 1 ，那么输出最小为（）。A. 582 B. 580 C. 579 D. 581"}, {"type": "heading", "position": "Page 6", "level": 2, "text": "三、完善程序（单选题，每小题3分，共计30分）"}, {"type": "text", "position": "Page 6", "text": "1. （矩阵变幻）有一个奇幻的矩阵，在不停的变幻，其变幻方式为：数字0变成矩阵 \\begin{bmatrix}0&0\\\\ 0&1\\end{bmatrix} ，数字1变成矩阵 \\begin{bmatrix}1&1\\\\ 1&0\\end{bmatrix} 。最初该矩阵只有一个元素0，变幻n次后，矩阵会变成什么样？\n\n例如，矩阵最初为：[0]；矩阵变幻1次后： \\begin{bmatrix}0&0\\\\ 0&1\\end{bmatrix} ；矩阵变幻2次后： \\begin{bmatrix}0&0&0&0\\\\ 0&1&0&1\\\\ 0&0&1&1\\\\ 0&1&1&0\\end{bmatrix} 。\n\n输入一行一个不超过 10 的正整数 n。输出变幻 n 次后的矩阵。\n\n试补全程序。\n\n提示:\n\n“<<”表示二进制左移运算符，例如 (11)_{2}<<2=(1100)_{2} ;\n\n而 “^” 表示二进制异或运算符，它将两个参与运算的数中的每个对应的二进制位一一进行比较，若两个二进制位相同，则运算结果的对应二进制位为 0，反之为 1。"}, {"type": "code", "position": "Page 7", "lang": "cpp", "content": "int n;\nconst int max_size = 1 << 10;\nint res[max_size][max_size];\nvoid recursive(int x, int y, int n, int t) {\n    if (n == 0) {\n    res[x][y] = ①;\n    return;\n    }\n    int step = 1 << (n - 1);\n    recursive(②, n - 1, t);\n    recursive(x, y + step, n - 1, t);\n    recursive(x + step, y, n - 1, t);\n    recursive(③, n - 1, !t);\n    }\n    scanf(\"%d\", &n);\n    recursive(0, 0, ④);\n    int size = ⑤;\n    for (int i = 0; i < size; ++i) {\n    for (int j = 0; j < size; ++j)\n    printf(\"%d\", res[i][j]);\n    puts(\"\");\n    }\n}"}, {"type": "text", "position": "Page 7", "text": "1）①处应填（）\nA. n % 2 B. 0 C. t D. 1\n\n2）②处应填（）\nA. x - step, y - step\nB. x, y - step\nC. x - step, y\nD. x, y\n\n3）③处应填（）\nA. x - step, y - step\nB. x + step, y + step\nC. x - step, y\nD. x, y - step\n\n4）④处应填（）"}, {"type": "text", "position": "Page 8", "text": "A. n - 1, n % 2 B. n, 0 C. n, n % 2 D. n - 1, 0\n\n5）⑤处应填（）\nA. 1 << (n + 1)\nB. 1 << n\nC. n + 1\nD. 1 << (n - 1)"}, {"type": "text", "position": "Page 8", "text": "2. （计数排序）计数排序是一个广泛使用的排序方法。下面的程序使用双关键字计数排序，将 n 对 10000 以内的整数，从小到大排序。\n\n例如有三对整数（3,4）、（2,4）、（3,3），那么排序之后应该是（2,4）、（3,3）、（3,4）。\n输入第一行为 n，接下来 n 行，第 i 行有两个数 a[i] 和 b[i]，分别表示第 i 对整数的第一关键字和第二关键字。\n从小到大排序后输出。\n\n数据范围 1 ≤ n ≤ 10^{7}, 1 ≤ a[i], b[i] ≤ 10^{4} 。\n\n提示：应先对第二关键字排序，再对第一关键字排序。数组 ord[] 存储第二关键字排序的结果，数组 res[] 存储双关键字排序的结果。\n试补全程序。"}, {"type": "code", "position": "Page 8", "lang": "cpp", "content": "#include <cstdio>\n#include <cstring>\nusing namespace std;\nconst int maxn = 10000000;\nconst int maxs = 10000;\nint n;\nunsigned a[maxn], b[maxn], res[maxn], ord[maxn];\nunsigned cnt[maxs + 1];\nint main() {\n    scanf(\"%d\", &n);\n    for (int i = 0; i < n; ++i)\n    scanf(\"%d%d\", &a[i], &b[i]);\n    memset(cnt, 0, sizeof(cnt));\n    for (int i = 0; i < n; ++i)\n    ①; // 利用 cnt 数组统计数量\n    for (int i = 0; i < maxs; ++i)\n    cnt[i + 1] += cnt[i];\n    for (int i = 0; i < n; ++i)\n    ②; // 记录初步排序结果\n\n22 memset(cnt, 0, sizeof(cnt));\n23 for (int i = 0; i < n; ++i)\n25 for (int i = 0; i < maxs; ++i)\n26 cnt[i + 1] += cnt[i];\n27 for (int i = n - 1; i >= 0; --i)\n28 ④; // 记录最终排序结果\n30 printf(\"%d %d\\n\", ⑤);\n31 return 0;\n32 }"}, {"type": "text", "position": "Page 8", "text": "1）①处应填（）\nA. ++cnt[i]\nB. ++cnt[b[i]]\nC. ++cnt[a[i] * maxs + b[i]]\nD. ++cnt[a[i]]\n\n2）②处应填（）\nA. ord[--cnt[a[i]]] = i\nB. ord[--cnt[b[i]]] = a[i]\nC. ord[--cnt[a[i]]] = b[i]\nD. ord[--cnt[b[i]]] = i\n\n3）③处应填（）\nA. ++cnt[b[i]]\nB. ++cnt[a[i] * maxs + b[i]]\nC. ++cnt[a[i]]\nD. ++cnt[i]\n\n4）④处应填（）\nA. res[--cnt[a[ord[i]]]] = ord[i]\nB. res[--cnt[b[ord[i]]]] = ord[i]\nC. res[--cnt[b[i]]] = ord[i]\nD. res[--cnt[a[i]]] = ord[i]\n\n5）⑤处应填（）\nA. a[i], b[i]\nB. a[res[i]], b[res[i]]\nC. a[ord[res[i]]], b[ord[res[i]]]\nD. a[res[ord[i]]], b[res[ord[i]]]"}], "_mineru_stats": {"items": 103, "skipped_furniture": 17, "equations": 0, "tables": 0, "images": 1, "headings": 11, "codes": 4, "charts": 0, "code_merged": 1, "code_demoted": 0, "tables_merged": 0, "code_runs": 1, "furniture_lines": 12, "reflow_chunks": 1, "reflow_blocks": 39, "kept_blocks": 1, "figs": 1, "model": "vlm", "elapsed_s": 5.6, "md": "mineru/full.md"}};
+
+const TYPE_LABEL = {
+  multiple_choice_single: '单选题', multiple_choice_multiple: '多选题',
+  true_false: '判断题', fill_blank: '填空题', short_answer: '简答题',
+  programming: '编程题'
+};
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* 把 markdown 表格段转为真实 <table>；其余行做行内渲染 */
+function renderTables(lines) {
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.indexOf('|') === 0) {
+      const rows = [];
+      while (i < lines.length && lines[i].indexOf('|') === 0) {
+        const cells = lines[i].slice(1, -1).split('|').map(c => c.trim());
+        rows.push(cells);
+        i++;
+      }
+      // 去掉可能的分隔行（|---|）
+      const dataRows = rows.filter(r => !(r.length && /^:?-{2,}:?$/.test(r[0]) &&
+        r.every(c => /^:?-{2,}:?$/.test(c))));
+      if (dataRows.length) {
+        const head = dataRows[0];
+        let h = '<table class="mdtable"><thead><tr>' +
+          head.map(c => '<th>' + inlineMd(c) + '</th>').join('') + '</tr></thead><tbody>';
+        for (let r = 1; r < dataRows.length; r++) {
+          h += '<tr>' + dataRows[r].map(c => '<td>' + inlineMd(c || '') + '</td>').join('') +
+            '</tr>';
+        }
+        out.push(h + '</tbody></table>');
+        continue;
+      }
+      out.push(esc(line));
+      continue;
+    }
+    out.push(inlineMd(line));
+    i++;
+  }
+  return out.join('\n');
+}
+
+function inlineMd(s) {
+  let h = esc(s);
+  h = h.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g,
+    (m, alt, src) => /^(data:|\.\.?\/|[a-z]+:\/\/)/.test(src)
+      ? '<img src="' + src + '" alt="' + alt + '" loading="lazy">' : m);
+  h = h.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, label, href) =>
+    /^(https?:|mailto:|#|\/)/.test(href)
+      ? '<a href="' + href + '" target="_blank">' + label + '</a>' : m);
+  h = h.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+  h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
+  return h;
+}
+
+function mdRender(text) {
+  if (!text) return '';
+  const blocks = [];
+  const parts = String(text).split(/```/);
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 1) { blocks.push('<pre>' + esc(parts[i]) + '</pre>'); continue; }
+    blocks.push(renderTables(parts[i].split('\n')).replace(/\n/g, '\n'));
+  }
+  return blocks.join('');
+}
+
+function renderBlank(text) {
+  // 填空题：把 ____ 换成输入框样式的占位
+  return mdRender(text).replace(/(_+)/g, '<span class="blank">&nbsp;</span>');
+}
+
+const SAFE_TYPES = { multiple_choice_single: 1, multiple_choice_multiple: 1, true_false: 1,
+                     fill_blank: 1, short_answer: 1, programming: 1 };
+function typeBadge(t) {
+  const safe = SAFE_TYPES[t] ? t : 'other';
+  return '<span class="badge b-' + safe + '">' + esc(TYPE_LABEL[t] || t || '未知') + '</span>';
+}
+
+/* ---------- blocks 格式（--mode box 输出）---------- */
+
+function asText(v) {
+  if (v == null) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (Array.isArray(v)) return v.map(asText).filter(Boolean).join('\n');
+  if (typeof v === 'object') {
+    if (typeof v.text === 'string') return v.text;
+    if (typeof v.content === 'string') return v.content;
+    if (Array.isArray(v.steps)) return v.steps.map(asText).filter(Boolean).join('\n');
+  }
+  return String(v);
+}
+
+function srcUrl(s) {
+  const m = /!\[[^\]]*\]\(([^)\s]+)\)/.exec(String(s || ''));
+  return m ? m[1] : String(s || '');
+}
+
+function refKeys(text) {
+  const out = new Set();
+  const re = /!\[插图(\d+)\]/g;
+  let m;
+  while ((m = re.exec(String(text || '')))) out.add(m[1]);
+  return out;
+}
+
+function figHtml(src, alt) {
+  const u = srcUrl(src);
+  if (!/^(data:|https?:|\.{0,2}\/)/.test(u)) return '';
+  return '<img class="figimg" src="' + u + '" alt="' + esc(asText(alt)) + '" loading="lazy">';
+}
+
+function tableHtml(headers, rows) {
+  let h = '<table class="mdtable"><thead><tr>' +
+    (headers || []).map(x => '<th>' + inlineMd(asText(x)) + '</th>').join('') +
+    '</tr></thead><tbody>';
+  (rows || []).forEach(r => {
+    h += '<tr>' + r.map(c => '<td>' + inlineMd(asText(c)) +
+      '</td>').join('') + '</tr>';
+  });
+  return h + '</tbody></table>';
+}
+
+function renderBlock(b) {
+  const pos = b.position ? '<span class="posbadge">' + esc(b.position) + '</span>' : '';
+  if (b.type === 'question') {
+    const h = ['<div class="qcard">'];
+    h.push('<div class="qhead"><span class="qno">题 ' + esc(b.number) + '</span>' + pos +
+      '</div>');
+    const stem = asText(b.stem);
+    h.push('<div class="qtext">' + mdRender(stem) + '</div>');
+    const inText = refKeys(stem);
+    (b.images || []).forEach(im => {
+      const k = /插图(\d+)/.exec(String(im.src || ''));
+      if (k && inText.has(k[1])) return;  // 已在正文原位置渲染
+      h.push(figHtml(im.src, im.alt));
+    });
+    const opts = b.options;
+    let items = [];
+    if (Array.isArray(opts)) items = opts.map((v, i) => [String.fromCharCode(65 + i), v]);
+    else if (opts && typeof opts === 'object') items = Object.keys(opts).map(k => [k, opts[k]]);
+    if (items.length) {
+      h.push('<div class="options">');
+      items.forEach(pair => {
+        const k = pair[0], v = pair[1];
+        const t = (v && typeof v === 'object') ? (v.text || '') : (v == null ? '' : v);
+        let line = '<div class="option"><span class="key">' + esc(k) + '.</span>' +
+          '<span class="qtext">' + mdRender(asText(t)) + '</span>';
+        if (v && typeof v === 'object' && v.image && typeof v.image === 'object') {
+          const kk = /插图(\d+)/.exec(String(v.image.src || ''));
+          if (!(kk && (inText.has(kk[1]) || refKeys(asText(t)).has(kk[1])))) {
+            line += figHtml(v.image.src, v.image.alt);
+          }
+        }
+        h.push(line + '</div>');
+      });
+      h.push('</div>');
+    }
+    if (b.table && (b.table.headers || b.table.rows)) {
+      h.push(tableHtml(b.table.headers, b.table.rows));
+    }
+    if (b.answer) {
+      h.push('<div class="answerbox"><b>答案：</b>' + esc(asText(b.answer)) +
+        (b.explanation ? '<br><b>解析：</b>' + mdRender(asText(b.explanation)) : '') +
+        '</div>');
+    }
+    h.push('</div>');
+    return h.join('');
+  }
+  if (b.type === 'text') {
+    return '<div class="examnotes">' + pos +
+      mdRender(asText(b.content != null ? b.content : b.text)) + '</div>';
+  }
+  if (b.type === 'image') {
+    return figHtml((b.image || {}).src || b.src, (b.image || {}).alt);
+  }
+  if (b.type === 'equation') {  // MinerU：优先公式裁剪图，缺失时显示 LaTeX 源
+    const fig = (b.image && b.image.src) ? figHtml(b.image.src, '公式') : '';
+    if (fig) return fig;
+    return '<div class="examnotes">' + esc(asText(b.text)) + '</div>';
+  }
+  if (b.type === 'table') {
+    const tb = b.table || b;
+    return tableHtml(tb.headers, tb.rows);
+  }
+  if (b.type === 'code') {
+    return '<pre>' + esc(b.content || b.code || '') + '</pre>';
+  }
+  return '';
+}
+
+function renderBlocks(data) {
+  const blocks = data.blocks || [];
+  const qs = blocks.filter(b => b.type === 'question');
+  document.title = '题目预览';
+  document.getElementById('title').textContent = '题目预览';
+  document.getElementById('meta').textContent =
+    '题目:' + qs.length + ' | 内容块:' + blocks.length;
+  document.getElementById('main').innerHTML =
+    '<div class="stats">' +
+    '<div class="stat"><b>' + qs.length + '</b>题目</div>' +
+    '<div class="stat"><b>' + blocks.length + '</b>内容块</div>' +
+    '</div>' +
+    blocks.map(renderBlock).join('');
+}
+
+function renderQuestion(q) {
+  const h = [];
+  h.push('<div class="qcard">');
+  h.push('<div class="qhead"><span class="qno">' + esc(q.question_no) + '.</span>' +
+    typeBadge(q.question_type) + '</div>');
+  h.push('<div class="qtext">' + renderBlank(q.question_text || '') + '</div>');
+  const opts = q.options || [];
+  if (opts.length) {
+    h.push('<div class="options">');
+    opts.forEach(o => h.push('<div class="option"><span class="key">' +
+      esc(o.option_id || o.key) + '.</span><span class="qtext">' +
+      renderBlank(o.option_text || '') + '</span></div>'));
+    h.push('</div>');
+  }
+  if ((q.answer || q.explanation) && String(q.answer) !== 'null') {
+    h.push('<div class="answerbox"><b>答案：</b>' + esc(q.answer || '—') +
+      (q.explanation ? '<br><b>解析：</b>' + esc(q.explanation) : '') + '</div>');
+  }
+  h.push('</div>');
+  return h.join('');
+}
+
+function render(data) {
+  if (Array.isArray(data.blocks)) { renderBlocks(data); return; }
+  document.title = data.exam_info && data.exam_info.title ? data.exam_info.title : '题目预览';
+  document.getElementById('title').textContent =
+    (data.exam_info && data.exam_info.title) || '题目预览';
+  const ei = data.exam_info || {};
+  document.getElementById('meta').textContent =
+    ['总分:' + (ei.total_score || '?'), '题量:' + (ei.question_count || data.questions.length),
+     '时限:' + (ei.time_limit || '?')].filter(Boolean).join(' | ');
+  const main = document.getElementById('main');
+  const qs = data.questions || [];
+  const countBy = {};
+  qs.forEach(q => { countBy[q.question_type] = (countBy[q.question_type] || 0) + 1; });
+  const notesByAfter = {};
+  (data.document_notes || []).forEach(n => {
+    const key = n.after_question_id || '__start__';
+    (notesByAfter[key] = notesByAfter[key] || []).push(String(n.text || ''));
+  });
+  const notesHtml = key => (notesByAfter[key] || []).map(t =>
+    '<div class="examnotes">' + esc(t) + '</div>').join('');
+  main.innerHTML =
+    notesHtml('__start__') +
+    '<div class="stats">' +
+    '<div class="stat"><b>' + qs.length + '</b>总题数</div>' +
+    Object.keys(countBy).map(k => '<div class="stat"><b>' + countBy[k] + '</b>' +
+      esc(TYPE_LABEL[k] || k || '') + '</div>').join('') +
+    '</div>' +
+    qs.map(q => renderQuestion(q) + notesHtml(q.question_id)).join('');
+}
+
+/* 数据里图片已内嵌为 data: URI（make_viewer.py 注入），无需额外处理 */
+function loadFromFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try { render(JSON.parse(reader.result)); } catch (e) { alert('JSON 解析失败: ' + e.message); }
+  };
+  reader.readAsText(file, 'utf-8');
+}
+
+document.getElementById('file').addEventListener('change', e => {
+  const f = e.target.files && e.target.files[0];
+  if (f) loadFromFile(f);
+});
+
+render(SAMPLE);
+</script>
+</body>
+</html>

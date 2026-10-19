@@ -1,0 +1,63 @@
+{
+  "exam_info": {
+    "title": "string | null",
+    "total_score": "string | null",
+    "question_count": "string | null",
+    "time_limit": "string | null",
+    "notes": "string | null"
+  },
+  "question_categories": [
+    {
+      "category_id": "string",
+      "category_name": "string",
+      "description": "string | null",
+      "question_count": "string | null",
+      "score_per_question": "string | null"
+    }
+  ],
+  "document_notes": [
+    {
+      "after_question_id": "string | null  # 该说明文字紧随的题目 ID；null=文档开头",
+      "text": "string  # 非题目说明文字（考生注意事项、大题说明等），逐字保留"
+    }
+  ],
+  "questions": [
+    {
+      "question_no": "string",
+      "question_id": "string  # 唯一 ID（q1..qN，文档顺序），供 document_notes 定位",
+      "question_type": "enum: 'multiple_choice_single' | 'multiple_choice_multiple' | 'true_false' | 'fill_blank' | 'short_answer' | 'programming'",
+      "question_text": "string",
+      "blank_positions": [
+        {
+          "start_pos": "number",
+          "end_pos": "number",
+          "pattern": "string | null"
+        }
+      ],
+      "options": [
+        {
+          "option_id": "string",
+          "option_text": "string"
+        }
+      ],
+      "answer": "string",
+      "score": "string | null",
+      "difficulty": "enum: 'easy' | 'medium' | 'hard' | null",
+      "explanation": "string | null",
+      "grading_criteria": "string | null",
+      "reference_code": "string | null",
+      "input_description": "string | null",
+      "output_description": "string | null",
+      "sample_input_output": {
+        "input": "string | null  # 样例输入逐字（换行写 \\n）",
+        "output": "string | null  # 样例输出逐字"
+      },
+      "metadata": {
+        "source_id": "string | null  # 卷面试题编号（如 20250308-3-01）",
+        "time_limit": "string | null  # 卷面时间限制原样（如 1000ms / 1s）",
+        "memory_limit": "string | null  # 卷面内存限制原样（如 65536 / 256MB）"
+      },
+      "additional_tips": "string | null"
+    }
+  ]
+}

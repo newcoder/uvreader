@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>题目预览 - question_bank</title>
+<style>
+  :root { --line:#e3e4e8; --muted:#8a8f98; --card:#fff; --bg:#f4f5f7; --accent:#2f6fed; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.7 "Segoe UI", "Microsoft YaHei", sans-serif;
+         background:var(--bg); color:#222; }
+  header { position:sticky; top:0; background:#fff; border-bottom:1px solid var(--line);
+           padding:14px 24px; z-index:5; }
+  h1 { margin:0 0 6px; font-size:20px; }
+  .meta { color:var(--muted); font-size:13px; }
+  main { max-width: 880px; margin: 0 auto; padding: 18px 16px 80px; }
+  .stats { display:flex; gap:10px; flex-wrap:wrap; margin:10px 0 18px; }
+  .stat { background:#fff; border:1px solid var(--line); border-radius:10px;
+          padding:8px 16px; font-size:13px; }
+  .stat b { font-size:18px; display:block; }
+  .category { background:#eef2fb; border:1px solid #d4ddf3; border-radius:10px;
+              padding:8px 14px; margin:14px 0 6px; font-weight:600; font-size:15px; }
+  .category small { font-weight:400; color:var(--muted); margin-left:8px; }
+  .qcard { background:var(--card); border:1px solid var(--line); border-radius:12px;
+           padding:16px 18px; margin:10px 0; }
+  .qhead { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+  .qno { font-weight:700; font-size:15px; }
+  .badge { font-size:12px; padding:2px 10px; border-radius:99px; color:#fff; }
+  .b-choice-single { background:#2f6fed; } .b-choice-multiple { background:#7c4dff; }
+  .b-true-false { background:#0d9b6e; } .b-fill-blank { background:#e08600; }
+  .b-short-answer { background:#d64545; } .b-programming { background:#4b5563; }
+  .b-other { background:#8a8f98; }
+  .qtext { white-space:pre-wrap; word-break:break-word; }
+  .qtext code { background:#f0f1f3; border-radius:4px; padding:0 5px;
+                font-family:Consolas,monospace; font-size:13px; }
+  .qtext pre { background:#f6f7f9; border:1px solid var(--line); border-radius:8px;
+               padding:10px 14px; overflow-x:auto; }
+  .qtext img { max-width: 100%; border:1px solid var(--line); border-radius:8px;
+               margin:6px 0; background:#fff; }
+  .mdtable { border-collapse:collapse; margin:8px 0; width:auto; background:#fff; }
+  .mdtable th, .mdtable td { border:1px solid var(--line); padding:4px 12px; text-align:center; }
+  .mdtable th { background:#f0f3fa; font-weight:600; }
+  .options { margin:8px 0 2px 4px; }
+  .option { display:flex; gap:8px; padding:3px 0; align-items:flex-start; }
+  .option .key { font-weight:700; min-width:26px; }
+  .blank { display:inline-block; min-width:90px; border-bottom:2px solid var(--accent);
+           background:#f3f7ff; border-radius:4px; text-align:center; color:#8ab; margin:0 2px; }
+  .answerbox { margin-top:10px; padding:10px 14px; border-left:4px solid #0d9b6e;
+               background:#f2fbf6; font-size:13px; }
+  .answerbox b { color:#0d9b6e; }
+  .hint { color:var(--muted); font-size:12px; margin-top:6px; }
+  .examnotes { background:#fffdf3; border:1px solid #efe3b8; border-radius:10px;
+               padding:12px 16px; margin:0 0 14px; white-space:pre-wrap; font-size:14px; }
+  .examnotes b { display:block; margin-bottom:6px; color:#8a6d1a; }
+  .posbadge { color:var(--muted); font-size:12px; font-weight:400; margin-left:8px; }
+  .figimg { display:block; max-width:100%; border:1px solid var(--line); border-radius:8px;
+            margin:6px 0; background:#fff; }
+  .toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .toolbar input[type=file] { font-size:13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">题目预览</h1>
+  <div class="toolbar">
+    <span class="meta" id="meta"></span>
+    <input type="file" id="file" accept=".json" title="加载其它题目 JSON">
+  </div>
+</header>
+<main id="main"></main>
+<script>
+const SAMPLE = {"blocks": [{"type": "heading", "position": "Page 1", "level": 1, "text": "2021 CCF非专业级别软件能力认证第一轮（CSP-J1）入门级 C++语言试题"}, {"type": "text", "position": "Page 1", "text": "认证时间：2021 年 9 月 19 日 14:30~16:30"}, {"type": "text", "position": "Page 1", "text": "考生注意事项："}, {"type": "text", "position": "Page 1", "text": "l 试题纸共有12页，答题纸共有 1页，满分100分。请在答题纸上作答，写在试题纸上的一律无效。"}, {"type": "text", "position": "Page 1", "text": "l 不得使用任何电子设备（如计算器、手机、电子词典等）或查阅任何书籍资料。"}, {"type": "heading", "position": "Page 1", "level": 2, "text": "一、单项选择题（共 15 题，每题 2 分，共计 30 分；每题有且仅有一个正确选项）"}, {"type": "text", "position": "Page 1", "text": "1. 以下不属于面向对象程序设计语言的是（ ）。A. C++B. PythonC. JavaD. C"}, {"type": "text", "position": "Page 1", "text": "2. 以下奖项与计算机领域最相关的是（ ）。A. 奥斯卡奖B. 图灵奖C. 诺贝尔奖D. 普利策奖"}, {"type": "text", "position": "Page 1", "text": "3. 目前主流的计算机储存数据最终都是转换成（ ）数据进行储存。A. 二进制B. 十进制C. 八进制D. 十六进制"}, {"type": "text", "position": "Page 1", "text": "4. 以比较作为基本运算，在N个数中找出最大数，最坏情况下所需要的最少的比较次数为（ ）。A. $\\mathsf { N } ^ { 2 }$"}, {"type": "text", "position": "Page 2", "text": "5. 对于入栈顺序为a, b, c, d, e的序列，下列（ ）不是合法的出栈序列。A. a, b, c, d, eB. e, d, c, b, aC. b, a, c, d, eD. c, d, a, e, b"}, {"type": "text", "position": "Page 2", "text": "6. 对于有n个顶点、m条边的无向连通图 (m>n)，需要删掉（ ）条边才能使其成为一棵树。A. n-1B. m-nC. m-n-1D. m-n+1"}, {"type": "text", "position": "Page 2", "text": "7. 二进制数101.11对应的十进制数是（ ）。A. 6.5B. 5.5C. 5.75D. 5.25"}, {"type": "text", "position": "Page 2", "text": "8. 如果一棵二叉树只有根结点，那么这棵二叉树高度为1。请问高度为5的完全二叉树有（ ）种不同的形态？A. 16B. 15C. 17D. 32"}, {"type": "text", "position": "Page 3", "text": "9. 表达式 ${ \\mathsf { a } } ^ { * } ( { \\mathsf { b } } + { \\mathsf { c } } ) ^ { * } { \\mathsf { d } }$ 的后缀表达式为( )，其中“*”和“+”是运算符。A. $\\ast \\ast _ { \\sf d + b c d }$ B. $a b c + ^ { * } d ^ { * }$ C. $a b c + d ^ { * * }$ D. $^ { * } { \\mathsf { a } } ^ { * } { + } { \\mathsf { b } } { \\mathsf { c } } { \\mathsf { d } }$"}, {"type": "text", "position": "Page 3", "text": "10.6个人，两个人组一队，总共组成三队，不区分队伍的编号。不同的组队情况有（ ）种。A. 10B. 15C. 30D. 20"}, {"type": "text", "position": "Page 3", "text": "11.在数据压缩编码中的哈夫曼编码方法，在本质上是一种（ ）的策略。A. 枚举B. 贪心C. 递归D. 动态规划"}, {"type": "text", "position": "Page 3", "text": "12.由 1，1，2，2，3 这五个数字组成不同的三位数有（ ）种。A. 18B. 15C. 12D. 24"}, {"type": "text", "position": "Page 3", "text": "13.考虑如下递归算法 solve(n) if n<=1 return 1 else if n>=5 return n*solve(n-2) else return n*solve(n-1)"}, {"type": "image", "position": "Page 4", "image": {"src": "data:image/jpeg;base64,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", "alt": "插图"}}, {"type": "text", "position": "Page 4", "text": "则调用solve(7)得到的返回结果为（ ）。A. 105B. 840C. 210D. 420"}, {"type": "text", "position": "Page 4", "text": "14.以 a为起点，对右边的无向图进行深度优先遍历，则b、 c、 d、 e四个点中有可能作为最后一个遍历到的点的个数为（ ）。aA. 1B. 2 b cC. 3D. 4 d e"}, {"type": "text", "position": "Page 4", "text": "15.有四个人要从 A点坐一条船过河到B点，船一开始在A点。该船一次最多可坐两个人。已知这四个人中每个人独自坐船的过河时间分别为 1, 2, 4, 8, 且两个人坐船的过河时间为两人独自过河时间的较大者。则最短（ ）时间可以让四个人都过河到B点（包括从B点把船开回A点的时间）。A. 14B. 15C. 16D. 17"}, {"type": "heading", "position": "Page 4", "level": 2, "text": "二、阅读程序（程序输入不超过数组或字符串定义的范围；判断题正确填√，错误填×；除特殊说明外，判断题 1.5 分，选择题 3 分，共计 40 分）"}, {"type": "code", "position": "Page 4", "lang": "cpp", "content": "01 #include <iostream>\n02 using namespace std;\n03\n04 int n;\n05 int a[1000];\n06\n07 int f(int x)\n08 {\n09    int ret = 0;\n10    for (; x; x &= x - 1) ret++;\n11    return ret;\n12 }\n13\n14 int g(int x)\n15 {\n16    return x & -x;\n17 }\n18\n19 int main()\n20 {\n21    cin >> n;\n22    for (int i = 0; i < n; i++) cin >> a[i];\n23    for (int i = 0; i < n; i++)\n24    cout << f(a[i]) + g(a[i]) << ' ';\n25    cout << endl;\n26    return 0;\n27 }"}, {"type": "text", "position": "Page 5", "text": "l 判断题"}, {"type": "text", "position": "Page 5", "text": "16. 输入的n等于1001时，程序不会发生下标越界。（ ）"}, {"type": "text", "position": "Page 5", "text": "17. 输入的a[i]必须全为正整数，否则程序将陷入死循环。（ ）"}, {"type": "text", "position": "Page 5", "text": "18. 当输入为“5 2 11 9 16 10”时，输出为“3 4 3 17 5”。（ ）"}, {"type": "text", "position": "Page 5", "text": "19. 当输入为“1 511998”时，输出为“18”。（ ）"}, {"type": "text", "position": "Page 5", "text": "20. 将源代码中g函数的定义（14-17行）移到main函数的后面，程序可以正常编译运行。（ ）"}, {"type": "text", "position": "Page 5", "text": "l 单选题"}, {"type": "text", "position": "Page 5", "text": "21. 当输入为 “2 -65536 2147483647” 时，输出为（）。 A. “65532 33” B. “65552 32” C. “65535 34” D. “65554 33”"}, {"type": "code", "position": "Page 5", "lang": "cpp", "content": "01 #include <iostream>\n02 #include <string>\n03 using namespace std;\n04\n05 char base[64];\n06 char table[256];\n07\n08 void init()\n09 {\n10    for (int i = 0; i < 26; i++) base[i] = 'A' + i;\n11    for (int i = 0; i < 26; i++) base[26 + i] = 'a' + i;\n12    for (int i = 0; i < 10; i++) base[52 + i] = '0' + i;\n13    base[62] = '+', base[63] = '/';\n14\n15    for (int i = 0; i < 256; i++) table[i] = 0xff;\n16    for (int i = 0; i < 64; i++) table[base[i]] = i;\n17    table['='] = 0;\n18 }\n19\n20 string decode(string str)\n21 {\n22    string ret;\n23    int i;\n24    for (i = 0; i < str.size(); i += 4) {\n25    ret += table[str[i]] << 2 | table[str[i + 1]] >> 4;\n26    if (str[i + 2] != '=')\n27    ret += (table[str[i + 1]] & 0x0f) << 4 | table[str[i + 2]] >> 2;\n28    if (str[i + 3] != '=')\n29    ret += table[str[i + 2]] << 6 | table[str[i + 3]];\n30    }\n31    return ret;\n32 }\n33\n34 int main()\n35 {\n36    init();\n37    cout << int(table[0]) << endl;\n38\n39    string str;\n40    cin >> str;\n41    cout << decode(str) << endl;\n42    return 0;\n43 }"}, {"type": "text", "position": "Page 6", "text": "l 判断题"}, {"type": "text", "position": "Page 7", "text": "22. 输出的第二行一定是由小写字母、大写字母、数字和“+”、“/”、“=”构成的字符串。（ ）"}, {"type": "text", "position": "Page 7", "text": "23.可能存在输入不同，但输出的第二行相同的情形。（ ）"}, {"type": "text", "position": "Page 7", "text": "24.输出的第一行为“-1”。（ ）"}, {"type": "text", "position": "Page 7", "text": "l 单选题"}, {"type": "text", "position": "Page 7", "text": "25.设输入字符串长度为n，decode函数的时间复杂度为（ ）。A. Θ(√�) B. Θ(�) C. Θ(� log �) D. Θ(�<sup>!<\/sup>)"}, {"type": "text", "position": "Page 7", "text": "26.当输入为“Y3Nx”时，输出的第二行为（ ）。A. “csp” B. “csq” C. “CSP” D. “Csp”"}, {"type": "text", "position": "Page 7", "text": "27.（3.5 分）当输入为“Y2NmIDIwMjE=”时，输出的第二行为（ ）。A. “ccf2021” B. “ccf2022” C. “ccf 2021” D. “ccf 2022”"}, {"type": "code", "position": "Page 7", "lang": "cpp", "content": "01 #include <iostream>\n02 using namespace std;\n03\n04 const int n = 100000;\n05 const int N = n + 1;\n06\n07 int m;\n08 int a[N], b[N], c[N], d[N];\n09 int f[N], g[N];\n10\n11 void init()\n12 {\n13    f[1] = g[1] = 1;\n14    for (int i = 2; i <= n; i++) {\n15    if (!a[i]) {\n16    b[m++] = i;\n17    c[i] = 1, f[i] = 2;\n18    d[i] = 1, g[i] = i + 1;\n19    }\n20    for (int j = 0; j < m && b[j] * i <= n; j++) {\n21    int k = b[j];\n22    a[i * k] = 1;\n23    if (i % k == 0) {\n24    c[i * k] = c[i] + 1;\n25    f[i * k] = f[i] / c[i * k] * (c[i * k] + 1);\n26    d[i * k] = d[i];\n27 g[i * k] = g[i] * k + d[i];\n28 break;\n29 }\n30 else {\n31 c[i * k] = 1;\n32 f[i * k] = 2 * f[i];\n33 d[i * k] = g[i];\n34 g[i * k] = g[i] * (k + 1);\n35 }\n36 }\n37 }\n38 }\n39\n40 int main()\n41 {\n42 init();\n43\n44 int x;\n45 cin >> x;\n46 cout << f[x] << ' ' << g[x] << endl;\n47 return 0;\n48 }"}, {"type": "text", "position": "Page 8", "text": "假设输入的 x 是不超过 1000 的自然数，完成下面的判断题和单选题："}, {"type": "text", "position": "Page 8", "text": "l 判断题"}, {"type": "text", "position": "Page 8", "text": "28.若输入不为“1”，把第13行删去不会影响输出的结果。（ ）"}, {"type": "text", "position": "Page 8", "text": "29.（2 分）第25行的“f[i] / c[i * k]”可能存在无法整除而向下取整的情况。（ ）"}, {"type": "text", "position": "Page 8", "text": "30.（2 分）在执行完init()后，f数组不是单调递增的，但g数组是单调递增的。（ ）"}, {"type": "text", "position": "Page 8", "text": "l 单选题"}, {"type": "text", "position": "Page 8", "text": "31.init函数的时间复杂度为（ ）。A. Θ(�) B. Θ(� log �) C. Θ)�√�* D. Θ(�<sup>!<\/sup>)"}, {"type": "text", "position": "Page 8", "text": "32.在执行完 init()后，f[1], f[2], f[3] …… f[100]中有（ ）个等于 2。A. 23 B. 24 C. 25 D. 26"}, {"type": "text", "position": "Page 8", "text": "33.（4 分）当输入为“1000”时，输出为（ ）。A. “15 1340” B. “15 2340” C. “16 2340” D. “16 1340”"}, {"type": "heading", "position": "Page 9", "level": 2, "text": "三、完善程序（单选题，每小题 3 分，共计 30 分）"}, {"type": "text", "position": "Page 9", "text": "（1）（Josephus 问题）有 � 个人围成一个圈，依次标号 0 至 �−1。从 0 号开始，依次 0,1,0,1,… 交替报数，报到 1 的人会离开，直至圈中只剩下一个人。求最后剩下人的编号。"}, {"type": "text", "position": "Page 9", "text": "试补全模拟程序。"}, {"type": "code", "position": "Page 9", "lang": "cpp", "content": "01 #include <iostream>\n02\n03 using namespace std;\n04\n05 const int MAXN = 1000000;\n06 int F[MAXN];\n07\n08 int main() {\n09    int n;\n10    cin >> n;\n11    int i = 0, p = 0, c = 0;\n12    while (①) {\n13    if (F[i] == 0) {\n14    if (②) {\n15    F[i] = 1;\n16    ③;\n17    }\n18    ④;\n19    }\n20    ⑤;\n21    }\n22    int ans = -1;\n23    for (i = 0; i < n; i++)\n24    if (F[i] == 0)\n25    ans = i;\n26    cout << ans << endl;\n27    return 0;\n28 }"}, {"type": "text", "position": "Page 9", "text": "34.①处应填（ ）A. i < n B. c < n C. i < n - 1 D. c < n - 1"}, {"type": "text", "position": "Page 9", "text": "35.②处应填（ ） A. i % 2 == 0 B. i % 2 == 1 C. p D. !p"}, {"type": "text", "position": "Page 10", "text": "36.③处应填（ ） A. i++ B. i = (i + 1) % n C. c++ D. p ^= 1"}, {"type": "text", "position": "Page 10", "text": "37.④处应填（ ） A. i++ B. i = (i + 1) % n C. c++ D. p ^= 1"}, {"type": "text", "position": "Page 10", "text": "38.⑤处应填（ A. i++ B. i = (i + 1) % n C. c++ D. p ^= 1"}, {"type": "text", "position": "Page 10", "text": "（2） （矩形计数）平面上有 � 个关键点，求有多少个四条边都和x轴或者y轴平行的矩形，满足四个顶点都是关键点。给出的关键点可能有重复，但完全重合的矩形只计一次。"}, {"type": "text", "position": "Page 10", "text": "试补全枚举算法。"}, {"type": "code", "position": "Page 10", "lang": "cpp", "content": "01 #include <iostream>\n02\n03 using namespace std;\n04\n05 struct point {\n06    int x, y, id;\n07 };\n08\n09 bool equals(point a, point b) {\n10    return a.x == b.x && a.y == b.y;\n11 }\n12\n13 bool cmp(point a, point b) {\n14    return ①;\n15 }\n16\n17 void sort(point A[], int n) {\n18    for (int i = 0; i < n; i++)\n19    for (int j = 1; j < n; j++)\n20    if (cmp(A[j], A[j - 1])) {\n21    point t = A[j];\n22    A[j] = A[j - 1];\n23    A[j - 1] = t;\n24    }\n25 }\n26\n27 int unique(point A[], int n) {\n28    int t = 0;\n29    for (int i = 0; i < n; i++)\n30    if (②)\n31    A[t++] = A[i];\n32    return t;\n33 }\n34\n35 bool binary_search(point A[], int n, int x, int y) {\n36    point p;\n37    p.x = x;\n38    p.y = y;\n39    p.id = n;\n40    int a = 0, b = n - 1;\n41    while (a < b) {\n42    int mid = ③;\n43    if (④)\n44    a = mid + 1;\n45    else\n46    b = mid;\n47    }\n48    return equals(A[a], p);\n49 }\n50\n51 const int MAXN = 1000;\n52 point A[MAXN];\n53\n54 int main() {\n55    int n;\n56    cin >> n;\n57    for (int i = 0; i < n; i++) {\n58    cin >> A[i].x >> A[i].y;\n59    A[i].id = i;\n60    }\n61    sort(A, n);\n62    n = unique(A, n);\n63    int ans = 0;\n64    for (int i = 0; i < n; i++)\n65    for (int j = 0; j < n; j++)\n66    if (⑤ && binary_search(A, n, A[i].x, A[j].y) && binary_search(A, n, A[j].x, A[i].y)) {\n67    ans++;\n68    }\n69    cout << ans << endl;\n70 return 0;\n71 }"}, {"type": "text", "position": "Page 12", "text": "39.①处应填（ ）A. ${ \\bf a . x . \\mu } \\mathrm {  ~ \\ l ~ 1 = ~ { \\bf ~ b . x . } ~ \\ l ~ a . x ~ \\ l ~ < ~ { \\bf ~ b . x . } ~ \\ l ~ a . i d ~ < ~ { \\bf ~ b . i d } ~ }$ B. $a . x ! = b . x ? a . x < b . x : a . y < b . y$ C. $\\mathrm { { e q u a l s ( a , \\ b ) \\ ? { \\ a . i d \\ < \\ b . i d \\ : \\ a . x \\ < \\ b . x } } }$ D. $\\mathrm { e q u a l s ( a , ~ b ) ~ \\ ? ~ { \\ a . i d } ~ < ~ b . i d ~ : ~ ( a . x ~ \\ ! = ~ b . x ~ \\ ? ~ { \\ a . x } ~ < ~ b . x ~ : ~ a . y ~ < ~ b . y ) }$"}, {"type": "text", "position": "Page 12", "text": "40.②处应填（ ）A. $\\textbf { i } = = \\emptyset ~ | ~ | ~ \\mathsf { c m p } ( \\mathsf { A } [ \\textbf { i } ] , ~ \\mathsf { A } [ \\textbf { i } ~ - ~ \\textbf { 1 } ] )$ B. $\\texttt { t } = = \\texttt { \\theta } | | \\texttt { e q u a l s } ( \\mathsf { A } [ \\texttt { i } ] , \\texttt { A } [ \\texttt { t } - \\texttt { 1 } ] )$ C. $\\begin{array} { r } { \\textbf { i } = = \\emptyset \\ | \\ | \\ \\mathbf { \\Sigma } | \\subset \\mathfrak { m p } ( \\mathsf { A } [ \\textbf { i } ] , \\ \\mathsf { A } [ \\textbf { i } \\textbf { - } \\ \\mathbf { 1 } ] ) } \\end{array}$ D. $\\ t \\ = = \\ \\theta | | \\ ! \\mathtt { e q u a l s } ( \\mathsf { A } [ \\mathtt { i } ] , \\ \\mathsf { A } [ \\mathtt { t \\ - \\ } \\mathtt { 1 } ] )$"}, {"type": "text", "position": "Page 12", "text": "41.③处应填（ ）A. $b - ( b - a ) / 2 + 1$ B. $( \\textsf { a } + \\textsf { b } + \\textsf { 1 } ) \\textsf { > } \\textsf { 1 }$ C. $( { \\textsf { a } } + { \\textsf { b } } ) \\ > > \\ { 1 }$ D. $a ~ + ~ ( 6 ~ - ~ a ~ + ~ 1 ) ~ / ~ 2$"}, {"type": "text", "position": "Page 12", "text": "42.④处应填（ ）A. $\\iota \\mathsf { c m p } ( \\mathsf { A } [ \\mathsf { m i d } ] , \\mathsf { p } )$ B. $\\mathsf { c m p } ( \\mathsf { A } [ \\mathsf { m i d } ] , \\mathsf { \\Lambda } \\mathsf { p } )$ C. $\\mathsf { c m p } ( \\mathsf { p } , \\mathsf { \\ A } [ \\mathsf { m i d } ] )$ D. $! \\mathsf { c m p } ( \\mathsf { p } , \\mathsf { \\nabla A } [ \\mathsf { m i d } ] )$"}, {"type": "text", "position": "Page 12", "text": "43.⑤处应填（ ）A. $\\mathsf { A } [ \\mathsf { i } ] . \\mathsf { x } \\mathsf { \\Gamma } = \\mathsf { A } [ \\mathsf { j } ] . \\mathsf { x }$ B. $\\mathsf { A } [ \\mathsf { i } ] . \\mathsf { i d } \\ < \\ \\mathsf { A } [ \\mathsf { j } ] . \\mathsf { i d }$ C. ${ \\sf A } [ \\dot { \\bf ~ i } ] . { \\bf x } = { \\sf A } [ \\dot { \\bf ~ j } ] . { \\bf x } \\ { \\sf 8 } { \\sf 8 } [ \\dot { \\bf ~ i } ] . \\dot { \\bf 1 } { \\sf d } \\ < \\ { \\sf A } [ \\dot { \\bf ~ j } ] . \\dot { \\bf 1 } \\partial$ D. ${ \\sf A } [ \\dot { \\bf ~ i } ] . \\dot { \\bf ~ x } < \\sf { A } [ \\dot { \\bf ~ j } ] . \\dot { \\bf ~ x } 8 \\& [ \\dot { \\bf ~ i } ] . \\dot { \\bf ~ y } < \\sf { A } [ \\dot { \\bf ~ j } ] . \\dot { \\bf ~ y }$"}], "_mineru_stats": {"items": 95, "skipped_furniture": 20, "equations": 0, "tables": 0, "images": 1, "headings": 10, "codes": 8, "charts": 0, "code_merged": 5, "code_demoted": 1, "tables_merged": 0, "code_runs": 0, "furniture_lines": 2, "reflow_chunks": 1, "reflow_blocks": 68, "kept_blocks": 1, "figs": 1, "model": "vlm", "elapsed_s": 5.6, "md": "mineru/full.md"}};
+
+const TYPE_LABEL = {
+  multiple_choice_single: '单选题', multiple_choice_multiple: '多选题',
+  true_false: '判断题', fill_blank: '填空题', short_answer: '简答题',
+  programming: '编程题'
+};
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* 把 markdown 表格段转为真实 <table>；其余行做行内渲染 */
+function renderTables(lines) {
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.indexOf('|') === 0) {
+      const rows = [];
+      while (i < lines.length && lines[i].indexOf('|') === 0) {
+        const cells = lines[i].slice(1, -1).split('|').map(c => c.trim());
+        rows.push(cells);
+        i++;
+      }
+      // 去掉可能的分隔行（|---|）
+      const dataRows = rows.filter(r => !(r.length && /^:?-{2,}:?$/.test(r[0]) &&
+        r.every(c => /^:?-{2,}:?$/.test(c))));
+      if (dataRows.length) {
+        const head = dataRows[0];
+        let h = '<table class="mdtable"><thead><tr>' +
+          head.map(c => '<th>' + inlineMd(c) + '</th>').join('') + '</tr></thead><tbody>';
+        for (let r = 1; r < dataRows.length; r++) {
+          h += '<tr>' + dataRows[r].map(c => '<td>' + inlineMd(c || '') + '</td>').join('') +
+            '</tr>';
+        }
+        out.push(h + '</tbody></table>');
+        continue;
+      }
+      out.push(esc(line));
+      continue;
+    }
+    out.push(inlineMd(line));
+    i++;
+  }
+  return out.join('\n');
+}
+
+function inlineMd(s) {
+  let h = esc(s);
+  h = h.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g,
+    (m, alt, src) => /^(data:|\.\.?\/|[a-z]+:\/\/)/.test(src)
+      ? '<img src="' + src + '" alt="' + alt + '" loading="lazy">' : m);
+  h = h.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, label, href) =>
+    /^(https?:|mailto:|#|\/)/.test(href)
+      ? '<a href="' + href + '" target="_blank">' + label + '</a>' : m);
+  h = h.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+  h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
+  return h;
+}
+
+function mdRender(text) {
+  if (!text) return '';
+  const blocks = [];
+  const parts = String(text).split(/```/);
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 1) { blocks.push('<pre>' + esc(parts[i]) + '</pre>'); continue; }
+    blocks.push(renderTables(parts[i].split('\n')).replace(/\n/g, '\n'));
+  }
+  return blocks.join('');
+}
+
+function renderBlank(text) {
+  // 填空题：把 ____ 换成输入框样式的占位
+  return mdRender(text).replace(/(_+)/g, '<span class="blank">&nbsp;</span>');
+}
+
+const SAFE_TYPES = { multiple_choice_single: 1, multiple_choice_multiple: 1, true_false: 1,
+                     fill_blank: 1, short_answer: 1, programming: 1 };
+function typeBadge(t) {
+  const safe = SAFE_TYPES[t] ? t : 'other';
+  return '<span class="badge b-' + safe + '">' + esc(TYPE_LABEL[t] || t || '未知') + '</span>';
+}
+
+/* ---------- blocks 格式（--mode box 输出）---------- */
+
+function asText(v) {
+  if (v == null) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (Array.isArray(v)) return v.map(asText).filter(Boolean).join('\n');
+  if (typeof v === 'object') {
+    if (typeof v.text === 'string') return v.text;
+    if (typeof v.content === 'string') return v.content;
+    if (Array.isArray(v.steps)) return v.steps.map(asText).filter(Boolean).join('\n');
+  }
+  return String(v);
+}
+
+function srcUrl(s) {
+  const m = /!\[[^\]]*\]\(([^)\s]+)\)/.exec(String(s || ''));
+  return m ? m[1] : String(s || '');
+}
+
+function refKeys(text) {
+  const out = new Set();
+  const re = /!\[插图(\d+)\]/g;
+  let m;
+  while ((m = re.exec(String(text || '')))) out.add(m[1]);
+  return out;
+}
+
+function figHtml(src, alt) {
+  const u = srcUrl(src);
+  if (!/^(data:|https?:|\.{0,2}\/)/.test(u)) return '';
+  return '<img class="figimg" src="' + u + '" alt="' + esc(asText(alt)) + '" loading="lazy">';
+}
+
+function tableHtml(headers, rows) {
+  let h = '<table class="mdtable"><thead><tr>' +
+    (headers || []).map(x => '<th>' + inlineMd(asText(x)) + '</th>').join('') +
+    '</tr></thead><tbody>';
+  (rows || []).forEach(r => {
+    h += '<tr>' + r.map(c => '<td>' + inlineMd(asText(c)) +
+      '</td>').join('') + '</tr>';
+  });
+  return h + '</tbody></table>';
+}
+
+function renderBlock(b) {
+  const pos = b.position ? '<span class="posbadge">' + esc(b.position) + '</span>' : '';
+  if (b.type === 'question') {
+    const h = ['<div class="qcard">'];
+    h.push('<div class="qhead"><span class="qno">题 ' + esc(b.number) + '</span>' + pos +
+      '</div>');
+    const stem = asText(b.stem);
+    h.push('<div class="qtext">' + mdRender(stem) + '</div>');
+    const inText = refKeys(stem);
+    (b.images || []).forEach(im => {
+      const k = /插图(\d+)/.exec(String(im.src || ''));
+      if (k && inText.has(k[1])) return;  // 已在正文原位置渲染
+      h.push(figHtml(im.src, im.alt));
+    });
+    const opts = b.options;
+    let items = [];
+    if (Array.isArray(opts)) items = opts.map((v, i) => [String.fromCharCode(65 + i), v]);
+    else if (opts && typeof opts === 'object') items = Object.keys(opts).map(k => [k, opts[k]]);
+    if (items.length) {
+      h.push('<div class="options">');
+      items.forEach(pair => {
+        const k = pair[0], v = pair[1];
+        const t = (v && typeof v === 'object') ? (v.text || '') : (v == null ? '' : v);
+        let line = '<div class="option"><span class="key">' + esc(k) + '.</span>' +
+          '<span class="qtext">' + mdRender(asText(t)) + '</span>';
+        if (v && typeof v === 'object' && v.image && typeof v.image === 'object') {
+          const kk = /插图(\d+)/.exec(String(v.image.src || ''));
+          if (!(kk && (inText.has(kk[1]) || refKeys(asText(t)).has(kk[1])))) {
+            line += figHtml(v.image.src, v.image.alt);
+          }
+        }
+        h.push(line + '</div>');
+      });
+      h.push('</div>');
+    }
+    if (b.table && (b.table.headers || b.table.rows)) {
+      h.push(tableHtml(b.table.headers, b.table.rows));
+    }
+    if (b.answer) {
+      h.push('<div class="answerbox"><b>答案：</b>' + esc(asText(b.answer)) +
+        (b.explanation ? '<br><b>解析：</b>' + mdRender(asText(b.explanation)) : '') +
+        '</div>');
+    }
+    h.push('</div>');
+    return h.join('');
+  }
+  if (b.type === 'text') {
+    return '<div class="examnotes">' + pos +
+      mdRender(asText(b.content != null ? b.content : b.text)) + '</div>';
+  }
+  if (b.type === 'image') {
+    return figHtml((b.image || {}).src || b.src, (b.image || {}).alt);
+  }
+  if (b.type === 'equation') {  // MinerU：优先公式裁剪图，缺失时显示 LaTeX 源
+    const fig = (b.image && b.image.src) ? figHtml(b.image.src, '公式') : '';
+    if (fig) return fig;
+    return '<div class="examnotes">' + esc(asText(b.text)) + '</div>';
+  }
+  if (b.type === 'table') {
+    const tb = b.table || b;
+    return tableHtml(tb.headers, tb.rows);
+  }
+  if (b.type === 'code') {
+    return '<pre>' + esc(b.content || b.code || '') + '</pre>';
+  }
+  return '';
+}
+
+function renderBlocks(data) {
+  const blocks = data.blocks || [];
+  const qs = blocks.filter(b => b.type === 'question');
+  document.title = '题目预览';
+  document.getElementById('title').textContent = '题目预览';
+  document.getElementById('meta').textContent =
+    '题目:' + qs.length + ' | 内容块:' + blocks.length;
+  document.getElementById('main').innerHTML =
+    '<div class="stats">' +
+    '<div class="stat"><b>' + qs.length + '</b>题目</div>' +
+    '<div class="stat"><b>' + blocks.length + '</b>内容块</div>' +
+    '</div>' +
+    blocks.map(renderBlock).join('');
+}
+
+function renderQuestion(q) {
+  const h = [];
+  h.push('<div class="qcard">');
+  h.push('<div class="qhead"><span class="qno">' + esc(q.question_no) + '.</span>' +
+    typeBadge(q.question_type) + '</div>');
+  h.push('<div class="qtext">' + renderBlank(q.question_text || '') + '</div>');
+  const opts = q.options || [];
+  if (opts.length) {
+    h.push('<div class="options">');
+    opts.forEach(o => h.push('<div class="option"><span class="key">' +
+      esc(o.option_id || o.key) + '.</span><span class="qtext">' +
+      renderBlank(o.option_text || '') + '</span></div>'));
+    h.push('</div>');
+  }
+  if ((q.answer || q.explanation) && String(q.answer) !== 'null') {
+    h.push('<div class="answerbox"><b>答案：</b>' + esc(q.answer || '—') +
+      (q.explanation ? '<br><b>解析：</b>' + esc(q.explanation) : '') + '</div>');
+  }
+  h.push('</div>');
+  return h.join('');
+}
+
+function render(data) {
+  if (Array.isArray(data.blocks)) { renderBlocks(data); return; }
+  document.title = data.exam_info && data.exam_info.title ? data.exam_info.title : '题目预览';
+  document.getElementById('title').textContent =
+    (data.exam_info && data.exam_info.title) || '题目预览';
+  const ei = data.exam_info || {};
+  document.getElementById('meta').textContent =
+    ['总分:' + (ei.total_score || '?'), '题量:' + (ei.question_count || data.questions.length),
+     '时限:' + (ei.time_limit || '?')].filter(Boolean).join(' | ');
+  const main = document.getElementById('main');
+  const qs = data.questions || [];
+  const countBy = {};
+  qs.forEach(q => { countBy[q.question_type] = (countBy[q.question_type] || 0) + 1; });
+  const notesByAfter = {};
+  (data.document_notes || []).forEach(n => {
+    const key = n.after_question_id || '__start__';
+    (notesByAfter[key] = notesByAfter[key] || []).push(String(n.text || ''));
+  });
+  const notesHtml = key => (notesByAfter[key] || []).map(t =>
+    '<div class="examnotes">' + esc(t) + '</div>').join('');
+  main.innerHTML =
+    notesHtml('__start__') +
+    '<div class="stats">' +
+    '<div class="stat"><b>' + qs.length + '</b>总题数</div>' +
+    Object.keys(countBy).map(k => '<div class="stat"><b>' + countBy[k] + '</b>' +
+      esc(TYPE_LABEL[k] || k || '') + '</div>').join('') +
+    '</div>' +
+    qs.map(q => renderQuestion(q) + notesHtml(q.question_id)).join('');
+}
+
+/* 数据里图片已内嵌为 data: URI（make_viewer.py 注入），无需额外处理 */
+function loadFromFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try { render(JSON.parse(reader.result)); } catch (e) { alert('JSON 解析失败: ' + e.message); }
+  };
+  reader.readAsText(file, 'utf-8');
+}
+
+document.getElementById('file').addEventListener('change', e => {
+  const f = e.target.files && e.target.files[0];
+  if (f) loadFromFile(f);
+});
+
+render(SAMPLE);
+</script>
+</body>
+</html>

@@ -33,12 +33,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      # pdf_tool 是另一个仓库:取一个固定 ref(默认 main;SOURCE.txt 会记下 commit)。
-      - name: Vendor pdf_tool
-        run: |
-          git clone --depth 1 --branch "${{ vars.PDF_TOOL_REF || 'main' }}" https://github.com/newcoder/auto_chat.git vendor/auto_chat
+      # pdf_tool 用仓库里的快照(engine/vendor/pdf_tool,固定 commit;刷新见 scripts/vendor-pdf-tool.mjs)。
       - name: Build the engine bundle
-        run: node scripts/build-engine.mjs --platform ${{ matrix.platform }} --pdf-tool vendor/auto_chat
+        run: node scripts/build-engine.mjs --platform ${{ matrix.platform }}
       - name: Check the bundle (manifest, licenses, sha256)
         run: node scripts/check-engine-bundle.mjs dist/engine --platform ${{ matrix.platform }}
       - uses: actions/upload-artifact@v4
