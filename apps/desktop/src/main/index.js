@@ -54,10 +54,10 @@ const dataRoot = path.join(userData, "data");
 const vaultRoot = path.join(userData, "library");
 const secretsPath = path.join(userData, "secrets.json");
 // 书坊引擎装在这里:Windows 用 %LOCALAPPDATA%\UVReader\engine\<版本>(与手工部署的
-// venv/token.txt 同一个根,方便找);其他平台放应用数据目录。
-const engineRoot = process.platform === "win32" && process.env.LOCALAPPDATA
+// venv/token.txt 同一个根,方便找);其他平台放应用数据目录。QBR_ENGINE_ROOT 可覆盖(测试用)。
+const engineRoot = process.env.QBR_ENGINE_ROOT || (process.platform === "win32" && process.env.LOCALAPPDATA
   ? path.join(process.env.LOCALAPPDATA, "UVReader", "engine")
-  : path.join(userData, "engine");
+  : path.join(userData, "engine"));
 // The sidecar's page cache lives with the app profile: the second open of a
 // book is a cache hit instead of a re-OCR.
 const pdfOcr = createPdfOcr({ cacheRoot: path.join(userData, "ocr-cache") });

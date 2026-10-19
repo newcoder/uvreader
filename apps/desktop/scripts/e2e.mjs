@@ -169,7 +169,7 @@ async function launch(target, options = {}) {
     executablePath: require("electron"),
     args: [".", target],
     cwd: appRoot,
-    env: { ...process.env, QBR_USER_DATA: userData },
+    env: { ...process.env, QBR_USER_DATA: userData, QBR_ENGINE_ROOT: path.join(userData, "engine-root") },
   });
   const page = await app.firstWindow();
   page.on("console", (message) => {
@@ -1305,7 +1305,7 @@ async function runCjkPdfPinScenario() {
     executablePath: require("electron"),
     args: [".", cjkPdf],
     cwd: appRoot,
-    env: { ...process.env, QBR_USER_DATA: userData },
+    env: { ...process.env, QBR_USER_DATA: userData, QBR_ENGINE_ROOT: path.join(userData, "engine-root") },
   });
   const selectHan = (page) => page.evaluate(() => {
     const spans = [...document.querySelectorAll(".qiaomu-reader-pdf-text-layer span")];
@@ -2326,6 +2326,8 @@ async function runHomeScenario() {
 
 async function runWorkshopScenario() {
   const sidecarDir = process.env.QBR_OCR_SIDECAR || "D:\\projects\\auto_chat";
+  // 假引擎:用来真跑「停止引擎」这条 IPC(应用会 kill 它记录下来的 pid)。
+  let engineKeeper = null;
   const { app, page, userData } = await launch("", {
     seed: (dir) => {
       fs.mkdirSync(path.join(dir, "data"), { recursive: true });
@@ -2339,8 +2341,17 @@ async function runWorkshopScenario() {
           ocrScannedPdf: true,
           ocrSidecarDir: sidecarDir,
           ocrPython: process.env.QBR_OCR_PYTHON || "python",
+          // 这个场景自己测启停;别让启动时的「自动开启」也来抢(它没有真引擎,会等超时)。
+          engineAutoStart: false,
         },
       }, null, 2));
+      const engineDir = path.join(dir, "engine-root", "9.9.9");
+      fs.mkdirSync(engineDir, { recursive: true });
+      fs.writeFileSync(path.join(engineDir, "engine.json"), JSON.stringify({ engineVersion: "9.9.9", platform: "test" }), "utf8");
+      fs.writeFileSync(path.join(engineDir, "token.txt"), "stub-token", "utf8");
+      engineKeeper = require("node:child_process").spawn(process.execPath, ["-e", "setTimeout(() => {}, 120000)"], { detached: true, stdio: "ignore" });
+      engineKeeper.unref();
+      fs.writeFileSync(path.join(engineDir, "engine.pid"), JSON.stringify({ pid: engineKeeper.pid, port: 8760, startedAt: Date.now() }), "utf8");
     },
   });
   try {
@@ -2552,7 +2563,11 @@ async function runWorkshopScenario() {
       await wait(2500);
       const ocrText = ocrButton?.closest(".qbr-workshop-row")?.querySelector(".qbr-mineru-status")?.textContent || "";
       document.querySelector('[data-route="workshop"]')?.click();
-      return { link: Boolean(link), tab: Boolean(tab), activeTab, tabLabels, wrapped, tabFlag, bodyTab, found: Boolean(button), text, ocrFound: Boolean(ocrButton), ocrText, typedSaved: String(window.__qbrPlugin?.settings?.mineruLocalExe || ""), engineStatus, engineCaps, engineJobs, engineInstallButtons, engineServiceButtons, engineAutoStart, engineComponentButton: Boolean(engineComponentButton), engineUrlSaved: String(window.__qbrPlugin?.settings?.engineUrl || "") };
+      // 启停 IPC:伪造的引擎目录 + 一个活着的 pid → service 要看见它,stop 要真的停(这条以前只断言按钮在)。
+      const engineServiceBefore = await window.qbrDesktop.engine.service();
+      const engineStop = await window.qbrDesktop.engine.stop();
+      const engineServiceAfter = await window.qbrDesktop.engine.service();
+      return { link: Boolean(link), tab: Boolean(tab), activeTab, tabLabels, wrapped, tabFlag, bodyTab, found: Boolean(button), text, ocrFound: Boolean(ocrButton), ocrText, typedSaved: String(window.__qbrPlugin?.settings?.mineruLocalExe || ""), engineStatus, engineCaps, engineJobs, engineInstallButtons, engineServiceButtons, engineAutoStart, engineServiceBefore, engineStop, engineServiceAfter, engineComponentButton: Boolean(engineComponentButton), engineUrlSaved: String(window.__qbrPlugin?.settings?.engineUrl || "") };
     }, stubPort);
     if (!mineru.link || !mineru.tab) throw new Error(`「打开 设置 → 书坊」应跳到书坊 tab:${JSON.stringify(mineru)}`);
     if (!mineru.found) throw new Error(`书坊 tab 里应该有「检测本地 MinerU」:${JSON.stringify(mineru)}`);
@@ -2598,6 +2613,16 @@ async function runWorkshopScenario() {
     }
     if (!mineru.engineAutoStart) {
       throw new Error("引擎卡片要有「启动应用时自动开启书坊引擎」的勾选");
+    }
+    // 启停 IPC 真跑一遍:伪造的引擎目录 + 活着的 pid → service 看见它,stop 真停掉。
+    if (!mineru.engineServiceBefore?.installed || !mineru.engineServiceBefore?.running) {
+      throw new Error(`engine.service 应该看到伪造的已装引擎在运行:${JSON.stringify(mineru.engineServiceBefore)}`);
+    }
+    if (!mineru.engineStop?.ok) {
+      throw new Error(`停止引擎要真的成功(不是按钮在就行):${JSON.stringify(mineru.engineStop)}`);
+    }
+    if (mineru.engineServiceAfter?.running) {
+      throw new Error(`停完不该还在运行:${JSON.stringify(mineru.engineServiceAfter)}`);
     }
     console.log("workshop: 书坊引擎探测与能力清单(带令牌)", String(mineru.engineStatus).slice(0, 40));
     // 服务停了之后再检测:要如实报「不可用」,不能装作还在。
