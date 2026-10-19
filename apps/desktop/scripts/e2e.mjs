@@ -2697,23 +2697,40 @@ async function runWorkshopScenario() {
     } else {
       console.log("workshop: task queue probe skipped — no pdf_tool sidecar at", sidecarDir);
     }
-    // 书坊入口开关:关闭后导航隐藏,恢复后重新出现。
+    // 书坊入口开关:关闭后导航隐藏、书坊页打不开;但「设置 → 书坊」标签页始终在,
+    // 用真正的勾选框能再打开 —— 不能出现「关了就打不开」的死锁。
     const navToggle = await page.evaluate(async () => {
       const plugin = window.__qbrPlugin;
+      const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       const button = () => [...document.querySelectorAll("[data-route]")].find((entry) => entry.dataset.route === "workshop");
       plugin.settings.workshopEnabled = false;
       window.__qbrApp.workspace.trigger("layout-change");
-      await new Promise((resolve) => setTimeout(resolve, 60));
+      await wait(80);
       const hidden = Boolean(button()?.hidden);
-      plugin.settings.workshopEnabled = true;
-      window.__qbrApp.workspace.trigger("layout-change");
-      await new Promise((resolve) => setTimeout(resolve, 60));
-      return { hidden, shown: !button()?.hidden };
+      document.querySelector('[data-route="settings"]')?.click();
+      await wait(500);
+      const tab = [...document.querySelectorAll(".qiaomu-reader-set-tab")].find((entry) => (entry.textContent || "").trim() === "书坊");
+      tab?.click();
+      await wait(500);
+      const switchInput = [...(document.querySelectorAll(".qiaomu-reader-set-body input[type='checkbox']") || [])]
+        .find((input) => /书坊/.test(String(input.closest("label")?.textContent || "")));
+      if (switchInput) {
+        switchInput.checked = true;
+        switchInput.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      await wait(200);
+      return {
+        hidden,
+        settingsTab: Boolean(tab),
+        switchFound: Boolean(switchInput),
+        shown: !button()?.hidden,
+        enabled: plugin.settings?.workshopEnabled !== false,
+      };
     });
-    if (!navToggle.hidden || !navToggle.shown) {
-      throw new Error(`the workshop switch did not hide/show the nav entry: ${JSON.stringify(navToggle)}`);
+    if (!navToggle.hidden || !navToggle.settingsTab || !navToggle.switchFound || !navToggle.shown || !navToggle.enabled) {
+      throw new Error(`书坊关了要能再从「设置 → 书坊」打开(不能锁死):${JSON.stringify(navToggle)}`);
     }
-    console.log("workshop: the workshop switch hides and restores the nav entry");
+    console.log("workshop: nav hidden, then re-enabled from 设置 → 书坊 (no lockout)");
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(userData, { recursive: true, force: true });

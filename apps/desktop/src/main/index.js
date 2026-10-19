@@ -9,7 +9,7 @@ import { createAiRuntime } from "./ai-runtime.js";
 import { createEngineClient, describeEngineHealth } from "./engine-client.js";
 import { createEngineInstaller, registerEngineComponentRunner, registerEngineInstallRunner } from "./engine-install.js";
 import { createEngineService, portFromUrl } from "./engine-service.js";
-import { syncLocalMineruAddress } from "./engine-wiring.js";
+import { syncLocalMineru } from "./engine-wiring.js";
 import { createCalibre } from "./calibre.js";
 import { createCoverRenderer } from "./cover-render.js";
 import { createDocvortex, registerDocvortexRunners } from "./docvortex.js";
@@ -449,20 +449,17 @@ ipcMain.handle("qbr:probe:engine", async (_event, settings = {}) => {
   if (!result.ok) return { ok: false, detail: result.error || "连接不上引擎" };
   let health = result.data || {};
   let synced = null;
-  // 引擎还用不上 MinerU、而本机有活着的本地 MinerU 服务:把地址写进引擎配置
-  // (只写引擎没配的时候,不覆盖用户填的;写不进去也不影响探测结果)。
+  // 引擎还用不上 MinerU、而本机有活着的本地 MinerU 服务:把地址 / 程序 / 凭据写进引擎配置
+  // (只写引擎没配的时候,不覆盖用户填的;凭据只发给本机引擎)。
   if (health.capabilities?.mineru?.ok !== true) {
-    const config = await engineClient.config(value).catch(() => null);
-    const current = String(config?.data?.config?.mineruLocalUrl || "").trim();
-    if (!current) {
-      synced = await syncLocalMineruAddress({
-        settings: value,
-        engine: engineClient,
-        resolveBackend: (input) => resolveLocalBackend(input),
-        log: (...args) => log("[engine]", ...args),
-      });
-      if (synced?.capabilities) health = { ...health, capabilities: synced.capabilities };
-    }
+    synced = await syncLocalMineru({
+      settings: value,
+      engine: engineClient,
+      resolveBackend: (input) => resolveLocalBackend(input),
+      resolveKit: (input) => resolveMineruKit(input),
+      log: (message, detail) => log("[engine]", message, detail || ""),
+    });
+    if (synced?.capabilities) health = { ...health, capabilities: synced.capabilities };
   }
   return { ok: true, detail: describeEngineHealth(health), health, synced };
 });

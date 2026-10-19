@@ -414,9 +414,11 @@ export function createSettingsView(leaf, options) {
     const switchLabel = switchRow.createEl("label", { cls: "qbr-workshop-opt" });
     const switchInput = switchLabel.createEl("input", { attr: { type: "checkbox" } });
     switchInput.checked = settings.workshopEnabled !== false;
-    switchLabel.createSpan({ text: "在导航里显示「书坊」(关闭后隐藏整页,便于回退)" });
+    switchLabel.createSpan({ text: "导航里显示「书坊」;关闭只隐藏导航入口和书坊页面,阅读不受影响,「设置 → 书坊」这个标签页始终在,随时能打开" });
     switchInput.addEventListener("change", () => {
       persist("workshopEnabled", Boolean(switchInput.checked));
+      // 勾选框只存设置不会重绘导航:显式触发一次布局刷新(否则关掉能生效、再打开导航却不回来)。
+      plugin?.app?.workspace?.trigger?.("layout-change");
       save("书坊开关已保存;导航立即生效。");
     });
     toggleCard.createDiv({ cls: "qbr-workshop-hint", text: "书坊负责:文字层与可搜索 PDF、格式转换、内容提取、电子书制作。后台能力的路径由「书坊引擎」管;下面的「本机工具」只在引擎不可用时回退。" });
@@ -786,9 +788,10 @@ export function createSettingsView(leaf, options) {
       if (result?.ok) {
         renderEngineHealth(result.health);
         void loadEngineConfig();
-        // 自动接线:本机有活着的本地 MinerU 时,地址已经顺手写进引擎配置(要如实说出来)。
-        if (result.synced?.url) {
-          engineCaps.createDiv({ cls: "qbr-workshop-hint", text: `已把本机本地 MinerU 地址同步给引擎:${result.synced.url}` });
+        // 自动接线:本机有活着的本地 MinerU 时,地址/程序/凭据已经顺手写进引擎配置(要如实说出来)。
+        const syncedKeys = Object.keys(result.synced?.patch || {});
+        if (syncedKeys.length) {
+          engineCaps.createDiv({ cls: "qbr-workshop-hint", text: `已把本机 MinerU 设置同步给引擎:${syncedKeys.join(" / ")}` });
         }
       } else {
         engineCaps.empty();
@@ -865,6 +868,12 @@ export function createSettingsView(leaf, options) {
     const fallbackCard = root.createEl("details", { cls: "qbr-workshop-card qbr-workshop-fallback" });
     fallbackCard.createEl("summary", { text: "本机工具(仅引擎不可用时回退;引擎可用时这些设置不生效)" });
     fallbackCard.createDiv({ cls: "qbr-workshop-hint", text: "引擎的路径改在「书坊引擎 → 引擎配置」里;这里是引擎没装 / 连不上时的回退路径(填了才用,留空按自动检测)。" });
+    // MinerU 模型:本机回退链路要用,但之前只在引擎配置里露出来 → 这里补上(值本来就是共用的同一个设置)。
+    const fallbackModelRow = fallbackCard.createDiv("qbr-workshop-row");
+    fallbackModelRow.createSpan({ cls: "qbr-workshop-hint", text: "MinerU 模型" });
+    const fallbackModel = fallbackModelRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "默认 vlm(只影响回退本机;引擎用引擎配置里的)" } });
+    fallbackModel.value = String(settings.mineruModel || "");
+    bind(fallbackModel, "mineruModel", "MinerU 模型已保存;新任务生效。");
     fallbackCard.appendChild(ocrCard);
     fallbackCard.appendChild(docvortexCard);
     fallbackCard.appendChild(calibreCard);
