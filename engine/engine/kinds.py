@@ -324,6 +324,33 @@ def run_convert(job: Job) -> dict:
     raise RuntimeError(f"DocVortex 转换失败:{last_error}")
 
 
+# ── 文本型提取(kind=pdf-text)──────────────────────────────────────────
+
+def run_pdf_text(job: Job) -> dict:
+    """跑引擎自带的 pdf_text.py(与应用同一份脚本):结构化行 / 图区 / 家具判定都在里面。"""
+    source = str(job.args.get("source") or "")
+    if not source or not Path(source).exists():
+        raise FileNotFoundError(f"找不到 PDF:{source}")
+    base = Path(str(job.args.get("workDir") or Path(source).parent))
+    base.mkdir(parents=True, exist_ok=True)
+    out_file = base / "pdf-text.json"
+    assets_dir = base / "assets"
+    script = Path(__file__).with_name("scripts") / "pdf_text.py"
+    code, output = run_process(
+        job, sys.executable, [str(script), source, str(out_file), str(assets_dir)],
+        timeout=float(job.args.get("timeoutMs") or 300_000) / 1000.0,
+        label="读取文本结构…",
+    )
+    if code != 0:
+        raise RuntimeError(f"文本型提取失败(退出码 {code}):{output.strip()[-300:]}")
+    if not out_file.exists():
+        raise RuntimeError("没有生成文本结构文件")
+    pages = json.loads(out_file.read_text(encoding="utf-8"))
+    if not isinstance(pages, list) or not pages:
+        raise RuntimeError("PDF 没有文本页")
+    return {"path": str(out_file), "pages": len(pages)}
+
+
 # 作业类型注册表(**必须放文件末尾**:函数得先定义出来,否则 NameError)。
 JOB_KINDS = {
     "text-layer": run_text_layer,
@@ -332,4 +359,5 @@ JOB_KINDS = {
     "redact": run_redact,
     "extract": run_extract,
     "convert": run_convert,
+    "pdf-text": run_pdf_text,
 }

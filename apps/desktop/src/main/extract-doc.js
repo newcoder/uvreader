@@ -570,7 +570,7 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", ca
     if (mode === "text") {
       report({ label: "本地取文本" });
       const work = path.join(cacheRoot || os.tmpdir(), "pdf-text", `${stem}-${Date.now().toString(36)}`);
-      const read = await pdfText.read(source, { python: docvortexPython(settings), workDir: work, signal });
+      const read = await pdfText.read(source, { python: docvortexPython(settings), workDir: work, signal, engineSettings: settings });
       if (signal.aborted) throw new Error("任务已取消");
       if (!read.ok) throw new Error(`本地取文本失败：${read.error}`);
       const doc = buildTextDoc(read.pages, { source, title: stem, assetPrefix: `${stem}.assets/` });

@@ -542,11 +542,22 @@ export function buildTextDoc(pages, { source = "", title = "", assetPrefix = "" 
   };
 }
 
-export function createPdfTextReader({ spawnImpl = spawn, timeoutMs = 120_000 } = {}) {
-  async function read(pdfPath, { python = "python", workDir = "", signal } = {}) {
+export function createPdfTextReader({ spawnImpl = spawn, timeoutMs = 120_000, engine = null } = {}) {
+  async function read(pdfPath, { python = "python", workDir = "", signal, engineSettings = null } = {}) {
     const source = String(pdfPath || "");
     if (!source || !fs.existsSync(source)) return { ok: false, error: `找不到 PDF：${source}` };
     const base = String(workDir || path.dirname(source) || ".");
+    // 引擎优先(可独立部署):引擎自带同一份 pdf_text.py;失败/没配再回退本机 python。
+    if (engine && engineSettings && String(engineSettings.engineUrl || "").trim()) {
+      const ran = await engine.runJob(engineSettings, "pdf-text", { source, workDir: base }, { signal, timeoutMs });
+      if (ran.ok && ran.result?.path && fs.existsSync(ran.result.path)) {
+        try {
+          const pages = JSON.parse(fs.readFileSync(ran.result.path, "utf8"));
+          if (Array.isArray(pages) && pages.length) return { ok: true, pages, via: "engine" };
+        } catch { /* 产物坏了就回退本机 */ }
+      }
+      if (ran.cancelled) return { ok: false, cancelled: true, error: "任务已取消" };
+    }
     try {
       fs.mkdirSync(base, { recursive: true });
       const outFile = path.join(base, "pdf-text.json");
@@ -621,7 +632,7 @@ export function createPdfCleaner({ pdfText = createPdfTextReader(), spawnImpl = 
   async function clean(source, { python = "python", workDir = "", signal, engineSettings = null } = {}) {
     const original = String(source || "");
     if (!original || !fs.existsSync(original)) return { ok: false, path: original, removed: 0, error: `找不到 PDF：${original}` };
-    const read = await pdfText.read(original, { python, workDir, signal });
+    const read = await pdfText.read(original, { python, workDir, signal, engineSettings });
     if (!read.ok) return { ok: false, path: original, removed: 0, error: read.error };
     const rects = furnitureRects(read.pages);
     if (!rects.length) return { ok: true, path: original, removed: 0 };
@@ -758,7 +769,7 @@ export function registerTextConvertRunner(workshop, { docvortex, vaultRoot = "",
     const workDir = path.join(cacheRoot || process.env.TEMP || process.env.TMP || "/tmp", "pdf-text", `${stem}-${Date.now().toString(36)}`);
 
     report({ label: "本地取文本" });
-    const read = await pdfText.read(source, { python, workDir, signal });
+    const read = await pdfText.read(source, { python, workDir, signal, engineSettings: settings });
     if (signal.aborted) throw new Error("任务已取消");
     if (!read.ok) throw new Error(`本地取文本失败：${read.error}`);
     const doc = buildTextDoc(read.pages, { source, title: stem, assetPrefix: "assets/" });

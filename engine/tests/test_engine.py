@@ -217,6 +217,19 @@ def test_extract_job_runs_pdf_tool_from_the_config(client, tmp_path, monkeypatch
     assert "pdf_tool" in failed["error"]
 
 
+def test_pdf_text_job_reads_the_structure(client, tmp_path):
+    pdf = make_pdf(tmp_path / "text.pdf")
+    work = tmp_path / "work"
+    job_id = submit(client, "pdf-text", {"source": str(pdf), "workDir": str(work)})
+    job = wait_for(client, job_id, timeout=60)
+    assert job["status"] == "done", job.get("error")
+    result = client.get(f"/v1/jobs/{job_id}/result", headers=AUTH).json()["result"]
+    assert result["pages"] == 2
+    pages = json.loads((work / "pdf-text.json").read_text(encoding="utf-8"))
+    assert isinstance(pages, list) and pages
+    assert "lines" in pages[0], "结构化行在 pages[].lines 里"
+
+
 def test_convert_job_runs_docvortex(client, tmp_path, monkeypatch):
     # 假的 docvortex 模块:引擎用 `python -m docvortex` 调它(PYTHONPATH 指到 stub 目录)。
     stub_dir = tmp_path / "stubs"
