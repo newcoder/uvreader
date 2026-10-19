@@ -3411,7 +3411,7 @@ async function runWorkshopBookScenario() {
     if (!panel.tools.some((label) => label.includes("EPUB → AZW3 / MOBI")) || !panel.tools.some((label) => label.includes("图片 → CBZ"))) {
       throw new Error(`the book panel should offer the AZW3 and CBZ tools: ${JSON.stringify(panel.tools)}`);
     }
-    if (!panel.selects.some((values) => values.includes("azw3")) || !panel.selects.some((values) => values.includes("cbz"))) {
+    if (!panel.selects.some((values) => values.includes("azw3")) || !panel.selects.some((values) => values.includes("kfx")) || !panel.selects.some((values) => values.includes("cbz"))) {
       throw new Error(`the book panel lost its target selects: ${JSON.stringify(panel.selects)}`);
     }
     console.log("workshop-book: panel offers", panel.tools.join(" / "));
@@ -3434,6 +3434,21 @@ async function runWorkshopBookScenario() {
       throw new Error(`the cbz should keep the natural order: ${entries.join(",")}`);
     }
     console.log("workshop-book: images packed —", path.basename(cbzPath), entries.join(","));
+    // KFX:这台机器上没装 boko、也没配引擎 → 必须给**明确**错误(说明要装什么、填哪个配置项),
+    // 不能含糊失败(这条不依赖 Calibre,所以放在 Calibre 探测之前)。
+    const kfxTask = await page.evaluate(() => window.qbrDesktop.workshop.start({
+      kind: "ebook-convert", title: "转为 KFX",
+      payload: { source: "Books/拼音测试书.epub", format: "kfx", out: "Books/拼音测试书.kfx" },
+    }));
+    const kfx = await waitFor("kfx", () => page.evaluate(async (id) => {
+      const state = await window.qbrDesktop.workshop.list();
+      const task = state.tasks.find((entry) => entry.id === id);
+      return task && task.status !== "running" && task.status !== "queued" ? `${task.status}|${task.output}${task.error}` : "";
+    }, kfxTask), 60_000);
+    if (!kfx.startsWith("failed") || !/boko/.test(kfx) || !/bokoPath/.test(kfx)) {
+      throw new Error(`KFX without boko should fail with a hint naming boko and bokoPath: ${kfx}`);
+    }
+    console.log("workshop-book: KFX without boko says —", kfx.replace(/^failed\|/, "").slice(0, 80));
     // Calibre:EPUB → AZW3 与 图片 → EPUB。
     const probe = await page.evaluate(() => window.qbrDesktop.workshop.start({ kind: "calibre-probe", title: "检测 Calibre", payload: {} }));
     const probed = await waitFor("calibre probe", () => page.evaluate(async (id) => {

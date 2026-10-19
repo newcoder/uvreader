@@ -91,6 +91,32 @@ fs.writeFileSync(path.join(stubDocvortex, "docvortex", "cli.py"), [
   "    raise SystemExit(main())",
 ].join("\n"), "utf8");
 
+// 假的外部转换器(boko / Calibre):真程序在 CI 里没有、本机版本也各不相同,
+// 所以一律用配置指到假程序上 —— 能力与作业都可确定地断言。
+const stubBins = path.join(work, "bins");
+fs.mkdirSync(stubBins, { recursive: true });
+const stubConvert = (name, { refuseMobi = false } = {}) => {
+  const script = path.join(stubBins, `${name}-stub.py`);
+  fs.writeFileSync(script, [
+    "import pathlib, sys",
+    "args = sys.argv[1:]",
+    "if args and args[0] == 'convert':",
+    "    args = args[1:]",
+    "args = [a for a in args if not a.startswith('-')]",
+    "source, out = args[0], args[1]",
+    refuseMobi ? "if out.lower().endswith('.mobi'):\n    print('error: MOBI output is not supported; use .azw3 instead')\n    sys.exit(1)" : "pass",
+    "pathlib.Path(out).write_text(pathlib.Path(source).read_text(encoding='utf-8', errors='ignore') + '|" + name + "', encoding='utf-8')",
+    "print('stub " + name + " ok')",
+  ].join("\n"), "utf8");
+  const sh = path.join(stubBins, name);
+  fs.writeFileSync(sh, `#!/bin/sh\nexec "${python}" "${script}" "$@"\n`, "utf8");
+  fs.chmodSync(sh, 0o755);
+  fs.writeFileSync(path.join(stubBins, `${name}.cmd`), `@"${python}" "${script}" %*\r\n`, "utf8");
+  return process.platform === "win32" ? path.join(stubBins, `${name}.cmd`) : sh;
+};
+const stubBoko = stubConvert("boko", { refuseMobi: true });
+const stubCalibre = stubConvert("ebook-convert");
+
 const fixtureScript = `
 import fitz, sys
 book, outline, dirty = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -157,7 +183,7 @@ try {
   }
   check("health 上报版本与能力", Boolean(health.data.engineVersion) && Boolean(health.data.capabilities.python?.ok), describeEngineHealth(health.data));
   const kinds = health.data.capabilities.jobKinds || [];
-  check("七类作业都在", ["text-layer", "outline", "images-to-pdf", "redact", "extract", "convert", "pdf-text"].every((kind) => kinds.includes(kind)), kinds.join(", "));
+  check("十类作业都在", ["text-layer", "outline", "images-to-pdf", "redact", "extract", "convert", "pdf-text", "install-component", "ebook-convert", "boko-convert"].every((kind) => kinds.includes(kind)), kinds.join(", "));
   check("能力项是 {ok, detail}", engineCapabilityRows(health.data).every((row) => typeof row.ok === "boolean" && typeof row.detail === "string"));
 
   const noToken = await client.health({ engineUrl: settings.engineUrl });
@@ -167,14 +193,16 @@ try {
   const before = await client.config(settings);
   check("配置可读", before.ok === true && before.data.config.hasMineruToken === false);
   const saved = await client.saveConfig(settings, {
-    calibrePath: path.join(work, "nope", "ebook-convert"),
+    calibrePath: stubCalibre,
+    bokoPath: stubBoko,
     mineruToken: "secret-token",
     pdfToolDir: stubPdfTool,
     unknown: "ignored",
   });
   check("配置写入后令牌不回显", saved.ok === true && saved.data.config.mineruToken === "" && saved.data.config.hasMineruToken === true);
   check("未知字段被忽略", !("unknown" in saved.data.config));
-  check("能力随配置变化", saved.data.capabilities.calibre.ok === false && saved.data.capabilities.pdfTool.ok === true, saved.data.capabilities.pdfTool.detail);
+  // 能力随配置变化:路径指到假程序上,三项都该报可用(与本机是否装了真程序无关)。
+  check("能力随配置变化", saved.data.capabilities.calibre.ok === true && saved.data.capabilities.boko.ok === true && saved.data.capabilities.pdfTool.ok === true, saved.data.capabilities.pdfTool.detail);
   const disk = JSON.parse(fs.readFileSync(configFile, "utf8"));
   check("配置落在引擎侧", disk.mineruToken === "secret-token" && disk.pdfToolDir === stubPdfTool);
 
@@ -221,6 +249,18 @@ try {
   const converted = path.join(work, "converted.md");
   const convert = await client.runJob(settings, "convert", { source: fixturePdf, format: "markdown", out: converted, parseMode: "ocr" }, { intervalMs: 100, timeoutMs: 60_000 });
   check("convert 跑通(假 docvortex)", convert.ok === true && fs.existsSync(converted) && fs.readFileSync(converted, "utf8").includes("converted"), convert.ok ? "" : String(convert.error));
+
+  // ── 电子书互转:boko(KFX / AZW3)与 Calibre(MOBI)────────────────────
+  const azw3 = path.join(work, "book.azw3");
+  const boko = await run("boko-convert", { source: fixturePdf, out: azw3 });
+  check("boko-convert 跑通(假 boko)", boko.ran.ok === true && fs.existsSync(azw3) && fs.readFileSync(azw3, "utf8").includes("|boko"), boko.ran.ok ? "" : String(boko.ran.error));
+  const bokoMobi = await run("boko-convert", { source: fixturePdf, out: path.join(work, "nope.mobi") }, { expect: false });
+  check("boko 写 MOBI 被拒(指路 Calibre)", bokoMobi.ran.ok === false && /不能写 MOBI/.test(String(bokoMobi.ran.error)), String(bokoMobi.ran.error));
+  const mobi = path.join(work, "book.mobi");
+  const calibreJob = await run("ebook-convert", { source: fixturePdf, out: mobi });
+  check("ebook-convert 跑通(假 Calibre)", calibreJob.ran.ok === true && fs.existsSync(mobi) && fs.readFileSync(mobi, "utf8").includes("|ebook-convert"), calibreJob.ran.ok ? "" : String(calibreJob.ran.error));
+  const unknownComponent = await run("install-component", { name: "requests" }, { expect: false });
+  check("可选组件白名单外被拒", unknownComponent.ran.ok === false && /未知组件/.test(String(unknownComponent.ran.error)), String(unknownComponent.ran.error));
 
   // ── 取消 / 错误路径 ────────────────────────────────────────────────
   const slowPdf = path.join(work, "slow.pdf");

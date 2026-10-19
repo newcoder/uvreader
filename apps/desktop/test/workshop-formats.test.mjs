@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { DOCVORTEX_FORMATS, DOCVORTEX_INPUTS, TEXT_SOURCE_EXTENSIONS, WORKSHOP_PICK_EXTENSIONS, docvortexFormatExt, textSourceKind } from "../src/shared/workshop-formats.js";
+import { DOCVORTEX_FORMATS, DOCVORTEX_INPUTS, EBOOK_TARGETS, TEXT_SOURCE_EXTENSIONS, WORKSHOP_PICK_EXTENSIONS, docvortexFormatExt, ebookTargetExt, textSourceKind } from "../src/shared/workshop-formats.js";
 import { extractionKind } from "../src/shared/extract-formats.js";
 
 test("the pick dialog offers Office/ODF/OFD/text/image documents", () => {
@@ -31,4 +31,14 @@ test("textSourceKind spots Markdown and plain text, and nothing else", () => {
   // 这两个源 DocVortex 收不了(见 main/docvortex.js 的 textSourceHtml),但不是「提取不了」:
   assert.equal(extractionKind("a.md"), "text", "提取走桥接而不是报「不支持」");
   assert.equal(extractionKind("a.txt"), "text");
+});
+
+test("ebook targets include KFX, and its label says boko is needed", () => {
+  const ids = EBOOK_TARGETS.map((target) => target.id);
+  assert.deepEqual(ids, ["azw3", "kfx", "mobi"], "AZW3 与 KFX 走 boko,MOBI 仍归 Calibre");
+  const kfx = EBOOK_TARGETS.find((target) => target.id === "kfx");
+  assert.match(kfx.label, /boko/, "KFX 的标签要说明它需要 boko(Calibre 写 KFX 要 Kindle Previewer)");
+  assert.equal(ebookTargetExt("kfx"), "kfx");
+  assert.equal(ebookTargetExt("azw3"), "azw3");
+  assert.equal(ebookTargetExt("nope"), "nope", "未知目标退化成原样,不抛错");
 });
