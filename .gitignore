@@ -37,3 +37,7 @@ tools-*.cjs
 # Промо-ролик и вспомогательные артефакты — не часть плагина.
 promo-video/
 main.js.json
+
+# Python bytecode caches (the workshop engine)
+__pycache__/
+*.pyc
