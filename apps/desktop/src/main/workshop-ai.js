@@ -6,6 +6,8 @@ import { createAiRuntime } from "./ai-runtime.js";
 import fs from "node:fs";
 import { applyChapterRule, collectChapterCandidates, describeChapterRule, normalizeChapterRule } from "../shared/chapter-rules.js";
 import { decodeText } from "../shared/text-encoding.js";
+import { diffParagraphs, guardCleanupBlock, splitCleanupBlocks } from "../shared/text-issues.js";
+import path from "node:path";
 
 // 提示词要求模型只吐 JSON;解析在 parseAiJson 里容错(围栏、前后废话都能剥掉)。
 const JSON_RULES = "只输出一个 JSON 对象,不要解释、不要 Markdown 代码围栏。";
@@ -197,13 +199,138 @@ export function createAiRunner({ aiRuntime = createAiRuntime(), log = () => {} }
   };
 }
 
-export function registerAiRunners(workshop, { aiRuntime = createAiRuntime(), vaultRoot = "", log = () => {} } = {}) {
+export function registerAiRunners(workshop, { aiRuntime = createAiRuntime(), vaultRoot = "", cacheRoot = "", log = () => {} } = {}) {
   const run = createAiRunner({ aiRuntime, log });
   const disposers = Object.keys(AI_TASK_SPECS).map((kind) => workshop.register(kind, (request) => run(kind, request)));
   // AI 分章建议:读源文件、抽候选行,让模型归纳**规则**,本地套回全书并验证(见 shared/chapter-rules.js)。
   const chapters = createChapterRunner({ aiRuntime, readSource: createSourceReader({ vaultRoot }), log });
   disposers.push(workshop.register("ai-chapters", (request) => chapters(request)));
+  // AI 清理:本地体检(shared/text-issues.js)由面板负责;这里只做「按块最小修正 + 护栏」。
+  const cleanup = createCleanupRunner({ aiRuntime, cacheRoot, log });
+  disposers.push(workshop.register("ai-clean", (request) => cleanup(request)));
   return () => disposers.forEach((dispose) => dispose());
+}
+
+// ── AI 清理(ai-clean)──────────────────────────────────────────────────
+// 只修错字 / 断行 / 被吞的标题;每块过四道护栏(见 shared/text-issues.js 的 guardCleanupBlock),
+// 任何一块被判成「改写」就保留原文。结果落盘(不把整本书塞进任务状态),只回传摘要与对比样例。
+
+function stripCodeFences(text) {
+  const value = String(text ?? "").trim();
+  const fenced = /^```[a-zA-Z]*\s*\n([\s\S]*?)\n?```$/.exec(value);
+  return (fenced ? fenced[1] : value).trim();
+}
+
+export function buildCleanupMessages(block) {
+  return [
+    { role: "system", content: "你是中文图书校对,只做最小修正。只输出修正后的文本本身,不要解释、不要代码围栏、不要加引号。" },
+    {
+      role: "user",
+      content: [
+        "下面是一段书稿(可能来自 OCR)。只做三件事:",
+        "1) 修正明显的 OCR 错字(形近字、乱码字符);",
+        "2) 把断开的句子接回(补回被切断的空格 / 换行);",
+        "3) 把被吞进正文的章节标题单独成行(形如「第X章 标题」)。",
+        "不许增删内容、不许总结、不许改写、不许改标点与换行风格。原样返回整段文本。",
+        "",
+        "书稿:",
+        block,
+      ].join("\n"),
+    },
+  ];
+}
+
+export function createCleanupRunner({ aiRuntime = createAiRuntime(), cacheRoot = "", log = () => {} } = {}) {
+  return async function runCleanupTask({ payload = {}, report = () => {}, signal } = {}) {
+    const config = normalizeAiConfig(payload.config);
+    if (!config.id || !config.base || !config.model) {
+      throw new Error("AI 还没配置好:先在「设置 → AI 助读」里选供应商与模型");
+    }
+    const chapters = (Array.isArray(payload.chapters) ? payload.chapters : [])
+      .map((chapter) => ({
+        index: Number(chapter?.index) || 0,
+        title: String(chapter?.title || ""),
+        text: String(chapter?.text || ""),
+      }))
+      .filter((chapter) => chapter.text.trim());
+    if (!chapters.length) throw new Error("没有选中要清理的章节");
+    const jobs = [];
+    for (const chapter of chapters) {
+      for (const block of splitCleanupBlocks(chapter.text)) jobs.push({ chapter, block });
+    }
+    if (!jobs.length) throw new Error("选中的章节里没有正文");
+    if (jobs.length > 200) throw new Error(`要清理 ${jobs.length} 块,一次跑不完:先少选几章(建议一次 ≤ 200 块)`);
+
+    const requestBase = `workshop-clean-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    const byChapter = new Map();
+    let calls = 0;
+    let rejected = 0;
+    for (let index = 0; index < jobs.length; index += 1) {
+      if (signal?.aborted) throw new Error("已取消");
+      const job = jobs[index];
+      report({ done: index, total: jobs.length, label: `AI 清理 ${index + 1}/${jobs.length} 块` });
+      const requestId = `${requestBase}-${index}`;
+      const onAbort = () => aiRuntime.abort(requestId);
+      signal?.addEventListener?.("abort", onAbort, { once: true });
+      let result;
+      try {
+        result = await aiRuntime.stream({
+          requestId,
+          config,
+          messages: buildCleanupMessages(job.block),
+          options: { timeoutMs: 120_000 },
+        });
+      } finally {
+        signal?.removeEventListener?.("abort", onAbort);
+      }
+      calls += 1;
+      const cleaned = result?.ok ? stripCodeFences(result.answer) : "";
+      const guard = cleaned ? guardCleanupBlock(job.block, cleaned) : { ok: false, reason: aiFailureText(result) };
+      if (!guard.ok) rejected += 1;
+      const entry = byChapter.get(job.chapter.index)
+        || { index: job.chapter.index, title: job.chapter.title, original: job.chapter.text, blocks: [] };
+      entry.blocks.push(guard.ok ? cleaned : job.block);
+      byChapter.set(job.chapter.index, entry);
+    }
+    report({ done: jobs.length, total: jobs.length, label: "整理清理结果…" });
+
+    const chaptersOut = [];
+    const samples = [];
+    for (const entry of byChapter.values()) {
+      const text = entry.blocks.join("\n\n");
+      const diff = diffParagraphs(entry.original, text, { max: 20 });
+      chaptersOut.push({ index: entry.index, title: entry.title, text, changed: diff.total, chars: text.length });
+      for (const change of diff.changes) {
+        if (samples.length >= 20) break;
+        samples.push({ index: entry.index, title: entry.title, ...change });
+      }
+    }
+    let file = "";
+    if (cacheRoot) {
+      try {
+        const dir = path.join(String(cacheRoot), "ai-clean");
+        fs.mkdirSync(dir, { recursive: true });
+        file = path.join(dir, `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}.json`);
+        fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, chapters: chaptersOut }, null, 2), "utf8");
+      } catch (error) {
+        log("[workshop-ai] ai-clean result could not be saved", error);
+      }
+    }
+    const changed = chaptersOut.reduce((sum, chapter) => sum + chapter.changed, 0);
+    log("[workshop-ai] ai-clean", calls, "calls,", rejected, "rejected,", changed, "changes");
+    return {
+      output: `清理 ${chaptersOut.length} 章 · 改动 ${changed} 处${rejected ? ` · 丢弃 ${rejected} 块` : ""}`,
+      detail: changed ? `${samples[0]?.after || ""}`.slice(0, 40) : "没有需要改的地方",
+      result: {
+        file,
+        calls,
+        rejected,
+        changed,
+        chapters: chaptersOut.map(({ text: _text, ...rest }) => rest),
+        samples,
+      },
+    };
+  };
 }
 
 // ── AI 分章建议(ai-chapters)────────────────────────────────────────────

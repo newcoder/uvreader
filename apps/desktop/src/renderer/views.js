@@ -11,6 +11,7 @@ import { convertPath, uvtextPath } from "../shared/workshop-names.js";
 import { createAiContext } from "../../../../packages/reader/src/ai-context.js";
 import { decodeText } from "../shared/text-encoding.js";
 import { applyChapterRule, describeChapterRule } from "../shared/chapter-rules.js";
+import { describeIssues, scanChapterIssues, splitCleanupBlocks } from "../shared/text-issues.js";
 
 // 书坊的 AI 辅助复用伴读的配置读取(供应商 / 模型 / 密钥都从同一份设置与密钥库来,
 // 不新增设置项);这里只用 aiConfig,翻译与高亮定位给最小实现。
@@ -1276,7 +1277,15 @@ export function createWorkshopView(leaf, options) {
       const aiChapters = aiChapterRow.createEl("button", { text: "AI 建议分章" });
       aiChapters.addEventListener("click", () => void this.startAiChapters());
       aiChapterRow.createSpan({ cls: "qbr-workshop-hint", text: "判断章名形态,套用前先看预览" });
-      this._bookAiChapters = chapterStep.createDiv("qbr-workshop-ai-suggest");
+      this._bookAiChapters = chapterStep.createDiv("qbr-workshop-ai-suggest qbr-workshop-ai-chapters");
+
+      // AI 清理(两步):先本地体检发现问题 → 用户勾选确认 → 再清理并给出前后对比。
+      const aiCleanRow = chapterStep.createDiv("qbr-workshop-row");
+      aiCleanRow.createSpan({ cls: "qbr-workshop-hint", text: "有 OCR 错字 / 断行 / 吞标题?" });
+      const aiCleanCheck = aiCleanRow.createEl("button", { text: "检查可疑内容" });
+      aiCleanCheck.addEventListener("click", () => this.checkBookIssues());
+      aiCleanRow.createSpan({ cls: "qbr-workshop-hint", text: "本地体检,不调用 AI" });
+      this._bookAiClean = chapterStep.createDiv("qbr-workshop-ai-suggest qbr-workshop-ai-clean");
 
       // ③ 书名与封面
       const metaStep = this.bookStep(controls, "3", "书名与封面", "写进扉页、目录与封面");
@@ -1296,7 +1305,7 @@ export function createWorkshopView(leaf, options) {
       const aiCover = aiRow.createEl("button", { text: "AI 封面文案" });
       aiCover.addEventListener("click", () => void this.startAiSuggestion("ai-cover-copy"));
       aiRow.createSpan({ cls: "qbr-workshop-hint", text: "用书稿开头推断;只填空着的字段" });
-      this._bookAiSuggestion = metaStep.createDiv("qbr-workshop-ai-suggest");
+      this._bookAiSuggestion = metaStep.createDiv("qbr-workshop-ai-suggest qbr-workshop-ai-meta");
 
       const coverRow = metaStep.createDiv("qbr-workshop-row");
       coverRow.createSpan({ cls: "qbr-workshop-hint", text: "封面" });
@@ -1723,14 +1732,17 @@ export function createWorkshopView(leaf, options) {
     }
 
     renderAiSuggestion() {
-      const metaHost = this._bookAiSuggestion;
-      const chapterHost = this._bookAiChapters;
-      metaHost?.empty();
-      chapterHost?.empty();
       const suggestion = this._aiSuggestion;
+      const kind = suggestion?.kind || "";
+      const host = kind === "ai-chapters" ? this._bookAiChapters
+        : kind === "ai-clean" ? this._bookAiClean
+          : this._bookAiSuggestion;
+      if (!host) return;
+      host.empty();
       if (!suggestion?.data) return;
-      if (suggestion.kind === "ai-chapters") this.renderAiChapterSuggestion(chapterHost, suggestion);
-      else this.renderAiFieldSuggestion(metaHost, suggestion);
+      if (kind === "ai-chapters") this.renderAiChapterSuggestion(host, suggestion);
+      else if (kind === "ai-clean") this.renderAiCleanSuggestion(host, suggestion);
+      else this.renderAiFieldSuggestion(host, suggestion);
     }
 
     aiSuggestionActions(host, suggestion, applyLabel, onApply) {
@@ -1741,7 +1753,7 @@ export function createWorkshopView(leaf, options) {
       skip.addEventListener("click", () => {
         this._aiDismissed?.add?.(suggestion.taskId);
         this._aiSuggestion = null;
-        this.renderAiSuggestion();
+        host.empty();
       });
     }
 
@@ -1808,6 +1820,153 @@ export function createWorkshopView(leaf, options) {
         payload: { config, source: rel, fileName },
       }).catch((error) => new Notice(String(error?.message || error)));
       new Notice("AI 在后台判断章名形态,结果会出现在「目录」这一步(套用前先看预览)");
+    }
+
+    // ── AI 清理:第一步「发现问题」(纯本地)────────────────────────────────
+    checkBookIssues() {
+      const host = this._bookAiClean;
+      if (!host) return;
+      host.empty();
+      const chapters = this._bookChapters || [];
+      if (!chapters.length) {
+        host.createDiv({ cls: "qbr-workshop-hint", text: "还没有目录:先选书稿,或先跑一次「AI 建议分章」。" });
+        return;
+      }
+      const scan = scanChapterIssues(chapters);
+      if (!scan.rows.length) {
+        this._bookIssues = null;
+        host.createDiv({ cls: "qbr-workshop-hint", text: "没有发现可疑内容(怪字符 / 乱码片段 / 重复字 / 疑似吞标题 / 疑似断行 都没有)。" });
+        return;
+      }
+      this._bookIssues = { rows: scan.rows, selected: new Set(scan.rows.map((row) => row.index)) };
+      host.createDiv({ cls: "qbr-workshop-hint", text: `发现 ${scan.suspects} 章可疑(${describeIssues({ issues: scan.totals })});勾选后才会清理:` });
+      for (const row of scan.rows.slice(0, 40)) {
+        const line = host.createEl("label", { cls: "qbr-workshop-book" });
+        const box = line.createEl("input", { attr: { type: "checkbox" } });
+        box.checked = true;
+        box.addEventListener("change", () => {
+          if (box.checked) this._bookIssues?.selected.add(row.index);
+          else this._bookIssues?.selected.delete(row.index);
+          this.updateCleanSummary();
+        });
+        line.createSpan({ text: `第 ${row.index + 1} 章 ${row.title} · ${describeIssues(row.scan)}` });
+        const sample = Object.values(row.scan.issues).flat().find(Boolean);
+        if (sample) line.createSpan({ cls: "qbr-workshop-hint", text: `例:${sample}` });
+      }
+      if (scan.rows.length > 40) {
+        host.createDiv({ cls: "qbr-workshop-hint", text: `…… 还有 ${scan.rows.length - 40} 章可疑(可先清理这些,再重新检查)` });
+      }
+      this._cleanSummary = host.createDiv({ cls: "qbr-workshop-hint" });
+      const actions = host.createDiv("qbr-workshop-row");
+      const start = actions.createEl("button", { cls: "mod-cta", text: "清理选中的章节" });
+      start.addEventListener("click", () => void this.startAiClean());
+      const cancel = actions.createEl("button", { text: "先不清理" });
+      cancel.addEventListener("click", () => {
+        this._bookIssues = null;
+        this._cleanSummary = null;
+        host.empty();
+      });
+      this.updateCleanSummary();
+    }
+
+    updateCleanSummary() {
+      const host = this._cleanSummary;
+      const issues = this._bookIssues;
+      if (!host || !issues) return;
+      const picked = issues.rows.filter((row) => issues.selected.has(row.index));
+      const blocks = picked.reduce((sum, row) => sum + splitCleanupBlocks(String(this._bookChapters?.[row.index]?.text || "")).length, 0);
+      host.setText(picked.length ? `选中 ${picked.length} 章 · 预计 ${blocks} 块 · 约 ${blocks} 次调用` : "没有选中任何章节");
+    }
+
+    // ── AI 清理:第二步「实际清理」(只发勾选的章节,结果先看对比)──────────
+    async startAiClean() {
+      if (!bridge) return;
+      const issues = this._bookIssues;
+      const picked = (issues?.rows || []).filter((row) => issues.selected.has(row.index));
+      if (!picked.length) {
+        new Notice("先勾选要清理的章节");
+        return;
+      }
+      const config = this.aiReadyConfig();
+      if (!config) {
+        new Notice("AI 还没配置好:先在「设置 → AI 助读」里选好供应商、模型与密钥");
+        return;
+      }
+      const chapters = picked
+        .map((row) => ({
+          index: row.index,
+          title: this._bookChapters?.[row.index]?.title || row.title,
+          text: String(this._bookChapters?.[row.index]?.text || ""),
+        }))
+        .filter((chapter) => chapter.text.trim());
+      if (!chapters.length) {
+        new Notice("选中的章节没有正文");
+        return;
+      }
+      const blocks = chapters.reduce((sum, chapter) => sum + splitCleanupBlocks(chapter.text).length, 0);
+      if (blocks > 200) {
+        new Notice(`要清理 ${blocks} 块,一次跑不完:先少选几章(建议 ≤ 200 块)`);
+        return;
+      }
+      const rel = String(this._bookSources?.[0] || "");
+      void bridge.start({
+        kind: "ai-clean",
+        title: "AI 清理",
+        detail: `${chapters.length} 章 · ${blocks} 块`,
+        payload: { config, chapters, source: rel },
+      }).catch((error) => new Notice(String(error?.message || error)));
+      new Notice("AI 在后台清理,完成后这里给出清理前后的对比(应用前不会改动目录)");
+    }
+
+    renderAiCleanSuggestion(host, suggestion) {
+      const data = suggestion.data;
+      host.createDiv({ cls: "qbr-workshop-hint", text: `AI 清理完成:${data.chapters.length} 章 · 改动 ${data.changed} 处${data.rejected ? ` · 丢弃 ${data.rejected} 块(疑似改写,已保留原文)` : ""}` });
+      for (const chapter of data.chapters.filter((row) => row.changed).slice(0, 8)) {
+        host.createDiv({ cls: "qbr-workshop-hint", text: `第 ${chapter.index + 1} 章 ${chapter.title} · ${chapter.changed} 处` });
+      }
+      for (const sample of (data.samples || []).slice(0, 8)) {
+        host.createDiv({ cls: "qbr-workshop-hint", text: `第 ${sample.index + 1} 章:${sample.prefix || ""}【${sample.before}】→【${sample.after}】${sample.suffix || ""}` });
+      }
+      if (!data.changed) host.createDiv({ cls: "qbr-workshop-hint", text: "模型没有提出改动(或者改动都被护栏丢弃了)。" });
+      this.aiSuggestionActions(host, suggestion, "应用清理结果", () => this.applyAiClean());
+    }
+
+    async applyAiClean() {
+      const suggestion = this._aiSuggestion;
+      const file = String(suggestion?.data?.file || "");
+      const host = this._bookAiClean;
+      if (!file) {
+        new Notice("清理结果不可用(没有落盘)");
+        return;
+      }
+      const fsImpl = typeof window !== "undefined" && typeof window.require === "function" ? window.require("fs") : null;
+      let payload = null;
+      try {
+        payload = JSON.parse(fsImpl.readFileSync(file, "utf8"));
+      } catch { /* 读不到 */ }
+      const rows = Array.isArray(payload?.chapters) ? payload.chapters : [];
+      if (!rows.length) {
+        new Notice("读不到清理结果文件");
+        return;
+      }
+      let applied = 0;
+      let skipped = 0;
+      for (const row of rows) {
+        const chapter = this._bookChapters?.[row.index];
+        // 目录在这期间改过(标题对不上)就跳过,别把清理结果贴到错的章节上。
+        if (!chapter || (row.title && chapter.title && row.title !== chapter.title)) {
+          skipped += 1;
+          continue;
+        }
+        chapter.text = String(row.text || chapter.text);
+        applied += 1;
+      }
+      this.renderChapterRows();
+      this._aiSuggestion = null;
+      this._bookIssues = null;
+      this._cleanSummary = null;
+      host?.empty();
+      new Notice(`已应用清理结果:${applied} 章${skipped ? `,跳过 ${skipped} 章(目录已变化)` : ""}。想还原就重新选一次书稿。`);
     }
 
     applyAiSuggestion() {

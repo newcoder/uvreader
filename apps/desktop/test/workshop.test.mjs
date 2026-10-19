@@ -8,6 +8,18 @@ import { createWorkshopQueue, WORKSHOP_HISTORY_LIMIT } from "../src/main/worksho
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// 等任务跑到终态:固定 sleep 在满载的 CI 上会偶发假失败(实测)。
+async function waitForDone(queue, ids, { timeoutMs = 5000 } = {}) {
+  const wanted = new Set(ids);
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const tasks = queue.snapshot().tasks.filter((task) => wanted.has(task.id));
+    if (tasks.length === wanted.size && tasks.every((task) => task.status !== "running" && task.status !== "queued")) return;
+    if (Date.now() > deadline) return; // 超时就把真实状态留给断言
+    await sleep(10);
+  }
+}
+
 function makeQueue(runners = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-workshop-"));
   const file = path.join(dir, "workshop-tasks.json");
@@ -35,7 +47,7 @@ test("tasks run serially, report progress and land their output", async () => {
   });
   const first = queue.start({ kind: "slow", title: "一" });
   const second = queue.start({ kind: "slow", title: "二" });
-  await sleep(140);
+  await waitForDone(queue, [first, second]);
   const tasks = queue.snapshot().tasks;
   const byId = new Map(tasks.map((task) => [task.id, task]));
   assert.equal(peak, 1, "runners never overlap");
@@ -57,7 +69,7 @@ test("running tasks expose startedAt so the shell can show an elapsed clock", as
   assert.equal(running.status, "running");
   assert.ok(running.startedAt > 0, "startedAt is set when the runner starts");
   assert.ok(running.startedAt >= running.createdAt);
-  await sleep(90);
+  await waitForDone(queue, [id]);
   assert.equal(queue.snapshot().tasks.find((task) => task.id === id).status, "done");
 });
 
@@ -70,7 +82,7 @@ test("a queued task can be cancelled before its runner starts", async () => {
   const first = queue.start({ kind: "slow", title: "慢" });
   const second = queue.start({ kind: "quick", title: "快" });
   assert.equal(queue.cancel(second), true);
-  await sleep(120);
+  await waitForDone(queue, [first]);
   const byId = new Map(queue.snapshot().tasks.map((task) => [task.id, task]));
   assert.equal(byId.get(second).status, "cancelled");
   assert.equal(byId.get(first).status, "done");

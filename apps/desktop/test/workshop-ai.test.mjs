@@ -12,6 +12,7 @@ import {
   buildMetadataMessages,
   createAiRunner,
   createChapterRunner,
+  createCleanupRunner,
   createSourceReader,
   normalizeAiConfig,
   normalizeAiCoverCopy,
@@ -181,9 +182,48 @@ test("registerAiRunners wires the LLM task kinds", async () => {
   const registered = new Map();
   const workshop = { register: (kind, runner) => { registered.set(kind, runner); return () => registered.delete(kind); } };
   const dispose = registerAiRunners(workshop, { aiRuntime: fakeRuntime() });
-  assert.deepEqual([...registered.keys()].sort(), ["ai-chapters", "ai-cover-copy", "ai-metadata"]);
+  assert.deepEqual([...registered.keys()].sort(), ["ai-chapters", "ai-clean", "ai-cover-copy", "ai-metadata"]);
   dispose();
   assert.equal(registered.size, 0);
+});
+
+test("the cleanup runner keeps minimal fixes, saves the result and reports the diff", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-ai-clean-"));
+  const original = `他囚为害怕,口口口口地站着。\n\n${"第二段正文,写得长一点,没有任何问题。".repeat(12)}`;
+  const chapter = { index: 2, title: "第三章 起风", text: original };
+  const runtime = {
+    stream: async () => ({ ok: true, answer: original.replace("囚为", "因为").replace("口口口口", "哆哆嗦嗦") }),
+    abort: () => true,
+  };
+  const run = createCleanupRunner({ aiRuntime: runtime, cacheRoot: dir });
+  const result = await run({ payload: { config: { id: "x", base: "b", model: "m" }, chapters: [chapter] } });
+  assert.equal(result.result.changed, 1, "只算真正改动的那一段");
+  assert.equal(result.result.rejected, 0);
+  assert.equal(result.result.chapters[0].index, 2);
+  assert.ok(result.result.file && fs.existsSync(result.result.file), "清理结果落盘");
+  const saved = JSON.parse(fs.readFileSync(result.result.file, "utf8"));
+  assert.match(saved.chapters[0].text, /因为害怕/);
+  assert.match(saved.chapters[0].text, /哆哆嗦嗦/);
+  assert.doesNotMatch(result.output, /囚为/, "任务输出里只有摘要");
+  assert.match(result.result.samples[0].before, /囚为/);
+  assert.match(result.result.samples[0].after, /因为/);
+});
+
+test("the cleanup runner throws away blocks that were rewritten", async () => {
+  const chapter = { index: 0, title: "第一章", text: `第一段正文,写得长一点。\n\n${"第二段正文,也写长一点。".repeat(40)}` };
+  const runtime = { stream: async () => ({ ok: true, answer: "这是一段完全重写的文字,和原文没有任何关系。" }), abort: () => true };
+  const run = createCleanupRunner({ aiRuntime: runtime, cacheRoot: "" });
+  const result = await run({ payload: { config: { id: "x", base: "b", model: "m" }, chapters: [chapter] } });
+  assert.equal(result.result.rejected, 1);
+  assert.equal(result.result.changed, 0, "护栏把改写丢掉了");
+  assert.match(result.output, /丢弃 1 块/);
+});
+
+test("the cleanup runner refuses an empty selection and huge batches", async () => {
+  const run = createCleanupRunner({ aiRuntime: fakeRuntime(), cacheRoot: "" });
+  await assert.rejects(() => run({ payload: { config: { id: "x", base: "b", model: "m" }, chapters: [] } }), /没有选中/);
+  const many = Array.from({ length: 250 }, (_value, index) => ({ index, title: `第 ${index} 章`, text: "正文。".repeat(1500) }));
+  await assert.rejects(() => run({ payload: { config: { id: "x", base: "b", model: "m" }, chapters: many } }), /一次跑不完/);
 });
 
 test("the chapter runner turns an AI rule into a chapter preview", async () => {

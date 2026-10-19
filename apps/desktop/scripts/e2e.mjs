@@ -3177,6 +3177,19 @@ async function runWorkshopEpubScenario() {
       throw new Error(`the wizard should offer AI helpers with a notice when unconfigured: ${JSON.stringify(aiHelper)}`);
     }
     console.log("workshop-epub: AI helper present —", aiHelper.notice.slice(0, 40));
+    // AI 清理第一步(体检)是纯本地的:点一下就要给结果(示例文稿是干净的)。
+    const issuesCheck = await page.evaluate(() => {
+      const panel = document.querySelector(".qbr-workshop-panel[data-tool='book']");
+      const button = [...panel.querySelectorAll("button")].find((b) => (b.textContent || "").includes("检查可疑内容"));
+      if (!button) return { found: false, text: "" };
+      button.click();
+      const host = panel.querySelector(".qbr-workshop-ai-clean");
+      return { found: true, text: host ? host.textContent || "" : "" };
+    });
+    if (!issuesCheck.found || !issuesCheck.text.trim()) {
+      throw new Error(`the local issue scan should report something: ${JSON.stringify(issuesCheck)}`);
+    }
+    console.log("workshop-epub: issue scan is local —", issuesCheck.text.slice(0, 30));
     // 目录编辑(两章,改名第一章)。
     const detected = await waitFor("detected chapters", () => page.evaluate(() => {
       const inputs = [...document.querySelectorAll(".qbr-workshop-chapter .qbr-workshop-input")].map((input) => input.value);
