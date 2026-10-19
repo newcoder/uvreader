@@ -1,11 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
+import fs from "node:fs";
+import os from "node:os";
 import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { DEFAULT_ENGINE_URL, createEngineClient, describeEngineHealth, normalizeEngineUrl } from "../src/main/engine-client.js";
+import { DEFAULT_ENGINE_URL, createEngineClient, describeEngineHealth, engineCapabilityRows, normalizeEngineUrl } from "../src/main/engine-client.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -28,8 +30,27 @@ test("normalizeEngineUrl fills the scheme and the default", () => {
 });
 
 test("describeEngineHealth summarises version and capabilities", () => {
-  assert.equal(describeEngineHealth({ engineVersion: "0.1.0", capabilities: { pdfTool: true, docvortex: true, jobKinds: ["a", "b"] } }), "引擎 0.1.0 · pdf_tool / DocVortex · 2 类作业");
+  const health = {
+    engineVersion: "0.1.0",
+    capabilities: { pdfTool: { ok: true, detail: "pdf_tool · x" }, docvortex: { ok: true }, mineru: { ok: false }, jobKinds: ["a", "b"] },
+  };
+  assert.equal(describeEngineHealth(health), "引擎 0.1.0 · pdf_tool / DocVortex · 2 类作业");
   assert.equal(describeEngineHealth({}), "引擎 未知版本");
+});
+
+test("engineCapabilityRows lists the engine's own findings", () => {
+  const rows = engineCapabilityRows({
+    capabilities: {
+      python: { ok: true, detail: "3.12.0" },
+      pdfTool: { ok: false, detail: "没配置 pdf_tool 目录" },
+      docvortex: { ok: true, detail: "文档互转" },
+      jobKinds: ["text-layer"],
+    },
+  });
+  assert.deepEqual(rows.map((row) => row.key), ["python", "pdfTool", "docvortex"]);
+  assert.equal(rows[1].ok, false);
+  assert.match(rows[1].detail, /pdf_tool/);
+  assert.deepEqual(engineCapabilityRows({}), []);
 });
 
 test("the client reads /v1/health and sends the token", async () => {
@@ -37,7 +58,7 @@ test("the client reads /v1/health and sends the token", async () => {
   const { server, url } = await startServer((req, res) => {
     seen.push({ url: req.url, token: req.headers.authorization || "" });
     if (req.url === "/v1/health") {
-      json(res, 200, { ok: true, engineVersion: "0.1.0", capabilities: { pdfTool: true, jobKinds: ["text-layer"] } });
+      json(res, 200, { ok: true, engineVersion: "0.1.0", capabilities: { pdfTool: { ok: true }, jobKinds: ["text-layer"] } });
       return;
     }
     json(res, 404, { detail: "没有这个接口" });
@@ -95,6 +116,37 @@ test("the client submits, polls and cancels a job", async () => {
   }
 });
 
+test("the client reads and patches the engine config", async () => {
+  const { server, url } = await startServer((req, res) => {
+    if (req.method === "GET" && req.url === "/v1/config") {
+      return json(res, 200, { config: { pdfToolDir: "D:/pdf_tool", mineruToken: "", hasMineruToken: true }, path: "C:/Users/x/.uvreader-engine/config.json" });
+    }
+    if (req.method === "PATCH" && req.url === "/v1/config") {
+      let body = "";
+      req.on("data", (chunk) => { body += chunk; });
+      req.on("end", () => {
+        const parsed = JSON.parse(body || "{}");
+        assert.equal(parsed.patch.calibrePath, "C:/Calibre/ebook-convert.exe");
+        json(res, 200, { config: { ...parsed.patch, hasMineruToken: true }, capabilities: { calibre: { ok: true, detail: "found" } } });
+      });
+      return;
+    }
+    json(res, 404, {});
+  });
+  try {
+    const client = createEngineClient();
+    const settings = { engineUrl: url };
+    const config = await client.config(settings);
+    assert.equal(config.data.config.pdfToolDir, "D:/pdf_tool");
+    assert.equal(config.data.config.hasMineruToken, true, "令牌只回 has");
+    const saved = await client.saveConfig(settings, { calibrePath: "C:/Calibre/ebook-convert.exe" });
+    assert.equal(saved.ok, true);
+    assert.equal(saved.data.capabilities.calibre.ok, true);
+  } finally {
+    server.close();
+  }
+});
+
 test("a missing engine is reported instead of thrown", async () => {
   const client = createEngineClient({ timeoutMs: 1500 });
   // 127.0.0.1:1 基本不会有人监听;连不上要变成 { ok:false }。
@@ -104,17 +156,21 @@ test("a missing engine is reported instead of thrown", async () => {
 });
 
 // 真跑一次引擎(需要 python + fastapi/uvicorn/latex2mathml):没有就跳过,CI 不受影响。
+// 本机想真跑:设 QBR_ENGINE_PYTHON 指向装了依赖的解释器(如临时 venv)。
 test("the real engine answers /v1/health and /v1/math", async (t) => {
-  const probe = spawnSync("python", ["-c", "import fastapi, uvicorn, latex2mathml"], { cwd: repoRoot, timeout: 30_000 });
+  const enginePython = process.env.QBR_ENGINE_PYTHON || "python";
+  const probe = spawnSync(enginePython, ["-c", "import fastapi, uvicorn, latex2mathml"], { cwd: repoRoot, timeout: 30_000 });
   if (probe.status !== 0) {
     t.skip("python 里没有 fastapi / uvicorn / latex2mathml");
     return;
   }
   const port = 8700 + Math.floor(Math.random() * 200);
   const engineRoot = path.join(repoRoot, "engine");
-  const child = spawn("python", ["-m", "engine", "serve", "--port", String(port), "--token", "test-token"], {
+  const configFile = path.join(os.tmpdir(), `qbr-engine-config-${Date.now()}.json`);
+  const child = spawn(enginePython, ["-m", "engine", "serve", "--port", String(port), "--token", "test-token"], {
     cwd: engineRoot,
-    env: { ...process.env, PYTHONPATH: engineRoot },
+    // 配置写到临时文件:不污染用户主目录里的 ~/.uvreader-engine/config.json
+    env: { ...process.env, PYTHONPATH: engineRoot, ENGINE_CONFIG: configFile },
     stdio: ["ignore", "pipe", "pipe"],
   });
   const client = createEngineClient({ timeoutMs: 4000 });
@@ -132,7 +188,24 @@ test("the real engine answers /v1/health and /v1/math", async (t) => {
     const math = await client.math({ engineUrl: `http://127.0.0.1:${port}`, engineToken: "test-token" }, ["x^2 + y^2 = z^2"]);
     assert.equal(math.ok, true);
     assert.match(math.data.mathml["x^2 + y^2 = z^2"] || "", /<math/);
+
+    // 引擎自己的配置:读 → 改 → 再读(令牌不回显)。
+    const settings = { engineUrl: `http://127.0.0.1:${port}`, engineToken: "test-token" };
+    const before = await client.config(settings);
+    assert.equal(before.ok, true);
+    assert.equal(before.data.config.hasMineruToken, false);
+    const saved = await client.saveConfig(settings, { calibrePath: "C:/nope/ebook-convert.exe", mineruToken: "secret-token" });
+    assert.equal(saved.ok, true);
+    assert.equal(saved.data.config.hasMineruToken, true, "令牌只回 has");
+    assert.equal(saved.data.config.mineruToken, "", "不回显原值");
+    assert.equal(saved.data.capabilities.calibre.ok, false, "路径不存在就是不可用");
+    const after = await client.config(settings);
+    assert.equal(after.data.config.calibrePath, "C:/nope/ebook-convert.exe");
+    const disk = JSON.parse(fs.readFileSync(configFile, "utf8"));
+    assert.equal(disk.mineruToken, "secret-token", "配置落在引擎侧(ENGINE_CONFIG)");
+    assert.ok(fs.existsSync(configFile));
   } finally {
     child.kill();
+    fs.rmSync(configFile, { force: true });
   }
 });

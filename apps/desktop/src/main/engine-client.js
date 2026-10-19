@@ -9,21 +9,47 @@ export function normalizeEngineUrl(value) {
 }
 
 // 状态行文案:/v1/health 的返回 → 一句话(应用各处共用)。
+// 能力项是 { ok, detail }(引擎自己探出来的);jobKinds 说明引擎能跑哪些作业。
 export function describeEngineHealth(health = {}) {
   const version = String(health.engineVersion || "").trim() || "未知版本";
   const capabilities = health.capabilities || {};
   const labels = {
     pdfTool: "pdf_tool",
     docvortex: "DocVortex",
-    mineruLocal: "本地 MinerU",
+    mineru: "MinerU",
     calibre: "Calibre",
     boko: "boko",
   };
   const ready = Object.entries(labels)
-    .filter(([key]) => capabilities[key] === true)
+    .filter(([key]) => capabilities[key]?.ok === true)
     .map(([, label]) => label);
   const kinds = Array.isArray(capabilities.jobKinds) ? capabilities.jobKinds.length : 0;
   return `引擎 ${version}${ready.length ? ` · ${ready.join(" / ")}` : ""}${kinds ? ` · ${kinds} 类作业` : ""}`;
+}
+
+// 设置页的能力清单:按「先内置、后外部」排序,给 { label, ok, detail }。
+export function engineCapabilityRows(health = {}) {
+  const capabilities = health?.capabilities || {};
+  const order = ["python", "pymupdf", "pillow", "latex2mathml", "pdfTool", "docvortex", "mineru", "calibre", "boko"];
+  const labels = {
+    python: "Python",
+    pymupdf: "PyMuPDF(文字层 / 文本型提取)",
+    pillow: "Pillow(图片 → PDF)",
+    latex2mathml: "latex2mathml(公式)",
+    pdfTool: "pdf_tool(PDF → Doc JSON)",
+    docvortex: "DocVortex(文档互转)",
+    mineru: "MinerU(OCR / 公式)",
+    calibre: "Calibre(EPUB → MOBI)",
+    boko: "boko(EPUB → AZW3 / KFX)",
+  };
+  return order
+    .filter((key) => capabilities[key])
+    .map((key) => ({
+      key,
+      label: labels[key] || key,
+      ok: capabilities[key]?.ok === true,
+      detail: String(capabilities[key]?.detail || ""),
+    }));
 }
 
 export function createEngineClient({ fetchImpl = (...args) => fetch(...args), timeoutMs = 8000 } = {}) {
@@ -63,8 +89,11 @@ export function createEngineClient({ fetchImpl = (...args) => fetch(...args), ti
   }
 
   return {
-    // 能力探测(设置页「检测」与各处可用性判断共用)。
-    health: (settings = {}) => call(settings, "/v1/health"),
+    // 能力探测(设置页「检测」与各处可用性判断共用);refresh 强制重探。
+    health: (settings = {}, { refresh = false } = {}) => call(settings, `/v1/health${refresh ? "?refresh=1" : ""}`),
+    // 引擎自己的配置(路径 / 凭据 / 并发):配置的单一来源在引擎,应用只做 UI。
+    config: (settings = {}) => call(settings, "/v1/config"),
+    saveConfig: (settings = {}, patch = {}) => call(settings, "/v1/config", { method: "PATCH", body: { patch } }),
     // 作业:提交 → 轮询 → 取结果 / 取消(与应用任务队列语义对齐)。
     submit: (settings, kind, args = {}) => call(settings, "/v1/jobs", { method: "POST", body: { kind, args } }),
     status: (settings, jobId) => call(settings, `/v1/jobs/${encodeURIComponent(String(jobId || ""))}`),

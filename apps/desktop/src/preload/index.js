@@ -103,6 +103,11 @@ window.qbrDesktop = {
     calibre: (settings) => ipcRenderer.invoke("qbr:probe:calibre", settings),
     engine: (settings) => ipcRenderer.invoke("qbr:probe:engine", settings),
   },
+  // 书坊引擎自己的配置(单一来源在引擎):应用只做 UI。
+  engine: {
+    config: (settings) => ipcRenderer.invoke("qbr:engine:config", settings),
+    saveConfig: (settings, patch) => ipcRenderer.invoke("qbr:engine:save-config", { settings, patch }),
+  },
   workshop: {
     list: () => ipcRenderer.invoke("qbr:workshop:list"),
     start: (request) => ipcRenderer.invoke("qbr:workshop:start", request),

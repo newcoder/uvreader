@@ -80,15 +80,21 @@ Electron 壳 + 阅读器 + 书坊面板 + **EPUB 构建器(纯 JS)** + 封面渲
 ### 4.3 服务契约(草案,v1)
 
 ```
-GET  /v1/health                      → { ok, engineVersion, platform, python,
-                                          capabilities: { docvortex, pdfTool, mineruLocal,
-                                                          calibre, boko, formats: [...] } }
-POST /v1/jobs        { kind, args }  → { jobId }              # 长任务一律走作业
-GET  /v1/jobs/{id}                   → { status, progress, label, error }
-GET  /v1/jobs/{id}/result            → 结果(JSON 或产物路径)
+GET   /v1/health                     → { ok, engineVersion, schemaVersion, platform, packages, pdfTool,
+                                         capabilities: { <名字>: { ok, detail }, …, jobKinds: [...] } }
+                                         # 能力是引擎**自己探出来的**(?refresh=1 强制重探;默认 30s 缓存)
+GET   /v1/config                     → { config, path }        # 配置的单一来源在引擎;令牌只回 has
+PATCH /v1/config { patch }           → { config, capabilities } # 部分更新;令牌留空 = 不改;改完立刻重探
+POST  /v1/jobs       { kind, args }  → { jobId }               # 长任务一律走作业
+GET   /v1/jobs/{id}                  → { status, progress, label, error }
+GET   /v1/jobs/{id}/result           → 结果(JSON 或产物路径)
 DELETE /v1/jobs/{id}                 → 取消
-POST /v1/math        { latex[] }     → { mathml[] }           # 轻量同步接口
+POST  /v1/math       { latex[] }     → { mathml[] }            # 轻量同步接口
 ```
+
+**引擎配置**(路径 / 凭据 / 并发):存在 `ENGINE_CONFIG` 或 `~/.uvreader-engine/config.json`;字段
+`pdfToolDir` / `python` / `docvortexPath` / `mineruLocalUrl` / `mineruToken` / `mineruModel` / `calibrePath` / `bokoPath` / `workers`。
+**应用只做 UI**:设置页读 `/v1/config` 渲染、改完 `PATCH` 回去;应用侧的路径输入降级为「没有引擎时的手动配置」。
 
 `kind`(v1 覆盖今天应用直接 spawn 的全部能力):
 `extract`(PDF→md/html/json;auto/text/mineru/vision)、`convert`(DocVortex)、`text-layer`、`pdf-text`、`outline`、`redact`、`images-to-pdf`、`ebook-convert`(Calibre/boko)。

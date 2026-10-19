@@ -9,6 +9,7 @@ import { EXTRACT_MODES, IMAGE_INPUTS, extractionKind } from "../shared/extract-f
 import { splitMarkdownChapters, unwrapProseFences } from "../shared/markdown-fix.js";
 import { convertPath, uvtextPath } from "../shared/workshop-names.js";
 import { createAiContext } from "../../../../packages/reader/src/ai-context.js";
+import { engineCapabilityRows } from "../main/engine-client.js";
 import { decodeText } from "../shared/text-encoding.js";
 import { applyChapterRule, describeChapterRule } from "../shared/chapter-rules.js";
 import { describeIssues, scanChapterIssues, splitCleanupBlocks } from "../shared/text-issues.js";
@@ -565,8 +566,75 @@ export function createSettingsView(leaf, options) {
     bind(engineToken, "engineToken", "引擎令牌已保存。");
     const engineTools = engineCard.createDiv("qbr-workshop-row");
     const engineProbe = engineTools.createEl("button", { text: "检测引擎" });
+    const engineRefreshBtn = engineTools.createEl("button", { text: "重探能力" });
     const engineStatus = engineTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
-    engineProbe.addEventListener("click", () => void runProbe(engineStatus, "", () => bridge?.probe?.engine(settings)));
+    const engineCaps = engineCard.createDiv("qbr-workshop-engine-caps");
+    const engineConfig = engineCard.createEl("details");
+    engineConfig.createEl("summary", { text: "引擎配置(路径 / 凭据 / 并发;配置存在引擎侧)" });
+    const engineFields = {};
+    const engineField = (label, key, placeholder = "") => {
+      const row = engineConfig.createDiv("qbr-workshop-row");
+      row.createSpan({ cls: "qbr-workshop-hint", text: label });
+      const input = row.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder } });
+      engineFields[key] = input;
+    };
+    engineField("pdf_tool 目录", "pdfToolDir", "内含 pdf_tool/pdf_to_doc.py");
+    engineField("Python", "python", "跑 pdf_tool / DocVortex 的解释器;留空用引擎自带");
+    engineField("DocVortex", "docvortexPath", "留空按引擎 Python / PATH 找");
+    engineField("MinerU 服务地址", "mineruLocalUrl", "如 http://127.0.0.1:8000");
+    engineField("MinerU token", "mineruToken", "已保存就留空(不回显)");
+    engineField("Calibre", "calibrePath", "ebook-convert;留空按 PATH / 常见位置找");
+    engineField("boko", "bokoPath", "boko 二进制;留空按 PATH 找");
+    const engineActions = engineConfig.createDiv("qbr-workshop-row");
+    const engineSave = engineActions.createEl("button", { cls: "mod-cta", text: "保存到引擎" });
+    const engineSaveHint = engineActions.createSpan({ cls: "qbr-workshop-hint", text: "" });
+
+    const renderEngineHealth = (health) => {
+      engineCaps.empty();
+      const rows = engineCapabilityRows(health);
+      if (!rows.length) return;
+      for (const row of rows) {
+        engineCaps.createDiv({ cls: "qbr-workshop-hint", text: `${row.ok ? "✓" : "✗"} ${row.label}${row.detail ? ` · ${row.detail}` : ""}` });
+      }
+    };
+    const loadEngineConfig = async () => {
+      if (!bridge?.engine?.config) return;
+      const result = await bridge.engine.config(settings).catch(() => null);
+      if (!result?.ok) return;
+      const config = result.data?.config || {};
+      for (const [key, input] of Object.entries(engineFields)) {
+        input.value = key === "mineruToken" ? "" : String(config[key] ?? "");
+        if (key === "mineruToken" && config.hasMineruToken) input.setAttribute("placeholder", "已保存;留空不修改");
+      }
+    };
+    const checkEngine = async (refresh = false) => {
+      if (!bridge?.probe?.engine) return;
+      engineStatus.setText(refresh ? "重探中…" : "检测中…");
+      const result = await bridge.probe.engine({ ...settings, refresh }).catch((error) => ({ ok: false, detail: String(error?.message || error) }));
+      const detail = String(result?.detail || "").trim();
+      engineStatus.setText(result?.ok ? `可用 · ${detail}` : `不可用:${detail || "没有返回原因"}`);
+      if (result?.ok) {
+        renderEngineHealth(result.health);
+        void loadEngineConfig();
+      } else {
+        engineCaps.empty();
+      }
+    };
+    engineProbe.addEventListener("click", () => void checkEngine(false));
+    engineRefreshBtn.addEventListener("click", () => void checkEngine(true));
+    engineSave.addEventListener("click", async () => {
+      if (!bridge?.engine?.saveConfig) return;
+      const patch = {};
+      for (const [key, input] of Object.entries(engineFields)) patch[key] = String(input.value || "");
+      engineSaveHint.setText("保存中…");
+      const result = await bridge.engine.saveConfig(settings, patch).catch((error) => ({ ok: false, error: String(error?.message || error) }));
+      if (!result?.ok) {
+        engineSaveHint.setText(`保存失败:${result?.error || "没有返回原因"}`);
+        return;
+      }
+      engineSaveHint.setText("已保存到引擎 ✓");
+      if (result.data?.capabilities) renderEngineHealth({ capabilities: result.data.capabilities });
+    });
 
     // 5. DocVortex(本地解析 / 公式优先的渲染端)
     const docvortexCard = root.createDiv("qbr-workshop-card");
@@ -580,6 +648,7 @@ export function createSettingsView(leaf, options) {
     const dvProbe = dvTools.createEl("button", { text: "检测 DocVortex" });
     const dvStatus = dvTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
     dvProbe.addEventListener("click", () => void runProbe(dvStatus, "", () => bridge?.probe?.docvortex(settings)));
+    docvortexCard.createDiv({ cls: "qbr-workshop-hint", text: "装了书坊引擎后这里可以留空:DocVortex 的路径改在引擎配置里(引擎会自己探)。" });
     const formulaProbe = dvTools.createEl("button", { text: "检测公式链路" });
     const formulaStatus = dvTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "" });
     formulaProbe.addEventListener("click", () => void runProbe(formulaStatus, "", () => bridge?.probe?.formula(settings)));
@@ -596,6 +665,7 @@ export function createSettingsView(leaf, options) {
     const calibreProbe = calibreTools.createEl("button", { text: "检测 Calibre" });
     const calibreStatus = calibreTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
     calibreProbe.addEventListener("click", () => void runProbe(calibreStatus, "", () => bridge?.probe?.calibre(settings)));
+    calibreCard.createDiv({ cls: "qbr-workshop-hint", text: "装了书坊引擎后这里可以留空:Calibre / boko 的路径改在引擎配置里(引擎会自己探;boko 更轻)。" });
 
     // 7. 一键自检:四条链路各入队一个检测任务,顺带刷新本地 MinerU 状态。
     const selfCheckRow = root.createDiv("qbr-workshop-row");

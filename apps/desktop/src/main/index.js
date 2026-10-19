@@ -421,10 +421,14 @@ ipcMain.handle("qbr:probe:docvortex", (_event, settings = {}) => docvortex.probe
 ipcMain.handle("qbr:probe:calibre", (_event, settings = {}) => calibre.probe(settings || {}));
 // 书坊引擎(本地 HTTP 服务):应用只做探测,能力清单由引擎的 /v1/health 上报。
 ipcMain.handle("qbr:probe:engine", async (_event, settings = {}) => {
-  const result = await engineClient.health(settings || {});
+  const value = settings || {};
+  const result = await engineClient.health(value, { refresh: value.refresh === true });
   if (!result.ok) return { ok: false, detail: result.error || "连接不上引擎" };
   return { ok: true, detail: describeEngineHealth(result.data || {}), health: result.data || {} };
 });
+// 引擎自己的配置(路径 / 凭据 / 并发):配置的单一来源在引擎,应用只做 UI。
+ipcMain.handle("qbr:engine:config", (_event, settings = {}) => engineClient.config(settings || {}));
+ipcMain.handle("qbr:engine:save-config", (_event, payload = {}) => engineClient.saveConfig(payload?.settings || {}, payload?.patch || {}));
 ipcMain.handle("qbr:probe:formula", async (_event, settings = {}) => {
   const value = settings || {};
   const target = pdfToolScriptCommand(value);
