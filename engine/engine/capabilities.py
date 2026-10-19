@@ -24,8 +24,8 @@ _cache: dict = {"at": 0.0, "config_key": "", "value": None}
 # 「包里没带、要另外装」的组件怎么补 —— 这些字会直接显示在应用的引擎卡片里。
 FIX_DOCVORTEX = (
     "没装 DocVortex:文档互转(Office / OFD / HTML / EPUB)与内容提取要用它。"
-    "可装到引擎自己的 Python 里(引擎目录下执行 python -m pip install docvortex),"
-    "或在引擎配置里填 docvortexPath。"
+    "可以一键装到引擎自己的 Python 里(应用里点「装到引擎」,或引擎目录下执行 "
+    "python -m pip install docvortex),也可以在引擎配置里填 docvortexPath。"
 )
 FIX_MINERU = (
     "没配本地 MinerU 地址,也没有云端 token:公式与视觉提取要用它。"
@@ -127,6 +127,9 @@ def _probe(config: dict) -> dict:
             # 能跑才算:CLI 在 PATH 上,或能 import(真装的包没有 __main__,见 kinds._docvortex_commands)
             "ok": docvortex_ok,
             "kind": "external",
+            # 引擎能把它装进自己的 Python(components.py 的白名单):应用据此给「装到引擎」按钮。
+            "installable": True,
+            "component": "docvortex",
             "detail": "文档互转(Office / OFD / HTML / EPUB)",
             **({} if docvortex_ok else {"fix": FIX_DOCVORTEX}),
         },

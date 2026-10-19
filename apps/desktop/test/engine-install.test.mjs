@@ -12,6 +12,7 @@ import {
   enginePlatform,
   parseSha256,
   pickEngineAsset,
+  registerEngineComponentRunner,
   registerEngineInstallRunner,
   sha256File,
 } from "../src/main/engine-install.js";
@@ -254,4 +255,39 @@ test("the install runner reports a missing local bundle instead of half-installi
     () => runners.get("engine-install")({ payload: { archivePath: path.join(dir, "nope.zip") }, report: () => {}, signal: new AbortController().signal }),
     /找不到安装包/,
   );
+});
+
+test("the component runner installs through the engine and forwards its progress", async () => {
+  const runners = new Map();
+  const calls = [];
+  const engine = {
+    installComponent: async (settings, name, options) => {
+      calls.push({ settings, name, hasProgress: typeof options?.onProgress === "function" });
+      options?.onProgress?.({ label: "装 DocVortex:下载中" });
+      options?.onProgress?.({ label: "装好了" });
+      return { ok: true, result: { installed: ["docvortex"], target: "C:/engine/site-packages" } };
+    },
+  };
+  registerEngineComponentRunner({ register: (kind, runner) => runners.set(kind, runner) }, { engine });
+  const reports = [];
+  const result = await runners.get("engine-component")({
+    payload: { name: "docvortex", settings: { engineUrl: "http://127.0.0.1:8760", engineToken: "t" } },
+    report: (row) => reports.push(String(row?.label || "")),
+    signal: new AbortController().signal,
+  });
+  assert.match(result.output, /docvortex/);
+  assert.equal(result.result.target, "C:/engine/site-packages");
+  assert.equal(calls[0].name, "docvortex");
+  assert.equal(calls[0].settings.engineToken, "t");
+  assert.ok(reports.includes("装 DocVortex:下载中"), "引擎的进度要转发到任务行");
+});
+
+test("the component runner fails loudly instead of pretending", async () => {
+  const runners = new Map();
+  registerEngineComponentRunner({ register: (kind, runner) => runners.set(kind, runner) }, {
+    engine: { installComponent: async () => ({ ok: false, error: "未知组件:requests" }) },
+  });
+  const runner = runners.get("engine-component");
+  await assert.rejects(() => runner({ payload: { name: "requests" }, report: () => {}, signal: new AbortController().signal }), /未知组件/);
+  await assert.rejects(() => runner({ payload: {}, report: () => {}, signal: new AbortController().signal }), /没有指定/);
 });

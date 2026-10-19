@@ -7,7 +7,7 @@ import { BOOK_EXTENSIONS, isBookFile } from "../shared/books.js";
 import { WORKSHOP_PICK_EXTENSIONS } from "../shared/workshop-formats.js";
 import { createAiRuntime } from "./ai-runtime.js";
 import { createEngineClient, describeEngineHealth } from "./engine-client.js";
-import { registerEngineInstallRunner } from "./engine-install.js";
+import { registerEngineComponentRunner, registerEngineInstallRunner } from "./engine-install.js";
 import { createCalibre } from "./calibre.js";
 import { createCoverRenderer } from "./cover-render.js";
 import { createDocvortex, registerDocvortexRunners } from "./docvortex.js";
@@ -112,6 +112,8 @@ registerTextConvertRunner(workshop, { docvortex, vaultRoot, cacheRoot: bookCache
 // 书坊引擎的安装/更新(E3b):查最新 engine-v* 资产(或本地包)→ 下载 + sha256 → 解压 → 拉起;
 // 结果(engineUrl / engineToken)回给设置页,由面板写进设置。
 registerEngineInstallRunner(workshop, { engineRoot });
+// 可选组件(E4):把 DocVortex 这类「还要另外装」的东西装进引擎自己的 Python。
+registerEngineComponentRunner(workshop, { engine: engineClient });
 // Online book downloads land in the library so they appear as regular books.
 const bookDownloads = createBookDownloads({
   downloadRoot: path.join(vaultRoot, "Books", "下载"),

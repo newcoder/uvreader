@@ -52,6 +52,9 @@ export function engineCapabilityRows(health = {}) {
       detail: String(capabilities[key]?.detail || ""),
       kind: String(capabilities[key]?.kind || ""),
       optional: capabilities[key]?.optional === true,
+      // 引擎能自己装的(目前只有 DocVortex):应用据此给「装到引擎」按钮。
+      installable: capabilities[key]?.installable === true,
+      component: String(capabilities[key]?.component || ""),
       fix: String(capabilities[key]?.fix || ""),
     }));
 }
@@ -65,7 +68,7 @@ export function engineComponentSummary(health = {}) {
     bundled: pick(rows.filter((row) => row.kind === "bundled")),
     external: pick(rows.filter((row) => row.kind === "external" && !row.optional)),
     optional: pick(rows.filter((row) => row.kind === "external" && row.optional)),
-    missing: rows.filter((row) => !row.ok).map((row) => ({ key: row.key, label: names[row.key] || row.label, optional: row.optional, fix: row.fix })),
+    missing: rows.filter((row) => !row.ok).map((row) => ({ key: row.key, label: names[row.key] || row.label, optional: row.optional, installable: row.installable, component: row.component, fix: row.fix })),
   };
 }
 
@@ -151,6 +154,14 @@ export function createEngineClient({ fetchImpl = (...args) => fetch(...args), ti
         }
         await new Promise((resolve) => setTimeout(resolve, intervalMs));
       }
+    },
+    // 把可选组件装进引擎自己的 Python(DocVortex 等;白名单在引擎侧)。
+    installComponent(settings, name, options = {}) {
+      return this.runJob(settings, "install-component", { name: String(name || "") }, {
+        intervalMs: 700,
+        timeoutMs: 30 * 60_000,
+        ...options,
+      });
     },
   };
 }

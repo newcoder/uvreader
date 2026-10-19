@@ -609,6 +609,36 @@ export function createSettingsView(leaf, options) {
       if (!file) return;
       startEngineInstall({ archivePath: String(file) }, "本地包");
     });
+    // 可选组件(E4):把 DocVortex 这类「还要另外装」的东西装进引擎自己的 Python。
+    const startEngineComponent = (name, label) => {
+      if (!bridge?.workshop?.start) return;
+      engineInstallStatus.setText(`准备装 ${label}…`);
+      void bridge.workshop.start({
+        kind: "engine-component",
+        title: `装 ${label} 到引擎`,
+        detail: label,
+        payload: { name, settings: { ...settings } },
+      }).then((taskId) => {
+        if (!bridge?.workshop?.onState) return;
+        const stop = bridge.workshop.onState((state) => {
+          const task = (state?.tasks || []).find((row) => row.id === String(taskId || ""));
+          if (!task) return;
+          if (task.status === "queued" || task.status === "running") {
+            if (task.label) engineInstallStatus.setText(String(task.label));
+            return;
+          }
+          stop?.();
+          if (task.status === "done") {
+            engineInstallStatus.setText(`${label} 已装进引擎 ✓`);
+            void checkEngine(true);
+          } else if (task.status === "cancelled") {
+            engineInstallStatus.setText(`装 ${label} 已取消。`);
+          } else {
+            engineInstallStatus.setText(`装 ${label} 失败:${task.error || "看任务详情"}`);
+          }
+        });
+      }).catch((error) => engineInstallStatus.setText(`启动失败:${String(error?.message || error)}`));
+    };
     const engineTools = engineCard.createDiv("qbr-workshop-row");
     const engineProbe = engineTools.createEl("button", { text: "检测引擎" });
     const engineRefreshBtn = engineTools.createEl("button", { text: "重探能力" });
@@ -654,8 +684,16 @@ export function createSettingsView(leaf, options) {
           : row.optional ? "另外装 · 可选" : "另外装";
         engineCaps.createDiv({ cls: "qbr-workshop-hint", text: `${row.ok ? "✓" : "✗"} ${row.label}${row.detail ? ` · ${row.detail}` : ""}${row.kind ? ` · ${tag}` : ""}` });
       }
-      // 不可用时给「具体怎么补」,不只报错。
+      // 不可用时给「具体怎么补」,不只报错;引擎能自己装的直接给按钮(装进引擎的 Python,不碰系统)。
       for (const item of summary.missing) {
+        if (item.installable && item.component) {
+          const row = engineCaps.createDiv("qbr-workshop-row");
+          row.createSpan({ cls: "qbr-workshop-hint", text: `→ ${item.label}:` });
+          const button = row.createEl("button", { cls: "mod-cta", text: "装到引擎" });
+          button.addEventListener("click", () => startEngineComponent(item.component, item.label));
+          if (item.fix) engineCaps.createDiv({ cls: "qbr-workshop-hint", text: item.fix });
+          continue;
+        }
         if (!item.fix) continue;
         engineCaps.createDiv({ cls: "qbr-workshop-hint", text: `→ ${item.label}:${item.fix}` });
       }

@@ -375,6 +375,23 @@ def run_pdf_text(job: Job) -> dict:
     return {"path": str(out_file), "pages": len(pages)}
 
 
+def run_install_component(job: Job) -> dict:
+    """把白名单里的可选组件装进引擎自己的 Python(见 components.py;白名单写死在引擎里)。"""
+    from . import components
+    from .capabilities import reset_cache
+    from .config import load_config
+
+    name = str(job.args.get("name") or "")
+    result = components.install_component(
+        load_config(),
+        name,
+        report=lambda row: report_progress(job, label=str(row.get("label") or "安装中…")),
+        should_cancel=job.cancelled,
+    )
+    reset_cache()  # 装完让下一次 /v1/health 立刻反映出来
+    return {"installed": result["installed"], "target": result["target"], "tail": result["log"][-4:]}
+
+
 # 作业类型注册表(**必须放文件末尾**:函数得先定义出来,否则 NameError)。
 JOB_KINDS = {
     "text-layer": run_text_layer,
@@ -384,4 +401,5 @@ JOB_KINDS = {
     "extract": run_extract,
     "convert": run_convert,
     "pdf-text": run_pdf_text,
+    "install-component": run_install_component,
 }

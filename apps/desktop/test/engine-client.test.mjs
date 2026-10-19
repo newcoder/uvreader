@@ -205,6 +205,48 @@ test("a missing engine is reported instead of thrown", async () => {
   assert.ok(health.error, "带上可读原因");
 });
 
+test("installComponent submits the whitelisted component and follows the progress", async () => {
+  const submitted = [];
+  const calls = [];
+  let polls = 0;
+  const { server, url } = await startServer((req, res) => {
+    calls.push(`${req.method} ${req.url}`);
+    if (req.method === "POST" && req.url === "/v1/jobs") {
+      let body = "";
+      req.on("data", (chunk) => { body += chunk; });
+      req.on("end", () => {
+        submitted.push(JSON.parse(body || "{}"));
+        json(res, 200, { jobId: "c1" });
+      });
+      return;
+    }
+    if (req.method === "GET" && req.url === "/v1/jobs/c1") {
+      polls += 1;
+      return json(res, 200, { status: polls > 1 ? "done" : "running", label: "装 DocVortex:下载中" });
+    }
+    if (req.method === "GET" && req.url === "/v1/jobs/c1/result") {
+      return json(res, 200, { ok: true, status: "done", result: { installed: ["docvortex"], target: "/engine/site-packages" } });
+    }
+    return json(res, 404, { detail: "no" });
+  });
+  try {
+    const client = createEngineClient({ timeoutMs: 3000 });
+    const labels = [];
+    const ran = await client.installComponent({ engineUrl: url, engineToken: "t" }, "docvortex", {
+      intervalMs: 10,
+      onProgress: (item) => { if (item.label) labels.push(item.label); },
+    });
+    assert.equal(ran.ok, true);
+    assert.deepEqual(ran.result.installed, ["docvortex"]);
+    assert.equal(submitted[0].kind, "install-component", "作业类型走引擎的白名单安装");
+    assert.deepEqual(submitted[0].args, { name: "docvortex" });
+    assert.ok(labels.some((label) => /DocVortex/.test(label)), "进度要带出来");
+    assert.ok(calls.includes("POST /v1/jobs"));
+  } finally {
+    server.close();
+  }
+});
+
 // 真跑一次引擎(需要 python + fastapi/uvicorn/latex2mathml):没有就跳过,CI 不受影响。
 // 本机想真跑:设 QBR_ENGINE_PYTHON 指向装了依赖的解释器(如临时 venv)。
 test("the real engine answers /v1/health and /v1/math", async (t) => {

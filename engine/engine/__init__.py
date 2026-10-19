@@ -7,4 +7,4 @@
 - 能力清单从 engine.json 读出来经 /v1/health 上报(应用据此判断装了什么)。
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"

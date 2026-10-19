@@ -244,8 +244,7 @@ def test_pdf_text_job_reads_the_structure(client, tmp_path):
     assert "lines" in pages[0], "结构化行在 pages[].lines 里"
 
 
-def test_convert_job_runs_docvortex(client, tmp_path, monkeypatch):
-    # 假的 docvortex CLI:放在 PATH 最前面(引擎按 配置路径 → PATH → python -m 的顺序找)。
+def test_convert_job_runs_docvortex(client, tmp_path, monkeypatch):    # 假的 docvortex CLI:放在 PATH 最前面(引擎按 配置路径 → PATH → python -m 的顺序找)。
     stub_dir = tmp_path / "stubs"
     stub_dir.mkdir()
     (stub_dir / "docvortex.py").write_text(
@@ -271,3 +270,66 @@ def test_convert_job_runs_docvortex(client, tmp_path, monkeypatch):
     assert result["out"] == str(out)
     assert out.read_text(encoding="utf-8") == "# converted"
     assert "stub docvortex ok" in result["log"]
+
+
+# ── 可选组件(install-component)─────────────────────────────────────
+
+def test_capabilities_say_what_is_bundled_and_what_is_not(client):
+    capabilities = client.get("/v1/health", headers=AUTH).json()["capabilities"]
+    # 自带的:kind=bundled;另外装的:kind=external(DocVortex 还标了 installable)。
+    assert capabilities["python"]["kind"] == "bundled"
+    assert capabilities["pdfTool"]["kind"] == "bundled"
+    assert capabilities["docvortex"]["kind"] == "external"
+    assert capabilities["docvortex"]["installable"] is True, "DocVortex 可以一键装进引擎的 Python"
+    assert capabilities["docvortex"]["component"] == "docvortex"
+    assert capabilities["calibre"]["optional"] is True, "Calibre / boko 是可选组件"
+    assert capabilities["boko"]["optional"] is True
+    # 不可用时给「具体怎么补」,而不只是报错。
+    for key in ("docvortex", "mineru", "calibre", "boko"):
+        info = capabilities[key]
+        if info["ok"] is False:
+            assert info.get("fix"), f"{key} 不可用时要给 fix"
+
+
+def test_component_install_job_runs_pip_into_the_engine_python(client, monkeypatch):
+    from engine import components
+
+    calls = []
+
+    def fake_run_pip(packages, target, on_line, should_cancel=None):
+        calls.append({"packages": list(packages), "target": str(target)})
+        on_line("Collecting docvortex")
+        on_line("Successfully installed docvortex")
+        return 0
+
+    monkeypatch.setattr(components, "_run_pip", fake_run_pip)
+    job_id = submit(client, "install-component", {"name": "docvortex"})
+    job = wait_for(client, job_id)
+    assert job["status"] == "done", job.get("error")
+    result = client.get(f"/v1/jobs/{job_id}/result", headers=AUTH).json()["result"]
+    assert result["installed"] == ["docvortex"]
+    assert calls and calls[0]["packages"] == ["docvortex"]
+    assert calls[0]["target"].replace("\\", "/").endswith("site-packages"), "装到解释器自己在用的 site-packages"
+    assert any("docvortex" in line for line in result["tail"])
+
+
+def test_component_install_rejects_anything_outside_the_whitelist(client):
+    job_id = submit(client, "install-component", {"name": "requests"})
+    job = wait_for(client, job_id)
+    assert job["status"] == "failed"
+    assert "未知组件" in (job.get("error") or "")
+
+
+def test_component_install_failure_surfaces_pip_output(client, monkeypatch):
+    from engine import components
+
+    def failing_run_pip(packages, target, on_line, should_cancel=None):
+        on_line("ERROR: Could not find a version that satisfies the requirement docvortex")
+        return 1
+
+    monkeypatch.setattr(components, "_run_pip", failing_run_pip)
+    job_id = submit(client, "install-component", {"name": "docvortex"})
+    job = wait_for(client, job_id)
+    assert job["status"] == "failed"
+    assert "安装失败" in (job.get("error") or "")
+    assert "Could not find a version" in (job.get("error") or ""), "失败要把 pip 的关键输出带出来"

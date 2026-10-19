@@ -160,6 +160,13 @@ run("python", [
   "-r", path.join(engineRoot, "requirements.txt"),
 ], { env: pipEnv });
 
+// 包里带上 pip:引擎要能自己装可选组件(DocVortex 等),而 python.org 的 embeddable 不带 pip
+// (python-build-standalone 本来就带,这里统一再装一次)。装到 --target 里,`python -m pip` 就能用。
+run("python", [
+  "-m", "pip", "install", "--quiet", "--disable-pip-version-check", "--upgrade",
+  "--target", sitePackages, "pip",
+], { env: pipEnv });
+
 // 许可清单(读 .dist-info/METADATA)
 const licenses = [];
 for (const entry of fs.readdirSync(sitePackages)) {

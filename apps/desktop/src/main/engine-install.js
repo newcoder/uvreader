@@ -210,3 +210,26 @@ export function registerEngineInstallRunner(workshop, {
     }
   });
 }
+
+// 可选组件:把 DocVortex 这类「还要另外装」的东西装进引擎自己的 Python(白名单在引擎侧)。
+// 应用只发起 + 显示进度;装完引擎会重探能力,面板再探一次就能看到 ✓。
+export function registerEngineComponentRunner(workshop, { engine = null, log = () => {} } = {}) {
+  workshop.register("engine-component", async ({ payload = {}, report = () => {}, signal }) => {
+    const name = String(payload?.name || "").trim();
+    if (!name) throw new Error("没有指定要装哪个组件");
+    if (!engine?.installComponent) throw new Error("应用没有引擎客户端");
+    const settings = payload?.settings || {};
+    const ran = await engine.installComponent(settings, name, {
+      signal,
+      onProgress: (item) => report({ label: String(item?.label || `装 ${name}…`) }),
+    });
+    if (!ran.ok) throw new Error(String(ran.error || `引擎装 ${name} 失败`));
+    const result = ran.result || {};
+    log("[engine-component] installed", name, result.target || "");
+    return {
+      output: `${name} 已装进引擎的 Python`,
+      detail: String(result.target || name),
+      result: { name, installed: result.installed || [name], target: String(result.target || "") },
+    };
+  });
+}
