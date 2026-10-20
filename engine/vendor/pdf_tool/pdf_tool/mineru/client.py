@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import html
 import io
 import itertools
 import json
@@ -254,16 +255,111 @@ def looks_like_prose(text: str) -> bool:
     return len(PROSE_HINT_RE.findall(text)) >= 2 and not CODE_HINT_RE.search(text)
 
 
+# ---------------- 代码块识别 / 行号剥离（reader 2026-10-20） ----------------
+
+_OPTION_LINE_RE = re.compile(r"^\s*[A-H][.、)]\s")
+_QNUM_LINE_RE = re.compile(r"^\s*\d{1,3}\s*[)）.、]\s")
+_CODE_LINE_HINT_RE = re.compile(
+    r"^\s*(?:#\s*include|#\s*define|using\s+namespace|typedef\b|struct\b|class\b|"
+    r"for\s*\(|while\s*\(|if\s*\(|else\b|switch\s*\(|case\b|break\s*;|continue\s*;|"
+    r"return\b|int\b|char\b|double\b|float\b|void\b|long\b|short\b|unsigned\b|"
+    r"const\b|printf\s*\(|scanf\s*\(|memset\s*\(|puts\s*\(|cout\b|cin\b)")
+_CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+_MD_ESCAPE_RE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!])")
+_TRAIL_COMMENT_RE = re.compile(r"//.*$")
+_LEADING_LINE_NO_RE = re.compile(r"^(\d{1,3})[ \t]+(?=\S)")
+
+
+def _code_part(line: str) -> str:
+    """去掉行尾注释后的代码部分（判断中文占比/结尾符号用）。"""
+    return _TRAIL_COMMENT_RE.sub("", str(line))
+
+
+def _is_single_code_line(text) -> bool:
+    """单行块是否一行代码（扫描页 MinerU 常把代码按行拆成 text 项）。"""
+    t = str(text or "").strip()
+    if not t or "\n" in t:
+        return False
+    if _OPTION_LINE_RE.match(t) or _QNUM_LINE_RE.match(t):
+        return False  # 选项行 / 题号行
+    core = _code_part(t).strip()
+    if not core:
+        return False
+    if len(_CJK_RE.findall(core)) / max(1, len(core)) > 0.2:
+        return False  # 中文行（题面/正文）
+    m = _LEADING_LINE_NO_RE.match(core)
+    if m:  # 页边行号 + 代码
+        core = core[m.end():].strip()
+        if not core:
+            return False
+    return bool(_CODE_LINE_HINT_RE.match(core) or re.search(r"[;{}]\s*$", core)
+                or core in ("}", "{"))
+
+
+def looks_like_code_block(text) -> bool:
+    """多行 text 是否「整段程序」（reader 2026-10-20：矩阵变幻被判成 text）。"""
+    raw = str(text or "")
+    lines = [ln for ln in raw.splitlines() if ln.strip()]
+    if len(lines) < 3:
+        return False
+    if sum(1 for ln in lines if _OPTION_LINE_RE.match(ln)) >= 2:
+        return False  # 选择题选项列表
+    core_text = "\n".join(_code_part(ln) for ln in lines)
+    cjk = len(_CJK_RE.findall(core_text))
+    alnum = sum(1 for c in core_text if c.isascii() and c.isalnum())
+    if cjk > alnum * 0.6:
+        return False  # 中文正文
+    hints = sum(1 for ln in lines if _CODE_LINE_HINT_RE.search(_code_part(ln)))
+    struct = sum(1 for ln in lines if re.search(r"[;{}]\s*$", _code_part(ln).rstrip()))
+    if "#include" in raw and struct >= 2:
+        return True
+    return struct >= 3 and hints >= max(3, int(len(lines) * 0.35))
+
+
+def _unescape_code(text) -> str:
+    """代码块反转义：HTML 实体（`&lt;` 等）+ Markdown 反斜杠转义（`\\_` 等）。"""
+    s = str(text or "")
+    if any(e in s for e in ("&lt;", "&gt;", "&amp;", "&quot;", "&#39;")):
+        s = html.unescape(s)
+    return _MD_ESCAPE_RE.sub(r"\1", s)
+
+
+def _strip_code_line_numbers(blocks) -> int:
+    """剥离代码块行首的页边行号（reader 2026-10-20 P3）。
+
+    仅当「≥2 行带行号且递增（间隔 ≤10）」时剥；`line_start` 只在**首行**带号时记录
+    （跨页合并块的起始行不一定有号）。返回剥掉的行数。
+    """
+    removed = 0
+    for b in blocks:
+        if b.get("type") != "code":
+            continue
+        lines = str(b.get("content") or "").splitlines()
+        nums = [int(m.group(1)) for ln in lines
+                for m in [_LEADING_LINE_NO_RE.match(ln)] if m]
+        if len(nums) < 2 or not all(0 < y - x <= 10
+                                    for x, y in itertools.pairwise(nums)):
+            continue
+        first_has_no = bool(lines and _LEADING_LINE_NO_RE.match(lines[0]))
+        out_lines: list[str] = []
+        for ln in lines:
+            m = _LEADING_LINE_NO_RE.match(ln)
+            if m:
+                out_lines.append(ln[m.end():])
+                removed += 1
+            else:
+                out_lines.append(ln)
+        b["content"] = "\n".join(out_lines)
+        if first_has_no:
+            b.setdefault("line_start", nums[0])
+    return removed
+
+
 def _single_numbered_line(text: str) -> bool:
     """单行「（可选题号）+ 行号 + 内容」（扫描页 MinerU 会把代码按行切成 text 项）。"""
     t = str(text).strip()
     return "\n" not in t and bool(
         re.match(r"^(?:\(?\d{1,3}\)?[.、]?\s*)?\d{2}\s+\S", t))
-
-
-def _single_numbered_code_line(text: str) -> bool:
-    """单行「行号 + 代码内容」（用于识别行号代码序列的起点）。"""
-    return _single_numbered_line(text) and bool(CODE_HINT_RE.search(str(text)))
 
 
 _FURNITURE_LINE_RE = re.compile(
@@ -384,37 +480,56 @@ def stitch_blocks(blocks: list[dict]) -> tuple[list[dict], dict]:
     这里按行号连续性合并；表格则按「表头相同且相邻页」续接去重。
     """
     stats = {"code_merged": 0, "code_demoted": 0, "tables_merged": 0, "code_runs": 0,
-             "furniture_lines": 0}
-    # 先剔页面装饰（页脚里的页码会干扰行号判断），再缝合
+             "furniture_lines": 0, "code_promoted": 0, "code_line_numbers": 0}
+    # ⑤a 先把「整段程序」的 text 提升为 code —— 必须先于家具行剔除：
+    # 否则公共代码行（using namespace std; / int main() { / return 0;）会被
+    # 重复行启发式当页眉页脚删掉（reader 2026-10-20 实测）。
+    promoted = 0
+    for b in blocks:
+        if b.get("type") == "text" and looks_like_code_block(str(b.get("text") or "")):
+            b["content"] = _unescape_code(str(b.get("text") or ""))
+            b["type"] = "code"
+            b.pop("text", None)
+            promoted += 1
+    stats["code_promoted"] = promoted
+    # 再剔页面装饰（页脚里的页码会干扰行号判断）
     stats["furniture_lines"] = strip_furniture_lines(blocks)
     out: list[dict] = []
     i = 0
     while i < len(blocks):
         b = blocks[i]
         t = b.get("type")
-        # ⓪ 扫描页的「逐行代码」：连续单行行号 text 块 → 合并成代码块
-        if t == "text" and _single_numbered_code_line(str(b.get("text") or "")):
+        # ⓪ 扫描页的「逐行代码」：连续单行代码 text 块 → 合并成代码块（可跨页续接）
+        if t in ("text", "code") and _is_single_code_line(
+                b.get("text") if t == "text" else b.get("content")):
             run: list[str] = []
             j = i
-            while j < len(blocks) and blocks[j].get("type") == "text" \
-                    and _single_numbered_line(str(blocks[j].get("text") or "")):
-                run.append(str(blocks[j]["text"]).strip())
+            while j < len(blocks):
+                cand = blocks[j]
+                ct = cand.get("type")
+                if ct not in ("text", "code"):
+                    break
+                line = cand.get("text") if ct == "text" else cand.get("content")
+                if not _is_single_code_line(line):
+                    break
+                run.append(str(line))
                 j += 1
-            nums = [int(m.group(1)) for line in run
-                    for m in [re.match(r"^(?:\(?\d{1,3}\)?[.、]?\s*)?(\d{2})\s+", line)]
-                    if m]
-            increasing = all(0 < y - x <= 5 for x, y in itertools.pairwise(nums))
-            if len(run) >= 3 and len(nums) == len(run) and increasing:
-                code = {"type": "code", "position": b.get("position"),
-                        "content": "\n".join(run)}
-                if (out and out[-1].get("type") == "code"
-                        and _continuity_ok(out[-1], code)):
-                    out[-1]["content"] = (str(out[-1].get("content") or "").rstrip()
-                                          + "\n" + code["content"])
+            body = _unescape_code("\n".join(run))
+            prev = out[-1] if out else None
+            mergeable = (len(run) >= 2 and prev is not None
+                         and prev.get("type") == "code"
+                         and not str(prev.get("content") or "").rstrip().endswith("}")
+                         and (_page_num(prev) == _page_num(b)
+                              or _adjacent_pages(prev, b)))
+            if len(run) >= 3 or mergeable:
+                if mergeable:
+                    prev["content"] = (str(prev.get("content") or "").rstrip()
+                                       + "\n" + body)
+                    stats["code_merged"] += 1
                 else:
-                    out.append(code)
+                    out.append({"type": "code", "position": b.get("position"),
+                                "content": body})
                 stats["code_runs"] += 1
-                stats["code_merged"] += 1
                 i = j
                 continue
         # ① 误判为代码的正文 → 降级为 text
@@ -498,6 +613,7 @@ def stitch_blocks(blocks: list[dict]) -> tuple[list[dict], dict]:
             if m:
                 b["caption"] = f"({m.group(1)})"
                 b["content"] = str(b["content"])[m.end():]
+    stats["code_line_numbers"] = _strip_code_line_numbers(out)  # P3：页边行号不进 content
     return out, stats
 
 
@@ -559,9 +675,13 @@ def content_list_to_blocks(items: list[dict], *, base: Path,
         page = int(it.get("page_idx") or 0) + 1
         pos = f"Page {page}"
         if t == "text":
-            text = (it.get("text") or "").strip()
+            raw = it.get("text") or ""
+            text = raw.strip()
             if not text:
                 continue
+            # 单行代码（扫描页常见）：保留行首缩进——随后会被并入 code 块（reader 2026-10-20）
+            if "\n" not in text and _is_single_code_line(text):
+                text = raw.strip("\n").rstrip()
             level = it.get("text_level")
             if level:
                 stats["headings"] += 1
