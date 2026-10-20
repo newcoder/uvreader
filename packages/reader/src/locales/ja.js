@@ -1159,6 +1159,8 @@ export default {
   "summarize-key-points": "要点をまとめる",
   "how-is-this-useful": "これはどう役立つ？",
   "see-another-angle": "別の視点を見る",
+  "quiz": "クイズ",
+
   "quiz-me": "クイズを出す",
   "explain-this-passage-in-simple-easy-to-understand-language": "この文章を簡単でわかりやすい言葉で説明してください。",
   "explain-this-passage-with-one-concrete-example-from-everyday-lif": "この文章を、日常生活や実際の状況からの具体的な例を1つ挙げて説明してください。",

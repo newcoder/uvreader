@@ -1640,6 +1640,8 @@ Object.assign(QIAOMU_READER_ZH_CN, {
   "summarize-key-points": "总结要点",
   "how-is-this-useful": "对我有什么用",
   "see-another-angle": "换个角度看",
+  "quiz": "答题",
+
   "quiz-me": "出题考考我",
   "explain-this-passage-in-simple-easy-to-understand-language": "请用简单易懂的语言解释这段内容",
   "explain-this-passage-with-one-concrete-example-from-everyday-lif": "请用一个具体的生活或现实案例来说明这段内容",

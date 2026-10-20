@@ -280,6 +280,23 @@ test("bookmarks save per book and clearing removes the file", async () => {
   assert.equal((await store.readIndex()).books["Books/a.pdf"].marks, 0);
 });
 
+test("quiz attempts save next to the other reading traces", async () => {
+  const adapter = memoryAdapter();
+  const store = createReadingStore({ adapter, root: "reading" });
+  const attempt = {
+    schema: "uvreader.quiz-attempt/v1",
+    bank: { file: "试卷.pdf" },
+    answers: { q1: "B" },
+    startedAt: "2026-10-20T00:00:00.000Z",
+    submittedAt: null,
+  };
+  await store.saveBook("Books/paper.pdf", "quiz", attempt, { title: "试卷" });
+  const loaded = await store.loadBook("Books/paper.pdf");
+  assert.deepEqual(loaded.quiz, attempt);
+  const paths = readingBookPaths("reading", "试卷");
+  assert.ok(adapter.files.has(paths.quiz), "quiz.json 落在书自己的目录里");
+});
+
 test("a damaged chat file is reported without losing the others", async () => {
   const adapter = memoryAdapter();
   const store = createReadingStore({ adapter, root: "reading" });

@@ -14,9 +14,11 @@ import { pinyinPinFor, renderEnginePins, togglePinyinPin } from "./pinyin-pins.j
 import { warmWordGlosses } from "./pinyin-annotate.js";
 import { columnDragActive, installColumnDragWatch, onColumnDrag } from "./column-drag.js";
 import { pageForBlock } from "./toc-build.js";
+import { answeringBank, createAttempt, gradeAttempt } from "./quiz-attempt.js";
+import { renderQuizPanel } from "./quiz-panel.js";
 
 export function createReaderView({
-  ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, BookSetupModal, FONTS, InfoModal, ReadSettingsModal, VIEW_TYPE, addBookFileMenu, attachEngineChrome, attachReaderContentClick, attachReaderSwipeNav, bookNoteAction, buildFindPanelFor, buildReaderPageArea, buildReaderPanels, buildReaderSettPanelBody, buildReaderTopBar, buildTocItems, buildTocPanelFor, clearAiSource, clearFoundIn, createPdfPaginator, createPdfZoomControls, currentBookPage, enrichHighlights, ensureSelectedReaderFont, exportHighlightsMenu,   flowSelectionParts, handleReaderWheel, hidePinPopup, hlColorCss, loadReaderDocument, locateHl, markFoundIn, navigateEngineToc, openEngineHighlightPopup, openEnginePinPopup, pageJump, pdfVisiblePageLabel, pdfZoom, persistCurrentReaderPosition, qiaomuReaderClearPaintedSelection, qiaomuReaderLocale, qiaomuReaderRevealWhenSettled, qiaomuReaderTheme, qiaomuReaderTranslate, raiseSelectionPopup, readerAiPanelContext, readerHud, readerIsPdf, readerPaginationMappingCollapsed, readerPdfPages, readerTimer, rememberReaderJump, renderHighlightPanel, renderReaderLoadError, backfillPdfTextLayers, refreshReaderPdfTextLayer, renderVisibleFigures, resolveHighlightAnchor, restoreAiSource, restoreEngineHistory, selectionHud, setReaderTitle, setReadingFocus, settleReader, syncNavigationPanel, syncOpenAiReaderContext, syncOpenAiSelectionContext, syncReaderAiCapability,   unwrapAllHighlights, unwrapAllPins, updateEngineLocation, wireReaderChrome, wrapBlockRange,
+  ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, BookSetupModal, FONTS, InfoModal, ReadSettingsModal, VIEW_TYPE, addBookFileMenu, attachEngineChrome, attachReaderContentClick, attachReaderSwipeNav, bookNoteAction, buildFindPanelFor, buildReaderPageArea, buildReaderPanels, buildReaderSettPanelBody, buildReaderTopBar, buildTocItems, buildTocPanelFor, clearAiSource, clearFoundIn, createPdfPaginator, createPdfZoomControls, currentBookPage, enrichHighlights, ensureSelectedReaderFont, exportHighlightsMenu,   flowSelectionParts, handleReaderWheel, hidePinPopup, hlColorCss, loadReaderDocument, locateHl, markFoundIn, navigateEngineToc, openEngineHighlightPopup, openEnginePinPopup, pageJump, pdfVisiblePageLabel, pdfZoom, persistCurrentReaderPosition, qiaomuReaderClearPaintedSelection, qiaomuReaderLocale, qiaomuReaderRevealWhenSettled, qiaomuReaderTheme, qiaomuReaderTranslate, raiseSelectionPopup, readerAiPanelContext, readerHud, readerIsPdf, readerPaginationMappingCollapsed, readerPdfPages, readerTimer, rememberReaderJump, renderHighlightPanel, renderReaderLoadError, backfillPdfTextLayers, refreshReaderPdfTextLayer, renderVisibleFigures, resolveHighlightAnchor, restoreAiSource, restoreEngineHistory, selectionHud, setReaderTitle, setReadingFocus, settleReader, syncNavigationPanel, syncOpenAiReaderContext, syncOpenAiSelectionContext, syncReaderAiCapability,   unwrapAllHighlights, unwrapAllPins, updateEngineLocation, wireReaderChrome, wrapBlockRange, quiz = null,
 }) {
   return class ReaderView extends ItemView {
   constructor(leaf, plugin) {
@@ -24,6 +26,7 @@ export function createReaderView({
     this.file = null;
     this.ext = null;
     this.plugin = plugin;
+    this.quizPort = quiz;
     this.pdfZoom = PDF_ZOOM_DEFAULT;
     this.pager = createPdfPaginator(this);
     this._loadCoordinator = createReaderLoadCoordinator();
@@ -871,6 +874,12 @@ export function createReaderView({
       this.togglePanel("highlights");
       this._syncToolButtons();
     });
+    this.quizBtn = this.quizPort
+      ? trayButton("check", "quiz", () => {
+        this.togglePanel("quiz");
+        this._syncToolButtons();
+      })
+      : null;
     trayButton("sliders", "reading-settings", () => new ReadSettingsModal(this.app, this).open());
     pageJump.build(this, tray);
     // Search sits right after the reading settings, in its original place: a
@@ -1182,11 +1191,13 @@ export function createReaderView({
     this._hideHlPopup();
     if (name === "settings") this._renderHistory();
     if (name === "toc" && this._tocRender) this._tocRender();
+    if (name === "quiz") void this._renderQuizPanel();
     this.panelOpen = name;
     syncNavigationPanel(this, name);
     this.settPan.classList.toggle("qiaomu-reader-panel-open", name === "settings");
     this.tocPan.classList.toggle("qiaomu-reader-panel-open", name === "toc");
     this.findPan.classList.toggle("qiaomu-reader-panel-open", name === "find");
+    this.quizPan?.classList.toggle("qiaomu-reader-panel-open", name === "quiz");
     if (name === "find") this._positionFindPanel();
     if (name === "toc" && this._tocRender) this._tocRender();
     this.overlayEl.classList.add("qiaomu-reader-overlay-on");
@@ -1197,7 +1208,66 @@ export function createReaderView({
     this.settPan.classList.remove("qiaomu-reader-panel-open");
     this.tocPan.classList.remove("qiaomu-reader-panel-open");
     if (this.findPan) this.findPan.classList.remove("qiaomu-reader-panel-open");
+    this.quizPan?.classList.remove("qiaomu-reader-panel-open");
     this.overlayEl.classList.remove("qiaomu-reader-overlay-on");
+  }
+  // 答题页:题库来自源文件旁的 `<源名>_questions.json`(书坊数据提取的产物)。
+  // 面板只拿白名单视图;完整 bank 留在视图里,提交时做确定性判题。
+  async _renderQuizPanel() {
+    const pan = this.quizPan;
+    const port = this.quizPort;
+    if (!pan || !port) return;
+    const bookPath = String(this.file?.path || "");
+    pan.empty();
+    pan.createDiv({ cls: "qbr-panel-empty", text: "正在读取题库…" });
+    let full = null;
+    try {
+      full = await port.loadBank(this.plugin, bookPath);
+    } catch {
+      full = null;
+    }
+    if (!full) {
+      pan.empty();
+      pan.createDiv({
+        cls: "qbr-panel-empty",
+        text: "这本书旁边没有题库文件。先到「书坊 → 数据提取」勾选「同时生成题库」,再回来打开答题页。",
+      });
+      return;
+    }
+    this._quizFull = full;
+    let attempt = this._quizAttempt;
+    if (!attempt || String(attempt.bank?.file || "") !== String(full.source?.file || "")) {
+      try {
+        attempt = await port.loadAttempt(this.plugin, bookPath);
+      } catch {
+        attempt = null;
+      }
+    }
+    attempt = attempt || createAttempt(full);
+    this._quizAttempt = attempt;
+    const draw = () => {
+      const results = attempt.submittedAt ? gradeAttempt(full, attempt) : null;
+      pan.empty();
+      renderQuizPanel(pan, {
+        bank: answeringBank(full),
+        attempt,
+        results,
+        renderText: (node, text) => port.renderText?.(this, node, text, bookPath),
+        onChange: (next) => {
+          attempt = next;
+          this._quizAttempt = next;
+          void port.saveAttempt(this.plugin, bookPath, next);
+        },
+        onSubmit: (next) => {
+          attempt = next;
+          this._quizAttempt = next;
+          void port.saveAttempt(this.plugin, bookPath, next);
+          draw();
+        },
+        onClose: () => this.closePanel(),
+      });
+    };
+    draw();
   }
   // The AI button toggles: a second click closes the companion sidebar,
   // exactly like the highlights dock and the navigation panels.
@@ -1227,6 +1297,11 @@ export function createReaderView({
     if (this.hlBtn) {
       this.hlBtn.toggleClass("qiaomu-reader-ibtn-on", hlOpen);
       this.hlBtn.setAttribute("aria-expanded", String(hlOpen));
+    }
+    if (this.quizBtn) {
+      const quizOpen = this.panelOpen === "quiz";
+      this.quizBtn.toggleClass("qiaomu-reader-ibtn-on", quizOpen);
+      this.quizBtn.setAttribute("aria-expanded", String(quizOpen));
     }
     // Non-desktop hosts keep the TOC as an in-reader panel; the desktop TOC
     // button is synced by the shell.

@@ -1159,6 +1159,8 @@ export default {
   "summarize-key-points": "Fassen Sie die wichtigsten Punkte zusammen",
   "how-is-this-useful": "Wie ist das nützlich?",
   "see-another-angle": "Betrachten Sie es aus einem anderen Blickwinkel",
+  "quiz": "Test",
+
   "quiz-me": "Fragen Sie mich ab",
   "explain-this-passage-in-simple-easy-to-understand-language": "Erklären Sie diese Passage in einfacher, verständlicher Sprache.",
   "explain-this-passage-with-one-concrete-example-from-everyday-lif": "Erklären Sie diese Passage mit einem konkreten Beispiel aus dem Alltag oder einer realen Situation.",

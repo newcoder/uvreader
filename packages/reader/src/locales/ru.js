@@ -1161,6 +1161,8 @@ export default {
   "summarize-key-points": "Ключевые мысли",
   "how-is-this-useful": "Чем это полезно мне",
   "see-another-angle": "Другой взгляд",
+  "quiz": "Тест",
+
   "quiz-me": "Проверь меня",
   "explain-this-passage-in-simple-easy-to-understand-language": "Объясни этот фрагмент простым и понятным языком.",
   "explain-this-passage-with-one-concrete-example-from-everyday-lif": "Объясни этот фрагмент на одном конкретном примере из жизни или реальной ситуации.",

@@ -1159,6 +1159,8 @@ export default {
   "summarize-key-points": "핵심 요점을 요약해 줘",
   "how-is-this-useful": "이게 어떻게 유용한가요?",
   "see-another-angle": "다른 관점에서 보기",
+  "quiz": "문제 풀기",
+
   "quiz-me": "퀴즈를 내 줘",
   "explain-this-passage-in-simple-easy-to-understand-language": "이 구절을 쉽고 이해하기 쉬운 언어로 설명해 주세요.",
   "explain-this-passage-with-one-concrete-example-from-everyday-lif": "이 구절을 일상생활이나 실제 상황에서의 구체적인 예를 들어 설명해 주세요.",

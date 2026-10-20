@@ -1159,6 +1159,8 @@ export const QIAOMU_READER_EN = {
   "summarize-key-points": "Summarize key points",
   "how-is-this-useful": "How is this useful?",
   "see-another-angle": "See another angle",
+  "quiz": "Quiz",
+
   "quiz-me": "Quiz me",
   "explain-this-passage-in-simple-easy-to-understand-language": "Explain this passage in simple, easy-to-understand language.",
   "explain-this-passage-with-one-concrete-example-from-everyday-lif": "Explain this passage with one concrete example from everyday life or a real situation.",

@@ -320,6 +320,7 @@ export function createReaderChrome({
     view.settPan = root.createDiv("qiaomu-reader-panel");
     view.tocPan = root.createDiv("qiaomu-reader-panel qiaomu-reader-toc-panel");
     view.findPan = root.createDiv("qiaomu-reader-panel qiaomu-reader-toc-panel qiaomu-reader-find-panel");
+    view.quizPan = root.createDiv("qiaomu-reader-panel qiaomu-reader-quiz-panel");
     const body = view.bodyEl || root;
     view.hlSplitter = body.createDiv("qiaomu-reader-splitter qiaomu-reader-splitter-hl");
     view.hlSplitter.setAttribute("role", "separator");

@@ -17,7 +17,7 @@ import { cloneJson, createSerialTaskQueue, readJsonRecordStore, writeVerifiedJso
 
 export const READING_STORE_SCHEMA = 1;
 export const READING_STORE_FILES = Object.freeze([
-  "progress", "highlights", "pins", "drafts", "marks",
+  "progress", "highlights", "pins", "drafts", "marks", "quiz",
 ]);
 
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
@@ -55,6 +55,7 @@ export function readingBookPaths(root, folder, project = "") {
     progress: `${traces}/progress.json`,
     highlights: `${traces}/highlights.json`,
     drafts: `${traces}/drafts.json`,
+    quiz: `${traces}/quiz.json`,
     chats: `${traces}/chats`,
     attachments: `${traces}/attachments`,
   };
@@ -426,7 +427,7 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
   // ── reading projects ───────────────────────────────────────────────────────
   // A project groups the moveable traces of related books so they can travel
   // together. Identity, pinned pinyin and bookmarks always stay with the book.
-  const TRACE_MEMBERS = Object.freeze(["progress.json", "highlights.json", "drafts.json", "chats", "attachments"]);
+  const TRACE_MEMBERS = Object.freeze(["progress.json", "highlights.json", "drafts.json", "quiz.json", "chats", "attachments"]);
 
   async function writeProjectUnlocked(project, patch = {}) {
     const dir = readingProjectPath(base, project);

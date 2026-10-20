@@ -1713,3 +1713,29 @@ button.qiaomu-reader-find-item.qiaomu-reader-toc-active { background: var(--back
 .qiaomu-reader-pagejump-nav { width:22px; height:22px; display:flex; align-items:center; justify-content:center; padding:0; border:0; border-radius:6px; background:transparent; color:var(--text-muted); cursor:pointer; }
 .qiaomu-reader-pagejump-nav:hover { background:color-mix(in srgb,var(--text-normal) 8%,transparent); color:var(--text-normal); }
 .qiaomu-reader-pagejump-nav svg { width:14px; height:14px; }
+
+/* 答题页(与批注页同一套面板样式)。 */
+.qiaomu-reader-quiz-panel { width:min(620px,94vw); padding:12px 14px; }
+.qiaomu-reader-quiz-panel .qbr-panel-actions { gap:8px; }
+.qiaomu-reader-quiz-close { width:auto !important; padding:0 10px !important; border-radius:6px !important; }
+.qiaomu-reader-quiz-progress { font-size:var(--font-ui-small); color:var(--text-muted); }
+.qiaomu-reader-quiz-source { font-size:var(--font-ui-smaller); color:var(--text-faint); margin:-4px 0 8px; }
+.qiaomu-reader-quiz-list { display:flex; flex-direction:column; gap:12px; }
+.qiaomu-reader-quiz-card { border:1px solid var(--background-modifier-border); border-radius:8px; padding:10px 12px; background:var(--background-primary); }
+.qiaomu-reader-quiz-card-head { display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:var(--font-ui-small); }
+.qiaomu-reader-quiz-number { font-weight:600; }
+.qiaomu-reader-quiz-type { color:var(--text-muted); }
+.qiaomu-reader-quiz-badge { margin-left:auto; font-size:var(--font-ui-smaller); }
+.qiaomu-reader-quiz-badge.is-correct { color:var(--color-green); }
+.qiaomu-reader-quiz-badge.is-wrong { color:var(--color-red); }
+.qiaomu-reader-quiz-badge.is-ungraded, .qiaomu-reader-quiz-badge.is-unavailable, .qiaomu-reader-quiz-badge.is-unanswered { color:var(--text-muted); }
+.qiaomu-reader-quiz-stem { margin-bottom:8px; }
+.qiaomu-reader-quiz-options { display:flex; flex-direction:column; gap:4px; }
+.qiaomu-reader-quiz-option { display:flex; gap:8px; align-items:flex-start; width:100%; text-align:left; padding:6px 8px; border:1px solid var(--background-modifier-border); border-radius:6px; background:transparent; cursor:pointer; }
+.qiaomu-reader-quiz-option.is-selected { border-color:var(--interactive-accent); background:var(--background-modifier-hover); }
+.qiaomu-reader-quiz-option:disabled { cursor:default; opacity:.85; }
+.qiaomu-reader-quiz-option-label { font-weight:600; }
+.qiaomu-reader-quiz-input { width:100%; resize:vertical; }
+.qiaomu-reader-quiz-footer { position:sticky; bottom:0; display:flex; align-items:center; gap:10px; padding:10px 0; background:var(--qiaomu-reader-ui); }
+.qiaomu-reader-quiz-hint { flex:1 1 auto; color:var(--color-orange); font-size:var(--font-ui-small); }
+.qiaomu-reader-quiz-summary { flex:1 1 auto; font-size:var(--font-ui-small); }

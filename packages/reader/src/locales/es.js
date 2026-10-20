@@ -1159,6 +1159,8 @@ export default {
   "summarize-key-points": "Resume los puntos clave",
   "how-is-this-useful": "¿Cómo es útil esto?",
   "see-another-angle": "Mira desde otro ángulo",
+  "quiz": "Cuestionario",
+
   "quiz-me": "Ponme a prueba",
   "explain-this-passage-in-simple-easy-to-understand-language": "Explica este pasaje en un lenguaje sencillo y fácil de entender.",
   "explain-this-passage-with-one-concrete-example-from-everyday-lif": "Explica este pasaje con un ejemplo concreto de la vida cotidiana o de una situación real.",
