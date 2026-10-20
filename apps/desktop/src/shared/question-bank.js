@@ -16,20 +16,11 @@ export const QUESTION_BANK_SCHEMA = "uvreader.question-bank/v1";
 const TYPES = new Set(["single_choice", "multiple_choice", "true_false", "fill_blank", "short_answer", "program", "calculation", "proof", "unknown"]);
 const LABELS = "ABCDEFGH";
 
-// 小节标题 → 题型(中文卷面最常见的几种写法)。多选放前面:「多项选择题」不能被「选择题」先吃掉。
-const SECTION_TYPES = [
-  { re: /(多项选择|多选)/, type: "multiple_choice" },
-  { re: /(单项选择|单选|选择题)/, type: "single_choice" },
-  { re: /(判断)/, type: "true_false" },
-  { re: /(填空)/, type: "fill_blank" },
-  { re: /(编程|程序|代码题)/, type: "program" },
-  { re: /(计算)/, type: "calculation" },
-  { re: /(证明)/, type: "proof" },
-  { re: /(简答|问答|解答|论述)/, type: "short_answer" },
-];
-
 const QUESTION_START = /^\s*(?:第\s*)?(\d{1,3})\s*[.、．)）]\s*(.*)$/;
 const OPTION_LINE = /^\s*([A-H])\s*[.、．)）]\s*(.*)$/;
+// 卷面元数据行(试题编号 / 试题类型 / 难度 / 考点 …):不是题干、不是选项、也不是答案。
+// 编辑过的试卷常在每题右上角带这些行 —— 绝不能折行续接进选项 D(实测 25 道选择题全中招)。
+const META_LINE = /^\s*(?:试题)?\s*(编号|类型|题型|难度|知识点|考点|来源|分值|分数)\s*[:：]\s*(.*)$/;
 const ANSWER_LINE = /^\s*(?:【\s*(?:参考|标准|正确)?\s*答案\s*】|(?:参考|标准|正确)?\s*答案\s*[:：]?)\s*(.*)$/;
 const ANALYSIS_LINE = /^\s*(?:【\s*(?:试题)?\s*(?:解析|详解|分析)\s*】|(?:试题)?\s*(?:解析|详解|分析)\s*[:：])\s*(.*)$/;
 const IMAGE_RE = /!\[[^\]]*\]\(([^)\s]+)\)/g;
@@ -71,8 +62,20 @@ function answerLetters(answer) {
 }
 
 function typeFromSection(title) {
-  const text = String(title || "");
-  for (const entry of SECTION_TYPES) if (entry.re.test(text)) return entry.type;
+  return mapTypeLabel(title);
+}
+
+// 卷面自己的题型标签(单选题 / 判断题 / 编程题 …)→ 契约里的 type。
+function mapTypeLabel(raw) {
+  const text = String(raw || "");
+  if (/多选|多项/.test(text)) return "multiple_choice";
+  if (/单选|单项|选择/.test(text)) return "single_choice";
+  if (/判断/.test(text)) return "true_false";
+  if (/填空/.test(text)) return "fill_blank";
+  if (/编程|程序|代码/.test(text)) return "program";
+  if (/计算/.test(text)) return "calculation";
+  if (/证明/.test(text)) return "proof";
+  if (/简答|问答|解答|论述/.test(text)) return "short_answer";
   return "";
 }
 
@@ -105,7 +108,7 @@ export function bankFromMarkdown(markdown, source = {}) {
       return;
     }
     const options = current.options;
-    let type = current.type || sectionType;
+    let type = current.metaType || sectionType;
     if (!type) {
       if (options.length) type = answerLetters(current.answer).length > 1 ? "multiple_choice" : "single_choice";
       else if (BLANK_RE.test(stem)) type = "fill_blank";
@@ -135,6 +138,8 @@ export function bankFromMarkdown(markdown, source = {}) {
     }
     item.answer = normalizeAnswer(current.answer);
     item.analysis = stripFoldTags(current.analysis);
+    // 卷面编号:bank 里没有专门的字段,用 pdf_tool question_schema 的同名字段挂在 metadata 上(加字段、不改合同)。
+    if (current.sourceId) item.metadata = { source_id: String(current.sourceId) };
     if (images.length) item.images = images;
     if (current.page) item.source = { page: current.page };
     questions.push(item);
@@ -212,6 +217,8 @@ export function bankFromMarkdown(markdown, source = {}) {
           answer: "",
           analysis: "",
           page: 0,
+          metaType: "",
+          sourceId: "",
         };
         mode = "stem";
         continue;
@@ -236,6 +243,16 @@ export function bankFromMarkdown(markdown, source = {}) {
       continue;
     }
 
+    const meta = META_LINE.exec(trimmed);
+    if (meta) {
+      const key = meta[1];
+      const value = String(meta[2] || "").trim();
+      if (key === "编号" && value) current.sourceId = value;
+      else if ((key === "类型" || key === "题型") && value) current.metaType = mapTypeLabel(value);
+      // 难度 / 考点 / 来源 / 分值:bank 里没有对应字段,丢掉即可 —— 但绝不能粘进选项或题干。
+      continue;
+    }
+
     const optionMatch = OPTION_LINE.exec(trimmed);
     if (optionMatch && mode !== "analysis" && current.options.length < LABELS.length) {
       const label = optionMatch[1];
@@ -253,7 +270,7 @@ export function bankFromMarkdown(markdown, source = {}) {
     }
 
     if (mode === "answer") {
-      if (ANSWER_META_LINE.test(trimmed)) continue; // 难度 / 重复的参考答案:不属于答案
+      if (META_LINE.test(trimmed) || ANSWER_META_LINE.test(trimmed)) continue; // 难度 / 编号 / 重复的参考答案:不属于答案
       current.answer += `\n${trimmed}`;
     } else if (mode === "analysis") current.analysis += `\n${trimmed}`;
     else if (current.options.length && !/^[A-H]/.test(current.options.at(-1)?.text || "")) {

@@ -214,6 +214,31 @@ test("bankToMarkdown keeps inline images where they were, with the text between 
   assert.ok(rendered.indexOf("![](images/a.png)") < rendered.indexOf("(2) 再画一个。"), "Markdown 也保持原顺序");
 });
 
+test("卷面元数据行(试题编号 / 试题类型)不进选项,编号进 metadata", () => {
+  const md = `## 选择题
+
+1. 下列哪个不是编程语言?
+A. Python
+B. HTML
+C. C++
+D. Java
+试题编号:20240119-sw-006
+试题类型:单选题
+
+2. 判断题
+试题编号:20240119-sw-007
+试题类型:判断题
+`;
+  const { bank } = bankFromMarkdown(md, {});
+  const [q1, q2] = bank.questions;
+  assert.deepEqual(q1.options.map((option) => option.text), ["Python", "HTML", "C++", "Java"], "选项 D 不能被元数据污染");
+  assert.equal(q1.answer, "", "元数据也不是答案");
+  assert.equal(q1.metadata.source_id, "20240119-sw-006", "试题编号进 metadata.source_id(pdf_tool 同名扩展字段)");
+  assert.equal(q1.type, "single_choice", "试题类型:单选题 → single_choice");
+  assert.equal(q2.type, "true_false", "每题自带的题型优先于小节推断");
+  assert.equal(q2.metadata.source_id, "20240119-sw-007");
+});
+
 test("validateBank catches broken banks before they reach disk", () => {
   assert.deepEqual(validateBank(bankFromMarkdown(PAPER, {}).bank), [], "规则解析出来的必须自洽");
   const issues = validateBank({
