@@ -14,8 +14,9 @@ import { pinyinPinFor, renderEnginePins, togglePinyinPin } from "./pinyin-pins.j
 import { warmWordGlosses } from "./pinyin-annotate.js";
 import { columnDragActive, installColumnDragWatch, onColumnDrag } from "./column-drag.js";
 import { pageForBlock } from "./toc-build.js";
-import { answeringBank, createAttempt, gradeAttempt } from "./quiz-attempt.js";
+import { answeringBank, createAttempt, gradeAttempt, isAnswered } from "./quiz-attempt.js";
 import { renderQuizPanel } from "./quiz-panel.js";
+import { judgeAttempt } from "./quiz-judge.js";
 
 export function createReaderView({
   ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, BookSetupModal, FONTS, InfoModal, ReadSettingsModal, VIEW_TYPE, addBookFileMenu, attachEngineChrome, attachReaderContentClick, attachReaderSwipeNav, bookNoteAction, buildFindPanelFor, buildReaderPageArea, buildReaderPanels, buildReaderSettPanelBody, buildReaderTopBar, buildTocItems, buildTocPanelFor, clearAiSource, clearFoundIn, createPdfPaginator, createPdfZoomControls, currentBookPage, enrichHighlights, ensureSelectedReaderFont, exportHighlightsMenu,   flowSelectionParts, handleReaderWheel, hidePinPopup, hlColorCss, loadReaderDocument, locateHl, markFoundIn, navigateEngineToc, openEngineHighlightPopup, openEnginePinPopup, pageJump, pdfVisiblePageLabel, pdfZoom, persistCurrentReaderPosition, qiaomuReaderClearPaintedSelection, qiaomuReaderLocale, qiaomuReaderRevealWhenSettled, qiaomuReaderTheme, qiaomuReaderTranslate, raiseSelectionPopup, readerAiPanelContext, readerHud, readerIsPdf, readerPaginationMappingCollapsed, readerPdfPages, readerTimer, rememberReaderJump, renderHighlightPanel, renderReaderLoadError, backfillPdfTextLayers, refreshReaderPdfTextLayer, renderVisibleFigures, resolveHighlightAnchor, restoreAiSource, restoreEngineHistory, selectionHud, setReaderTitle, setReadingFocus, settleReader, syncNavigationPanel, syncOpenAiReaderContext, syncOpenAiSelectionContext, syncReaderAiCapability,   unwrapAllHighlights, unwrapAllPins, updateEngineLocation, wireReaderChrome, wrapBlockRange, quiz = null,
@@ -1204,6 +1205,7 @@ export function createReaderView({
   }
   closePanel() {
     this.panelOpen = null;
+    this._quizJudgeAbort?.abort();
     syncNavigationPanel(this, null);
     this.settPan.classList.remove("qiaomu-reader-panel-open");
     this.tocPan.classList.remove("qiaomu-reader-panel-open");
@@ -1245,13 +1247,18 @@ export function createReaderView({
     }
     attempt = attempt || createAttempt(full);
     this._quizAttempt = attempt;
-    const draw = () => {
-      const results = attempt.submittedAt ? gradeAttempt(full, attempt) : null;
+    const draw = (state = {}) => {
+      const submitted = Boolean(attempt.submittedAt);
+      const results = submitted ? gradeAttempt(full, attempt) : null;
       pan.empty();
       renderQuizPanel(pan, {
         bank: answeringBank(full),
         attempt,
         results,
+        judgements: attempt.judgements || {},
+        judging: state.judging === true,
+        judgeProgress: state.judgeProgress || null,
+        judgeError: state.judgeError || "",
         renderText: (node, text) => port.renderText?.(this, node, text, bookPath),
         onChange: (next) => {
           attempt = next;
@@ -1262,12 +1269,53 @@ export function createReaderView({
           attempt = next;
           this._quizAttempt = next;
           void port.saveAttempt(this.plugin, bookPath, next);
-          draw();
+          void this._judgeQuiz(full, next, bookPath, draw);
         },
         onClose: () => this.closePanel(),
       });
     };
     draw();
+  }
+  // 提交后逐题判:有标准答案的选择/判断题仍用确定性结论,其余(以及所有解析)
+  // 交给模型;试卷本身没有答案时,模型自己解题。
+  async _judgeQuiz(full, attempt, bookPath, draw) {
+    const port = this.quizPort;
+    if (!port?.complete || port.ready?.(this.plugin) === false) {
+      draw({ judgeError: "AI 还没配置好,无法判题(设置 → AI 助读)" });
+      return;
+    }
+    this._quizJudgeAbort?.abort();
+    const controller = new AbortController();
+    this._quizJudgeAbort = controller;
+    const total = (full.questions || []).filter((question) => isAnswered(attempt, question)).length;
+    draw({ judging: true, judgeProgress: { done: 0, total } });
+    let saved = 0;
+    try {
+      const result = await judgeAttempt({
+        bank: full,
+        attempt,
+        complete: (messages, options) => port.complete(this.plugin, messages, options),
+        signal: controller.signal,
+        onProgress: (done, all, snapshot) => {
+          attempt = { ...attempt, judgements: snapshot };
+          this._quizAttempt = attempt;
+          draw({ judging: true, judgeProgress: { done, total: all } });
+          if (done - saved >= 3) {
+            saved = done;
+            void port.saveAttempt(this.plugin, bookPath, attempt);
+          }
+        },
+      });
+      if (controller.signal.aborted) return;
+      attempt = { ...attempt, judgements: result.judgements, judgedAt: new Date().toISOString() };
+      this._quizAttempt = attempt;
+      await port.saveAttempt(this.plugin, bookPath, attempt);
+      draw({ judgeError: result.failed ? `AI 判题失败 ${result.failed} 题,可重新提交再判` : "" });
+    } catch (error) {
+      draw({ judgeError: `AI 判题失败:${String(error?.message || error).slice(0, 80)}` });
+    } finally {
+      if (this._quizJudgeAbort === controller) this._quizJudgeAbort = null;
+    }
   }
   // The AI button toggles: a second click closes the companion sidebar,
   // exactly like the highlights dock and the navigation panels.

@@ -3441,6 +3441,17 @@ const quizPort = {
   renderText(owner, node, text, sourcePath) {
     void renderAiMarkdown(owner, node, text, sourcePath);
   },
+  async complete(plugin, messages, options = {}) {
+    return await aiComplete(messages, plugin, options);
+  },
+  ready(plugin) {
+    try {
+      const cfg = aiConfig(plugin);
+      return Boolean(cfg?.provider && cfg.base && cfg.model && (!cfg.needsKey || cfg.key));
+    } catch {
+      return false;
+    }
+  },
 };
 const ReaderView = createReaderView({
   ItemView,

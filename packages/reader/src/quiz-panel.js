@@ -19,6 +19,7 @@ const TYPE_LABELS = {
 
 const STATUS_TEXT = {
   correct: "正确",
+  partial: "部分正确",
   wrong: "错误",
   ungraded: "待判",
   unavailable: "无参考答案",
@@ -56,6 +57,10 @@ export function renderQuizPanel(container, options = {}) {
   const {
     bank,
     results = null,
+    judgements = null,
+    judging = false,
+    judgeProgress = null,
+    judgeError = "",
     onChange = () => {},
     onSubmit = () => {},
     onClose = null,
@@ -88,6 +93,12 @@ export function renderQuizPanel(container, options = {}) {
   const cards = new Map();
 
   const syncProgress = () => {
+    if (judging) {
+      const done = judgeProgress?.done ?? 0;
+      const total = judgeProgress?.total ?? 0;
+      progress.textContent = total ? `AI 判题中 ${done} / ${total}` : "AI 判题中…";
+      return;
+    }
     const total = bank?.questions?.length || 0;
     const done = answeredCount(bank, attempt);
     progress.textContent = `已答 ${done} / ${total}`;
@@ -104,11 +115,14 @@ export function renderQuizPanel(container, options = {}) {
       button.setAttribute("aria-pressed", String(active));
     }
     if (submitted) {
+      const judged = judgements?.[question.id];
       const result = results?.items?.find((item) => item.id === question.id);
+      const status = judged?.status || result?.status;
       const badge = card.querySelector(".qiaomu-reader-quiz-badge");
-      if (badge && result) {
-        badge.textContent = STATUS_TEXT[result.status] || "";
-        badge.className = `qiaomu-reader-quiz-badge is-${result.status}`;
+      if (badge && status) {
+        badge.textContent = STATUS_TEXT[status] || "";
+        badge.className = `qiaomu-reader-quiz-badge is-${status}`;
+        if (judged?.source === "ai") badge.textContent = `${badge.textContent}（AI）`;
       }
     }
   };
@@ -194,6 +208,20 @@ export function renderQuizPanel(container, options = {}) {
       card.appendChild(input);
     }
 
+    const judged = judgements?.[question.id];
+    if (judged) {
+      const box = el(doc, "div", "qiaomu-reader-quiz-analysis");
+      if (judged.answer && judged.status !== "correct") {
+        box.appendChild(el(doc, "div", "qiaomu-reader-quiz-expected", `参考答案：${judged.answer}`));
+      }
+      if (judged.analysis) {
+        const text = el(doc, "div", "qiaomu-reader-quiz-analysis-text");
+        renderText(text, judged.analysis);
+        box.appendChild(text);
+      }
+      if (box.childNodes.length) card.appendChild(box);
+    }
+
     list.appendChild(card);
     cards.set(question.id, card);
     syncCard(question);
@@ -202,22 +230,31 @@ export function renderQuizPanel(container, options = {}) {
   const footer = el(doc, "div", "qiaomu-reader-quiz-footer");
   if (submitted) {
     const summary = el(doc, "div", "qiaomu-reader-quiz-summary");
-    if (results) {
-      const parts = [`答对 ${results.correct}`, `答错 ${results.wrong}`];
-      if (results.pending) parts.push(`待判 ${results.pending}`);
-      summary.textContent = parts.join(" · ");
-    } else {
-      summary.textContent = "已提交";
+    const counts = { correct: 0, partial: 0, wrong: 0, unanswered: 0 };
+    for (const question of bank?.questions || []) {
+      const judged = judgements?.[question.id];
+      const result = results?.items?.find((item) => item.id === question.id);
+      const status = judged?.status || result?.status;
+      if (status && status in counts) counts[status] += 1;
     }
+    const parts = [`答对 ${counts.correct}`];
+    if (counts.partial) parts.push(`部分正确 ${counts.partial}`);
+    parts.push(`答错 ${counts.wrong}`);
+    if (counts.unanswered) parts.push(`未答 ${counts.unanswered}`);
+    summary.textContent = parts.join(" · ");
+    if (judging) summary.textContent = "AI 判题中…";
+    if (judgeError) summary.textContent = `${summary.textContent} · ${judgeError}`;
     footer.appendChild(summary);
-    const again = el(doc, "button", "mod-cta", "重新作答");
-    again.type = "button";
-    again.addEventListener("click", () => {
-      const next = { ...attempt, answers: {}, submittedAt: null };
-      onChange(next);
-      renderQuizPanel(container, { ...options, attempt: next, results: null });
-    });
-    footer.appendChild(again);
+    if (!judging) {
+      const again = el(doc, "button", "mod-cta", "重新作答");
+      again.type = "button";
+      again.addEventListener("click", () => {
+        const next = { ...attempt, answers: {}, judgements: {}, submittedAt: null };
+        onChange(next);
+        renderQuizPanel(container, { ...options, attempt: next, results: null, judgements: {}, judging: false, judgeError: "" });
+      });
+      footer.appendChild(again);
+    }
   } else {
     const hint = el(doc, "div", "qiaomu-reader-quiz-hint", "");
     footer.appendChild(hint);
