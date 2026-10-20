@@ -122,17 +122,19 @@ export function bankFromMarkdown(markdown, source = {}) {
       ...options.flatMap((option) => imagesIn(option.text, "option")),
       ...imagesIn(current.analysis, "figure"),
     ];
+    // 契约:题干/选项/解析文本里的内联图片链接**保留原样**(图片位置就是语义的一部分 ——
+    // 实测 q37 六张图之间夹着「要求(1)(2)(3)」),images[] 只是按 role 汇总,供界面做缩略图。
     const item = {
       id: current.id,
       number: current.number,
       type: typeFinal,
-      stem: stripFoldTags(removeInlineImages(current.stem)),
+      stem: stripFoldTags(current.stem),
     };
     if (options.length) {
-      item.options = options.map((option) => ({ label: option.label, text: stripFoldTags(removeInlineImages(option.text)) }));
+      item.options = options.map((option) => ({ label: option.label, text: stripFoldTags(option.text) }));
     }
     item.answer = normalizeAnswer(current.answer);
-    item.analysis = stripFoldTags(removeInlineImages(current.analysis));
+    item.analysis = stripFoldTags(current.analysis);
     if (images.length) item.images = images;
     if (current.page) item.source = { page: current.page };
     questions.push(item);
@@ -284,10 +286,6 @@ export function bankFromMarkdown(markdown, source = {}) {
   };
 }
 
-function removeInlineImages(text) {
-  return String(text || "").replace(IMAGE_RE, "").replace(/[ \t]+$/gm, "").trim();
-}
-
 function splitAnswerAnalysis(text) {
   const value = String(text || "");
   const match = /^(.*?)(?:\s*(?:解析|详解)[:：]\s*)([\s\S]*)$/.exec(value);
@@ -300,21 +298,14 @@ export function bankToMarkdown(bank) {
   const lines = [];
   if (bank?.source?.file) lines.push(`> 来源：${bank.source.file}`, "");
   for (const question of bank?.questions || []) {
+    // 题干原样输出:内联图片链接保持在原来的位置(q37 的图夹在「要求(1)(2)(3)」之间)。
     lines.push(`### ${question.number}. ${firstLine(question.stem)}`, "");
     const rest = question.stem.split("\n").slice(1).join("\n").trim();
     if (rest) lines.push(rest, "");
-    // 题干里的图:md 里必须带上,否则「看得到题目、看不到图」(实测试卷题)。
-    for (const image of (question.images || []).filter((item) => item.role === "stem")) lines.push(`![](${image.src})`, "");
     for (const option of question.options || []) lines.push(`- **${option.label}.** ${option.text.replace(/\n/g, " ")}`);
     if ((question.options || []).length) lines.push("");
-    // 选项图 / 解析图没有稳定的归属文本,单独列出来,别丢。
-    const optionImages = (question.images || []).filter((item) => item.role === "option");
-    const figureImages = (question.images || []).filter((item) => item.role === "figure");
-    for (const image of optionImages) lines.push(`- ![](${image.src})`);
-    if (optionImages.length) lines.push("");
     if (question.answer) lines.push(`> **答案**：${question.answer}`);
     if (question.analysis) lines.push(">", `> **解析**：${question.analysis.replace(/\n/g, "\n> ")}`);
-    for (const image of figureImages) lines.push(">", `> ![](${image.src})`);
     lines.push("");
   }
   const stats = bank?.stats;

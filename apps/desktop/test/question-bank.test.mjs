@@ -184,6 +184,36 @@ test("the answering view never carries answers or analysis", () => {
   assert.deepEqual(view.questions[0].options, original.options);
 });
 
+test("bankToMarkdown keeps inline images where they were, with the text between them", () => {
+  const md = `## 编程题
+
+37. 画图。
+要求:
+(1) 画圆。
+![](images/a.png)
+(2) 再画一个。
+![](images/b.png)
+(3) 最后画一个。
+![](images/c.png)
+答案:参考程序略
+`;
+  const { bank } = bankFromMarkdown(md, {});
+  const [q] = bank.questions;
+  // 契约:文本里的内联链接原样保留(图片位置就是语义的一部分)
+  const order = ["要求:", "![](images/a.png)", "(2) 再画一个。", "![](images/b.png)", "(3) 最后画一个。", "![](images/c.png)"];
+  let cursor = -1;
+  for (const piece of order) {
+    const at = q.stem.indexOf(piece);
+    assert.ok(at > cursor, `题干里「${piece}」的位置不对:${q.stem}`);
+    cursor = at;
+  }
+  assert.deepEqual(q.images.map((image) => image.src), ["images/a.png", "images/b.png", "images/c.png"], "images[] 只是汇总");
+
+  const rendered = bankToMarkdown(bank);
+  assert.equal((rendered.match(/!\[/g) || []).length, 3, "Markdown 里每张图只出现一次(不重复堆叠)");
+  assert.ok(rendered.indexOf("![](images/a.png)") < rendered.indexOf("(2) 再画一个。"), "Markdown 也保持原顺序");
+});
+
 test("validateBank catches broken banks before they reach disk", () => {
   assert.deepEqual(validateBank(bankFromMarkdown(PAPER, {}).bank), [], "规则解析出来的必须自洽");
   const issues = validateBank({
