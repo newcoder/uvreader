@@ -239,6 +239,44 @@ D. Java
   assert.equal(q2.metadata.source_id, "20240119-sw-007");
 });
 
+test("ids follow document order even when the paper restarts its numbering", () => {
+  // 实测 CSP2019:一、单项选择题 1–15,二、阅读程序又从 1 开始 —— 用卷面题号当 id 会重复。
+  const md = `## 一、单项选择题
+
+1. 第一题
+A. 甲 B. 乙
+答案:A
+
+2. 第二题
+A. 甲 B. 乙
+答案:B
+
+## 二、阅读程序
+
+1. 阅读程序第一题
+A. 对 B. 错
+答案:A
+
+2. 阅读程序第二题
+A. 对 B. 错
+答案:B
+`;
+  const { bank } = bankFromMarkdown(md, {});
+  assert.deepEqual(bank.questions.map((question) => question.id), ["q1", "q2", "q3", "q4"], "id 按文档顺序,唯一");
+  assert.deepEqual(bank.questions.map((question) => question.number), ["1", "2", "1", "2"], "number 保留卷面原题号(可以重复)");
+  assert.deepEqual(validateBank(bank), [], "校验器不该再报 id 重复");
+  // 答案区按顺序对号入座(重复的题号也能各自拿到答案)
+  const answered = bankFromMarkdown(`${md}
+参考答案
+
+1. A
+2. B
+1. A
+2. B
+`, {});
+  assert.deepEqual(answered.bank.questions.map((question) => question.answer), ["A", "B", "A", "B"]);
+});
+
 test("validateBank catches broken banks before they reach disk", () => {
   assert.deepEqual(validateBank(bankFromMarkdown(PAPER, {}).bank), [], "规则解析出来的必须自洽");
   const issues = validateBank({

@@ -127,8 +127,11 @@ export function bankFromMarkdown(markdown, source = {}) {
     ];
     // 契约:题干/选项/解析文本里的内联图片链接**保留原样**(图片位置就是语义的一部分 ——
     // 实测 q37 六张图之间夹着「要求(1)(2)(3)」),images[] 只是按 role 汇总,供界面做缩略图。
+    // id 必须唯一:契约规定 `q1..qN(文档顺序)`,**不能**用卷面题号 ——
+    // 实测 CSP2019 前半 1–15,后面的「阅读程序」又从 1 开始编号,用题号当 id 直接重复。
+    // `number` 保留卷面原题号(可能重复),id 只按出现顺序。
     const item = {
-      id: current.id,
+      id: `q${questions.length + 1}`,
       number: current.number,
       type: typeFinal,
       stem: stripFoldTags(current.stem),
@@ -209,7 +212,7 @@ export function bankFromMarkdown(markdown, source = {}) {
       } else {
         pushCurrent();
         current = {
-          id: `q${start[1]}`,
+          id: "",
           number: start[1],
           type: "",
           stem: start[2] || "",
