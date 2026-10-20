@@ -125,7 +125,7 @@ POST  /v1/math       { latex[] }     → { mathml[] }            # 轻量同步�
 | **E1 ✅ 已完成(2026-10-19)** | **服务骨架 + 契约**:`engine/`(FastAPI:health / jobs / math)+ token + `engine.json`;应用侧 `engine-client` + 设置页「书坊引擎」状态行 + **回退现有 spawn** | 单测(客户端:探测/作业/取消/回退)✓ + 真机冒烟(health / 令牌 / math / text-layer 作业 36 页)✓ + e2e 待补 |
 | **E2 ✅ 已完成(2026-10-19)** | **搬能力**:文字层 / pdf-text / outline / redact / images-to-pdf 从应用脚本搬进引擎;`extract`(pdf_tool)与 `convert`(DocVortex)作业化 | 七类作业全部搬好并接线(引擎优先、失败回退);引擎自测 **11 项**进 CI。注:应用里的 Python 脚本**保留**作为「没有引擎」的兜底,等 E3 把引擎变成默认后可以删 |
 | **E3 ✅ 已完成(2026-10-19)** | **打包与一键安装**(只做 **Windows 与 macOS**,Linux 先不考虑):构建脚本 + 应用内「下载并安装/更新引擎」(sha256、解压到 `%LOCALAPPDATA%/UVReader/engine/<version>`、拉起、进度)+ 离线 zip 安装 | **E3a ✅**:`scripts/build-engine.mjs`(私有 Python + wheel-only 依赖 + 引擎代码 + **自带 pdf_tool** + `engine.json` / `licenses.json` / 启动器 → zip/tar.gz + sha256)+ `scripts/check-engine-bundle.mjs`(包校验,CI 里跑)+ `.github/workflows/engine.yml`(**三平台**:win32-x64 / darwin-arm64 / darwin-x64;`engine-v*` tag → Release 资产)。Windows 包实测 **49.0 MB**(`pymupdf<2` 钉住 1.x,甩掉 onnxruntime / pymupdf4llm / pymupdf-layout 那一串,从 130.7 MB 降下来),包内冒烟:pdf-text 1.6s / outline 1.5s / **extract 4.6s(包里的 Python + 包里的 pdf_tool + 本地 MinerU)**。**E3b ✅**:`apps/desktop/src/main/engine-install.js`(查最新 `engine-v*` 资产 → 下载带进度 → **sha256 校验**(对不上就拒绝、不留半装目录)→ 解压到 `<根>/<版本>` → 生成/复用令牌 → 拉起 → 等健康检查)+ 任务 `engine-install` + 设置页「下载并安装引擎 / 从本地包安装」按钮(装完自动回填地址与令牌并重探);单元测试 10 项(含 sha256 不匹配、非引擎包、缺包三条失败路径),e2e 断言两个按钮在卡片里 |
-| **E4 🚧 进行中** | **可选组件与外部工具**:引擎侧「一键装可选组件」(DocVortex 装进引擎自己的 Python)、Calibre 探测与调用、boko 接入(EPUB→AZW3/KFX + 反向)、本地 MinerU 组件(模型按需下载 + 提示) | **已完成**:① 可选组件一键装:`install-component` 作业 + 白名单(`engine/engine/components.py`)+ 应用侧「装到引擎」按钮 + 打包带 pip —— 组件装进 **`<bundle>/components`**(实测往解释器自己的 site-packages 装会被 Windows 锁文件挡住:pip 先 rmtree 同名旧包,而 pydantic_core / pillow 正被引擎用着 → PermissionError);真机验过:一键装 DocVortex(1.2 min)后能力翻成 ✓。② Calibre 由引擎代理:新作业 `ebook-convert`(配置 → 常见安装位置 → PATH,与应用侧同一套候选)+ 应用侧「引擎优先、失败回退本机」,`images-cbz` 的 EPUB 那步也走引擎。③ MinerU 的「怎么补」写准(独立组件、模型按需几百 MB~GB、地址填引擎配置)。**待办**:boko(未安装、CLI 参数没验证过,不写猜测实现)、本地 MinerU 服务地址自动写进引擎配置、转换矩阵用引擎跑一遍 |
+| **E4 ✅ 已完成** | **可选组件与外部工具**:引擎侧「一键装可选组件」(DocVortex 装进引擎自己的 Python)、Calibre 探测与调用、boko 接入(EPUB→AZW3/KFX + 反向)、本地 MinerU 组件(模型按需下载 + 提示) | **已完成**:① 可选组件一键装:`install-component` 作业 + 白名单(`engine/engine/components.py`)+ 应用侧「装到引擎」按钮 + 打包带 pip —— 组件装进 **`<bundle>/components`**(实测往解释器自己的 site-packages 装会被 Windows 锁文件挡住:pip 先 rmtree 同名旧包,而 pydantic_core / pillow 正被引擎用着 → PermissionError);真机验过:一键装 DocVortex(1.2 min)后能力翻成 ✓。② Calibre 由引擎代理:作业 `ebook-convert`(配置 → 常见安装位置 → PATH,与应用侧同一套候选)+ 应用侧「引擎优先、失败回退本机」。③ **boko 接入**(2026-10-19):按官方 README + `src/main.rs` 核对 CLI,并下官方预编译包真跑(EPUB→AZW3 0.1s、KFX <1s、AZW3→EPUB ✓、MOBI 只读)→ 作业 `boko-convert`,应用侧 KFX/AZW3/`.kfx` 源优先走它,MOBI 仍归 Calibre。④ MinerU:「怎么补」写准(独立组件、模型按需几百 MB~GB)+ 应用的本地地址/程序/凭据**自动同步**进引擎配置(只填引擎侧为空、凭据只发 loopback)。**遗留**:boko/Calibre 的「去哪下载」在应用里没有引导(只有"填路径"提示) |
 | **E5 ✅ 已完成(2026-10-19)** | **收口**:文档、发布说明、旧用户迁移说明、矩阵回归、远程部署说明(URL + token) | **已完成**:① 矩阵可走引擎(`QBR_MATRIX_ENGINE_URL` + `QBR_MATRIX_ENGINE_TOKEN`;矩阵自己的 runner 也接上引擎客户端,并用引擎的 `/v1/jobs` 核对「这次是引擎干的」—— 实测 9 个作业全在引擎)。② `/v1/health` 的版本/平台不再读包内 dev 清单(包根优先)。③ 图片 → PDF、**文字层读取**都走引擎(引擎优先、失败回退本机;`via` 标出这次是谁干的)。④ 旧用户迁移说明见 **§5.5**。⑤ 应用 **0.7.3** / 引擎 **`engine-v0.1.5`** 已发布。**E5 清单已清空**(文字层、图片 → PDF、Calibre、boko 全部接上并有真机证据) |
 
 ### 5.1 E1 落地记录(2026-10-19)
@@ -164,8 +164,10 @@ POST  /v1/math       { latex[] }     → { mathml[] }            # 轻量同步�
 | 格式转换(DocVortex 那条) | `convert` |
 | PDF 清理(喂给 DocVortex 前的红标擦除) | `redact` |
 | 成书时的 PDF 大纲 | `outline` |
-| 文字层导出(已搬,尚未接线) | `text-layer` |
-| 图片 → PDF(已搬,尚未接线) | `images-to-pdf` |
+| 文字层导出 / 提取里的文字层校正 | `text-layer` |
+| 图片 → PDF | `images-to-pdf` |
+| 电子书互转(EPUB → AZW3) | `boko-convert`(优先)/ `ebook-convert`(MOBI 与回退) |
+| 可选组件安装(DocVortex) | `install-component` |
 
 **两条前提**:① 只有**配了 `engineUrl`** 才会走引擎(没配 = 零开销);② 引擎**不可用或失败**时会**回退本机** —— 这时清单里没有对应记录,所以「清单里有没有」正好能区分两条路。
 

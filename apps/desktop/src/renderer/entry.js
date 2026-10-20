@@ -167,7 +167,8 @@ async function boot() {
     void bridge.engine?.autoStart?.({
       engineUrl: String(plugin.settings?.engineUrl || ""),
       engineToken: String(plugin.settings?.engineToken || ""),
-      engineAutoStart: plugin.settings?.engineAutoStart !== false,
+      // 书坊关掉时别去拉引擎(书坊页都没有,起来也是白占内存)。
+      engineAutoStart: plugin.settings?.workshopEnabled !== false && plugin.settings?.engineAutoStart !== false,
     })
       .then((result) => {
         if (result?.skipped === "disabled" || result?.skipped === "not-installed") return;
