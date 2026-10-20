@@ -59,9 +59,9 @@
 
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
-| **Q1 提取** | 规则解析器 ✅(5 项单测)· 题库 runner · 数据提取页「题库」选项 | 进行中 |
+| **Q1 提取** | 规则解析器 ✅(5 项单测)· 题库 runner ✅(`_questions.json` + `_questions.md` + `_audit.json`)· 数据提取页「同时生成题库」✅ | 基本完成;家具开关等 pdf_tool |
 | **Q2 答题页** | bank 渲染 + 本地暂存 + 提交(先不判) | 待开始 |
 | **Q3 判题/解析** | 确定性判选择/判断 + AI 判主观 + 解析展示 | 待开始 |
 | **Q4 错题本** | 按题聚合 +「再练一遍」+ AI 讲解 | 待开始 |
 
-**附带**:数据提取页要加「去除水印 / 页眉页脚」开关 —— pdf_tool 的家具清理目前**写死常开**(`pipeline.py` 里 `filter_blocks` 无条件调用),要加开关得先给它加一个 CLI 参数(随 vendored 快照一起改,并记进 `vendor/pdf_tool/SOURCE.txt` 的补丁说明)。
+**附带**:数据提取页要加「去除水印 / 页眉页脚」开关 —— pdf_tool 的家具清理目前**写死常开**(`pipeline.py` 里 `filter_blocks` 无条件调用),已作为正式需求提给 pdf_tool:`docs/pdf-tool-request-furniture-toggle-2026-10-20.md`(建议 `--keep-furniture`,默认行为不变)。在它支持之前,页面上只写说明,不做假开关。

@@ -13,7 +13,7 @@ import { syncLocalMineru } from "./engine-wiring.js";
 import { createCalibre } from "./calibre.js";
 import { createCoverRenderer } from "./cover-render.js";
 import { createDocvortex, registerDocvortexRunners } from "./docvortex.js";
-import { registerExtractRunners } from "./extract-doc.js";
+import { extractMarkdown, registerExtractRunners } from "./extract-doc.js";
 import { clearMineruCaches, createMineruLocalService, resolveLocalBackend, resolveMineruKit } from "./mineru-local.js";
 import { createPdfCleaner, createPdfTextReader, registerTextConvertRunner } from "./pdf-text.js";
 import { createFormulaChain, pdfToolScriptCommand, registerFormulaRunners, resolveMineruToken } from "./workshop-formula.js";
@@ -23,6 +23,7 @@ import { registerEpubRunners } from "./workshop-epub.js";
 import { registerAiRunners } from "./workshop-ai.js";
 import { createPdfOcr, OCR_PROBE_TIMEOUT, resolveOcrOutput } from "./pdf-ocr.js";
 import { registerOcrRunners } from "./workshop-ocr.js";
+import { registerQuestionRunners } from "./workshop-questions.js";
 import { createTextLayerReader } from "./text-layer.js";
 import { createWorkshopQueue } from "./workshop.js";
 import { createBookDownloads } from "./book-downloads.js";
@@ -111,6 +112,16 @@ const readCoverImage = async (filePath) => {
 registerEpubRunners(workshop, { vaultRoot, cacheRoot: bookCacheRoot, coverRenderer, readImage: readCoverImage, docvortex, outlineReader: createPdfOutlineReader({ engine: engineClient }), textLayer: createTextLayerReader({ engine: engineClient }), engine: engineClient });
 // 内容提取(PDF/Office/OFD/图片 → md/html/json):pdf_tool + DocVortex。
 registerExtractRunners(workshop, { docvortex, vaultRoot, cacheRoot: bookCacheRoot, pdfText: createPdfTextReader({ engine: engineClient }), textLayer: createTextLayerReader({ engine: engineClient }), engine: engineClient });
+// 题库(W1 新):提取(引擎优先)→ 规则解析 → `<源名>_questions.json`(uvreader.question-bank/v1)
+// + `_questions.md`(可读版)+ `_audit.json`(提示/校验)。不做 AI 兜底,认不出就给 warning。
+registerQuestionRunners(workshop, {
+  extractMarkdown,
+  docvortex,
+  textLayer: createTextLayerReader({ engine: engineClient }),
+  engine: engineClient,
+  vaultRoot,
+  cacheRoot: bookCacheRoot,
+});
 // LLM 辅助(W2-1):AI 元数据推断 / AI 封面文案 / AI 分章建议 / AI 清理 —— 复用伴读的 AI 运行时与凭据。
 registerAiRunners(workshop, { aiRuntime, vaultRoot, cacheRoot: bookCacheRoot });
 // 格式转换的「文本型」链路(本地 fitz 提取 → DocVortex;与公式优先同构)。

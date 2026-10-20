@@ -1002,6 +1002,7 @@ const WORKSHOP_KIND_LABELS = {
   "extract-probe": "检测",
   "extract-pdf": "提取",
   "extract-docvortex": "提取",
+  "questions-extract": "题库",
 };
 
 function formatElapsed(ms) {
@@ -1378,7 +1379,13 @@ export function createWorkshopView(leaf, options) {
       }
       optionCard.createDiv({ cls: "qbr-workshop-hint", text: "MinerU 云端排队时间波动很大(实测 2 页 25 秒、7 页可能到 20 分钟);纯文字、不需要 LaTeX 公式的 PDF 选「文本型 PDF」更快。同一份文件 + 同一模式重跑会复用已有产物,不再等云端。" });
       optionCard.createDiv({ cls: "qbr-workshop-hint", text: "在「设置 → 书坊」填了「本地 MinerU 服务」地址后,MinerU 模式优先走本机服务(不出网、免凭据,热请求快很多)。" });
-      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "输出 <源名>.md / .html / .json(+ 体检报告),落在源文件旁;PDF 走 pdf_tool(模式可切 MinerU),Office / OFD / HTML / 图片 / Markdown / 纯文本走 DocVortex;题库等 schema 模板后续阶段。" });
+      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "输出 <源名>.md / .html / .json(+ 体检报告),落在源文件旁;PDF 走 pdf_tool(模式可切 MinerU),Office / OFD / HTML / 图片 / Markdown / 纯文本走 DocVortex。" });
+      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "水印 / 页眉页脚:pdf_tool 目前总是自动清理(已向 pdf_tool 提需求,支持后才能在这里关)。" });
+      // 题库:提取同一份正文,再按规则解析成 uvreader.question-bank/v1(另存 JSON + 可读 Markdown)。
+      const bankRow = optionCard.createEl("label", { cls: "qbr-workshop-book" });
+      this._extractBank = bankRow.createEl("input", { attr: { type: "checkbox" } });
+      this._extractBank.checked = false;
+      bankRow.createSpan({ text: "同时生成题库(题目 → _questions.json + _questions.md;试卷 / 练习册用)" });
       const detectRow = optionCard.createDiv("qbr-workshop-row");
       addSettingsLink(detectRow, "提取链路的检测(pdf_tool / DocVortex / MinerU)与全局配置都在「设置 → 书坊」。");
 
@@ -1489,7 +1496,18 @@ export function createWorkshopView(leaf, options) {
       }
       const mode = String(this._extractMode?.value || "auto");
       const settings = this.formulaSettings();
+      const withBank = this._extractBank?.checked === true;
       for (const rel of files) {
+        if (withBank) {
+          // 题库:一次任务里「提取 + 解析 + 落盘」,产物是 _questions.json / _questions.md / _audit.json。
+          void bridge.start({
+            kind: "questions-extract",
+            title: "题库提取",
+            detail: rel,
+            payload: { settings, source: rel, mode, refresh: this._extractRefresh?.checked === true },
+          }).catch((error) => new Notice(String(error?.message || error)));
+          continue;
+        }
         const kind = extractionKind(rel);
         void bridge.start({
           kind: kind === "pdf" ? "extract-pdf" : "extract-docvortex",
