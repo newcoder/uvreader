@@ -50,6 +50,23 @@ test("blockToHtml renders headings, formulas, tables, images and code", () => {
   assert.match(blockToHtml({ type: "question", number: "1", stem: "求 $x$", options: ["A. 1"], answer: "$x=1$" }), /答案：<script type="math\/tex">x=1<\/script>/);
 });
 
+test("options written under a stem become a list instead of one paragraph", () => {
+  const html = blockToHtml({
+    type: "text",
+    text: "5）若 m 个 x 两两不同，则输出的值为（）\nA. 2n-2m B. 2n+2 C. 2n-2 D. 2n",
+  });
+  assert.match(html, /^<p>5）/);
+  assert.match(html, /<ul class="docvortex-options">/);
+  assert.equal((html.match(/<li>/g) || []).length, 4);
+  assert.match(html, /<li><b>A\.<\/b> 2n-2m<\/li>/);
+
+  const inline = blockToHtml({ type: "text", text: "下列正确的是（）。 A. 6 B. 10 C. 15 D. 20" });
+  assert.equal((inline.match(/<li>/g) || []).length, 4, "同一行的选项也要拆开");
+
+  const prose = blockToHtml({ type: "text", text: "这句话里只有一个 A. 标记，不构成选项。" });
+  assert.equal(prose, "<p>这句话里只有一个 A. 标记，不构成选项。</p>");
+});
+
 test("a text block keeps its own line breaks instead of collapsing into one line", () => {
   // 程序清单被判成 text 块时,HTML 的 <p> 会把换行压成一行 → 至少保住原始换行。
   const html = blockToHtml({ type: "text", text: "#include <cstdio>\nint main() {\n  return 0;\n}" });

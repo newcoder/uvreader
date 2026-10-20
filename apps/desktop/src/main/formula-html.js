@@ -149,6 +149,36 @@ function questionHtml(block) {
   return parts.join("\n");
 }
 
+// 选项和题干挤在同一段("...（）。\nA. 6 B. 10 C. 15"):拆成题干 + 选项列表,
+// 否则 <p> 会把换行压成一行,选项看起来像题干的一部分。
+function splitOptionRun(text) {
+  const value = String(text || "");
+  const lines = value.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const match = /(?:^|\s)(A\s*[.、．)）]\s+.+)$/.exec(line);
+    if (!match) continue;
+    const parts = match[1].split(/\s+(?=[A-H]\s*[.、．)）])/);
+    if (parts.length < 3) continue;
+    const options = [];
+    for (const part of parts) {
+      const option = /^\s*([A-H])\s*[.、．)）]\s*(.*)$/.exec(part.trim());
+      if (!option) break;
+      options.push({ label: option[1], text: (option[2] || "").trim() });
+    }
+    if (options.length < 3) continue;
+    const head = [...lines.slice(0, index), line.slice(0, match.index)].join("\n").trim();
+    return { head, options };
+  }
+  return null;
+}
+
+function optionListHtml(options) {
+  return `<ul class="docvortex-options">${options
+    .map((option) => `<li><b>${escapeHtml(option.label)}.</b> ${escapeHtml(option.text)}</li>`)
+    .join("")}</ul>`;
+}
+
 // Doc v1 的块 → HTML 片段(公式优先,图片兜底)。
 // tableMode:"table" 输出真表格(HTML/LaTeX 目标),"image" 输出表格截图(DOCX/PDF)。
 export function blockToHtml(block, { tableMode = "table" } = {}) {
@@ -182,6 +212,13 @@ export function blockToHtml(block, { tableMode = "table" } = {}) {
   }
   const text = block?.text ?? block?.content ?? "";
   if (!String(text).trim()) return "";
+  const split = splitOptionRun(text);
+  if (split) {
+    const head = split.head
+      ? `<p>${wrapInlineMath(split.head).replace(/\n/g, "<br>")}</p>\n`
+      : "";
+    return `${head}${optionListHtml(split.options)}`;
+  }
   // PDF 的「程序清单」偶尔被判成 text 块:HTML 的 <p> 会把换行压成一行,
   // 至少要把原始换行保住(getBlockHtml 转 DOCX 时 <br> 也会变软换行)。
   const inline = wrapInlineMath(text);

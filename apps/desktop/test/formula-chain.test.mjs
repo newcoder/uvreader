@@ -7,6 +7,7 @@ import test from "node:test";
 
 import { createWorkshopQueue } from "../src/main/workshop.js";
 import {
+  FORMULA_CACHE_VERSION,
   createFormulaChain,
   formulaCacheDir,
   friendlyPdfToolError,
@@ -272,6 +273,7 @@ test("prepare reuses the cached MinerU doc instead of calling the cloud again", 
   const pdf = path.join(workDir, "a.pdf");
   fs.writeFileSync(pdf, "%PDF-1.4");
   writeDocJson(workDir, "a", [{ type: "text", text: "缓存命中 $x$ 测试" }]);
+  fs.writeFileSync(path.join(workDir, "cache-version.txt"), FORMULA_CACHE_VERSION, "utf8");
   const { spawnImpl, calls } = fakeSpawn((call, child) => {
     writeDocJson(workDir, "a", [{ type: "text", text: "重新解析 $x$" }]);
     void call;

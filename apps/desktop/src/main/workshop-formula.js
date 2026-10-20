@@ -106,6 +106,9 @@ export function formulaCacheDir(root, source, pages = "") {
   return path.join(String(root || ""), `${stem}-${key}`);
 }
 
+// 提取器的「块规则」变更时 +1:让旧 Doc JSON 失效(不依赖引擎版本探测成功)。
+export const FORMULA_CACHE_VERSION = "2";
+
 export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000, readEnv = readWindowsEnv, fetchImpl = (...args) => fetch(...args), textLayer = createTextLayerReader(), engine = null, log = (...args) => console.log(...args) } = {}) {
   function runCommand(command, args, { cwd, env, signal } = {}) {
     return new Promise((resolve) => {
@@ -168,9 +171,17 @@ export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000,
       cachedVersion = fs.readFileSync(versionMark, "utf8").trim();
     } catch { /* 老缓存没有版本标记 */ }
     const engineStale = Boolean(engineVersion) && cachedVersion !== engineVersion;
+    // 块规则变过(选项/代码块/家具):旧 Doc JSON 直接作废,不赌引擎版本探测。
+    const formatMark = path.join(workDir, "cache-version.txt");
+    let cachedFormat = "";
+    try {
+      cachedFormat = fs.readFileSync(formatMark, "utf8").trim();
+    } catch { /* 老缓存没有格式版本 */ }
+    const formatStale = cachedFormat !== FORMULA_CACHE_VERSION;
+    if (formatStale) log("formula chain: cache format changed, re-parsing", cachedFormat || "(none)");
     if (engineStale) log("formula chain: engine changed, ignoring cached doc", `${cachedVersion || "(none)"} -> ${engineVersion}`);
     const reusable = (() => {
-      if (refresh || engineStale || !fs.existsSync(docPath)) return false;
+      if (refresh || engineStale || formatStale || !fs.existsSync(docPath)) return false;
       try {
         return fs.statSync(docPath).mtimeMs >= fs.statSync(source).mtimeMs - 1000;
       } catch {
@@ -246,6 +257,7 @@ export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000,
     // 记下这份 Doc JSON 是哪个引擎版本产出的:升级后版本对不上就重新解析。
     try {
       fs.writeFileSync(versionMark, usedEngine ? engineVersion : "", "utf8");
+      fs.writeFileSync(formatMark, FORMULA_CACHE_VERSION, "utf8");
     } catch { /* 标记写不了不影响转换 */ }
     report?.({ label: "生成公式 HTML" });
     let blocks;
