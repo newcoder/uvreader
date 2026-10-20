@@ -293,3 +293,38 @@ test("validateBank catches broken banks before they reach disk", () => {
   assert.ok(issues.some((issue) => /选项标签/.test(issue)));
   assert.ok(issues.some((issue) => /是空的/.test(issue)));
 });
+
+test("options sharing the stem line are split out", () => {
+  // 实测 CSP2019 q8/q10/q14:选项和题干挤在同一行。
+  const md = `## 一、单项选择题
+
+1. 319 与 377 的最大公约数是（）。A. 27 B. 33 C. 29 D. 31
+2. 一棵二叉树…则该数组的最大下标至少为 ( )。 A. 6 B. 10 C. 15
+`;
+  const { bank, warnings } = bankFromMarkdown(md, {});
+  const [q1, q2] = bank.questions;
+  assert.deepEqual(q1.options.map((option) => `${option.label}.${option.text}`), ["A.27", "B.33", "C.29", "D.31"]);
+  assert.equal(q1.stem, "319 与 377 的最大公约数是（）。", "题干只留问句");
+  assert.deepEqual(q2.options.map((option) => option.label), ["A", "B", "C"]);
+  assert.equal(warnings.length, 0, "拆出选项后不再报「0 个选项」");
+
+  // 正文里只有一个 "A." 时不能当选项切开
+  const prose = bankFromMarkdown("1. 下列说法中 A. 项是错的。\n", {});
+  assert.equal(prose.bank.questions[0].options ?? undefined, undefined);
+});
+
+test("page markers merge into text are stripped from stems and options", () => {
+  const md = `## 一、单项选择题
+
+1. 题干
+A. 甲 B. 乙 C. 丙 D. 20
+<!--page:2-->
+
+2. 第二题
+<!--page:3-->
+A. 甲 B. 乙 C. 丙 D. 丁
+`;
+  const { bank } = bankFromMarkdown(md, {});
+  assert.equal(bank.questions[0].options.at(-1).text, "20", "页标记不粘在选项上");
+  assert.doesNotMatch(bank.questions[1].stem, /page:/, "页标记不粘在题干上");
+});

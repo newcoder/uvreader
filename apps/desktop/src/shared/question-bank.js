@@ -86,6 +86,42 @@ function splitInlineOptions(text) {
   return parts.length > 1 ? parts : [value];
 }
 
+// 跨页标记会粘在题干/选项末尾(合并稿里的 `<!--page:2-->`),不属于题面。
+function stripPageMarkers(text) {
+  return String(text || "").replace(/<!--\s*page:\s*\d+\s*-->/gi, "");
+}
+
+// 选项和题干挤在同一行(如 "…（ ）。 A. 6 B. 10 C. 15"):从第一个 A. 切开。
+// 至少 3 个选项才认,避免把正文里的 "A." 当成选项。
+function inlineOptionsInStem(line) {
+  const value = String(line || "");
+  // A 前面可能没有空格(CSP2019 q10:"（）。A. 27 B. 33 …"),允许 ) 。 ; 紧贴。
+  const match = /(^|[\s）)。；;])(A\s*[.、．)）]\s+\S)/.exec(value);
+  if (!match) return null;
+  const startIndex = match.index + match[1].length;
+  const head = value.slice(0, startIndex).trimEnd();
+  const parts = splitInlineOptions(value.slice(startIndex).trim());
+  const options = [];
+  for (const part of parts) {
+    const inline = OPTION_LINE.exec(part.trim());
+    if (!inline) return null;
+    options.push({ label: inline[1], text: (inline[2] || "").trim() });
+  }
+  return options.length >= 3 ? { head, options } : null;
+}
+
+// 题干的一行:顺手拆出并排的选项(题号那一行和后续行都走这里)。
+function appendStem(question, text) {
+  const value = String(text || "");
+  const inline = question.options.length === 0 ? inlineOptionsInStem(value) : null;
+  if (!inline) {
+    question.stem += `\n${value}`;
+    return;
+  }
+  if (inline.head) question.stem += `\n${inline.head}`;
+  question.options.push(...inline.options);
+}
+
 /**
  * Markdown → { bank, warnings }。
  * @param {string} markdown 提取产物(或任何排版规整的 Markdown/纯文本)
@@ -101,7 +137,7 @@ export function bankFromMarkdown(markdown, source = {}) {
 
   const pushCurrent = () => {
     if (!current) return;
-    const stem = stripImages(current.stem).trim();
+    const stem = stripPageMarkers(stripImages(current.stem)).trim();
     if (!stem) {
       warnings.push(`第 ${current.number} 题没有题干,已丢弃`);
       current = null;
@@ -134,13 +170,13 @@ export function bankFromMarkdown(markdown, source = {}) {
       id: `q${questions.length + 1}`,
       number: current.number,
       type: typeFinal,
-      stem: stripFoldTags(current.stem),
+      stem: stripPageMarkers(stripFoldTags(current.stem)).trim(),
     };
     if (options.length) {
-      item.options = options.map((option) => ({ label: option.label, text: stripFoldTags(option.text) }));
+      item.options = options.map((option) => ({ label: option.label, text: stripPageMarkers(stripFoldTags(option.text)).trim() }));
     }
     item.answer = normalizeAnswer(current.answer);
-    item.analysis = stripFoldTags(current.analysis);
+    item.analysis = stripPageMarkers(stripFoldTags(current.analysis)).trim();
     // 卷面编号:bank 里没有专门的字段,用 pdf_tool question_schema 的同名字段挂在 metadata 上(加字段、不改合同)。
     if (current.sourceId) item.metadata = { source_id: String(current.sourceId) };
     if (images.length) item.images = images;
@@ -215,7 +251,7 @@ export function bankFromMarkdown(markdown, source = {}) {
           id: "",
           number: start[1],
           type: "",
-          stem: start[2] || "",
+          stem: "",
           options: [],
           answer: "",
           analysis: "",
@@ -223,6 +259,7 @@ export function bankFromMarkdown(markdown, source = {}) {
           metaType: "",
           sourceId: "",
         };
+        appendStem(current, start[2] || "");
         mode = "stem";
         continue;
       }
@@ -282,7 +319,8 @@ export function bankFromMarkdown(markdown, source = {}) {
       if (last && !OPTION_LINE.test(trimmed)) last.text += `\n${trimmed}`;
       else current.stem += `\n${trimmed}`;
     } else {
-      current.stem += `\n${trimmed}`;
+      // 选项和题干挤在同一行(q8/q10/q14):"...（ ）。 A. 6 B. 10 C. 15"
+      appendStem(current, trimmed);
     }
   }
   pushCurrent();
