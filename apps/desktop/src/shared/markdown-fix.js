@@ -97,6 +97,71 @@ export function joinSplitCodeFences(markdown) {
   return lines.filter((_line, index) => !drop.has(index)).join("\n");
 }
 
+// 代码块行号:PDF 的「完善程序」在页边印行号,提取时会被当成代码正文(`22 memset(...)`)。
+// 只在**行号连续**且至少 3 行时剥掉,避免误伤代码里的数字(`for (i = 0; …)` / 常量表)。
+export function stripCodeLineNumbers(markdown) {
+  const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
+  let inFence = false;
+  let bodyStart = 0;
+  const strips = [];
+  const flush = (end) => {
+    if (!inFence) return;
+    const body = [];
+    for (let index = bodyStart; index < end; index += 1) {
+      if (lines[index].trim()) body.push(index);
+    }
+    if (body.length < 3) return;
+    // 找**最长的连续行号段**(真实情况常是「前半代码、后半带页边行号」,
+    // 不能要求从第一行就开始带号)。号码必须严格 +1,遇到非行号/跳号就断开。
+    let best = { start: 0, count: 0 };
+    let runStart = 0;
+    let runCount = 0;
+    let expected = null;
+    body.forEach((lineIndex, position) => {
+      const match = /^\s*(\d{1,3})[\s.:、]\s*\S/.exec(lines[lineIndex]);
+      const value = match ? Number(match[1]) : Number.NaN;
+      if (!match) {
+        runCount = 0;
+        expected = null;
+        return;
+      }
+      if (runCount > 0 && value > expected - 1 && value <= expected + 3) {
+        // 允许 ≤3 的跳号:提取时常把空行的行号漏掉(实测 22,23,25,26,27,28,30 …)
+        runCount += 1;
+      } else {
+        runStart = position;
+        runCount = 1;
+      }
+      expected = value + 1;
+      if (runCount > best.count) best = { start: runStart, count: runCount };
+    });
+    // 两种可信形状:①行号段占整块一半以上;②行号段一直延到块尾(跨页合并后的后半段)。
+    const endsAtBlock = best.start + best.count === body.length;
+    if (best.count >= 3 && (best.count >= Math.ceil(body.length * 0.5) || endsAtBlock)) {
+      // 记的是**闭区间**的最后一行的下一个位置,和下面 for (index < end) 对齐。
+      strips.push([body[best.start], body[best.start + best.count - 1] + 1]);
+    }
+  };
+  lines.forEach((line, index) => {
+    if (!/^\s*```/.test(line)) return;
+    if (!inFence) {
+      inFence = true;
+      bodyStart = index + 1;
+      return;
+    }
+    flush(index);
+    inFence = false;
+  });
+  if (inFence) flush(lines.length);
+  if (!strips.length) return lines.join("\n");
+  for (const [start, end] of strips) {
+    for (let index = start; index < end; index += 1) {
+      lines[index] = lines[index].replace(/^\s*\d{1,3}[\s.:、]\s*/, "");
+    }
+  }
+  return lines.join("\n");
+}
+
 // 章节标题去噪:PDF 提取出的标题常带脚注标记与行内标记,例如
 // 「集合论的一种公理化 $^{①}$」「论大规模计算机器的原理 $^{①②}$」。
 // 导航目录用的是标题纯文本,不清掉就会在目录里看到 $ ^ { } 这些符号。

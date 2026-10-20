@@ -9,7 +9,7 @@ import path from "node:path";
 
 import { EXTRACT_MODES, IMAGE_INPUTS, extractionKind } from "../shared/extract-formats.js";
 import { textSourceKind } from "../shared/workshop-formats.js";
-import { joinContinuationLines, joinSplitCodeFences, splitMarkdownChapters, unwrapProseFences } from "../shared/markdown-fix.js";
+import { joinContinuationLines, joinSplitCodeFences, splitMarkdownChapters, stripCodeLineNumbers, unwrapProseFences } from "../shared/markdown-fix.js";
 import { tocKey, tocLevel } from "../shared/printed-toc.js";
 import { blocksFromDoc, blocksToMarkdown, cleanFootnoteText } from "./formula-html.js";
 import { buildTextDoc, createPdfTextReader, writeTextProducts } from "./pdf-text.js";
@@ -21,7 +21,7 @@ import { resolveLocalBackend } from "./mineru-local.js";
 import { pdfToolArgs, pdfToolScriptCommand, resolveMineruLocalUrl } from "./workshop-formula.js";
 
 export { EXTRACT_MODES, IMAGE_INPUTS, extractionKind };
-export { splitMarkdownChapters, unwrapProseFences, joinSplitCodeFences } from "../shared/markdown-fix.js";
+export { splitMarkdownChapters, stripCodeLineNumbers, unwrapProseFences, joinSplitCodeFences } from "../shared/markdown-fix.js";
 
 function replaceAll(text, from, to) {
   return String(text).split(from).join(to);
@@ -228,6 +228,8 @@ export function adoptPdfToolOutputs(outDir, name, { renameAssets = true } = {}) 
           fixed = unwrapProseFences(fixed);
           // MinerU 按页切块:跨页的程序会变成两段围栏,这里并回一段。
           fixed = joinSplitCodeFences(fixed);
+          // PDF 页边的行号会被当成代码正文(`22 memset(...)`):合并之后再去掉。
+          fixed = stripCodeLineNumbers(fixed);
           // 上游转 Doc JSON 时丢了脚注,从 MinerU 的 content_list 里捞回来。
           fixed = appendFootnotes(fixed, collectPageFootnotes(outDir));
           // R2:上游标了 continuation 的半句接回上一段。
@@ -408,6 +410,7 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
     const raw = fs.readFileSync(file, "utf8");
     let cleaned = unwrapProseFences(raw);
     cleaned = joinSplitCodeFences(cleaned);
+    cleaned = stripCodeLineNumbers(cleaned);
     if (cleaned !== raw) log("prose fences unwrapped", path.basename(file));
     return cleaned;
   };

@@ -50,6 +50,13 @@ test("blockToHtml renders headings, formulas, tables, images and code", () => {
   assert.match(blockToHtml({ type: "question", number: "1", stem: "求 $x$", options: ["A. 1"], answer: "$x=1$" }), /答案：<script type="math\/tex">x=1<\/script>/);
 });
 
+test("a text block keeps its own line breaks instead of collapsing into one line", () => {
+  // 程序清单被判成 text 块时,HTML 的 <p> 会把换行压成一行 → 至少保住原始换行。
+  const html = blockToHtml({ type: "text", text: "#include <cstdio>\nint main() {\n  return 0;\n}" });
+  assert.equal(html, "<p>#include &lt;cstdio&gt;<br>int main() {<br>  return 0;<br>}</p>");
+  assert.equal(blockToHtml({ type: "text", text: "普通一段话" }), "<p>普通一段话</p>", "单行段落不加 <br>");
+});
+
 test("a prose paragraph mislabelled as code becomes a paragraph with its formulas", () => {
   // 两栏论文实测(1.DUL+paper.pdf 第 3 页):MinerU 把这段正文标成了 code 块。
   const block = {

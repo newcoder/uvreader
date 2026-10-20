@@ -1,7 +1,42 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { cleanChapterTitle, isProseFence, joinContinuationLines, joinSplitCodeFences, looksLikeHeadingTitle, looksLikeProseBlock, splitMarkdownChapters, unwrapProseFences } from "../src/shared/markdown-fix.js";
+import { cleanChapterTitle, isProseFence, joinContinuationLines, joinSplitCodeFences, looksLikeHeadingTitle, looksLikeProseBlock, splitMarkdownChapters, stripCodeLineNumbers, unwrapProseFences } from "../src/shared/markdown-fix.js";
+
+test("stripCodeLineNumbers removes PDF margin numbers only when they are sequential", () => {
+  const numbered = "```\n22 memset(cnt, 0, sizeof(cnt));\n23 for (int i = 0; i < n; ++i)\n24   cnt[i] += 1;\n```\n";
+  const cleaned = stripCodeLineNumbers(numbered);
+  assert.match(cleaned, /memset/);
+  assert.doesNotMatch(cleaned, /^22 /m, "行号要剥掉");
+  assert.match(cleaned, /^for \(int i/m, "代码本身保持原样");
+
+  // 代码里本来就有数字:不乱动
+  const plain = "```\nint a[10];\nfor (int i = 0; i < 10; ++i) {\n  a[i] = i * 2;\n}\n```\n";
+  assert.equal(stripCodeLineNumbers(plain), plain);
+
+  // 只有两行带号:太少,可能是代码,不动
+  const two = "```\na 1\nb 2\n```\n";
+  assert.equal(stripCodeLineNumbers(two), two);
+
+  // 不连续的号(22 / 24 / 26):允许 1–3 的小跳号(空行的行号常被提取器漏掉),
+  // 但跳太远就当成代码本身,不动。
+  const gaps = "```\n22 x\n24 y\n26 z\n```\n";
+  assert.doesNotMatch(stripCodeLineNumbers(gaps), /^22 /m, "22,24,26 是页边行号(空行号漏了),要剥");
+
+  // 真实形状:前半代码 + 后半页边行号(跳号)
+  const real = "```\nint main() {\n  f();\n22 memset(cnt, 0, sizeof(cnt));\n23 for (int i = 0; i < n; ++i)\n25 for (int i = 0; i < maxs; ++i)\n26   cnt[i] += 1;\n```\n";
+  const stripped = stripCodeLineNumbers(real);
+  assert.doesNotMatch(stripped, /^\s*2[2-6] /m);
+  assert.match(stripped, /^memset/m);
+});
+
+test("a program split across pages merges first, then loses its line numbers", () => {
+  const md = "```\nint main() {\n  f();\n  // 记录\n```\n\n```\n22 memset(cnt, 0, sizeof(cnt));\n23 for (int i = 0; i < n; ++i)\n24   g();\n```\n";
+  const merged = stripCodeLineNumbers(joinSplitCodeFences(md));
+  assert.equal((merged.match(/```/g) || []).length, 2, "两段并成一段(只剩一对围栏)");
+  assert.doesNotMatch(merged, /^22 /m);
+  assert.match(merged, /memset/);
+});
 
 test("a program split across a page break is joined back into one fence", () => {
   const md = [

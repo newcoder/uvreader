@@ -181,7 +181,11 @@ export function blockToHtml(block, { tableMode = "table" } = {}) {
     return note ? `<blockquote class="docvortex-footnote">${wrapInlineMath(note)}</blockquote>` : "";
   }
   const text = block?.text ?? block?.content ?? "";
-  return String(text).trim() ? `<p>${wrapInlineMath(text)}</p>` : "";
+  if (!String(text).trim()) return "";
+  // PDF 的「程序清单」偶尔被判成 text 块:HTML 的 <p> 会把换行压成一行,
+  // 至少要把原始换行保住(getBlockHtml 转 DOCX 时 <br> 也会变软换行)。
+  const inline = wrapInlineMath(text);
+  return `<p>${inline.includes("\n") ? inline.replace(/\n/g, "<br>") : inline}</p>`;
 }
 
 // Doc v1 → 扁平块(按页顺序;补上 1 基页码,文字层互补与补 caption 都要用)。
