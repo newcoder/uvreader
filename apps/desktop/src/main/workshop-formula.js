@@ -154,8 +154,23 @@ export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000,
     fs.mkdirSync(workDir, { recursive: true });
     const stem = stemOf(source);
     const docPath = path.join(workDir, `${stem}_doc.json`);
+    // 引擎升级后不能复用旧 Doc JSON(否则新提取器的修复永远看不到)。
+    let engineVersion = "";
+    if (engine && String(settings.engineUrl || "").trim()) {
+      try {
+        const health = await engine.health(settings);
+        engineVersion = String(health?.engineVersion || "").trim();
+      } catch { /* 探测失败不挡转换 */ }
+    }
+    const versionMark = path.join(workDir, "engine-version.txt");
+    let cachedVersion = "";
+    try {
+      cachedVersion = fs.readFileSync(versionMark, "utf8").trim();
+    } catch { /* 老缓存没有版本标记 */ }
+    const engineStale = Boolean(engineVersion) && cachedVersion !== engineVersion;
+    if (engineStale) log("formula chain: engine changed, ignoring cached doc", `${cachedVersion || "(none)"} -> ${engineVersion}`);
     const reusable = (() => {
-      if (refresh || !fs.existsSync(docPath)) return false;
+      if (refresh || engineStale || !fs.existsSync(docPath)) return false;
       try {
         return fs.statSync(docPath).mtimeMs >= fs.statSync(source).mtimeMs - 1000;
       } catch {
@@ -163,6 +178,7 @@ export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000,
       }
     })();
     let parsed = { ok: true, log: "" };
+    let usedEngine = false;
     // 引擎优先(可独立部署的本地服务):pdf_tool 与 MinerU 凭据都在引擎侧配置,
     // 应用只发意图;引擎失败/没配就回退到本机 checkout(下面那段)。
     const runViaEngine = async () => {
@@ -181,6 +197,7 @@ export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000,
       }
       if (ran.ok) {
         parsed = { ok: true, log: ran.result?.log || "" };
+        usedEngine = true;
         return true;
       }
       log("formula chain: engine extract failed, falling back to local pdf_tool", ran.error);
@@ -226,6 +243,10 @@ export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000,
       if (!parsed.ok) return { ok: false, error: friendlyPdfToolError(parsed.error), cancelled: parsed.cancelled };
     }
     if (!fs.existsSync(docPath)) return { ok: false, error: "pdf_tool 没有生成 Doc JSON" };
+    // 记下这份 Doc JSON 是哪个引擎版本产出的:升级后版本对不上就重新解析。
+    try {
+      fs.writeFileSync(versionMark, usedEngine ? engineVersion : "", "utf8");
+    } catch { /* 标记写不了不影响转换 */ }
     report?.({ label: "生成公式 HTML" });
     let blocks;
     try {
@@ -283,7 +304,7 @@ export function registerFormulaRunners(workshop, { chain, docvortex, vaultRoot =
       ? absolute(payload.out)
       : absolute(convertPath(payload?.source, docvortexFormatExt(format))));
     const workDir = formulaCacheDir(cacheRoot, source, pages);
-    const prepared = await chain.prepare({ settings, source, workDir, pages, signal, report, format });
+    const prepared = await chain.prepare({ settings, source, workDir, pages, signal, report, format, refresh: payload?.refresh === true });
     if (signal.aborted) throw new Error("任务已取消");
     if (!prepared.ok) throw new Error(String(prepared.error || "MinerU 解析失败"));
     report({ label: "DocVortex 转换" });

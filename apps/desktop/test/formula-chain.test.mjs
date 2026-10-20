@@ -288,6 +288,34 @@ test("prepare reuses the cached MinerU doc instead of calling the cloud again", 
   assert.match(fs.readFileSync(refreshed.htmlPath, "utf8"), /重新解析/);
 });
 
+test("prepare ignores a cached MinerU doc when the engine version changed", async () => {
+  const dir = makePdfToolDir();
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-formula-engine-"));
+  const pdf = path.join(workDir, "a.pdf");
+  fs.writeFileSync(pdf, "%PDF-1.4");
+  writeDocJson(workDir, "a", [{ type: "text", text: "旧引擎缓存 $x$" }]);
+  fs.writeFileSync(path.join(workDir, "engine-version.txt"), "0.1.5");
+  const runs = [];
+  const engine = {
+    health: async () => ({ ok: true, engineVersion: "0.1.8" }),
+    runJob: async (_settings, kind, args) => {
+      runs.push({ kind, args });
+      writeDocJson(workDir, "a", [{ type: "text", text: "新引擎结果 $x$" }]);
+      return { ok: true };
+    },
+  };
+  const chain = createFormulaChain({
+    spawnImpl: fakeSpawn(() => {}).spawnImpl,
+    engine,
+    textLayer: { read: async () => ({ ok: false, error: "stub" }) },
+  });
+  const result = await chain.prepare({ settings: { engineUrl: "http://127.0.0.1:8760", ocrSidecarDir: dir }, source: pdf, workDir });
+  assert.equal(result.ok, true, result.error);
+  assert.equal(runs.length, 1, "引擎版本变了,不能复用旧 Doc JSON");
+  assert.equal(fs.readFileSync(path.join(workDir, "engine-version.txt"), "utf8"), "0.1.8");
+  assert.match(fs.readFileSync(result.htmlPath, "utf8"), /新引擎结果/);
+});
+
 test("prepare surfaces a failing pdf_tool exit and cancels cleanly", async () => {
   const dir = makePdfToolDir();
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-formula-fail-"));
