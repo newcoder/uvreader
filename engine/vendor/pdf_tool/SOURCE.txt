@@ -1,5 +1,5 @@
 来源: D:\projects\auto_chat\pdf_tool
-commit: d614fdf69cf9561c8872c2ae99ddaf781e97fdde
-快照时间: 2026-10-20T13:16:32.867Z
+commit: 8ebd95ea720c1ccf42741380f09f4204bf96151d
+快照时间: 2026-10-20T15:10:31.058Z
 刷新:node scripts/vendor-pdf-tool.mjs --from <pdf_tool 包目录>
 说明:只保留代码与小型数据目录(output/ test-docs/ pdfs/ docs/ 不进仓库)。

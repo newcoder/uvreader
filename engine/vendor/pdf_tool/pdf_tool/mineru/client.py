@@ -590,26 +590,38 @@ def reflow_text_blocks(blocks: list[dict], client, prompt: str, *,
     return merged, stats
 
 
+def _is_content_line(line: str) -> bool:
+    """选项/题号/代码行是题目内容，不可能是页眉页脚（reader 2026-10-20）。"""
+    s = str(line or "").strip()
+    if _OPTION_LINE_RE.match(s) or _QNUM_LINE_RE.match(s):
+        return True
+    core = _code_part(s).strip()
+    if not core:
+        return False
+    return bool(_CODE_LINE_HINT_RE.match(core) or re.search(r"[;{}]\s*$", core))
+
+
 def strip_furniture_lines(blocks: list[dict], *, min_blocks: int = 3) -> int:
     """剔除混进代码/正文块的页面装饰行（页脚、页码、跨页重复行）。
 
     - 正则命中（`第 N 页，共 M 页` / `CCF CSP…试题`）直接删；
-    - 其余「跨 ≥min_blocks 个块重复出现且长度 ≥8」的行按重复剔除（与文本路径同思路）。
+    - 其余「跨 ≥min_blocks 个**不同页**、**归一化前内容完全一致**且长度 ≥8」的行才剔除；
+      选项行 / 题号行 / 代码行永不删除（reader 2026-10-20：数字归一 `\\d+ → #` 会把
+      结构相同的选项行误判成页眉页脚）。
     """
-    from collections import Counter
+    from collections import defaultdict
 
-    counts: Counter = Counter()
-
-    def norm(s: str) -> str:
-        return re.sub(r"\d+", "#", s.strip())
-
-    for b in blocks:
-        if b.get("type") in ("code", "text"):
-            body = str(b.get("content") or b.get("text") or "")
-            for ln in {x.strip() for x in body.splitlines() if x.strip()}:
-                if len(ln) >= 8:
-                    counts[norm(ln)] += 1
-    repeated = {k for k, v in counts.items() if v >= min_blocks}
+    pages: dict[str, set] = defaultdict(set)
+    for bi, b in enumerate(blocks):
+        if b.get("type") not in ("code", "text"):
+            continue
+        page = _page_num(b)
+        loc = ("p", page) if page else ("b", bi)  # 无页码信息时按块计
+        body = str(b.get("content") or b.get("text") or "")
+        for ln in {x.strip() for x in body.splitlines() if x.strip()}:
+            if len(ln) >= 8 and not _is_content_line(ln):
+                pages[ln].add(loc)
+    repeated = {ln for ln, locs in pages.items() if len(locs) >= min_blocks}
 
     removed = 0
     for b in blocks:
@@ -627,7 +639,7 @@ def strip_furniture_lines(blocks: list[dict], *, min_blocks: int = 3) -> int:
                 removed += 1
                 continue
             # 重复行启发式只用于 text（代码行如 #include 天然跨程序重复，不能删）
-            if t == "text" and s and len(s) >= 8 and norm(s) in repeated:
+            if t == "text" and s and len(s) >= 8 and s in repeated:
                 removed += 1
                 continue
             keep.append(ln)
