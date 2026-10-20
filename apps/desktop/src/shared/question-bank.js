@@ -1,0 +1,323 @@
+// 题库：把「提取出来的 Markdown」解析成 `uvreader.question-bank/v1`。
+//
+// 契约来自 pdf_tool 的 `model/bank.py`(2026-10-14 与 reader 对齐的那份):
+//   { schema, source{file,pages,engine,extracted_at}, questions[], stats{questions,by_type} }
+//   questions[i] = { id, number, type, stem, options[{label,text}], answer, analysis, images[{src,role}], source{page} }
+// 这里**只用规则**(题号 / 选项 / 答案 / 解析 / 小节标题 / 填空下划线 / 判断题),不依赖模型:
+// 模型只该做「规则认不出的那几题」的补漏,不该替代确定性解析。
+//
+// 设计约束:
+// - 只认「像题」的结构,认不全就少给题 + 出 warning —— 不猜答案、不编解析;
+// - 选项标签归一成 A–H;答案原样保留(多选保留 "ABD");
+// - 图片按 Markdown 链接提取:题干 role=stem、选项 role=option、解析 role=figure。
+
+export const QUESTION_BANK_SCHEMA = "uvreader.question-bank/v1";
+
+const TYPES = new Set(["single_choice", "multiple_choice", "true_false", "fill_blank", "short_answer", "program", "calculation", "proof", "unknown"]);
+const LABELS = "ABCDEFGH";
+
+// 小节标题 → 题型(中文卷面最常见的几种写法)。多选放前面:「多项选择题」不能被「选择题」先吃掉。
+const SECTION_TYPES = [
+  { re: /(多项选择|多选)/, type: "multiple_choice" },
+  { re: /(单项选择|单选|选择题)/, type: "single_choice" },
+  { re: /(判断)/, type: "true_false" },
+  { re: /(填空)/, type: "fill_blank" },
+  { re: /(编程|程序|代码题)/, type: "program" },
+  { re: /(计算)/, type: "calculation" },
+  { re: /(证明)/, type: "proof" },
+  { re: /(简答|问答|解答|论述)/, type: "short_answer" },
+];
+
+const QUESTION_START = /^\s*(?:第\s*)?(\d{1,3})\s*[.、．)）]\s*(.*)$/;
+const OPTION_LINE = /^\s*([A-H])\s*[.、．)）]\s*(.*)$/;
+const ANSWER_LINE = /^\s*(?:【\s*答案\s*】|答案\s*[:：]?)\s*(.*)$/;
+const ANALYSIS_LINE = /^\s*(?:【\s*(?:解析|详解|分析)\s*】|(?:解析|详解|分析)\s*[:：])\s*(.*)$/;
+const IMAGE_RE = /!\[[^\]]*\]\(([^)\s]+)\)/g;
+const BLANK_RE = /_{2,}|（\s{2,}）|﹍{2,}/;
+
+function imagesIn(text, role) {
+  const out = [];
+  for (const match of String(text || "").matchAll(IMAGE_RE)) out.push({ src: match[1], role });
+  return out;
+}
+
+function stripImages(text) {
+  return String(text || "").replace(IMAGE_RE, "").replace(/[ \t]+$/gm, "").trim();
+}
+
+function normalizeAnswer(raw) {
+  const text = String(raw || "").trim();
+  return text.replace(/^[（(【\[]|[）)】\]]$/g, "").trim();
+}
+
+function answerLetters(answer) {
+  const compact = normalizeAnswer(answer).toUpperCase().replace(/[^A-H]/g, "");
+  return compact.length >= 1 && compact.length <= LABELS.length ? compact : "";
+}
+
+function typeFromSection(title) {
+  const text = String(title || "");
+  for (const entry of SECTION_TYPES) if (entry.re.test(text)) return entry.type;
+  return "";
+}
+
+// 一行里可能并排多个选项("A. 甲  B. 乙  C. 丙")——按字母标记切开。
+function splitInlineOptions(text) {
+  const value = String(text || "");
+  const parts = value.split(/\s+(?=[A-H]\s*[.、．)）])/);
+  return parts.length > 1 ? parts : [value];
+}
+
+/**
+ * Markdown → { bank, warnings }。
+ * @param {string} markdown 提取产物(或任何排版规整的 Markdown/纯文本)
+ * @param {{file?: string, engine?: string, extractedAt?: string}} source
+ */
+export function bankFromMarkdown(markdown, source = {}) {
+  const warnings = [];
+  const questions = [];
+  let sectionType = "";
+  let current = null;
+  let mode = "stem"; // stem | answer | analysis
+  let answerSection = false;
+
+  const pushCurrent = () => {
+    if (!current) return;
+    const stem = stripImages(current.stem).trim();
+    if (!stem) {
+      warnings.push(`第 ${current.number} 题没有题干,已丢弃`);
+      current = null;
+      return;
+    }
+    const options = current.options;
+    let type = current.type || sectionType;
+    if (!type) {
+      if (options.length) type = answerLetters(current.answer).length > 1 ? "multiple_choice" : "single_choice";
+      else if (BLANK_RE.test(stem)) type = "fill_blank";
+      else if (/^(对|错|正确|错误|√|×|T|F)$/i.test(normalizeAnswer(current.answer))) type = "true_false";
+      else type = "short_answer";
+    }
+    if (type === "single_choice" && options.length && answerLetters(current.answer).length > 1) type = "multiple_choice";
+    const typeFinal = TYPES.has(type) ? type : "unknown";
+    if ((typeFinal === "single_choice" || typeFinal === "multiple_choice") && options.length < 2) {
+      warnings.push(`第 ${current.number} 题像选择题但只找到 ${options.length} 个选项`);
+    }
+    const images = [
+      ...imagesIn(current.stem, "stem"),
+      ...options.flatMap((option) => imagesIn(option.text, "option")),
+      ...imagesIn(current.analysis, "figure"),
+    ];
+    const item = {
+      id: current.id,
+      number: current.number,
+      type: typeFinal,
+      stem: removeInlineImages(current.stem),
+    };
+    if (options.length) {
+      item.options = options.map((option) => ({ label: option.label, text: removeInlineImages(option.text) }));
+    }
+    item.answer = normalizeAnswer(current.answer);
+    item.analysis = removeInlineImages(current.analysis);
+    if (images.length) item.images = images;
+    if (current.page) item.source = { page: current.page };
+    questions.push(item);
+    current = null;
+  };
+
+  const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/\s+$/, "");
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    // 标题:可能是题型小节,也可能是「参考答案」整段。
+    const heading = /^#{1,6}\s+(.*)$/.exec(trimmed);
+    const anyHeading = heading || null;
+    if (anyHeading) {
+      const title = anyHeading[1].trim();
+      if (/^(参考答案|答案与解析|答案|解析)/.test(title)) {
+        pushCurrent();
+        answerSection = true;
+        sectionType = "";
+        mode = "answer";
+        continue;
+      }
+      const section = typeFromSection(title);
+      if (section) {
+        pushCurrent();
+        answerSection = false;
+        sectionType = section;
+        mode = "stem";
+        continue;
+      }
+      // 其他标题:还给当前题当题干的一部分(题组说明)。
+      if (current && !answerSection) current.stem += `\n\n${title}`;
+      continue;
+    }
+    // 非标题的纯小节行:「一、选择题(每题 2 分)」
+    const bareSection = /^[一二三四五六七八九十]+\s*[、.．]\s*(.*)$/.exec(trimmed);
+    if (bareSection && typeFromSection(bareSection[1])) {
+      pushCurrent();
+      answerSection = false;
+      sectionType = typeFromSection(bareSection[1]);
+      mode = "stem";
+      continue;
+    }
+    if (/^(参考答案|答案与解析|答案|解析)$/.test(trimmed)) {
+      pushCurrent();
+      answerSection = true;
+      sectionType = "";
+      mode = "answer";
+      continue;
+    }
+
+    const start = QUESTION_START.exec(trimmed);
+    if (start) {
+      // 答案区里的「1. B」是答案条目,不是新题。
+      if (answerSection) {
+        const target = questions.find((item) => item.number === start[1] && !item.answer);
+        if (target) {
+          const rest = start[2] || "";
+          const [answerPart, ...analysisParts] = splitAnswerAnalysis(rest);
+          target.answer = normalizeAnswer(answerPart);
+          if (analysisParts.length) target.analysis = analysisParts.join(" ").trim();
+          continue;
+        }
+        // 找不到对应题号(或已有答案):继续往下走,当说明文字。
+      } else {
+        pushCurrent();
+        current = {
+          id: `q${start[1]}`,
+          number: start[1],
+          type: "",
+          stem: start[2] || "",
+          options: [],
+          answer: "",
+          analysis: "",
+          page: 0,
+        };
+        mode = "stem";
+        continue;
+      }
+    }
+
+    if (!current) {
+      // 题号之前的内容(卷头 / 说明):忽略,但答案区之前的标题可能有用,不报错。
+      continue;
+    }
+
+    const answerMatch = ANSWER_LINE.exec(trimmed);
+    if (answerMatch) {
+      mode = "answer";
+      current.answer = answerMatch[1] || "";
+      continue;
+    }
+    const analysisMatch = ANALYSIS_LINE.exec(trimmed);
+    if (analysisMatch) {
+      mode = "analysis";
+      current.analysis = analysisMatch[1] || "";
+      continue;
+    }
+
+    const optionMatch = OPTION_LINE.exec(trimmed);
+    if (optionMatch && mode !== "analysis" && current.options.length < LABELS.length) {
+      const label = optionMatch[1];
+      const text = optionMatch[2] || "";
+      // 同一行并排多个选项
+      for (const part of splitInlineOptions(text)) {
+        const inline = OPTION_LINE.exec(part);
+        if (inline) {
+          current.options.push({ label: inline[1], text: (inline[2] || "").trim() });
+        } else {
+          current.options.push({ label, text: part.trim() });
+        }
+      }
+      continue;
+    }
+
+    if (mode === "answer") current.answer += `\n${trimmed}`;
+    else if (mode === "analysis") current.analysis += `\n${trimmed}`;
+    else if (current.options.length && !/^[A-H]/.test(current.options.at(-1)?.text || "")) {
+      // 选项被折行:接到最后一个选项上(比接到题干更常见)。
+      const last = current.options.at(-1);
+      if (last && !OPTION_LINE.test(trimmed)) last.text += `\n${trimmed}`;
+      else current.stem += `\n${trimmed}`;
+    } else {
+      current.stem += `\n${trimmed}`;
+    }
+  }
+  pushCurrent();
+
+  if (!questions.length) warnings.push("没有识别出题目(题号写法可能是「1、」「第 1 题」之外的格式)");
+  const byType = {};
+  for (const question of questions) byType[question.type] = (byType[question.type] || 0) + 1;
+  return {
+    bank: {
+      schema: QUESTION_BANK_SCHEMA,
+      source: {
+        file: String(source.file || ""),
+        pages: null,
+        engine: String(source.engine || "rules"),
+        extracted_at: String(source.extractedAt || new Date().toISOString()),
+      },
+      questions,
+      stats: { questions: questions.length, by_type: byType },
+    },
+    warnings,
+  };
+}
+
+function removeInlineImages(text) {
+  return String(text || "").replace(IMAGE_RE, "").replace(/[ \t]+$/gm, "").trim();
+}
+
+function splitAnswerAnalysis(text) {
+  const value = String(text || "");
+  const match = /^(.*?)(?:\s*(?:解析|详解)[:：]\s*)([\s\S]*)$/.exec(value);
+  if (match) return [match[1], match[2]];
+  return [value];
+}
+
+/** 题库 → 可读 Markdown（同一份内容两种产物）。 */
+export function bankToMarkdown(bank) {
+  const lines = [];
+  if (bank?.source?.file) lines.push(`> 来源：${bank.source.file}`, "");
+  for (const question of bank?.questions || []) {
+    lines.push(`### ${question.number}. ${firstLine(question.stem)}`, "");
+    const rest = question.stem.split("\n").slice(1).join("\n").trim();
+    if (rest) lines.push(rest, "");
+    for (const option of question.options || []) lines.push(`- **${option.label}.** ${option.text.replace(/\n/g, " ")}`);
+    if ((question.options || []).length) lines.push("");
+    if (question.answer) lines.push(`> **答案**：${question.answer}`);
+    if (question.analysis) lines.push(">", `> **解析**：${question.analysis.replace(/\n/g, "\n> ")}`);
+    lines.push("");
+  }
+  const stats = bank?.stats;
+  if (stats) lines.push(`---`, `共 ${stats.questions} 题（${Object.entries(stats.by_type || {}).map(([type, count]) => `${type} ${count}`).join(" · ") || "无"}）`);
+  return lines.join("\n").trimEnd() + "\n";
+}
+
+function firstLine(text) {
+  return String(text || "").split("\n")[0].trim();
+}
+
+/** 结构校验：拿到外来的题库(比如模型/别的工具产出)时先过一遍，别把坏数据写盘。 */
+export function validateBank(bank) {
+  const issues = [];
+  if (bank?.schema !== QUESTION_BANK_SCHEMA) issues.push(`schema 应为 ${QUESTION_BANK_SCHEMA}`);
+  if (!Array.isArray(bank?.questions) || !bank.questions.length) issues.push("没有题目");
+  const seen = new Set();
+  for (const [index, question] of (bank?.questions || []).entries()) {
+    const where = `第 ${index + 1} 题`;
+    if (!question?.id) issues.push(`${where}: 缺 id`);
+    else if (seen.has(question.id)) issues.push(`${where}: id 重复(${question.id})`);
+    else seen.add(question.id);
+    if (!String(question?.stem || "").trim()) issues.push(`${where}: 缺题干`);
+    if (!TYPES.has(String(question?.type || ""))) issues.push(`${where}: 未知题型 ${question?.type}`);
+    for (const option of question?.options || []) {
+      if (!LABELS.includes(String(option.label || ""))) issues.push(`${where}: 选项标签不是 A–H(${option.label})`);
+      if (!String(option.text || "").trim()) issues.push(`${where}: 选项 ${option.label} 是空的`);
+    }
+  }
+  return issues;
+}
