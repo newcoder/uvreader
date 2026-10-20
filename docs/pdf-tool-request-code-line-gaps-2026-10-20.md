@@ -55,3 +55,10 @@ CSP2019 第 9 页是**扫描图**(文字层里只有水印「山东」),MinerU �
 
 - 题库提取读 Doc JSON 的 code 块:有 `incomplete` / `gaps` 就在 `_questions_audit.json` 里给 warning(并显示在数据提取页的结果里);
 - 不猜内容:模型/规则都不补代码,缺行就如实标出来。
+
+## 处理结果(2026-10-20,pdf_tool `d614fdf`)
+
+- 已实现:按印刷行号 `n → m` 之间的内容行数算缺行数,行距只用来定位缺口 y 区间(空白行/行距变化不误报);有 PDF 时用原页**整页 OCR(RapidOCR,200 dpi)**补行(小条裁剪会读残,已弃用),`//` 之前做全角→半角;补足不写缺口,补不足保留 `code_gaps` + `incomplete` 并把已识别部分放回;新增 `code_filled` / `code_gap_lines`。
+- CSP2019 复验(reader 侧,快照刷新后):计数排序 **30 个内容行**(22–32 全在,含 `③; // 利用 cnt 数组统计数量` 与第 29 行),`code_filled=2`、`code_gap_lines=0`、无 `code_gaps`;失败路径(不传 PDF)如实给 `incomplete` + `code_gaps: [{position: "Page 9", expected: [24, 29]}]`。
+- 引擎已带该快照发 **0.1.8**(`engine-v0.1.8`)。
+

@@ -355,6 +355,170 @@ def _strip_code_line_numbers(blocks) -> int:
     return removed
 
 
+# ---------------- 代码缺口检测 / 定向补识别（reader 2026-10-20 续） ----------------
+
+def _line_no_of(text) -> int | None:
+    m = _LEADING_LINE_NO_RE.match(str(text or ""))
+    return int(m.group(1)) if m else None
+
+
+# 全角 ASCII 标点/字母/数字 → 半角（仅用于 OCR 补回的代码行；不动中文注释与 ①②③）
+_FW_TO_ASCII = str.maketrans(
+    "；（）［］｛｝，．：？！＋－＊／＝＜＞０１２３４５６７８９"
+    "ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺ"
+    "ａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ　",
+    ";()[]{},.:?!+-*/=<>0123456789"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "abcdefghijklmnopqrstuvwxyz ",
+)
+
+
+def _normalize_code_punct(text: str) -> str:
+    """OCR 补回行：仅把 `//` 之前的全角标点/字母/数字转半角（中文注释保持原样）。"""
+    code, sep, comment = str(text).partition("//")
+    return code.translate(_FW_TO_ASCII) + sep + comment
+
+
+def _line_pitch(entries) -> float | None:
+    ys = [float(e["y0"]) for e in entries
+          if isinstance(e.get("y0"), (int, float))]
+    diffs = sorted(b - a for a, b in itertools.pairwise(ys) if 0 < b - a <= 80)
+    return diffs[len(diffs) // 2] if diffs else None
+
+
+def _ocr_page_lines(pdf, page_no: int, *, dpi: int = 200) -> list[tuple[float, str]]:
+    """整页 OCR（仅在有缺口时调用）：返回 [(页内归一化 y 中心, 文本)]，已去行号。
+
+    缺口小条 OCR 对裁剪/缩放很敏感（实测同一行会读残），整页识别稳定得多
+    （reader 2026-10-20 建议 2 的落地方式）。
+    """
+    if pdf is None:
+        return []
+    try:
+        import io
+
+        import fitz
+        import numpy as np
+        from PIL import Image
+
+        from pdf_tool.ocr.backends import make_backend
+
+        doc = fitz.open(str(pdf))
+        try:
+            if not (1 <= int(page_no) <= doc.page_count):
+                return []
+            page = doc[int(page_no) - 1]
+            pix = page.get_pixmap(matrix=fitz.Matrix(dpi / 72, dpi / 72))
+        finally:
+            doc.close()
+        img = np.array(Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB"))
+        ih = img.shape[0]
+        out: list[tuple[float, str]] = []
+        for ln in make_backend("rapid").ocr(img):
+            t = str(getattr(ln, "text", "") or "").strip()
+            m = _LEADING_LINE_NO_RE.match(t)
+            if m:
+                t = t[m.end():].strip()
+            if not t or re.fullmatch(r"\d{1,3}", t):
+                continue  # 纯行号框
+            quad = getattr(ln, "quad", None) or []
+            if not quad:
+                continue
+            ys = [float(p[1]) for p in quad]
+            out.append(((min(ys) + max(ys)) / 2 / max(1, ih) * 1000, t))
+        return out
+    except Exception as e:
+        log.warning("[mineru] 缺口整页 OCR 失败（Page %s）：%s", page_no, e)
+        return []
+
+
+def _fill_code_gaps(entries, *, pdf, page_no: int) -> tuple[list[dict], list[dict], int]:
+    """按印刷行号做缺口检测，行距只用来**定位**缺口；有 PDF 时整页 OCR 补行。
+
+    行号是主信号：两个相邻行号 n→m 之间有 k 条内容行时，缺行数 = (m-n-1)-k；
+    行距把缺行落到具体 y 位置。这样空白行/加大行距不会被误判成缺行。
+    返回 (行条目列表, 未补上的 gaps, 补回行数)；gaps: [{"expected": [...], "page": N}]。
+    """
+    anchors = [(i, _line_no_of(e.get("text"))) for i, e in enumerate(entries)
+               if _line_no_of(e.get("text")) is not None]
+    if len(anchors) < 2:
+        return entries, [], 0
+    first = anchors[0][0]
+    pitch = _line_pitch(entries[first:])
+    if not pitch:
+        return entries, [], 0
+    page_lines: dict[int, list[tuple[float, str]]] = {}
+    out: list[dict] = list(entries[:first + 1])
+    gaps: list[dict] = []
+    filled = 0
+    for (i, n), (j, m) in itertools.pairwise(anchors):
+        segment = entries[i + 1:j]
+        missing = max(0, (m - n - 1) - len(segment))
+        # 行距缺口（仅同页相邻行；定位用）
+        slots: dict[int, int] = {}
+        if missing:
+            for k in range(i + 1, j + 1):
+                prev, cur = entries[k - 1], entries[k]
+                if prev.get("page") != cur.get("page"):
+                    continue
+                if prev.get("y0") is None or cur.get("y0") is None:
+                    continue
+                slot_n = max(0, round(
+                    (float(cur["y0"]) - float(prev["y0"])) / pitch) - 1)
+                if slot_n:
+                    slots[k] = slot_n
+        next_num = n + 1
+        for k in range(i + 1, j + 1):
+            if k in slots and next_num < m:
+                take = min(slots[k], m - next_num)
+                pg = int(entries[k - 1].get("page") or page_no)
+                lo = float(entries[k - 1].get("y1") or 0) - 2
+                hi = float(entries[k]["y0"]) + 2
+                if pg not in page_lines:
+                    page_lines[pg] = _ocr_page_lines(pdf, pg)
+                got = [t for y, t in page_lines[pg] if lo <= y <= hi][:take]
+                got = [_normalize_code_punct(t) for t in got]
+                nums = list(range(next_num, next_num + take))
+                if len(got) >= take:
+                    out.extend({"text": t, "_filled": True} for t in got)
+                    filled += take
+                else:  # 补不全：已识别的也保留，剩余如实记缺口
+                    out.extend({"text": t, "_filled": True} for t in got)
+                    filled += len(got)
+                    gaps.append({"expected": nums, "page": pg})
+                next_num += take
+            out.append(entries[k])
+            if k < j and _line_no_of(entries[k].get("text")) is None:
+                next_num += 1  # 无号行也消耗一个行号
+        if next_num < m:  # 行距没跳/OCR 缺行：无坐标，仅报告
+            gaps.append({"expected": list(range(next_num, m)),
+                         "page": entries[j].get("page") or page_no})
+    return out, gaps, filled
+
+
+def _attach_code_gaps(block: dict, gaps, page_no: int, filled: int, stats: dict) -> None:
+    """把缺口/补回信息挂到最终代码块上（同页合并 expected）。"""
+    if filled:
+        stats["code_filled"] = stats.get("code_filled", 0) + filled
+    by_page: dict[int, list[int]] = {}
+    for g in gaps:
+        pg = int(g.get("page") or page_no)
+        by_page.setdefault(pg, []).extend(g.get("expected") or [])
+    for pg, nums in sorted(by_page.items()):
+        nums = sorted(set(nums))
+        if not nums:
+            continue
+        entry = {"position": f"Page {pg}", "expected": nums}
+        existing = next((g for g in block.setdefault("code_gaps", [])
+                         if g.get("position") == entry["position"]), None)
+        if existing is not None:
+            existing["expected"] = sorted(set(existing["expected"]) | set(nums))
+        else:
+            block["code_gaps"].append(entry)
+        block["incomplete"] = True
+        stats["code_gap_lines"] = stats.get("code_gap_lines", 0) + len(nums)
+
+
 def _single_numbered_line(text: str) -> bool:
     """单行「（可选题号）+ 行号 + 内容」（扫描页 MinerU 会把代码按行切成 text 项）。"""
     t = str(text).strip()
@@ -473,14 +637,17 @@ def strip_furniture_lines(blocks: list[dict], *, min_blocks: int = 3) -> int:
     return removed
 
 
-def stitch_blocks(blocks: list[dict]) -> tuple[list[dict], dict]:
+def stitch_blocks(blocks: list[dict], *, pdf: Path | None = None) -> tuple[list[dict], dict]:
     """跨页缝合：代码上半页(text)+下半页(code) 合并、误判 code 降级、跨页表格续接。
 
     MinerU 在跨页处会把同一代码块拆成两个 item（上半页常被判成 text），
     这里按行号连续性合并；表格则按「表头相同且相邻页」续接去重。
+    代码块若有印刷行号缺口：尝试用原始页图对缺口区域定向 OCR 补回（需传 pdf），
+    补不上的记 `code_gaps` + `incomplete`（reader 2026-10-20）。
     """
     stats = {"code_merged": 0, "code_demoted": 0, "tables_merged": 0, "code_runs": 0,
-             "furniture_lines": 0, "code_promoted": 0, "code_line_numbers": 0}
+             "furniture_lines": 0, "code_promoted": 0, "code_line_numbers": 0,
+             "code_filled": 0, "code_gap_lines": 0}
     # ⑤a 先把「整段程序」的 text 提升为 code —— 必须先于家具行剔除：
     # 否则公共代码行（using namespace std; / int main() { / return 0;）会被
     # 重复行启发式当页眉页脚删掉（reader 2026-10-20 实测）。
@@ -502,7 +669,7 @@ def stitch_blocks(blocks: list[dict]) -> tuple[list[dict], dict]:
         # ⓪ 扫描页的「逐行代码」：连续单行代码 text 块 → 合并成代码块（可跨页续接）
         if t in ("text", "code") and _is_single_code_line(
                 b.get("text") if t == "text" else b.get("content")):
-            run: list[str] = []
+            entries: list[dict] = []
             j = i
             while j < len(blocks):
                 cand = blocks[j]
@@ -512,23 +679,31 @@ def stitch_blocks(blocks: list[dict]) -> tuple[list[dict], dict]:
                 line = cand.get("text") if ct == "text" else cand.get("content")
                 if not _is_single_code_line(line):
                     break
-                run.append(str(line))
+                entries.append({"text": str(line), "page": _page_num(cand),
+                                "y0": cand.get("_y0"), "y1": cand.get("_y1"),
+                                "x0": cand.get("_x0"), "x1": cand.get("_x1")})
                 j += 1
-            body = _unescape_code("\n".join(run))
+            page_no = _page_num(b)
+            entries, gap_list, filled = _fill_code_gaps(entries, pdf=pdf,
+                                                        page_no=page_no)
+            body = _unescape_code("\n".join(e["text"] for e in entries))
             prev = out[-1] if out else None
-            mergeable = (len(run) >= 2 and prev is not None
+            mergeable = (len(entries) >= 2 and prev is not None
                          and prev.get("type") == "code"
                          and not str(prev.get("content") or "").rstrip().endswith("}")
                          and (_page_num(prev) == _page_num(b)
                               or _adjacent_pages(prev, b)))
-            if len(run) >= 3 or mergeable:
+            if len(entries) >= 3 or mergeable:
                 if mergeable:
                     prev["content"] = (str(prev.get("content") or "").rstrip()
                                        + "\n" + body)
                     stats["code_merged"] += 1
+                    target = prev
                 else:
-                    out.append({"type": "code", "position": b.get("position"),
-                                "content": body})
+                    target = {"type": "code", "position": b.get("position"),
+                              "content": body}
+                    out.append(target)
+                _attach_code_gaps(target, gap_list, page_no, filled, stats)
                 stats["code_runs"] += 1
                 i = j
                 continue
@@ -614,6 +789,9 @@ def stitch_blocks(blocks: list[dict]) -> tuple[list[dict], dict]:
                 b["caption"] = f"({m.group(1)})"
                 b["content"] = str(b["content"])[m.end():]
     stats["code_line_numbers"] = _strip_code_line_numbers(out)  # P3：页边行号不进 content
+    for b in out:  # 清掉缺口检测用的私有坐标（不进 Doc JSON）
+        for k in ("_y0", "_y1", "_x0", "_x1"):
+            b.pop(k, None)
     return out, stats
 
 
@@ -679,16 +857,22 @@ def content_list_to_blocks(items: list[dict], *, base: Path,
             text = raw.strip()
             if not text:
                 continue
-            # 单行代码（扫描页常见）：保留行首缩进——随后会被并入 code 块（reader 2026-10-20）
+            extra: dict = {}
+            # 单行代码（扫描页常见）：保留行首缩进 + 行框坐标（缺口检测/定向补识别用；
+            # `stitch_blocks` 结束时清掉，不进入 Doc JSON）—— reader 2026-10-20
             if "\n" not in text and _is_single_code_line(text):
                 text = raw.strip("\n").rstrip()
+                bbox = it.get("bbox") or []
+                if len(bbox) == 4:
+                    extra = {"_y0": float(bbox[1]), "_y1": float(bbox[3]),
+                             "_x0": float(bbox[0]), "_x1": float(bbox[2])}
             level = it.get("text_level")
             if level:
                 stats["headings"] += 1
                 blocks.append({"type": "heading", "position": pos,
                                "level": int(level), "text": text})
             else:
-                blocks.append({"type": "text", "position": pos, "text": text})
+                blocks.append({"type": "text", "position": pos, "text": text, **extra})
         elif t == "equation":
             stats["equations"] += 1
             blk = {"type": "equation", "position": pos,
@@ -1018,7 +1202,7 @@ def parse_to_blocks(client, pdf: Path, out_dir: Path, *, max_pages: int = 200,
                                            eq_images=eq_images, image_prefix="mineru",
                                            footnotes=footnotes)
     if stitch:
-        blocks, sstats = stitch_blocks(blocks)
+        blocks, sstats = stitch_blocks(blocks, pdf=pdf)
         stats = {**stats, **sstats}
     stats = {**stats, "figs": n_figs, "chunked": parsed["chunked"],
              "chunks": len(parsed["chunks"]),

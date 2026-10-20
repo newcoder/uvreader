@@ -72,6 +72,10 @@ def audit_doc(doc: dict, *, base: Path | None = None,
         elif t == "code":
             if not str(b.get("content") or b.get("text") or "").strip():
                 code_empty.append(bid)
+            if b.get("incomplete") or b.get("code_gaps"):
+                nums = [n for g in (b.get("code_gaps") or [])
+                        for n in (g.get("expected") or [])]
+                warnings.append(f"{bid}: 代码可能缺行（{nums or '未知'}）")
         elif t == "equation":
             if not str(b.get("latex") or b.get("text") or "").strip() \
                     and not b.get("image"):
