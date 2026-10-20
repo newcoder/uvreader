@@ -30,8 +30,8 @@ const SECTION_TYPES = [
 
 const QUESTION_START = /^\s*(?:第\s*)?(\d{1,3})\s*[.、．)）]\s*(.*)$/;
 const OPTION_LINE = /^\s*([A-H])\s*[.、．)）]\s*(.*)$/;
-const ANSWER_LINE = /^\s*(?:【\s*答案\s*】|答案\s*[:：]?)\s*(.*)$/;
-const ANALYSIS_LINE = /^\s*(?:【\s*(?:解析|详解|分析)\s*】|(?:解析|详解|分析)\s*[:：])\s*(.*)$/;
+const ANSWER_LINE = /^\s*(?:【\s*(?:参考|标准|正确)?\s*答案\s*】|(?:参考|标准|正确)?\s*答案\s*[:：]?)\s*(.*)$/;
+const ANALYSIS_LINE = /^\s*(?:【\s*(?:试题)?\s*(?:解析|详解|分析)\s*】|(?:试题)?\s*(?:解析|详解|分析)\s*[:：])\s*(.*)$/;
 const IMAGE_RE = /!\[[^\]]*\]\(([^)\s]+)\)/g;
 const BLANK_RE = /_{2,}|（\s{2,}）|﹍{2,}/;
 
@@ -44,6 +44,21 @@ function imagesIn(text, role) {
 function stripImages(text) {
   return String(text || "").replace(IMAGE_RE, "").replace(/[ \t]+$/gm, "").trim();
 }
+
+// 提取器偶尔会把内容包进 <details>/<summary>(DocVortex 的折叠块):标签本身是噪音,里面的文字要留。
+// 还会留下图片占位文字(image content / IMG_2)—— 图已经单独存进 images,这些行没有信息量。
+function stripFoldTags(text) {
+  return String(text || "")
+    .replace(/<\/?(?:details|summary)(?:\s[^>]*)?>/gi, "")
+    .split("\n")
+    .filter((line) => !/^\s*(?:image content|IMG_\d+)\s*$/i.test(line))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+// 答案区里跟在答案后面的卷面信息,不属于答案本身。
+const ANSWER_META_LINE = /^\s*(?:试题)?难度\s*[:：]|^\s*参考答案\s*[:：]/;
 
 function normalizeAnswer(raw) {
   const text = String(raw || "").trim();
@@ -111,13 +126,13 @@ export function bankFromMarkdown(markdown, source = {}) {
       id: current.id,
       number: current.number,
       type: typeFinal,
-      stem: removeInlineImages(current.stem),
+      stem: stripFoldTags(removeInlineImages(current.stem)),
     };
     if (options.length) {
-      item.options = options.map((option) => ({ label: option.label, text: removeInlineImages(option.text) }));
+      item.options = options.map((option) => ({ label: option.label, text: stripFoldTags(removeInlineImages(option.text)) }));
     }
     item.answer = normalizeAnswer(current.answer);
-    item.analysis = removeInlineImages(current.analysis);
+    item.analysis = stripFoldTags(removeInlineImages(current.analysis));
     if (images.length) item.images = images;
     if (current.page) item.source = { page: current.page };
     questions.push(item);
@@ -235,8 +250,10 @@ export function bankFromMarkdown(markdown, source = {}) {
       continue;
     }
 
-    if (mode === "answer") current.answer += `\n${trimmed}`;
-    else if (mode === "analysis") current.analysis += `\n${trimmed}`;
+    if (mode === "answer") {
+      if (ANSWER_META_LINE.test(trimmed)) continue; // 难度 / 重复的参考答案:不属于答案
+      current.answer += `\n${trimmed}`;
+    } else if (mode === "analysis") current.analysis += `\n${trimmed}`;
     else if (current.options.length && !/^[A-H]/.test(current.options.at(-1)?.text || "")) {
       // 选项被折行:接到最后一个选项上(比接到题干更常见)。
       const last = current.options.at(-1);
@@ -286,10 +303,18 @@ export function bankToMarkdown(bank) {
     lines.push(`### ${question.number}. ${firstLine(question.stem)}`, "");
     const rest = question.stem.split("\n").slice(1).join("\n").trim();
     if (rest) lines.push(rest, "");
+    // 题干里的图:md 里必须带上,否则「看得到题目、看不到图」(实测试卷题)。
+    for (const image of (question.images || []).filter((item) => item.role === "stem")) lines.push(`![](${image.src})`, "");
     for (const option of question.options || []) lines.push(`- **${option.label}.** ${option.text.replace(/\n/g, " ")}`);
     if ((question.options || []).length) lines.push("");
+    // 选项图 / 解析图没有稳定的归属文本,单独列出来,别丢。
+    const optionImages = (question.images || []).filter((item) => item.role === "option");
+    const figureImages = (question.images || []).filter((item) => item.role === "figure");
+    for (const image of optionImages) lines.push(`- ![](${image.src})`);
+    if (optionImages.length) lines.push("");
     if (question.answer) lines.push(`> **答案**：${question.answer}`);
     if (question.analysis) lines.push(">", `> **解析**：${question.analysis.replace(/\n/g, "\n> ")}`);
+    for (const image of figureImages) lines.push(">", `> ![](${image.src})`);
     lines.push("");
   }
   const stats = bank?.stats;
@@ -299,6 +324,39 @@ export function bankToMarkdown(bank) {
 
 function firstLine(text) {
   return String(text || "").split("\n")[0].trim();
+}
+
+/**
+ * 答题视图:只保留「做题需要」的字段。
+ *
+ * **答案/解析绝不能出现在答题页** —— 这里用**白名单**而不是 delete answer/analysis:
+ * 以后题库加了新字段,也不会一不小心把答案带进界面。判题时才读完整 bank。
+ */
+export function questionForAnswering(question) {
+  const view = {
+    id: String(question?.id || ""),
+    number: String(question?.number || ""),
+    type: String(question?.type || "unknown"),
+    stem: String(question?.stem || ""),
+  };
+  if (Array.isArray(question?.options) && question.options.length) {
+    view.options = question.options.map((option) => ({ label: String(option.label || ""), text: String(option.text || "") }));
+  }
+  if (Array.isArray(question?.images) && question.images.length) {
+    view.images = question.images.map((image) => ({ src: String(image.src || ""), role: String(image.role || "") }));
+  }
+  return view;
+}
+
+/** 整份题库的答题视图(不含答案 / 解析,连字段都没有)。 */
+export function bankForAnswering(bank) {
+  const questions = (bank?.questions || []).map(questionForAnswering);
+  return {
+    schema: QUESTION_BANK_SCHEMA,
+    source: { file: String(bank?.source?.file || ""), engine: String(bank?.source?.engine || "") },
+    questions,
+    stats: { questions: questions.length },
+  };
 }
 
 /** 结构校验：拿到外来的题库(比如模型/别的工具产出)时先过一遍，别把坏数据写盘。 */

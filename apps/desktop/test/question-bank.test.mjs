@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { QUESTION_BANK_SCHEMA, bankFromMarkdown, bankToMarkdown, validateBank } from "../src/shared/question-bank.js";
+import { QUESTION_BANK_SCHEMA, bankForAnswering, bankFromMarkdown, bankToMarkdown, validateBank } from "../src/shared/question-bank.js";
 
 const PAPER = `# 2024 年信息学初赛
 
@@ -117,6 +117,71 @@ test("bankToMarkdown renders questions, options, answers and analysis", () => {
   assert.match(md, /- \*\*A\.\*\* Python/);
   assert.match(md, /> \*\*答案\*\*：B/);
   assert.match(md, /共 6 题/);
+});
+
+test("bankFromMarkdown understands 参考答案 / 标准答案 and duplicates", () => {
+  const md = `## 选择题
+
+1. 题目一
+A. 甲 B. 乙 C. 丙 D. 丁
+参考答案:C
+标准答案:C
+
+2. 题目二
+A. 甲 B. 乙
+标准答案:A
+`;
+  const { bank } = bankFromMarkdown(md, {});
+  assert.equal(bank.questions.length, 2);
+  assert.deepEqual(bank.questions.map((question) => question.answer), ["C", "A"], "参考答案 / 标准答案 两种写法都要认");
+});
+
+test("bankToMarkdown renders the images it stored", () => {
+  const md = `## 选择题
+
+8. 如图,选出正确图形。![](images/p8.png)
+A. 1 B. 2
+答案:A
+`;
+  const { bank } = bankFromMarkdown(md, {});
+  const rendered = bankToMarkdown(bank);
+  assert.ok(rendered.includes("![](images/p8.png)"), "题干图要出现在 Markdown 里(否则看得到题、看不到图)");
+});
+
+test("answers do not swallow 试题难度, and fold tags are stripped", () => {
+  const md = `## 选择题
+
+1. 题目
+A. 甲 B. 乙
+参考答案:C
+试题难度:一星
+试题解析:因为……
+`;
+  const { bank } = bankFromMarkdown(md, {});
+  const [q] = bank.questions;
+  assert.equal(q.answer, "C", "难度不是答案");
+  assert.match(q.analysis, /因为/);
+
+  const folded = bankFromMarkdown("## 选择题\n\n2. 如图<details><summary>展开</summary>看下图</details>\nA. 1 B. 2\n答案:A\n", {});
+  assert.doesNotMatch(folded.bank.questions[0].stem, /<\/?details>|<\/?summary>/);
+  assert.match(folded.bank.questions[0].stem, /看下图/, "折叠块里的文字要留下");
+});
+
+test("the answering view never carries answers or analysis", () => {
+  const { bank } = bankFromMarkdown(PAPER, { file: "试卷.pdf" });
+  const view = bankForAnswering(bank);
+  assert.equal(view.questions.length, bank.questions.length);
+  for (const question of view.questions) {
+    assert.equal("answer" in question, false, "答题视图不能有 answer 字段");
+    assert.equal("analysis" in question, false, "答题视图不能有 analysis 字段");
+    // 连序列化之后也不能出现答案内容
+    const text = JSON.stringify(question);
+    assert.doesNotMatch(text, /"(answer|analysis)"/);
+  }
+  const original = bank.questions.find((question) => question.number === "1");
+  assert.equal(original.answer, "B", "完整 bank 里答案当然还在(判题用)");
+  assert.equal(view.questions[0].stem, original.stem, "题干/选项/图片照常给");
+  assert.deepEqual(view.questions[0].options, original.options);
 });
 
 test("validateBank catches broken banks before they reach disk", () => {
