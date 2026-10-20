@@ -3441,6 +3441,26 @@ const quizPort = {
   renderText(owner, node, text, sourcePath) {
     void renderAiMarkdown(owner, node, text, sourcePath);
   },
+  async imageUrl(plugin, src, bookPath) {
+    const value = String(src || "");
+    if (!value || /^(?:data:|https?:|file:|app:|\/\/)/i.test(value)) return value;
+    const root = String(globalThis.window?.qbrDesktop?.paths?.vaultRoot || "");
+    const dir = String(bookPath || "").replace(/[\\/][^\\/]*$/, "");
+    let absolute = `${dir}/${value}`.replace(/\\/g, "/");
+    if (!/^[A-Za-z]:\//.test(absolute) && !absolute.startsWith("/")) {
+      absolute = root ? `${root.replace(/[\\/]+$/, "")}/${absolute}` : absolute;
+    }
+    const desktop = globalThis.window?.qbrDesktop;
+    if (desktop?.quiz?.readImage) {
+      const dataUrl = await Promise.resolve(desktop.quiz.readImage(absolute)).catch(() => "");
+      if (dataUrl) return dataUrl;
+    }
+    try {
+      const resource = plugin.app.vault.adapter.getResourcePath?.(normalizePath(absolute));
+      if (resource) return resource;
+    } catch { /* 库外文件走 file:// */ }
+    return `file://${absolute}`;
+  },
   async complete(plugin, messages, options = {}) {
     return await aiComplete(messages, plugin, options);
   },

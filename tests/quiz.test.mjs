@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 
 import { createAttempt, gradeAttempt, gradeQuestion, isAnswered, setAnswer } from "../packages/reader/src/quiz-attempt.js";
-import { renderQuizPanel } from "../packages/reader/src/quiz-panel.js";
+import { hydrateQuizImages, renderQuizPanel } from "../packages/reader/src/quiz-panel.js";
 
 const BANK = {
   schema: "uvreader.question-bank/v1",
@@ -105,6 +105,28 @@ test("the panel records answers and submits once the missing ones are confirmed"
   submit().dispatchEvent(new host.ownerDocument.defaultView.MouseEvent("click", { bubbles: true }));
   assert.equal(submits.length, 1);
   assert.ok(submits[0].submittedAt);
+});
+
+test("relative image links are resolved against the paper before rendering", async () => {
+  const bank = {
+    schema: "uvreader.question-bank/v1",
+    source: { file: "试卷.pdf" },
+    questions: [{
+      id: "q1",
+      type: "single_choice",
+      stem: "看图\n![](CSP2019.assets/a.png)",
+      options: [{ label: "A", text: "![](images/b.png)" }],
+    }],
+  };
+  const seen = [];
+  const view = await hydrateQuizImages(bank, async (src) => {
+    seen.push(src);
+    return `data:image/png;base64,${src.length}`;
+  });
+  assert.deepEqual(seen, ["CSP2019.assets/a.png", "images/b.png"]);
+  assert.match(view.questions[0].stem, /!\[\]\(data:image\/png;base64,/);
+  assert.match(view.questions[0].options[0].text, /!\[\]\(data:image\/png;base64,/);
+  assert.doesNotMatch(JSON.stringify(view), /CSP2019\.assets/, "原始相对路径不再进入渲染");
 });
 
 test("a submitted attempt locks inputs and shows the per-question result", () => {

@@ -15,7 +15,7 @@ import { warmWordGlosses } from "./pinyin-annotate.js";
 import { columnDragActive, installColumnDragWatch, onColumnDrag } from "./column-drag.js";
 import { pageForBlock } from "./toc-build.js";
 import { answeringBank, createAttempt, gradeAttempt, isAnswered } from "./quiz-attempt.js";
-import { renderQuizPanel } from "./quiz-panel.js";
+import { hydrateQuizImages, renderQuizPanel } from "./quiz-panel.js";
 import { judgeAttempt } from "./quiz-judge.js";
 
 export function createReaderView({
@@ -1180,9 +1180,22 @@ export function createReaderView({
     // area visible and toggles without the slide-over machinery.
     if (name === "highlights") {
       if (this.hlDockPanel?.isOpen()) { this.hlDockPanel.close(); return; }
+      this.quizDockPanel?.close();
       this._hideHlPopup();
       this.buildHlPanel();
       this.hlDockPanel?.open();
+      return;
+    }
+    if (name === "quiz") {
+      if (this.quizDockPanel?.isOpen()) {
+        this._quizJudgeAbort?.abort();
+        this.quizDockPanel.close();
+        return;
+      }
+      this.hlDockPanel?.close();
+      this._hideHlPopup();
+      void this._renderQuizPanel();
+      this.quizDockPanel?.open();
       return;
     }
     if (this.panelOpen === name) {
@@ -1192,13 +1205,11 @@ export function createReaderView({
     this._hideHlPopup();
     if (name === "settings") this._renderHistory();
     if (name === "toc" && this._tocRender) this._tocRender();
-    if (name === "quiz") void this._renderQuizPanel();
     this.panelOpen = name;
     syncNavigationPanel(this, name);
     this.settPan.classList.toggle("qiaomu-reader-panel-open", name === "settings");
     this.tocPan.classList.toggle("qiaomu-reader-panel-open", name === "toc");
     this.findPan.classList.toggle("qiaomu-reader-panel-open", name === "find");
-    this.quizPan?.classList.toggle("qiaomu-reader-panel-open", name === "quiz");
     if (name === "find") this._positionFindPanel();
     if (name === "toc" && this._tocRender) this._tocRender();
     this.overlayEl.classList.add("qiaomu-reader-overlay-on");
@@ -1210,7 +1221,6 @@ export function createReaderView({
     this.settPan.classList.remove("qiaomu-reader-panel-open");
     this.tocPan.classList.remove("qiaomu-reader-panel-open");
     if (this.findPan) this.findPan.classList.remove("qiaomu-reader-panel-open");
-    this.quizPan?.classList.remove("qiaomu-reader-panel-open");
     this.overlayEl.classList.remove("qiaomu-reader-overlay-on");
   }
   // 答题页:题库来自源文件旁的 `<源名>_questions.json`(书坊数据提取的产物)。
@@ -1247,12 +1257,14 @@ export function createReaderView({
     }
     attempt = attempt || createAttempt(full);
     this._quizAttempt = attempt;
+    // 图片相对源文件:换成宿主能直接加载的地址,再交给面板。
+    const view = await hydrateQuizImages(answeringBank(full), (src) => port.imageUrl?.(this.plugin, src, bookPath) || "");
     const draw = (state = {}) => {
       const submitted = Boolean(attempt.submittedAt);
       const results = submitted ? gradeAttempt(full, attempt) : null;
       pan.empty();
       renderQuizPanel(pan, {
-        bank: answeringBank(full),
+        bank: view,
         attempt,
         results,
         judgements: attempt.judgements || {},
@@ -1271,7 +1283,10 @@ export function createReaderView({
           void port.saveAttempt(this.plugin, bookPath, next);
           void this._judgeQuiz(full, next, bookPath, draw);
         },
-        onClose: () => this.closePanel(),
+        onClose: () => {
+          this.quizDockPanel?.close();
+          this._syncToolButtons();
+        },
       });
     };
     draw();
@@ -1347,7 +1362,7 @@ export function createReaderView({
       this.hlBtn.setAttribute("aria-expanded", String(hlOpen));
     }
     if (this.quizBtn) {
-      const quizOpen = this.panelOpen === "quiz";
+      const quizOpen = this.quizDockPanel?.isOpen?.() === true;
       this.quizBtn.toggleClass("qiaomu-reader-ibtn-on", quizOpen);
       this.quizBtn.setAttribute("aria-expanded", String(quizOpen));
     }

@@ -130,6 +130,7 @@ window.qbrDesktop = {
   },
   quiz: {
     readBank: (target) => ipcRenderer.invoke("qbr:quiz:read-bank", target),
+    readImage: (target) => ipcRenderer.invoke("qbr:quiz:read-image", target),
   },
   ai: {
     stream: (payload, onEvent) => {

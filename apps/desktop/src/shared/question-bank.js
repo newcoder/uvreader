@@ -148,6 +148,8 @@ export function bankFromMarkdown(markdown, source = {}) {
     if (!type) {
       if (options.length) type = answerLetters(current.answer).length > 1 ? "multiple_choice" : "single_choice";
       else if (BLANK_RE.test(stem)) type = "fill_blank";
+      // 阅读程序里的小题常写成陈述句 + 结尾「（）」,且没有 A–D 选项 —— 是判断题。
+      else if (/[（(]\s*[）)]\s*$/.test(stem)) type = "true_false";
       else if (/^(对|错|正确|错误|√|×|T|F)$/i.test(normalizeAnswer(current.answer))) type = "true_false";
       else type = "short_answer";
     }
@@ -247,6 +249,9 @@ export function bankFromMarkdown(markdown, source = {}) {
         // 找不到对应题号(或已有答案):继续往下走,当说明文字。
       } else {
         pushCurrent();
+        // 卷面题号重置(如 15 → 1):进入新小节,不要继承上一节的题型。
+        const previousNumber = Number(questions.at(-1)?.number);
+        if (Number.isFinite(previousNumber) && Number(start[1]) <= previousNumber) sectionType = "";
         current = {
           id: "",
           number: start[1],

@@ -313,6 +313,23 @@ test("options sharing the stem line are split out", () => {
   assert.equal(prose.bank.questions[0].options ?? undefined, undefined);
 });
 
+test("statements that end with parentheses become true/false questions", () => {
+  // 实测 CSP2019 阅读程序:题号从 15 重置为 1,陈述句 + （）,没有 A–D 选项。
+  const md = `## 一、单项选择题
+
+1. 第一题
+A. 甲 B. 乙
+2. 第二题
+A. 甲 B. 乙
+
+1. 输入的字符串只能由小写字母或大写字母组成。（）
+2. 若将第 8 行的 i = 1 改为 i = 0，程序运行时会发生错误。（）
+`;
+  const { bank, warnings } = bankFromMarkdown(md, {});
+  assert.deepEqual(bank.questions.map((question) => question.type), ["single_choice", "single_choice", "true_false", "true_false"]);
+  assert.equal(warnings.length, 0, "不再报「选择题缺选项」");
+});
+
 test("page markers merge into text are stripped from stems and options", () => {
   const md = `## 一、单项选择题
 
