@@ -155,9 +155,9 @@ export function createEngineClient({ fetchImpl = (...args) => fetch(...args), ti
         await new Promise((resolve) => setTimeout(resolve, intervalMs));
       }
     },
-    // 把可选组件装进引擎自己的 Python(DocVortex 等;白名单在引擎侧)。
-    installComponent(settings, name, options = {}) {
-      return this.runJob(settings, "install-component", { name: String(name || "") }, {
+    // 把可选组件装进引擎自己的 Python(DocVortex 等;白名单在引擎侧);action=remove 卸载。
+    installComponent(settings, name, { action = "install", ...options } = {}) {
+      return this.runJob(settings, "install-component", { name: String(name || ""), action }, {
         intervalMs: 700,
         timeoutMs: 30 * 60_000,
         ...options,

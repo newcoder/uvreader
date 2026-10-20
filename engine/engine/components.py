@@ -109,3 +109,23 @@ def install_component(config: dict, name: str, report=None, run_pip=None, should
         raise RuntimeError(f"{info['label']} 安装失败:{tail[:400]}")
     report({"label": f"{info['label']} 装好了,正在重探能力…"})
     return {"name": key, "installed": list(info["packages"]), "target": str(target), "log": lines[-20:]}
+
+
+def uninstall_component(config: dict, name: str) -> dict:
+    """卸载可选组件:删掉 `<bundle>/components` 整块。
+
+    所有可选组件都装在这一个目录里(目前只有 DocVortex),删目录就是干净卸载;
+    引擎自己的依赖在 site-packages / 私有 Python 里,不受影响。
+    文件被占用(正好有转换在跑)时忽略错误,并把「有没有删干净」如实回报。
+    """
+    import shutil
+
+    key = str(name or "").strip().lower()
+    info = COMPONENTS.get(key)
+    if info is None:
+        raise ValueError(f"未知组件:{name or '(空)'};可卸载的是:{', '.join(COMPONENTS)}")
+    target = components_dir()
+    existed = target.is_dir()
+    if existed:
+        shutil.rmtree(target, ignore_errors=True)
+    return {"name": key, "removed": existed and not target.exists(), "existed": existed, "target": str(target)}

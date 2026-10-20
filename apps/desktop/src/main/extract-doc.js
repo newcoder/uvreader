@@ -559,6 +559,8 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", ca
     if (!fs.existsSync(source)) throw new Error(`源文件不存在：${source}`);
     const mode = String(payload?.mode || "auto");
     const model = String(settings.mineruModel || "").trim() || "vlm";
+    // MinerU 的模型是首次使用时才下载(几百 MB~GB),下载期间任务只会停在「解析中」—— 先说清楚。
+    if (mode === "mineru") report({ label: "MinerU 解析中(首次用某个模型会先下载,几百 MB~GB;期间会停在这里)" });
     const outDir = path.dirname(source);
     const stem = path.basename(source).replace(/\.[^.]+$/, "");
     const stat = fs.statSync(source);

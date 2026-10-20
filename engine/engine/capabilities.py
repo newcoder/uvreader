@@ -34,10 +34,12 @@ FIX_MINERU = (
 )
 FIX_CALIBRE = (
     "没找到 Calibre(ebook-convert):EPUB → AZW3 / MOBI(老格式)要用它。"
-    "装完在引擎配置里填 calibrePath,或让它出现在 PATH 里。"
+    "下载:https://calibre-ebook.com/download(免费)。装完在引擎配置里填 calibrePath,"
+    "或让它出现在 PATH 里。"
 )
 FIX_BOKO = (
-    "没找到 boko:EPUB → AZW3 / KFX 的轻量替代(可选)。"
+    "没找到 boko:EPUB / KFX / AZW3 互转的轻量替代(可选;KFX 只有它能写)。"
+    "下载:https://github.com/zacharydenton/boko/releases(单文件,解压即用)。"
     "装完在引擎配置里填 bokoPath,或让它出现在 PATH 里。"
 )
 FIX_BUNDLED_DEP = "引擎自带的 Python 里缺这个依赖:重装引擎包,或 pip 装到引擎的 Python 里。"

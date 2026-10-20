@@ -262,9 +262,12 @@ test("the component runner installs through the engine and forwards its progress
   const calls = [];
   const engine = {
     installComponent: async (settings, name, options) => {
-      calls.push({ settings, name, hasProgress: typeof options?.onProgress === "function" });
+      calls.push({ settings, name, action: options?.action, hasProgress: typeof options?.onProgress === "function" });
       options?.onProgress?.({ label: "装 DocVortex:下载中" });
       options?.onProgress?.({ label: "装好了" });
+      if (options?.action === "remove") {
+        return { ok: true, result: { removed: true, target: "C:/engine/components" } };
+      }
       return { ok: true, result: { installed: ["docvortex"], target: "C:/engine/site-packages" } };
     },
   };
@@ -278,8 +281,19 @@ test("the component runner installs through the engine and forwards its progress
   assert.match(result.output, /docvortex/);
   assert.equal(result.result.target, "C:/engine/site-packages");
   assert.equal(calls[0].name, "docvortex");
+  assert.equal(calls[0].action, "install");
   assert.equal(calls[0].settings.engineToken, "t");
   assert.ok(reports.includes("装 DocVortex:下载中"), "引擎的进度要转发到任务行");
+
+  // 卸载:同一个 runner,action=remove;结果带 removed。
+  const removed = await runners.get("engine-component")({
+    payload: { name: "docvortex", action: "remove", settings: { engineUrl: "http://127.0.0.1:8760" } },
+    report: () => {},
+    signal: new AbortController().signal,
+  });
+  assert.equal(calls[1].action, "remove");
+  assert.match(removed.output, /卸载/);
+  assert.equal(removed.result.removed, true);
 });
 
 test("the component runner fails loudly instead of pretending", async () => {

@@ -456,6 +456,7 @@ export function createSettingsView(leaf, options) {
     mineruCard.createEl("h3", { text: "MinerU(公式优先 / 内容提取)" });
     mineruCard.createDiv({ cls: "qbr-workshop-hint", text: "公式优先与内容提取的 MinerU 链路都用这里的配置:填了本地服务地址就优先本地(不出网、免凭据),否则用云端凭据。" });
     mineruCard.createDiv({ cls: "qbr-workshop-hint", text: "有引擎时:本地服务地址会自动同步给引擎;凭据只在回退本机时用(引擎的凭据在「引擎配置」里)。" });
+    mineruCard.createDiv({ cls: "qbr-workshop-hint", text: "首次用某个模型时 MinerU 会先下载(几百 MB~GB),期间任务会停在「解析中」;同一模型之后不再下载。" });
     const tokenRow = mineruCard.createDiv("qbr-workshop-row");
     tokenRow.createSpan({ cls: "qbr-workshop-hint", text: "MinerU 凭据" });
     const tokenInput = tokenRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "云端 token;留空用环境变量 MINERU_API_KEY" } });
@@ -662,15 +663,16 @@ export function createSettingsView(leaf, options) {
       if (!file) return;
       startEngineInstall({ archivePath: String(file) }, "本地包");
     });
-    // 可选组件(E4):把 DocVortex 这类「还要另外装」的东西装进引擎自己的 Python。
-    const startEngineComponent = (name, label) => {
+    // 可选组件(E4):把 DocVortex 这类「还要另外装」的东西装进引擎自己的 Python;action=remove 卸载。
+    const startEngineComponent = (name, label, action = "install") => {
+      const removing = action === "remove";
       if (!bridge?.workshop?.start) return;
-      engineInstallStatus.setText(`准备装 ${label}…`);
+      engineInstallStatus.setText(removing ? `准备卸载 ${label}…` : `准备装 ${label}…`);
       void bridge.workshop.start({
         kind: "engine-component",
-        title: `装 ${label} 到引擎`,
+        title: removing ? `从引擎卸载 ${label}` : `装 ${label} 到引擎`,
         detail: label,
-        payload: { name, settings: { ...settings } },
+        payload: { name, action, settings: { ...settings } },
       }).then((taskId) => {
         if (!bridge?.workshop?.onState) return;
         const stop = bridge.workshop.onState((state) => {
@@ -682,12 +684,12 @@ export function createSettingsView(leaf, options) {
           }
           stop?.();
           if (task.status === "done") {
-            engineInstallStatus.setText(`${label} 已装进引擎 ✓`);
+            engineInstallStatus.setText(removing ? `${label} 已从引擎卸载 ✓` : `${label} 已装进引擎 ✓`);
             void checkEngine(true);
           } else if (task.status === "cancelled") {
-            engineInstallStatus.setText(`装 ${label} 已取消。`);
+            engineInstallStatus.setText(`${removing ? "卸载" : "装"} ${label} 已取消。`);
           } else {
-            engineInstallStatus.setText(`装 ${label} 失败:${task.error || "看任务详情"}`);
+            engineInstallStatus.setText(`${removing ? "卸载" : "装"} ${label} 失败:${task.error || "看任务详情"}`);
           }
         });
       }).catch((error) => engineInstallStatus.setText(`启动失败:${String(error?.message || error)}`));
@@ -778,6 +780,14 @@ export function createSettingsView(leaf, options) {
           input.setAttribute("placeholder", `默认:${defaults[key]}`);
         }
       }
+      // DocVortex 是装在引擎自己的 components/ 里时,给一条卸载入口 ——
+      // 只在「引擎里那份」出现(来源 engine);PATH / 配置找到的绝不显示,免得删错东西。
+      if (detected.docvortexSource === "engine") {
+        const row = engineCaps.createDiv("qbr-workshop-row");
+        row.createSpan({ cls: "qbr-workshop-hint", text: "DocVortex 装在引擎的 components/ 里:" });
+        const uninstall = row.createEl("button", { text: "卸载" });
+        uninstall.addEventListener("click", () => startEngineComponent("docvortex", "DocVortex", "remove"));
+      }
     };
     const checkEngine = async (refresh = false) => {
       if (!bridge?.probe?.engine) return;
@@ -860,7 +870,7 @@ export function createSettingsView(leaf, options) {
     const calibreProbe = calibreTools.createEl("button", { text: "检测 Calibre" });
     const calibreStatus = calibreTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
     calibreProbe.addEventListener("click", () => void runProbe(calibreStatus, "", () => bridge?.probe?.calibre(settings)));
-    calibreCard.createDiv({ cls: "qbr-workshop-hint", text: "装了书坊引擎后这里可以留空:Calibre / boko 的路径改在引擎配置里(引擎会自己探;boko 更轻)。" });
+    calibreCard.createDiv({ cls: "qbr-workshop-hint", text: "装了书坊引擎后这里可以留空:Calibre / boko 的路径改在引擎配置里(引擎会自己探;boko 更轻)。下载:https://calibre-ebook.com/download · boko:https://github.com/zacharydenton/boko/releases" });
 
     // 8. 本机回退:与引擎配置重复的「本机路径」收进一块折叠区(字段不删 —— 引擎不可用时靠它们回退本机)。
     // 引擎是主路径:把它的卡片在 DOM 里提到最前(书坊开关之后),不用搬那一大段代码。

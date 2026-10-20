@@ -239,7 +239,7 @@ test("installComponent submits the whitelisted component and follows the progres
     assert.equal(ran.ok, true);
     assert.deepEqual(ran.result.installed, ["docvortex"]);
     assert.equal(submitted[0].kind, "install-component", "作业类型走引擎的白名单安装");
-    assert.deepEqual(submitted[0].args, { name: "docvortex" });
+    assert.deepEqual(submitted[0].args, { name: "docvortex", action: "install" });
     assert.ok(labels.some((label) => /DocVortex/.test(label)), "进度要带出来");
     assert.ok(calls.includes("POST /v1/jobs"));
   } finally {

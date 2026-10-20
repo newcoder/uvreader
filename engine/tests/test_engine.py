@@ -323,11 +323,14 @@ def test_capabilities_say_what_is_bundled_and_what_is_not(client):
     assert capabilities["docvortex"]["component"] == "docvortex"
     assert capabilities["calibre"]["optional"] is True, "Calibre / boko 是可选组件"
     assert capabilities["boko"]["optional"] is True
-    # 不可用时给「具体怎么补」,而不只是报错。
+    # 不可用时给「具体怎么补」,而不只是报错;可选组件要给出**去哪下载**。
     for key in ("docvortex", "mineru", "calibre", "boko"):
         info = capabilities[key]
         if info["ok"] is False:
             assert info.get("fix"), f"{key} 不可用时要给 fix"
+    for key in ("calibre", "boko"):
+        if capabilities[key]["ok"] is False:
+            assert "https://" in capabilities[key]["fix"], f"{key} 的补法要有下载地址"
 
 
 def test_component_install_job_runs_pip_into_the_engine_python(client, monkeypatch):
@@ -372,6 +375,30 @@ def test_component_install_failure_surfaces_pip_output(client, monkeypatch):
     assert job["status"] == "failed"
     assert "安装失败" in (job.get("error") or "")
     assert "Could not find a version" in (job.get("error") or ""), "失败要把 pip 的关键输出带出来"
+
+
+def test_component_remove_job_deletes_the_components_directory(client, tmp_path, monkeypatch):
+    from engine import components
+
+    target = tmp_path / "components"
+    (target / "docvortex").mkdir(parents=True)
+    (target / "docvortex" / "__init__.py").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(components, "components_dir", lambda: target)
+    job_id = submit(client, "install-component", {"name": "docvortex", "action": "remove"})
+    job = wait_for(client, job_id)
+    assert job["status"] == "done", job.get("error")
+    result = client.get(f"/v1/jobs/{job_id}/result", headers=AUTH).json()["result"]
+    assert result["removed"] is True
+    assert not target.exists(), "组件目录要真的删掉"
+
+    # 本来就不在:如实报 removed=false(不是失败)
+    again = submit(client, "install-component", {"name": "docvortex", "action": "remove"})
+    job = wait_for(client, again)
+    assert job["status"] == "done"
+    assert client.get(f"/v1/jobs/{again}/result", headers=AUTH).json()["result"]["removed"] is False
+
+    bad = submit(client, "install-component", {"name": "docvortex", "action": "nuke"})
+    assert wait_for(client, bad)["status"] == "failed"
 
 
 # ── Calibre(ebook-convert)───────────────────────────────────────────

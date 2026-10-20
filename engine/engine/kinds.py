@@ -381,12 +381,24 @@ def run_pdf_text(job: Job) -> dict:
 
 
 def run_install_component(job: Job) -> dict:
-    """把白名单里的可选组件装进引擎自己的 Python(见 components.py;白名单写死在引擎里)。"""
+    """装 / 卸白名单里的可选组件(见 components.py;白名单写死在引擎里)。
+
+    `action`: `install`(默认)或 `remove`。装完 / 卸完都清能力缓存,下一次 `/v1/health` 立刻反映。
+    """
     from . import components
     from .capabilities import reset_cache
     from .config import load_config
 
     name = str(job.args.get("name") or "")
+    action = str(job.args.get("action") or "install").strip().lower()
+    if action == "remove":
+        result = components.uninstall_component(load_config(), name)
+        reset_cache()
+        if result["existed"] and not result["removed"]:
+            raise RuntimeError(f"卸载没删干净(文件被占用?):{result['target']}")
+        return {"removed": result["removed"], "target": result["target"]}
+    if action != "install":
+        raise ValueError(f"未知操作:{action}(install / remove)")
     result = components.install_component(
         load_config(),
         name,

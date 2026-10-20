@@ -219,20 +219,28 @@ export function registerEngineInstallRunner(workshop, {
 export function registerEngineComponentRunner(workshop, { engine = null, log = () => {} } = {}) {
   workshop.register("engine-component", async ({ payload = {}, report = () => {}, signal }) => {
     const name = String(payload?.name || "").trim();
+    const action = String(payload?.action || "install").trim().toLowerCase() === "remove" ? "remove" : "install";
     if (!name) throw new Error("没有指定要装哪个组件");
     if (!engine?.installComponent) throw new Error("应用没有引擎客户端");
     const settings = payload?.settings || {};
     const ran = await engine.installComponent(settings, name, {
+      action,
       signal,
-      onProgress: (item) => report({ label: String(item?.label || `装 ${name}…`) }),
+      onProgress: (item) => report({ label: String(item?.label || (action === "remove" ? `卸载 ${name}…` : `装 ${name}…`)) }),
     });
-    if (!ran.ok) throw new Error(String(ran.error || `引擎装 ${name} 失败`));
+    if (!ran.ok) throw new Error(String(ran.error || `引擎${action === "remove" ? "卸载" : "装"} ${name} 失败`));
     const result = ran.result || {};
-    log("[engine-component] installed", name, result.target || "");
+    log("[engine-component]", action, name, result.target || "");
     return {
-      output: `${name} 已装进引擎的 Python`,
+      output: action === "remove" ? `${name} 已从引擎卸载` : `${name} 已装进引擎的 Python`,
       detail: String(result.target || name),
-      result: { name, installed: result.installed || [name], target: String(result.target || "") },
+      result: {
+        name,
+        action,
+        installed: result.installed || (action === "install" ? [name] : []),
+        removed: result.removed === true,
+        target: String(result.target || ""),
+      },
     };
   });
 }
