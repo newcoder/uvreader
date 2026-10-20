@@ -90,6 +90,8 @@ export function registerQuestionRunners(workshop, {
       settings,
       docvortex,
       workDir: workDirFor(cacheRoot || os.tmpdir(), absolute),
+      // 数据提取页的「忽略缓存」对题库任务同样生效:勾了就真的重跑上游,而不是复用 merged.md。
+      refresh: payload?.refresh === true,
       signal,
       log,
       textLayer,

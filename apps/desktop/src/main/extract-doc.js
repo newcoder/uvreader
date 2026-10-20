@@ -429,7 +429,22 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
       }
     };
     // 复用:上次提取的合并稿还在缓存目录(且比 PDF 新)就直接用——MinerU 慢且计费。
-    if (!refresh && fresh(mergedPath) && docCandidates.some(fresh)) {
+    // 例外:引擎升级过(版本变了)就不能复用,否则新提取器的修复永远看不到。
+    let engineVersion = "";
+    if (engine && String(settings.engineUrl || "").trim()) {
+      try {
+        const health = await engine.health(settings);
+        engineVersion = String(health?.engineVersion || "").trim();
+      } catch { /* 探测失败不挡提取,退回本机 */ }
+    }
+    const versionMark = path.join(workDir, "engine-version.txt");
+    let cachedVersion = "";
+    try {
+      cachedVersion = fs.readFileSync(versionMark, "utf8").trim();
+    } catch { /* 老缓存没有版本标记 */ }
+    const engineStale = Boolean(engineVersion) && cachedVersion !== engineVersion;
+    if (engineStale) log("extract: engine changed, ignoring cached markdown", `${cachedVersion || "(none)"} -> ${engineVersion}`);
+    if (!refresh && !engineStale && fresh(mergedPath) && docCandidates.some(fresh)) {
       log("extract: reuse cached merged markdown", mergedPath);
       const cachedRaw = fs.readFileSync(mergedPath, "utf8");
       // 老缓存里没有脚注(上游 Doc JSON 丢了这个类型):复用顺手补上,缓存自愈。
@@ -440,7 +455,7 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
       return { ok: true, markdown: cachedText, path: mergedPath, tocEntries: collectUpstreamTocEntries(docCandidates.find(fresh)) };
     }
     // refresh = 忽略缓存重新提取:连 Doc JSON 也不复用,真的再跑一次上游。
-    const cachedDoc = refresh ? undefined : docCandidates.find(fresh);
+    const cachedDoc = refresh || engineStale ? undefined : docCandidates.find(fresh);
     if (!cachedDoc) {
       // 引擎优先(可独立部署):pdf_tool 与 MinerU 凭据都在引擎侧配置;失败再回退本机 checkout。
       const viaEngine = engine && String(settings.engineUrl || "").trim()
@@ -455,6 +470,10 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
         : null;
       if (viaEngine?.ok) {
         log("extract: pdf_tool via engine");
+        // 记下这次产物是哪个引擎版本出的;升级后版本对不上就重新提取。
+        try {
+          fs.writeFileSync(versionMark, engineVersion || "", "utf8");
+        } catch { /* 标记写不了不影响提取 */ }
       } else {
         if (viaEngine?.cancelled) return { ok: false, cancelled: true, error: "任务已取消" };
         if (viaEngine) log("extract: engine failed, falling back to local pdf_tool", viaEngine.error);
@@ -505,7 +524,12 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
       fs.writeFileSync(mergedPath, withNotes, "utf8");
       return { ok: true, markdown: withNotes, path: mergedPath, tocEntries: collectUpstreamTocEntries(files.json || cachedDoc) };
     }
-    return { ok: true, markdown: readMarkdown(files.md), path: files.md, tocEntries: collectUpstreamTocEntries(files.json || cachedDoc) };
+    const raw = readMarkdown(files.md);
+    // 没有文字层可合并时,也要把这次的结果写回 merged.md:否则下次会命中上一版遗留的合并稿。
+    try {
+      fs.writeFileSync(mergedPath, raw, "utf8");
+    } catch { /* 写不了缓存不影响本次结果 */ }
+    return { ok: true, markdown: raw, path: files.md, tocEntries: collectUpstreamTocEntries(files.json || cachedDoc) };
   }
   if (!docvortex) return { ok: false, error: "DocVortex 不可用" };
   fs.mkdirSync(workDir, { recursive: true });

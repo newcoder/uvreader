@@ -59,13 +59,14 @@ test("questions-extract writes bank json, readable markdown and an audit file", 
   const source = path.join(vaultRoot, "试卷.pdf");
   fs.writeFileSync(source, "%PDF-1.4", "utf8");
   const result = await runner({
-    payload: { source: "试卷.pdf", settings: { engineUrl: "http://127.0.0.1:8760" } },
+    payload: { source: "试卷.pdf", settings: { engineUrl: "http://127.0.0.1:8760" }, refresh: true },
     report: () => {},
     signal: new AbortController().signal,
   });
   assert.equal(calls.length, 1, "先走内容提取");
   assert.equal(calls[0].absolute, source);
   assert.equal(calls[0].options.settings.engineUrl, "http://127.0.0.1:8760");
+  assert.equal(calls[0].options.refresh, true, "数据提取页勾了「忽略缓存」,题库任务也要真的重跑上游");
   // 每个源一份独立工作目录:提取产物里的 merged.md 是固定文件名,共用缓存根会串味(实测 CSP2019 读到另一篇论文)。
   assert.ok(calls[0].options.workDir.startsWith(path.join(cacheRoot, "questions")), `workDir 应在缓存下的独立子目录:${calls[0].options.workDir}`);
   assert.notEqual(calls[0].options.workDir, cacheRoot);
