@@ -307,8 +307,9 @@ const QUESTION = /^(\d{1,3})\s*[.、．)）]\s*(.*)$/;
 
 function typeFromSectionText(text) {
   const value = String(text || "");
-  // 「阅读程序 / 完善程序」是容器标题,不是题型。
+  // 「阅读程序 / 完善程序」是容器标题,不是题型;「编程题」是真正要作答的编程题。
   if (/阅读程序|完善程序/.test(value)) return "";
+  if (/编程题|程序设计题/.test(value)) return "coding";
   if (/多选/.test(value)) return "multiple_choice";
   if (/判断/.test(value)) return "true_false";
   if (/单选|选择/.test(value)) return "single_choice";
@@ -392,6 +393,17 @@ for (let index = 0; index < lines.length; index += 1) {
     continue;
   }
   afterPageBreak = false;
+  // DOCX 常把「一、编程题」写成普通段落(没有 #):同样当小节标题,否则题型沿用上一节。
+  if (/^[一二三四五六七八九十]+\s*[、.．]\s*(?:单项|多项|选择|判断|填空|阅读程序|完善程序|编程题|程序设计|简答|计算|证明)/.test(trimmed)) {
+    flushParagraph();
+    lastUnit = null;
+    lastContext = "";
+    section = trimmed.replace(/[（(].*$/, "").trim() || section;
+    const plainKind = typeFromSectionText(trimmed);
+    sectionType = plainKind || "";
+    blocks.push({ kind: "heading", level: 2, text: trimmed });
+    continue;
+  }
   const heading = /^(#{1,6})\s+(.*)$/.exec(line);
   if (heading) {
     flushParagraph();
@@ -540,13 +552,14 @@ for (const unit of units) {
   if (unit.options.length >= 2) unit.kind = "choice";
   else if (unit.sectionType === "true_false" || /[（(]\s*[）)]\s*$/.test(unit.stem)) unit.kind = "true_false";
   else if (unit.sectionType === "single_choice" || unit.sectionType === "multiple_choice") unit.kind = "choice";
+  else if (unit.sectionType === "coding") unit.kind = "coding";
   else if (unit.between.some((entry) => entry?.kind === "code")) unit.kind = "program";
   else if (/_{3,}/.test(unit.stem)) unit.kind = "blank";
   else if (/[（(]\s*[）)]/.test(unit.stem) && unit.stem.length < 120) unit.kind = "blank";
   else if (unit.stem.length > 70) unit.kind = "description";
   else unit.kind = "short";
 }
-const interactive = units.filter((unit) => ["choice", "true_false", "blank", "short"].includes(unit.kind));
+const interactive = units.filter((unit) => ["choice", "true_false", "blank", "short", "coding"].includes(unit.kind));
 interactive.forEach((unit, index) => { unit.card = index + 1; });
 
 // 按小节/程序分组:答题卡显示卷面原题号,同一小节内题号不会重复。
@@ -579,6 +592,7 @@ function typeMatches(question, unit) {
   if (unit.kind === "choice") return type === "single_choice" || type === "multiple_choice";
   if (unit.kind === "true_false") return type === "true_false";
   if (unit.kind === "blank") return type === "fill_blank";
+  if (unit.kind === "coding") return ["program", "short_answer", "calculation", "proof", "coding"].includes(type);
   return ["short_answer", "program", "calculation", "proof"].includes(type);
 }
 function applyAnswer(unit, answer, analysis) {
@@ -594,7 +608,7 @@ function applyAnswer(unit, answer, analysis) {
     unit.answer = truth;
   } else if (unit.kind === "blank") {
     unit.answer = text;
-  } else if (unit.kind === "short" || unit.kind === "program") {
+  } else if (unit.kind === "short" || unit.kind === "program" || unit.kind === "coding") {
     unit.reference = text;
   } else {
     return false;
@@ -710,7 +724,7 @@ function tableHtml(rows, baseDir) {
 function renderUnit(unit) {
   const number = unit.card;
   const head = `<div class="q-head"><span class="q-no" title="卷面第 ${escapeHtml(unit.number)} 题">${escapeHtml(unit.number)}</span><span class="q-type">${
-    unit.kind === "choice" ? "选择题" : unit.kind === "true_false" ? "判断题" : unit.kind === "blank" ? "填空题" : "简答题"
+    unit.kind === "choice" ? "选择题" : unit.kind === "true_false" ? "判断题" : unit.kind === "blank" ? "填空题" : unit.kind === "coding" ? "编程题" : "简答题"
   }</span><span class="q-mark" data-mark></span></div>`;
   let body = `<div class="q-stem">${inline(unit.stem, baseDir)}</div>`;
   for (const figure of unit.figures || []) {
@@ -758,6 +772,8 @@ function renderUnit(unit) {
     body = `<div class="q-stem">${inline(unit.stem, baseDir).replace(/_{3,}|（\s*）|\(\s*\)/g, '<input class="blank-input" data-unit="' + number + '">')}</div>`;
   } else if (unit.kind === "short") {
     body += `<textarea class="short-input" data-unit="${number}" rows="3" placeholder="在这里作答"></textarea>`;
+  } else if (unit.kind === "coding") {
+    body += `<textarea class="code-input" data-unit="${number}" rows="14" spellcheck="false" placeholder="在这里编写程序"></textarea>`;
   }
   const meta = [
     `data-kind="${unit.kind}"`,
@@ -883,6 +899,7 @@ aside h3{font-size:12px;color:var(--soft);letter-spacing:.06em;margin-bottom:8px
 .q-table th,.q-table td{border:1px solid var(--line);padding:4px 9px;text-align:center;white-space:nowrap}
 .q-table th{background:#f6f7fa;font-weight:600}
 .short-input{width:100%;margin-top:10px;border:1px solid var(--line-strong);border-radius:8px;padding:8px 10px;font-family:var(--serif);font-size:14px;background:#fff;color:var(--ink)}
+.code-input{width:100%;min-height:260px;margin-top:12px;border:1px solid var(--line-strong);border-radius:9px;padding:12px 14px;font-family:var(--mono);font-size:13px;line-height:1.65;background:#fbfcfe;color:var(--ink);resize:vertical;tab-size:4}
 .page-sep{text-align:center;font-size:10px;color:var(--faint);letter-spacing:.12em;margin:14px 0;border-top:1px dashed var(--line);padding-top:6px}
 .code-wrap{background:#f7f8fb;border:1px solid var(--line);border-radius:9px;overflow:hidden;margin:10px 0}
 .code-bar{display:flex;align-items:center;justify-content:space-between;padding:5px 12px;background:#eef0f5;border-bottom:1px solid var(--line);font-size:10px;color:var(--faint);letter-spacing:.06em;text-transform:uppercase}
@@ -1034,7 +1051,7 @@ document.querySelectorAll('.opt').forEach(function (button) {
     if (target) target.classList.toggle('done', answers.has(unit));
   });
 });
-document.querySelectorAll('.blank-input, .short-input').forEach(function (input) {
+document.querySelectorAll('.blank-input, .short-input, .code-input').forEach(function (input) {
   input.addEventListener('input', function () {
     const unit = input.dataset.unit;
     if (input.value.trim()) answers.set(unit, input.value); else answers.delete(unit);
@@ -1057,7 +1074,7 @@ function markCard(card, status) {
     mark.className = 'q-mark ' + (status || '');
   }
   card.querySelectorAll('.opt').forEach(function (opt) { opt.disabled = true; });
-  const input = card.querySelector('.blank-input, .short-input');
+  const input = card.querySelector('.blank-input, .short-input, .code-input');
   if (input) input.disabled = true;
 }
 function explain(card, expected, analysis) {
@@ -1088,7 +1105,7 @@ function grade() {
       ungraded += 1;
       return;
     }
-    if (kind === 'short' || kind === 'program') {
+    if (kind === 'short' || kind === 'program' || kind === 'coding') {
       markCard(card, '');
       explain(card, reference || expected, analysis);
       ungraded += 1;

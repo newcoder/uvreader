@@ -160,6 +160,34 @@ A. 1 B. 2 C. 3 D. 4
   assert.doesNotMatch(result.html, /data-q="3"/);
 });
 
+test("a plain 编程题 section becomes answerable with a large code box", async () => {
+  const markdown = `**试卷标题**
+
+一、编程题(共 1 题，共 100 分)
+
+1. 分组均衡性
+
+给定一张座位安排表，请计算分组均衡性。
+
+参考程序：
+
+#include &lt;iostream&gt;
+
+int main() {
+
+int n;
+
+return 0;
+
+}
+`;
+  const result = await buildQuizPaper({ markdown, baseDir: process.cwd() });
+  assert.equal(result.stats.interactive, 1);
+  assert.match(result.html, /data-kind="coding"/);
+  assert.match(result.html, /class="code-input"[^>]*rows="14"/);
+  assert.match(result.html, /已答 0 \/ 1/);
+});
+
 test("prose code paragraphs are recognized and formatted as a code block", async () => {
   const markdown = `## 编程题
 
