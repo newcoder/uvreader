@@ -3385,94 +3385,6 @@ function renderReaderLoadError(reader, error, retry) {
     void reader.plugin.openLibrary();
   });
 }
-// 答题页的数据口:题库在源文件旁,作答记录跟着书走(reading store 的 quiz)。
-// 桌面壳走 preload 的 quiz.readBank;Obsidian 走 vault adapter。
-const quizPort = {
-  async loadBank(plugin, bookPath) {
-    const stem = (value) => String(value || "").replace(/\.[^./\\]+$/, "");
-    // Obsidian 的书路径是库内相对路径,桌面壳里可能是相对/绝对混用:
-    // 给 preload 读文件前先把相对路径补成绝对路径。
-    const root = String(globalThis.window?.qbrDesktop?.paths?.vaultRoot || "");
-    const absolute = (value) => {
-      const text = String(value || "");
-      if (!text) return "";
-      if (/^[A-Za-z]:[\\/]/.test(text) || text.startsWith("/")) return text;
-      return root ? `${root.replace(/[\\/]+$/, "")}/${text}` : text;
-    };
-    const candidates = [];
-    if (bookPath) candidates.push(`${stem(bookPath)}_questions.json`);
-    try {
-      const meta = await plugin?._readingStore?.().readBookMeta(bookPath);
-      if (meta?.source) candidates.push(`${stem(meta.source)}_questions.json`);
-    } catch { /* 没有 book.json 就只试书旁边 */ }
-    for (const file of candidates) {
-      let bank = null;
-      const desktop = globalThis.window?.qbrDesktop;
-      if (desktop?.quiz?.readBank) {
-        bank = await Promise.resolve(desktop.quiz.readBank(absolute(file))).catch(() => null);
-      } else {
-        try {
-          bank = JSON.parse(await plugin.app.vault.adapter.read(normalizePath(file)));
-        } catch {
-          bank = null;
-        }
-      }
-      if (bank?.schema === "uvreader.question-bank/v1" && Array.isArray(bank.questions)) return bank;
-    }
-    return null;
-  },
-  async loadAttempt(plugin, bookPath) {
-    try {
-      const values = await plugin?._readingStore?.().loadBook(bookPath);
-      return values?.quiz || null;
-    } catch {
-      return null;
-    }
-  },
-  async saveAttempt(plugin, bookPath, attempt) {
-    try {
-      const store = plugin?._readingStore?.();
-      if (!store || !bookPath) return;
-      const meta = plugin._bookMeta?.(bookPath) || {};
-      await store.ensureBook(bookPath, meta);
-      await store.saveBook(bookPath, "quiz", attempt, meta);
-    } catch { /* 保存失败不挡答题 */ }
-  },
-  renderText(owner, node, text, sourcePath) {
-    void renderAiMarkdown(owner, node, text, sourcePath);
-  },
-  async imageUrl(plugin, src, bookPath) {
-    const value = String(src || "");
-    if (!value || /^(?:data:|https?:|file:|app:|\/\/)/i.test(value)) return value;
-    const root = String(globalThis.window?.qbrDesktop?.paths?.vaultRoot || "");
-    const dir = String(bookPath || "").replace(/[\\/][^\\/]*$/, "");
-    let absolute = `${dir}/${value}`.replace(/\\/g, "/");
-    if (!/^[A-Za-z]:\//.test(absolute) && !absolute.startsWith("/")) {
-      absolute = root ? `${root.replace(/[\\/]+$/, "")}/${absolute}` : absolute;
-    }
-    const desktop = globalThis.window?.qbrDesktop;
-    if (desktop?.quiz?.readImage) {
-      const dataUrl = await Promise.resolve(desktop.quiz.readImage(absolute)).catch(() => "");
-      if (dataUrl) return dataUrl;
-    }
-    try {
-      const resource = plugin.app.vault.adapter.getResourcePath?.(normalizePath(absolute));
-      if (resource) return resource;
-    } catch { /* 库外文件走 file:// */ }
-    return `file://${absolute}`;
-  },
-  async complete(plugin, messages, options = {}) {
-    return await aiComplete(messages, plugin, options);
-  },
-  ready(plugin) {
-    try {
-      const cfg = aiConfig(plugin);
-      return Boolean(cfg?.provider && cfg.base && cfg.model && (!cfg.needsKey || cfg.key));
-    } catch {
-      return false;
-    }
-  },
-};
 const ReaderView = createReaderView({
   ItemView,
   Notice,
@@ -3510,7 +3422,6 @@ const ReaderView = createReaderView({
   loadReaderDocument,
   locateHl,
   markFoundIn,
-  quiz: quizPort,
   navigateEngineToc,
   openEngineHighlightPopup,
   openEnginePinPopup,

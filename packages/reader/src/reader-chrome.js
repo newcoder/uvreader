@@ -290,62 +290,6 @@ export function createReaderChrome({
     return { open, close, toggle: () => (isOpen() ? close() : open()), isOpen };
   }
 
-  // 答题页用和批注页同一套「停靠侧栏 + 拖宽」:按钮开/关,toggle 隐藏显示。
-  function createQuizDock(view) {
-    const body = view.bodyEl;
-    const dock = view.quizDock;
-    const handle = view.quizSplitter;
-    const MIN = 300;
-    const MAX = 720;
-    const MIN_READING = 320;
-    const clamp = (width) => {
-      const ceiling = Math.max(MIN, Math.min(MAX, (body?.clientWidth || MAX + MIN_READING) - MIN_READING));
-      return Math.round(Math.max(MIN, Math.min(ceiling, Number(width) || 0)));
-    };
-    const apply = (width, commit) => {
-      const value = clamp(width);
-      dock.style.flexBasis = `${value}px`;
-      if (commit) {
-        view.plugin.settings.quizDockWidth = value;
-        void view.plugin.saveAll();
-      }
-    };
-    const isOpen = () => body.classList.contains("qiaomu-reader-quiz-open");
-    const open = () => {
-      body.classList.add("qiaomu-reader-quiz-open");
-      apply(Number(view.plugin.settings.quizDockWidth) || 420, false);
-    };
-    const close = () => body.classList.remove("qiaomu-reader-quiz-open");
-    handle?.addEventListener("pointerdown", (event) => {
-      if (event.button !== 0 || !isOpen()) return;
-      event.preventDefault();
-      const doc = docOf(handle);
-      const startX = event.clientX;
-      const startWidth = dock.getBoundingClientRect().width;
-      const move = (moveEvent) => apply(startWidth - (moveEvent.clientX - startX), false);
-      try { handle.setPointerCapture?.(event.pointerId); } catch { /* document listeners still work */ }
-      let done = false;
-      const up = () => {
-        if (done) return;
-        done = true;
-        doc.removeEventListener("pointermove", move);
-        doc.removeEventListener("pointerup", up);
-        doc.removeEventListener("pointercancel", up);
-        try { handle.releasePointerCapture?.(event.pointerId); } catch { /* already gone */ }
-        apply(dock.getBoundingClientRect().width, true);
-      };
-      doc.addEventListener("pointermove", move);
-      doc.addEventListener("pointerup", up);
-      doc.addEventListener("pointercancel", up);
-    });
-    handle?.addEventListener("keydown", (event) => {
-      if ((event.key !== "ArrowLeft" && event.key !== "ArrowRight") || !isOpen()) return;
-      event.preventDefault();
-      apply(dock.getBoundingClientRect().width + (event.key === "ArrowLeft" ? 24 : -24), true);
-    });
-    return { open, close, toggle: () => (isOpen() ? close() : open()), isOpen };
-  }
-
   // Bottom strip: prev / page locator / percent / next, then the host extras.
   // The modal additionally marks its buttons type="button" and pages through
   // _nav instead of nav.
@@ -384,13 +328,6 @@ export function createReaderChrome({
     view.hlDock = body.createDiv("qiaomu-reader-hl-dock");
     view.hlPan = view.hlDock.createDiv("qiaomu-reader-panel qiaomu-reader-hl-panel");
     view.hlDockPanel = createHighlightDock(view);
-    view.quizSplitter = body.createDiv("qiaomu-reader-splitter qiaomu-reader-splitter-quiz");
-    view.quizSplitter.setAttribute("role", "separator");
-    view.quizSplitter.setAttribute("aria-orientation", "vertical");
-    view.quizSplitter.tabIndex = 0;
-    view.quizDock = body.createDiv("qiaomu-reader-quiz-dock");
-    view.quizPan = view.quizDock.createDiv("qiaomu-reader-panel qiaomu-reader-quiz-panel");
-    view.quizDockPanel = createQuizDock(view);
     hooks.buildPanelContents();
     view.hlPopup = root.createDiv("qiaomu-reader-hl-popup");
     hooks.buildPopup();

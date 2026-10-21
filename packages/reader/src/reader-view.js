@@ -14,12 +14,9 @@ import { pinyinPinFor, renderEnginePins, togglePinyinPin } from "./pinyin-pins.j
 import { warmWordGlosses } from "./pinyin-annotate.js";
 import { columnDragActive, installColumnDragWatch, onColumnDrag } from "./column-drag.js";
 import { pageForBlock } from "./toc-build.js";
-import { answeringBank, createAttempt, gradeAttempt, isAnswered } from "./quiz-attempt.js";
-import { hydrateQuizImages, renderQuizPanel } from "./quiz-panel.js";
-import { judgeAttempt } from "./quiz-judge.js";
 
 export function createReaderView({
-  ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, BookSetupModal, FONTS, InfoModal, ReadSettingsModal, VIEW_TYPE, addBookFileMenu, attachEngineChrome, attachReaderContentClick, attachReaderSwipeNav, bookNoteAction, buildFindPanelFor, buildReaderPageArea, buildReaderPanels, buildReaderSettPanelBody, buildReaderTopBar, buildTocItems, buildTocPanelFor, clearAiSource, clearFoundIn, createPdfPaginator, createPdfZoomControls, currentBookPage, enrichHighlights, ensureSelectedReaderFont, exportHighlightsMenu,   flowSelectionParts, handleReaderWheel, hidePinPopup, hlColorCss, loadReaderDocument, locateHl, markFoundIn, navigateEngineToc, openEngineHighlightPopup, openEnginePinPopup, pageJump, pdfVisiblePageLabel, pdfZoom, persistCurrentReaderPosition, qiaomuReaderClearPaintedSelection, qiaomuReaderLocale, qiaomuReaderRevealWhenSettled, qiaomuReaderTheme, qiaomuReaderTranslate, raiseSelectionPopup, readerAiPanelContext, readerHud, readerIsPdf, readerPaginationMappingCollapsed, readerPdfPages, readerTimer, rememberReaderJump, renderHighlightPanel, renderReaderLoadError, backfillPdfTextLayers, refreshReaderPdfTextLayer, renderVisibleFigures, resolveHighlightAnchor, restoreAiSource, restoreEngineHistory, selectionHud, setReaderTitle, setReadingFocus, settleReader, syncNavigationPanel, syncOpenAiReaderContext, syncOpenAiSelectionContext, syncReaderAiCapability,   unwrapAllHighlights, unwrapAllPins, updateEngineLocation, wireReaderChrome, wrapBlockRange, quiz = null,
+  ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, BookSetupModal, FONTS, InfoModal, ReadSettingsModal, VIEW_TYPE, addBookFileMenu, attachEngineChrome, attachReaderContentClick, attachReaderSwipeNav, bookNoteAction, buildFindPanelFor, buildReaderPageArea, buildReaderPanels, buildReaderSettPanelBody, buildReaderTopBar, buildTocItems, buildTocPanelFor, clearAiSource, clearFoundIn, createPdfPaginator, createPdfZoomControls, currentBookPage, enrichHighlights, ensureSelectedReaderFont, exportHighlightsMenu,   flowSelectionParts, handleReaderWheel, hidePinPopup, hlColorCss, loadReaderDocument, locateHl, markFoundIn, navigateEngineToc, openEngineHighlightPopup, openEnginePinPopup, pageJump, pdfVisiblePageLabel, pdfZoom, persistCurrentReaderPosition, qiaomuReaderClearPaintedSelection, qiaomuReaderLocale, qiaomuReaderRevealWhenSettled, qiaomuReaderTheme, qiaomuReaderTranslate, raiseSelectionPopup, readerAiPanelContext, readerHud, readerIsPdf, readerPaginationMappingCollapsed, readerPdfPages, readerTimer, rememberReaderJump, renderHighlightPanel, renderReaderLoadError, backfillPdfTextLayers, refreshReaderPdfTextLayer, renderVisibleFigures, resolveHighlightAnchor, restoreAiSource, restoreEngineHistory, selectionHud, setReaderTitle, setReadingFocus, settleReader, syncNavigationPanel, syncOpenAiReaderContext, syncOpenAiSelectionContext, syncReaderAiCapability,   unwrapAllHighlights, unwrapAllPins, updateEngineLocation, wireReaderChrome, wrapBlockRange,
 }) {
   return class ReaderView extends ItemView {
   constructor(leaf, plugin) {
@@ -27,7 +24,6 @@ export function createReaderView({
     this.file = null;
     this.ext = null;
     this.plugin = plugin;
-    this.quizPort = quiz;
     this.pdfZoom = PDF_ZOOM_DEFAULT;
     this.pager = createPdfPaginator(this);
     this._loadCoordinator = createReaderLoadCoordinator();
@@ -875,12 +871,6 @@ export function createReaderView({
       this.togglePanel("highlights");
       this._syncToolButtons();
     });
-    this.quizBtn = this.quizPort
-      ? trayButton("check", "quiz", () => {
-        this.togglePanel("quiz");
-        this._syncToolButtons();
-      })
-      : null;
     trayButton("sliders", "reading-settings", () => new ReadSettingsModal(this.app, this).open());
     pageJump.build(this, tray);
     // Search sits right after the reading settings, in its original place: a
@@ -1180,22 +1170,9 @@ export function createReaderView({
     // area visible and toggles without the slide-over machinery.
     if (name === "highlights") {
       if (this.hlDockPanel?.isOpen()) { this.hlDockPanel.close(); return; }
-      this.quizDockPanel?.close();
       this._hideHlPopup();
       this.buildHlPanel();
       this.hlDockPanel?.open();
-      return;
-    }
-    if (name === "quiz") {
-      if (this.quizDockPanel?.isOpen()) {
-        this._quizJudgeAbort?.abort();
-        this.quizDockPanel.close();
-        return;
-      }
-      this.hlDockPanel?.close();
-      this._hideHlPopup();
-      void this._renderQuizPanel();
-      this.quizDockPanel?.open();
       return;
     }
     if (this.panelOpen === name) {
@@ -1216,121 +1193,11 @@ export function createReaderView({
   }
   closePanel() {
     this.panelOpen = null;
-    this._quizJudgeAbort?.abort();
     syncNavigationPanel(this, null);
     this.settPan.classList.remove("qiaomu-reader-panel-open");
     this.tocPan.classList.remove("qiaomu-reader-panel-open");
     if (this.findPan) this.findPan.classList.remove("qiaomu-reader-panel-open");
     this.overlayEl.classList.remove("qiaomu-reader-overlay-on");
-  }
-  // 答题页:题库来自源文件旁的 `<源名>_questions.json`(书坊数据提取的产物)。
-  // 面板只拿白名单视图;完整 bank 留在视图里,提交时做确定性判题。
-  async _renderQuizPanel() {
-    const pan = this.quizPan;
-    const port = this.quizPort;
-    if (!pan || !port) return;
-    const bookPath = String(this.file?.path || "");
-    pan.empty();
-    pan.createDiv({ cls: "qbr-panel-empty", text: "正在读取题库…" });
-    let full = null;
-    try {
-      full = await port.loadBank(this.plugin, bookPath);
-    } catch {
-      full = null;
-    }
-    if (!full) {
-      pan.empty();
-      pan.createDiv({
-        cls: "qbr-panel-empty",
-        text: "这本书旁边没有题库文件。先到「书坊 → 数据提取」勾选「同时生成题库」,再回来打开答题页。",
-      });
-      return;
-    }
-    this._quizFull = full;
-    let attempt = this._quizAttempt;
-    if (!attempt || String(attempt.bank?.file || "") !== String(full.source?.file || "")) {
-      try {
-        attempt = await port.loadAttempt(this.plugin, bookPath);
-      } catch {
-        attempt = null;
-      }
-    }
-    attempt = attempt || createAttempt(full);
-    this._quizAttempt = attempt;
-    // 图片相对源文件:换成宿主能直接加载的地址,再交给面板。
-    const view = await hydrateQuizImages(answeringBank(full), (src) => port.imageUrl?.(this.plugin, src, bookPath) || "");
-    const draw = (state = {}) => {
-      const submitted = Boolean(attempt.submittedAt);
-      const results = submitted ? gradeAttempt(full, attempt) : null;
-      pan.empty();
-      renderQuizPanel(pan, {
-        bank: view,
-        attempt,
-        results,
-        judgements: attempt.judgements || {},
-        judging: state.judging === true,
-        judgeProgress: state.judgeProgress || null,
-        judgeError: state.judgeError || "",
-        renderText: (node, text) => port.renderText?.(this, node, text, bookPath),
-        onChange: (next) => {
-          attempt = next;
-          this._quizAttempt = next;
-          void port.saveAttempt(this.plugin, bookPath, next);
-        },
-        onSubmit: (next) => {
-          attempt = next;
-          this._quizAttempt = next;
-          void port.saveAttempt(this.plugin, bookPath, next);
-          void this._judgeQuiz(full, next, bookPath, draw);
-        },
-        onClose: () => {
-          this.quizDockPanel?.close();
-          this._syncToolButtons();
-        },
-      });
-    };
-    draw();
-  }
-  // 提交后逐题判:有标准答案的选择/判断题仍用确定性结论,其余(以及所有解析)
-  // 交给模型;试卷本身没有答案时,模型自己解题。
-  async _judgeQuiz(full, attempt, bookPath, draw) {
-    const port = this.quizPort;
-    if (!port?.complete || port.ready?.(this.plugin) === false) {
-      draw({ judgeError: "AI 还没配置好,无法判题(设置 → AI 助读)" });
-      return;
-    }
-    this._quizJudgeAbort?.abort();
-    const controller = new AbortController();
-    this._quizJudgeAbort = controller;
-    const total = (full.questions || []).filter((question) => isAnswered(attempt, question)).length;
-    draw({ judging: true, judgeProgress: { done: 0, total } });
-    let saved = 0;
-    try {
-      const result = await judgeAttempt({
-        bank: full,
-        attempt,
-        complete: (messages, options) => port.complete(this.plugin, messages, options),
-        signal: controller.signal,
-        onProgress: (done, all, snapshot) => {
-          attempt = { ...attempt, judgements: snapshot };
-          this._quizAttempt = attempt;
-          draw({ judging: true, judgeProgress: { done, total: all } });
-          if (done - saved >= 3) {
-            saved = done;
-            void port.saveAttempt(this.plugin, bookPath, attempt);
-          }
-        },
-      });
-      if (controller.signal.aborted) return;
-      attempt = { ...attempt, judgements: result.judgements, judgedAt: new Date().toISOString() };
-      this._quizAttempt = attempt;
-      await port.saveAttempt(this.plugin, bookPath, attempt);
-      draw({ judgeError: result.failed ? `AI 判题失败 ${result.failed} 题,可重新提交再判` : "" });
-    } catch (error) {
-      draw({ judgeError: `AI 判题失败:${String(error?.message || error).slice(0, 80)}` });
-    } finally {
-      if (this._quizJudgeAbort === controller) this._quizJudgeAbort = null;
-    }
   }
   // The AI button toggles: a second click closes the companion sidebar,
   // exactly like the highlights dock and the navigation panels.
@@ -1360,11 +1227,6 @@ export function createReaderView({
     if (this.hlBtn) {
       this.hlBtn.toggleClass("qiaomu-reader-ibtn-on", hlOpen);
       this.hlBtn.setAttribute("aria-expanded", String(hlOpen));
-    }
-    if (this.quizBtn) {
-      const quizOpen = this.quizDockPanel?.isOpen?.() === true;
-      this.quizBtn.toggleClass("qiaomu-reader-ibtn-on", quizOpen);
-      this.quizBtn.setAttribute("aria-expanded", String(quizOpen));
     }
     // Non-desktop hosts keep the TOC as an in-reader panel; the desktop TOC
     // button is synced by the shell.

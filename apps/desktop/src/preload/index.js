@@ -128,10 +128,6 @@ window.qbrDesktop = {
       return () => ipcRenderer.removeListener("qbr:workshop:state", listener);
     },
   },
-  quiz: {
-    readBank: (target) => ipcRenderer.invoke("qbr:quiz:read-bank", target),
-    readImage: (target) => ipcRenderer.invoke("qbr:quiz:read-image", target),
-  },
   ai: {
     stream: (payload, onEvent) => {
       const listener = (_event, message) => {

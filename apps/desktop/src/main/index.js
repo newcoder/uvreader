@@ -237,47 +237,6 @@ function readAiAttachment(filePath) {
   }
 }
 
-// 答题页的题库:源文件旁的 `<源名>_questions.json`(书坊数据提取产物)。
-// 只读 JSON,限制大小;解析失败一律返回 null(面板会给出「没有题库」的提示)。
-const QUIZ_BANK_MAX_BYTES = 8 * 1024 * 1024;
-
-function readQuizBank(filePath) {
-  try {
-    const target = String(filePath || "");
-    const stat = fs.statSync(target);
-    if (!stat.isFile() || stat.size > QUIZ_BANK_MAX_BYTES) return null;
-    const bank = JSON.parse(fs.readFileSync(target, "utf8"));
-    return bank && typeof bank === "object" ? bank : null;
-  } catch {
-    return null;
-  }
-}
-
-const QUIZ_IMAGE_MIME = {
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  bmp: "image/bmp",
-  svg: "image/svg+xml",
-};
-const QUIZ_IMAGE_MAX_BYTES = 20 * 1024 * 1024;
-
-function readQuizImage(filePath) {
-  try {
-    const target = String(filePath || "");
-    const stat = fs.statSync(target);
-    if (!stat.isFile() || stat.size > QUIZ_IMAGE_MAX_BYTES) return "";
-    const ext = path.extname(target).slice(1).toLowerCase();
-    const mime = QUIZ_IMAGE_MIME[ext];
-    if (!mime) return "";
-    return `data:${mime};base64,${fs.readFileSync(target).toString("base64")}`;
-  } catch {
-    return "";
-  }
-}
-
 // Screen-region capture for AI screenshots. The renderer sends CSS pixels
 // (getBoundingClientRect), the page zoom maps them to DIP, and capturePage
 // returns the composited frame — so one call covers spreads, scroll mode,
@@ -616,8 +575,6 @@ ipcMain.handle("qbr:ai:test", (_event, config) => aiRuntime.test(config || {}));
 ipcMain.handle("qbr:ai:probe", (_event, payload) => aiRuntime.probe(payload || {}));
 ipcMain.handle("qbr:ai:pick-files", () => pickAiAttachments());
 ipcMain.handle("qbr:ai:read-file", (_event, target) => readAiAttachment(target));
-ipcMain.handle("qbr:quiz:read-bank", (_event, target) => readQuizBank(target));
-ipcMain.handle("qbr:quiz:read-image", (_event, target) => readQuizImage(target));
 ipcMain.handle("qbr:ai:capture-region", (_event, rect) => captureRegion(rect));
 ipcMain.on("qbr:secret-sync", (event, id) => {
   const store = readSecrets();
