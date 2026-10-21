@@ -23,6 +23,20 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
+// 轻量 C++ 着色:注释、字符串、关键字;不引第三方库,离线也能用。
+function highlightCode(code) {
+  let html = escapeHtml(code);
+  html = html.replace(/(\/\/[^\n]*)/g, '<span class="tok-com">$1</span>');
+  html = html.replace(/(&quot;[^&\n]*?&quot;)/g, '<span class="tok-str">$1</span>');
+  html = html.replace(/\b(include|using|namespace|const|int|unsigned|char|void|for|while|if|else|return|scanf|printf|memset|sizeof|main)\b/g, '<span class="tok-key">$1</span>');
+  html = html.replace(/([①②③④⑤⑥⑦⑧⑨])/g, '<span class="blank">$1</span>');
+  return html;
+}
+
+function codeHtml(text, lang = "") {
+  return `<div class="code-wrap"><div class="code-bar"><span>${escapeHtml(lang || "code")}</span><span class="code-dots">●●●</span></div><pre>${highlightCode(text)}</pre></div>`;
+}
+
 function inline(value, baseDir) {
   let text = escapeHtml(value);
   // 图片:相对 md 的路径换成 file://,独立页面才能显示。
@@ -31,8 +45,12 @@ function inline(value, baseDir) {
     return `<img src="${escapeHtml(`file://${absolute.replace(/\\/g, "/")}`)}" alt="${alt}">`;
   });
   // 公式留给 KaTeX 的 auto-render(离线时至少保留 $...$ 原文)。
+  // 公式原样交给 KaTeX:md 里已经是标准 LaTeX(单反斜杠命令 + 双反斜杠换行),
+  // 不要再“还原”反斜杠,否则矩阵的行会被压平。
   text = text.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
-  text = text.replace(/\\([\\`*_{}[\]()#+\-.!])/g, "$1");
+  // 只还原 Markdown 的转义(星号/下划线等);不要动反斜杠对 —— LaTeX 的
+  // `\\`(矩阵换行)必须原样留给 KaTeX。
+  text = text.replace(/\\([*_`{}[\]()#+\-.!])/g, "$1");
   return text;
 }
 
@@ -159,11 +177,27 @@ for (const unit of units) {
 }
 const interactive = units.filter((unit) => ["choice", "true_false", "blank", "short"].includes(unit.kind));
 interactive.forEach((unit, index) => { unit.card = index + 1; });
+
+// 按小节/程序分组:答题卡显示卷面原题号,同一小节内题号不会重复。
+const groups = [];
+let currentGroup = null;
+for (const unit of units) {
+  const isProgram = unit.kind === "program" || unit.kind === "description";
+  if (!currentGroup || unit.section !== currentGroup.section || isProgram) {
+    const title = isProgram
+      ? unit.stem.replace(/^\s*\d{1,3}[.、．)）]\s*/, "").slice(0, 26)
+      : (unit.section || "试卷");
+    currentGroup = { id: `g${groups.length + 1}`, title, section: unit.section };
+    groups.push(currentGroup);
+  }
+  unit.group = currentGroup.id;
+  unit.groupTitle = currentGroup.title;
+}
 const baseDir = path.dirname(path.resolve(mdPath));
 
 function renderUnit(unit) {
   const number = unit.card;
-  const head = `<div class="q-head"><span class="q-no" title="卷面第 ${escapeHtml(unit.number)} 题">${number}</span><span class="q-type">${
+  const head = `<div class="q-head"><span class="q-no" title="卷面第 ${escapeHtml(unit.number)} 题">${escapeHtml(unit.number)}</span><span class="q-type">${
     unit.kind === "choice" ? "选择题" : unit.kind === "true_false" ? "判断题" : unit.kind === "blank" ? "填空题" : "简答题"
   }</span><span class="q-mark" data-mark></span></div>`;
   let body = `<div class="q-stem">${inline(unit.stem, baseDir)}</div>`;
@@ -171,8 +205,7 @@ function renderUnit(unit) {
     if (typeof entry === "string") {
       body += `<div class="q-note">${inline(entry, baseDir)}</div>`;
     } else if (entry?.kind === "code") {
-      const code = escapeHtml(entry.text).replace(/([①②③④⑤⑥⑦⑧⑨])/g, '<span class="blank">$1</span>');
-      body += `<div class="code-wrap"><pre>${code}</pre></div>`;
+      body += codeHtml(entry.text, entry.lang);
     }
   }
   if (unit.kind === "choice") {
@@ -212,8 +245,7 @@ for (const block of blocks) {
         if (typeof entry === "string") {
           html += `<p class="prose">${inline(entry, baseDir)}</p>`;
         } else if (entry?.kind === "code") {
-          const code = escapeHtml(entry.text).replace(/([①②③④⑤⑥⑦⑧⑨])/g, '<span class="blank">$1</span>');
-          html += `<div class="code-wrap"><pre>${code}</pre></div>`;
+          html += codeHtml(entry.text, entry.lang);
         }
       }
       continue;
@@ -224,8 +256,7 @@ for (const block of blocks) {
   }
   if (block.kind === "code") {
     if (openCard) { html += "</div>"; openCard = false; }
-    const code = escapeHtml(block.text).replace(/([①②③④⑤⑥⑦⑧⑨])/g, '<span class="blank">$1</span>');
-    html += `<div class="code-wrap"><pre>${code}</pre></div>`;
+    html += codeHtml(block.text, block.lang);
     continue;
   }
   if (block.kind === "page") {
@@ -242,7 +273,19 @@ for (const block of blocks) {
 if (openCard) html += "</div>";
 
 const paperTitle = path.basename(mdPath).replace(/\.[^.]+$/, "").replace(/_doc$/, "");
-const cards = interactive.map((unit) => `<button type="button" class="grid-btn" data-target="q${unit.card}">${unit.card}</button>`).join("");
+const cardGroups = [];
+for (const unit of interactive) {
+  let group = cardGroups.find((entry) => entry.id === unit.group);
+  if (!group) {
+    group = { id: unit.group, title: unit.groupTitle, units: [] };
+    cardGroups.push(group);
+  }
+  group.units.push(unit);
+}
+const cards = cardGroups.map((group) => `
+  <div class="card-group">${escapeHtml(group.title)}</div>
+  <div class="grid">${group.units.map((unit) => `<button type="button" class="grid-btn" data-target="q${unit.card}">${escapeHtml(unit.number)}</button>`).join("")}</div>
+`).join("");
 
 const document = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -269,6 +312,9 @@ aside h3{font-size:12px;color:var(--soft);letter-spacing:.06em;margin-bottom:8px
 .side-bar{height:6px;background:#e8eaf0;border-radius:99px;overflow:hidden;margin:8px 0 12px}
 .side-bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
 .grid{display:grid;grid-template-columns:repeat(6,1fr);gap:5px}
+.grid + .grid{margin-top:4px}
+.card-group{font-size:11px;color:var(--soft);margin:10px 0 5px;display:flex;align-items:center;gap:6px}
+.card-group::after{content:"";flex:1;height:1px;background:var(--line)}
 .grid-btn{aspect-ratio:1;border:1px solid var(--line-strong);background:var(--surface-2);border-radius:7px;font-size:12px;font-weight:600;color:var(--soft);cursor:pointer}
 .grid-btn.done{background:var(--accent-soft);border-color:var(--accent);color:#7a5a1e}
 .legend{display:flex;gap:10px;margin-top:12px;font-size:10.5px;color:var(--faint);flex-wrap:wrap}
@@ -281,9 +327,14 @@ aside h3{font-size:12px;color:var(--soft);letter-spacing:.06em;margin-bottom:8px
 .q-note{font-family:var(--serif);font-size:14px;line-height:1.8;color:#333a45;margin:6px 0}
 .short-input{width:100%;margin-top:10px;border:1px solid var(--line-strong);border-radius:8px;padding:8px 10px;font-family:var(--serif);font-size:14px;background:#fff;color:var(--ink)}
 .page-sep{text-align:center;font-size:10px;color:var(--faint);letter-spacing:.12em;margin:14px 0;border-top:1px dashed var(--line);padding-top:6px}
-.code-wrap{background:#f7f8fb;border:1px solid var(--line);border-radius:9px;overflow-x:auto;margin:10px 0}
-.code-wrap pre{font-family:var(--mono);font-size:12.5px;line-height:1.62;padding:14px 16px;color:#2c3340;white-space:pre}
+.code-wrap{background:#f7f8fb;border:1px solid var(--line);border-radius:9px;overflow:hidden;margin:10px 0}
+.code-bar{display:flex;align-items:center;justify-content:space-between;padding:5px 12px;background:#eef0f5;border-bottom:1px solid var(--line);font-size:10px;color:var(--faint);letter-spacing:.06em;text-transform:uppercase}
+.code-dots{letter-spacing:2px;font-size:7px;color:#c2c7d1}
+.code-wrap pre{font-family:var(--mono);font-size:12.5px;line-height:1.62;padding:14px 16px;color:#2c3340;white-space:pre;overflow-x:auto}
 .code-wrap .blank{display:inline-block;min-width:20px;text-align:center;color:#a1291c;font-weight:700;background:#fdeee9;border:1px dashed #d98a7c;border-radius:4px;padding:0 3px}
+.tok-com{color:#7c8798;font-style:italic}
+.tok-str{color:#1e7a4a}
+.tok-key{color:#2b5b9e;font-weight:600}
 .q-zone{display:flex;flex-direction:column;gap:10px;margin:10px 0 16px}
 .q-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 18px;scroll-margin-top:84px}
 .q-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
@@ -322,7 +373,7 @@ footer{max-width:900px;margin:0 auto 40px;padding:0 18px;font-size:11.5px;color:
     <h3>答题卡</h3>
     <div class="side-count"><b id="doneCount">0</b> <span>/ ${interactive.length} 题已作答</span></div>
     <div class="side-bar"><i id="sideBar"></i></div>
-    <div class="grid">${cards}</div>
+    ${cards}
     <div class="legend"><span><i></i>已作答</span></div>
     <div class="legend" style="margin-top:8px;line-height:1.6">点击题号定位；交卷后由应用内 AI 判题并给解析。</div>
   </aside>
