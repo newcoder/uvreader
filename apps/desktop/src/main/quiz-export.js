@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import temml from "temml";
-import { buildSolveMessages, normalizeSolve, parseJudgeJson } from "../../../../packages/reader/src/quiz-judge.js";
+import { buildSolveMessages, buildStructureMessages, normalizeSolve, parseJudgeJson, parseStructureStarts } from "../../../../packages/reader/src/quiz-judge.js";
 
 export async function buildQuizPaper({
   markdown = "",
@@ -12,6 +12,7 @@ export async function buildQuizPaper({
   bank = [],
   answers = null,
   solve = null,
+  structure = null,
   title = "试卷",
   onProgress = () => {},
   signal = null,
@@ -167,7 +168,25 @@ function optionRun(line) {
   return { head, options };
 }
 
-const QUESTION = /^\s*(\d{1,3})\s*[.、．)）]\s*(.*)$/;
+const QUESTION = /^(\d{1,3})\s*[.、．)）]\s*(.*)$/;
+
+// AI 结构识别(可选):只允许模型列出的行作为题目起点。伪代码/算法行即使
+// 以数字开头,也不会被切成一题一行;模型漏太多时回落到规则。
+let allowedStarts = null;
+if (typeof structure === "function") {
+  try {
+    const numbered = lines.map((line, index) => `${index + 1}: ${line}`).join("\n");
+    const candidates = [];
+    lines.forEach((line, index) => {
+      if (QUESTION.test(line)) candidates.push(index + 1);
+    });
+    const raw = await structure(buildStructureMessages({ numbered, candidates }), { signal });
+    const starts = parseStructureStarts(raw, { maxLine: lines.length, candidates });
+    if (starts.length && starts.length >= Math.ceil(candidates.length * 0.5)) {
+      allowedStarts = new Set(starts);
+    }
+  } catch { /* 结构识别失败就用规则 */ }
+}
 
 const blocks = [];
 const units = [];
@@ -202,7 +221,7 @@ for (let index = 0; index < lines.length; index += 1) {
 
   if (/^<!--\s*page:\s*\d+\s*-->$/i.test(trimmed)) {
     flushParagraph();
-    lastUnit = null;
+    // 跨页不丢上一题:选项/伪代码可能在后一页。
     blocks.push({ kind: "page", page: Number(trimmed.replace(/\D/g, "")) });
     continue;
   }
@@ -258,6 +277,12 @@ for (let index = 0; index < lines.length; index += 1) {
   const question = QUESTION.exec(line);
   const isOptionLine = /^\s*[A-H]\s*[.、．)）](?:\s|$)/.test(line);
   if (question && !isOptionLine) {
+    if (allowedStarts && !allowedStarts.has(index + 1)) {
+      // 模型判定这行不是题干(例如伪代码步骤):并入上一题或段落。
+      if (lastUnit && !lastUnit.options.length && lastUnit.stem.length <= 70) lastUnit.between.push(trimmed);
+      else paragraph.push(line);
+      continue;
+    }
     addUnit(question[1], question[2] || "");
     continue;
   }
@@ -270,6 +295,15 @@ for (let index = 0; index < lines.length; index += 1) {
     const single = /^\s*([A-H])\s*[.、．)）]\s*(.*)$/.exec(line);
     if (single) {
       lastUnit.options.push({ label: single[1], text: (single[2] || "").trim() });
+      continue;
+    }
+  }
+  // 选项可能写在结论句里("请问…?（）。A. … B. …"):整行没有以 A 开头,也要拆出来。
+  if (lastUnit && !lastUnit.options.length) {
+    const inline = optionRun(trimmed);
+    if (inline && inline.options.length >= 3) {
+      if (inline.head) lastUnit.between.push(inline.head);
+      lastUnit.options.push(...inline.options);
       continue;
     }
   }
@@ -455,12 +489,27 @@ function renderUnit(unit) {
   for (const figure of unit.figures || []) {
     body += `<div class="q-fig">${inline(figure, baseDir)}</div>`;
   }
-  for (const entry of unit.between || []) {
-    if (typeof entry === "string") {
-      body += `<div class="q-note">${inline(entry, baseDir)}</div>`;
-    } else if (entry?.kind === "code") {
-      body += codeHtml(entry.text, entry.lang);
+  const between = unit.between || [];
+  for (let index = 0; index < between.length; index += 1) {
+    const entry = between[index];
+    if (typeof entry !== "string") {
+      if (entry?.kind === "code") body += codeHtml(entry.text, entry.lang);
+      continue;
     }
+    const pseudo = /^\s{2,}\S|^\s*(?:输入|输出|算法|伪代码)\b/.test(entry);
+    if (!pseudo) {
+      body += `<div class="q-note">${inline(entry, baseDir)}</div>`;
+      continue;
+    }
+    const run = [entry];
+    let next = index + 1;
+    while (next < between.length && typeof between[next] === "string"
+      && (/^\s{2,}\S/.test(between[next]) || /^\s*(?:输入|输出|算法|伪代码)\b/.test(between[next]))) {
+      run.push(between[next]);
+      next += 1;
+    }
+    body += `<pre class="q-pseudo">${escapeHtml(run.join("\n"))}</pre>`;
+    index = next - 1;
   }
   if (unit.kind === "choice") {
     body += `<div class="opts"${unit.multi ? ' data-multi="1"' : ""}>${unit.options.map((option) => `
@@ -587,6 +636,7 @@ aside h3{font-size:12px;color:var(--soft);letter-spacing:.06em;margin-bottom:8px
 .prose{font-family:var(--serif);margin:6px 4px 10px;line-height:1.9;text-align:justify;color:#333a45}
 .program-title{font-weight:600;color:var(--primary-deep);margin-top:18px}
 .q-note{font-family:var(--serif);font-size:14px;line-height:1.8;color:#333a45;margin:6px 0}
+.q-pseudo{font-family:var(--mono);font-size:12.5px;line-height:1.7;white-space:pre;overflow-x:auto;background:#f7f8fb;border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin:8px 0;color:#2c3340}
 .short-input{width:100%;margin-top:10px;border:1px solid var(--line-strong);border-radius:8px;padding:8px 10px;font-family:var(--serif);font-size:14px;background:#fff;color:var(--ink)}
 .page-sep{text-align:center;font-size:10px;color:var(--faint);letter-spacing:.12em;margin:14px 0;border-top:1px dashed var(--line);padding-top:6px}
 .code-wrap{background:#f7f8fb;border:1px solid var(--line);border-radius:9px;overflow:hidden;margin:10px 0}
@@ -845,6 +895,7 @@ document.getElementById('submit').addEventListener('click', grade);
       interactive: interactive.length,
       answered: answeredBank,
       ai: aiStats,
+      structure: allowedStarts ? "ai" : "rules",
       blocks: blocks.length,
     },
   };

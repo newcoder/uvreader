@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 
-import { buildJudgeMessages, buildSolveMessages, judgeAttempt, mergeJudge, normalizeJudge, normalizeSolve, parseJudgeJson } from "../packages/reader/src/quiz-judge.js";
+import { buildJudgeMessages, buildSolveMessages, buildStructureMessages, judgeAttempt, mergeJudge, normalizeJudge, normalizeSolve, parseJudgeJson, parseStructureStarts } from "../packages/reader/src/quiz-judge.js";
 import { createAttempt, gradeQuestion } from "../packages/reader/src/quiz-attempt.js";
 import { renderQuizPanel } from "../packages/reader/src/quiz-panel.js";
 
@@ -69,6 +69,15 @@ test("the solve prompt carries the program context and normalises its answer", (
   assert.match(prompt, /二、阅读程序/);
   assert.deepEqual(normalizeSolve({ answer: "B", analysis: "返回 0" }), { answer: "B", analysis: "返回 0" });
   assert.equal(normalizeSolve({}), null);
+});
+
+test("the structure prompt asks for question start lines and validates them", () => {
+  const messages = buildStructureMessages({ numbered: "1: 1. 第一题\n2:    1. 伪代码", candidates: [1, 2] });
+  const prompt = messages.map((message) => message.content).join("\n");
+  assert.match(prompt, /真正题干的起始行/);
+  assert.match(prompt, /伪代码/);
+  assert.deepEqual(parseStructureStarts('{"starts":[1,2,99,0]}', { maxLine: 10, candidates: [1, 2] }), [1, 2]);
+  assert.deepEqual(parseStructureStarts("不是 JSON", { maxLine: 10, candidates: [1] }), []);
 });
 
 test("judgeAttempt only asks for answered questions and keeps partial results", async () => {

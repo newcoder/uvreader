@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CSP2020 · 答题页预览</title>
+<style>
+:root{--paper:#f3f4f7;--surface:#fffefc;--surface-2:#f6f7fa;--ink:#262b33;--soft:#5d6573;--faint:#8a92a0;--primary:#2b3a55;--primary-deep:#1e2a40;--primary-soft:#eaeef6;--line:#e2e4ea;--line-strong:#cdd2dc;--accent:#b98a3e;--accent-soft:#f6edd9;--ok:#1e7a4a;--bad:#bf3b2b;--serif:"Noto Serif SC","Songti SC","SimSun",serif;--sans:"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;--mono:ui-monospace,"Cascadia Code",Consolas,monospace}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.7}
+.topbar{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:14px;background:var(--primary-deep);color:#f4efe3;padding:10px 20px}
+.topbar .title{font-family:var(--serif);font-weight:700;font-size:15px}
+.topbar .sub{font-size:11px;color:#b9c4d2}
+.topbar .spacer{flex:1}
+.progress-pill{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:99px;padding:4px 12px;font-size:13px;font-variant-numeric:tabular-nums}
+.layout{display:flex;gap:20px;max-width:1320px;margin:0 auto;padding:20px 18px 80px;align-items:flex-start}
+main{flex:1;min-width:0;max-width:900px}
+aside{width:230px;flex:none;position:sticky;top:72px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px}
+aside h3{font-size:12px;color:var(--soft);letter-spacing:.06em;margin-bottom:8px}
+.side-count{font-family:var(--serif);font-size:22px;color:var(--primary)}
+.side-count span{font-size:11px;color:var(--faint);font-family:var(--sans)}
+.side-bar{height:6px;background:#e8eaf0;border-radius:99px;overflow:hidden;margin:8px 0 12px}
+.side-bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+.grid{display:grid;grid-template-columns:repeat(6,1fr);gap:5px}
+.grid + .grid{margin-top:4px}
+.card-group{font-size:11px;color:var(--soft);margin:10px 0 5px;display:flex;align-items:center;gap:6px}
+.card-group::after{content:"";flex:1;height:1px;background:var(--line)}
+.grid-btn{aspect-ratio:1;border:1px solid var(--line-strong);background:var(--surface-2);border-radius:7px;font-size:12px;font-weight:600;color:var(--soft);cursor:pointer}
+.grid-btn.done{background:var(--accent-soft);border-color:var(--accent);color:#7a5a1e}
+.legend{display:flex;gap:10px;margin-top:12px;font-size:10.5px;color:var(--faint);flex-wrap:wrap}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:3px;vertical-align:-1px;background:var(--accent-soft);border:1px solid var(--accent)}
+.section-title{font-family:var(--serif);font-weight:700;font-size:18px;color:var(--primary-deep);margin:24px 4px 8px;display:flex;align-items:baseline;gap:8px}
+.section-title.h2{font-size:19px}
+.sub-title{font-size:13px;color:var(--soft);margin:14px 4px 4px;font-weight:600}
+.prose{font-family:var(--serif);margin:6px 4px 10px;line-height:1.9;text-align:justify;color:#333a45}
+.program-title{font-weight:600;color:var(--primary-deep);margin-top:18px}
+.q-note{font-family:var(--serif);font-size:14px;line-height:1.8;color:#333a45;margin:6px 0}
+.q-pseudo{font-family:var(--mono);font-size:12.5px;line-height:1.7;white-space:pre;overflow-x:auto;background:#f7f8fb;border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin:8px 0;color:#2c3340}
+.short-input{width:100%;margin-top:10px;border:1px solid var(--line-strong);border-radius:8px;padding:8px 10px;font-family:var(--serif);font-size:14px;background:#fff;color:var(--ink)}
+.page-sep{text-align:center;font-size:10px;color:var(--faint);letter-spacing:.12em;margin:14px 0;border-top:1px dashed var(--line);padding-top:6px}
+.code-wrap{background:#f7f8fb;border:1px solid var(--line);border-radius:9px;overflow:hidden;margin:10px 0}
+.code-bar{display:flex;align-items:center;justify-content:space-between;padding:5px 12px;background:#eef0f5;border-bottom:1px solid var(--line);font-size:10px;color:var(--faint);letter-spacing:.06em;text-transform:uppercase}
+.code-dots{letter-spacing:2px;font-size:7px;color:#c2c7d1}
+.code-wrap pre{font-family:var(--mono);font-size:12.5px;line-height:1.62;padding:14px 16px;color:#2c3340;white-space:pre;overflow-x:auto}
+.code-wrap .blank{display:inline-block;min-width:24px;text-align:center;color:#a1291c;font-weight:700;font-size:15px;font-family:"Segoe UI Symbol","Noto Sans SC","Microsoft YaHei",sans-serif;line-height:1.35;background:#fdeee9;border:1px dashed #d98a7c;border-radius:6px;padding:1px 5px;vertical-align:-2px}
+.circled{font-size:1.25em;font-weight:600;color:#a1291c;line-height:1;font-family:"Segoe UI Symbol","Noto Sans SC","Microsoft YaHei",sans-serif}
+.tok-com{color:#7c8798;font-style:italic}
+.tok-str{color:#1e7a4a}
+.tok-key{color:#2b5b9e;font-weight:600}
+.q-zone{display:flex;flex-direction:column;gap:10px;margin:10px 0 16px}
+.q-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 18px;scroll-margin-top:84px}
+.q-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.q-no{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 7px;border-radius:6px;background:var(--primary);color:#fff;font-weight:700;font-size:12px}
+.q-type{font-size:10.5px;color:var(--faint);border:1px solid var(--line);border-radius:99px;padding:0 7px}
+.q-mark{margin-left:auto;font-size:12px;color:var(--faint)}
+.q-stem{font-family:var(--serif);font-size:15px;line-height:1.95;text-align:justify}
+.q-stem img{max-width:100%;border-radius:6px;margin:8px 0}
+.opts{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.opts.is-tf{flex-direction:row}
+.opts.is-tf .opt{justify-content:center;font-weight:600}
+.opt{display:flex;align-items:flex-start;gap:10px;border:1px solid var(--line);border-radius:9px;padding:7px 12px;background:var(--surface-2);font-family:var(--serif);font-size:14.5px;line-height:1.7;text-align:left;cursor:pointer}
+.opt:hover{border-color:var(--primary);background:#f0f3f9}
+.opt.sel{border-color:var(--primary);background:var(--primary-soft)}
+.opt-key{width:24px;height:24px;flex:none;border-radius:50%;border:1.5px solid var(--line-strong);display:flex;align-items:center;justify-content:center;font-family:var(--sans);font-weight:600;font-size:12px;color:var(--soft);margin-top:2px}
+.opt.sel .opt-key{background:var(--primary);border-color:var(--primary);color:#fff}
+.opt-text{flex:1;min-width:0}
+.blank-input{border:1px solid var(--line-strong);border-radius:6px;background:#fff;padding:1px 8px;min-width:90px;font-family:var(--sans)}
+.result{display:none;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:14px}
+.result.show{display:block;animation:fadeIn .25s ease}
+.result-top{display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+.ring{width:96px;height:96px;flex:none;border-radius:50%;background:conic-gradient(var(--accent) calc(var(--p,0) * 1%),#ede6d6 0);display:flex;align-items:center;justify-content:center}
+.ring-inner{width:74px;height:74px;border-radius:50%;background:var(--surface);display:flex;flex-direction:column;align-items:center;justify-content:center}
+.ring-inner b{font-family:var(--serif);font-size:26px;line-height:1;color:var(--primary-deep)}
+.ring-inner span{font-size:11px;color:var(--faint)}
+.result-stats{flex:1;min-width:220px;display:grid;grid-template-columns:repeat(2,minmax(110px,1fr));gap:8px 18px}
+.result-stats b{display:block;font-family:var(--serif);font-size:19px;color:var(--ink)}
+.result-stats span{font-size:11.5px;color:var(--faint)}
+.result p{margin-top:12px;font-size:12.5px;color:var(--soft);border-top:1px dashed var(--line);padding-top:10px}
+.q-mark.correct{color:var(--ok)}
+.q-mark.wrong{color:var(--bad)}
+.q-card.correct{border-color:var(--ok)}
+.q-card.wrong{border-color:var(--bad)}
+.opt.good{border-color:var(--ok);background:var(--ok-soft,#e3f2e9)}
+.opt.good .opt-key{background:var(--ok);border-color:var(--ok);color:#fff}
+.opt.bad{border-color:var(--bad);background:var(--bad-soft,#fbe9e6)}
+.opt.bad .opt-key{background:var(--bad);border-color:var(--bad);color:#fff}
+.q-explain{display:none;margin-top:12px;border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;padding:10px 14px;font-size:13.5px;line-height:1.85;color:#4c4129;white-space:pre-wrap}
+.q-card.graded .q-explain{display:block}
+.q-explain .ex-label{font-weight:700;color:#7a5a1e;margin-right:6px}
+math{font-size:1.03em}
+math mtable{border-collapse:collapse}
+math mtr{line-height:1.7}
+math mtd{padding-top:.18em;padding-bottom:.18em}
+.qbr-matrix{display:inline-block;border-left:1.2px solid currentColor;border-right:1.2px solid currentColor;padding:0 .3em;vertical-align:middle}
+.q-fig{display:flex;justify-content:center;padding:6px 0}
+.q-fig img{max-width:100%;max-height:260px;border-radius:6px}
+.opt-text img{max-width:100%;max-height:200px;border-radius:6px;margin-top:4px}
+.math-raw{font-family:var(--mono);font-size:.9em;color:var(--bad)}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+footer{max-width:900px;margin:0 auto 40px;padding:0 18px;font-size:11.5px;color:var(--faint)}
+@media(max-width:920px){.layout{flex-direction:column}aside{width:100%;position:static;order:-1}main{width:100%}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div><div class="title">CSP2020</div><div class="sub">文档模式答题页预览 · 完整保留原文</div></div>
+  <div class="spacer"></div>
+  <div class="progress-pill" id="timer">00:00</div>
+  <div class="progress-pill" id="progress">已答 0 / 43</div>
+  <button class="progress-pill" id="submit" style="cursor:pointer">交卷判分</button>
+</header>
+<div class="layout">
+  <aside>
+    <h3>答题卡</h3>
+    <div class="side-count"><b id="doneCount">0</b> <span>/ 43 题已作答</span></div>
+    <div class="side-bar"><i id="sideBar"></i></div>
+    
+  <div class="card-group">一、单项选择题</div>
+  <div class="grid"><button type="button" class="grid-btn" data-target="q1">1</button><button type="button" class="grid-btn" data-target="q2">2</button><button type="button" class="grid-btn" data-target="q3">3</button><button type="button" class="grid-btn" data-target="q4">4</button><button type="button" class="grid-btn" data-target="q5">5</button><button type="button" class="grid-btn" data-target="q6">6</button><button type="button" class="grid-btn" data-target="q7">7</button><button type="button" class="grid-btn" data-target="q8">8</button><button type="button" class="grid-btn" data-target="q9">9</button><button type="button" class="grid-btn" data-target="q10">10</button><button type="button" class="grid-btn" data-target="q11">11</button><button type="button" class="grid-btn" data-target="q12">12</button><button type="button" class="grid-btn" data-target="q13">13</button><button type="button" class="grid-btn" data-target="q14">14</button><button type="button" class="grid-btn" data-target="q15">15</button></div>
+
+  <div class="card-group">二、阅读程序</div>
+  <div class="grid"><button type="button" class="grid-btn" data-target="q16">1</button><button type="button" class="grid-btn" data-target="q17">2</button><button type="button" class="grid-btn" data-target="q18">3</button><button type="button" class="grid-btn" data-target="q19">4</button></div>
+
+  <div class="card-group">- 单选题</div>
+  <div class="grid"><button type="button" class="grid-btn" data-target="q20">5</button><button type="button" class="grid-btn" data-target="q21">6</button></div>
+
+  <div class="card-group">- 判断题</div>
+  <div class="grid"><button type="button" class="grid-btn" data-target="q22">1</button><button type="button" class="grid-btn" data-target="q23">2</button><button type="button" class="grid-btn" data-target="q24">3</button></div>
+
+  <div class="card-group">- 单选题</div>
+  <div class="grid"><button type="button" class="grid-btn" data-target="q25">4</button><button type="button" class="grid-btn" data-target="q26">5</button><button type="button" class="grid-btn" data-target="q27">6</button><button type="button" class="grid-btn" data-target="q28">1</button><button type="button" class="grid-btn" data-target="q29">2</button><button type="button" class="grid-btn" data-target="q30">3</button><button type="button" class="grid-btn" data-target="q31">4</button><button type="button" class="grid-btn" data-target="q32">5</button><button type="button" class="grid-btn" data-target="q33">6</button></div>
+
+  <div class="card-group">1.</div>
+  <div class="grid"><button type="button" class="grid-btn" data-target="q34">1</button><button type="button" class="grid-btn" data-target="q35">2</button><button type="button" class="grid-btn" data-target="q36">3</button><button type="button" class="grid-btn" data-target="q37">4</button><button type="button" class="grid-btn" data-target="q38">5</button></div>
+
+  <div class="card-group">(最小区间覆盖)给出 n 个区间，第 i 个区间的左</div>
+  <div class="grid"><button type="button" class="grid-btn" data-target="q39">1</button><button type="button" class="grid-btn" data-target="q40">2</button><button type="button" class="grid-btn" data-target="q41">3</button><button type="button" class="grid-btn" data-target="q42">4</button><button type="button" class="grid-btn" data-target="q43">5</button></div>
+
+    <div class="legend"><span><i></i>已作答</span></div>
+    <div class="legend" style="margin-top:8px;line-height:1.6">点击题号定位；交卷后由应用内 AI 判题并给解析。</div>
+  </aside>
+  <main>
+    <section class="result" id="result">
+      <div class="result-top">
+        <div class="ring" id="ring"><div class="ring-inner"><b id="score">0</b><span>分</span></div></div>
+        <div class="result-stats">
+          <div><b id="right">0</b><span>答对</span></div>
+          <div><b id="wrong">0</b><span>答错 / 未答</span></div>
+          <div><b id="rate">—</b><span>正确率</span></div>
+          <div><b id="elapsed">—</b><span>用时</span></div>
+        </div>
+      </div>
+      <p id="resultText"></p>
+    </section>
+    <p class="prose">&lt;!--page:1 printed:10--&gt;</p><h1 class="section-title">2020 CCF 非专业级别软件能力认证第一轮</h1><p class="prose">&lt;!--page:1 printed:10--&gt;</p><h1 class="section-title">(CSP-J) 入门级 C++语言试题</h1><p class="prose">认证时间:2020年10月11日14:30\~16:30</p><p class="prose">&lt;!--page:1 printed:10--&gt;</p><h2 class="section-title">考生注意事项:</h2><p class="prose">- 试题纸共有10页，答题纸共有1页，满分100分。请在答题纸上作答，写在试题纸上的一律无效。</p><p class="prose">- 不得使用任何电子设备（如计算器、手机、电子词典等）或查阅任何书籍资料。</p><p class="prose">&lt;!--page:1 printed:10--&gt;</p><h2 class="section-title">一、单项选择题（共 15 题，每题 2 分，共计 30 分；每题有且仅有一个正确选项）</h2><div class="q-zone"><section class="q-card" data-q="1" id="q1" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 1 题">1</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem">在内存储器中每个存储单元都被赋予一个唯一的序号，称为（ ）。</div><div class="opts">
+      <button type="button" class="opt" data-unit="1" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">下标</span>
+      </button>
+      <button type="button" class="opt" data-unit="1" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">地址</span>
+      </button>
+      <button type="button" class="opt" data-unit="1" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">序号</span>
+      </button>
+      <button type="button" class="opt" data-unit="1" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">编号</span>
+      </button></div></section><section class="q-card" data-q="2" id="q2" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 2 题">2</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem">编译器的主要功能是（ ）。</div><div class="opts">
+      <button type="button" class="opt" data-unit="2" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">将源程序翻译成机器指令代码</span>
+      </button>
+      <button type="button" class="opt" data-unit="2" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">将一种高级语言翻译成另一种高级语言</span>
+      </button>
+      <button type="button" class="opt" data-unit="2" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">将源程序重新组合</span>
+      </button>
+      <button type="button" class="opt" data-unit="2" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">将低级语言翻译成高级语言</span>
+      </button></div></section><section class="q-card" data-q="3" id="q3" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 3 题">3</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem">设 x=true, y=true, z=false, 以下逻辑运算表达式值为真的是 ( )。</div><div class="opts">
+      <button type="button" class="opt" data-unit="3" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text"><math><mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>x</mi><mo>∧</mo><mi>y</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>∧</mo><mi>z</mi></mrow></math></span>
+      </button>
+      <button type="button" class="opt" data-unit="3" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text"><math><mrow><mi>x</mi><mo>∧</mo><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>z</mi><mo>∨</mo><mi>y</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>∧</mo><mi>z</mi></mrow></math></span>
+      </button>
+      <button type="button" class="opt" data-unit="3" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text"><math><mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>x</mi><mo>∧</mo><mi>y</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>∨</mo><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>z</mi><mo>∨</mo><mi>x</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math></span>
+      </button>
+      <button type="button" class="opt" data-unit="3" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text"><math><mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>y</mi><mo>∨</mo><mi>z</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mo>∧</mo><mi>x</mi><mo>∧</mo><mi>z</mi></mrow></math></span>
+      </button></div></section><section class="q-card" data-q="4" id="q4" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 4 题">4</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem">现有一张分辨率为  <math><mrow><mn>2048</mn><mo>×</mo><mn>1024</mn></mrow></math>  像素的 32 位真彩色图像。请问要存储这张图像，需要多大的存储空间？（）。</div><div class="opts">
+      <button type="button" class="opt" data-unit="4" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">4MB</span>
+      </button>
+      <button type="button" class="opt" data-unit="4" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">8MB</span>
+      </button>
+      <button type="button" class="opt" data-unit="4" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">32MB</span>
+      </button>
+      <button type="button" class="opt" data-unit="4" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">16MB</span>
+      </button></div></section><section class="q-card" data-q="5" id="q5" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 5 题">5</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem">冒泡排序算法的伪代码如下:</div><div class="q-note">输入: 数组 L, n ≥ 1。输出: 按非递减顺序排序的 L。</div><div class="q-note">算法 BubbleSort:</div><pre class="q-pseudo">    1. FLAG ← n //标记被交换的最后元素位置
+    2. while FLAG &gt; 1 do
+    3. k ← FLAG -1
+    4. FLAG ← 1
+    5. for j = 1 to k do
+    6. if L(j) &gt; L(j+1) then do
+    7. L(j) ↔ L(j+1)
+    8. FLAG ← j</pre><div class="q-note">对 n 个数用以上冒泡排序算法进行排序，最少需要比较多少次？（）。</div><div class="opts">
+      <button type="button" class="opt" data-unit="5" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">n</span>
+      </button>
+      <button type="button" class="opt" data-unit="5" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">n-2</span>
+      </button>
+      <button type="button" class="opt" data-unit="5" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text"><math><msup><mi>n</mi><mn>2</mn></msup></math></span>
+      </button>
+      <button type="button" class="opt" data-unit="5" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">n-1</span>
+      </button></div></section></div><div class="page-sep">第 2 页</div><div class="q-zone"><section class="q-card" data-q="6" id="q6" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 6 题">6</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem">设 A 是 n 个实数的数组，考虑下面的递归算法:</div><div class="q-note">XYZ (A[1..n])</div><pre class="q-pseudo">    if n=1 then return A[1]
+    else temp ← XYZ (A[1..n-1])
+        if temp &lt; A[n]
+            then return temp
+        else return A[n]</pre><div class="q-note">请问算法 XYZ 的输出是什么？（）。</div><div class="opts">
+      <button type="button" class="opt" data-unit="6" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">A 数组的平均</span>
+      </button>
+      <button type="button" class="opt" data-unit="6" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">A 数组的最小值</span>
+      </button>
+      <button type="button" class="opt" data-unit="6" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">A 数组的最大值</span>
+      </button>
+      <button type="button" class="opt" data-unit="6" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">A 数组的中值</span>
+      </button></div></section><section class="q-card" data-q="7" id="q7" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 7 题">7</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem">链表不具有的特点是（）。</div><div class="opts">
+      <button type="button" class="opt" data-unit="7" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">插入删除不需要移动元素</span>
+      </button>
+      <button type="button" class="opt" data-unit="7" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">可随机访问任一元素</span>
+      </button>
+      <button type="button" class="opt" data-unit="7" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">不必事先估计存储空间</span>
+      </button>
+      <button type="button" class="opt" data-unit="7" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">所需空间与线性表长度成正比</span>
+      </button></div></section><section class="q-card" data-q="8" id="q8" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 8 题">8</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem">有 10 个顶点的无向图至少应该有（）条边才能确保是一个连通图。</div><div class="opts">
+      <button type="button" class="opt" data-unit="8" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">10</span>
+      </button>
+      <button type="button" class="opt" data-unit="8" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">12</span>
+      </button>
+      <button type="button" class="opt" data-unit="8" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">9</span>
+      </button>
+      <button type="button" class="opt" data-unit="8" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">11</span>
+      </button></div></section><section class="q-card" data-q="9" id="q9" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 9 题">9</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem">二进制数 1011 转换成十进制数是（）。</div><div class="opts">
+      <button type="button" class="opt" data-unit="9" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">10</span>
+      </button>
+      <button type="button" class="opt" data-unit="9" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">13</span>
+      </button>
+      <button type="button" class="opt" data-unit="9" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">11</span>
+      </button>
+      <button type="button" class="opt" data-unit="9" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">12</span>
+      </button></div></section><section class="q-card" data-q="10" id="q10" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 10 题">10</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem">五个小朋友并排站成一列，其中有两个小朋友是双胞胎，如果要求这两个双胞胎必须相邻，则有（）种不同排列方法？</div><div class="opts">
+      <button type="button" class="opt" data-unit="10" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">24</span>
+      </button>
+      <button type="button" class="opt" data-unit="10" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">36</span>
+      </button>
+      <button type="button" class="opt" data-unit="10" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">72</span>
+      </button>
+      <button type="button" class="opt" data-unit="10" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">48</span>
+      </button></div></section><section class="q-card" data-q="11" id="q11" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 11 题">11</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem">下图中所使用的数据结构是（）。</div><div class="q-fig"><img src="data:image/jpeg;base64,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" alt="插图"></div><div class="q-fig"><img src="data:image/jpeg;base64,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" alt="插图"></div><div class="q-fig"><img src="data:image/jpeg;base64,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" alt="插图"></div><div class="q-fig"><img src="data:image/jpeg;base64,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" alt="插图"></div><div class="q-fig"><img src="data:image/jpeg;base64,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" alt="插图"></div><div class="opts">
+      <button type="button" class="opt" data-unit="11" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text"><img src="data:image/jpeg;base64,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" alt="插图"> <img src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAIBAQEBAQIBAQECAgICAgQDAgICAgUEBAMEBgUGBgYFBgYGBwkIBgcJBwYGCAsICQoKCgoKBggLDAsKDAkKCgr/2wBDAQICAgICAgUDAwUKBwYHCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgr/wAARCABLAGYDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD9/KKK/MD9jr4J+N/22v21f2vtN+Jn7YPxv0TTPh98bjpPhXRvBnxIuNOs7O1ltEndFiAYD94zEYwBnpQB+n9Ffn3+29+y/wDBb9g/9mnxD+1J8Uf2yP2s9U0Lw0bb+0LPQvjFK90yzXEcAKLKEVsNICQWHAPevSvC3/BL/wAH+KvDOneJ7f8Abc/ait49RsYrqOC4+M1x5kayIHCttQjcAcHBIz3oA+uqK84/Zl/Zzi/Zm8GX/gm3+NPj7xxFe6vJfR6j8RPEX9p3tsGRF+zpMUU+SuzKqQSCzZJzXo9ABRX47f8ABY346+Nv+CKH7ePgH9tv9nT4keMtc034x6zfz/GT4QaprE19pl9Y2UEHnalZpIWNlLFEQMp8o2KMBAVP63/Dj4g+Efiz8P8AQ/ij4A1mLUdD8R6Tb6lo9/AwKXFtPGskbgjsVYGgDaooooAKK/Ar/gnj8c/+C+f/AAVR+M/xxsfgP/wUu0TwVpnwo8d/2ctj4j8I29wJ4prm9EKp5ducqi2hB3ddw96+sf8AgnB/wVC/b68If8FNdX/4I+f8FR4PBmu+OP8AhHJNa8IeP/BMH2aPUolh+0eXNCAqZaFZHBVIyvlFSrZDUAfqJRRRQAV+Yf7Bvjj42/Dj44/8FDfGX7Ovwdg8feMLP9oW2Oj+E7jWU09L5jYwKwM7grHhCzcjnbjvX6dSyxwxtNNIERFLOzHAAHUmvgf/AIIV/ZfiZqn7Uv7X2joTovxU/aV1ufwvcK/7u70uwSKyiuACAQXdJieSOmOhyAfJ/wDwWs/a5/4K0/EL/gmz8RPCP7QP/BLrSfAvhO7TT/7U8UW/xUtL97Pbf27JiBEDPucKnHTdntX0r8OP25/+C3MPg/QNOtP+COOhy2q6VarFcn40WQZ4RGgEm3ZkcYOPfFdn/wAHHX/KHb4tf9c9K/8ATpa1xX/BTv4T/tifCfT/AINf8FP/ANhFvEXiPxZ8MNCstH8b/CrTp5ZofF3hi5aJ7iKK2G5ftUcmGDqu8rzk+UikA/Q/SZ7660u2udUshbXMlujXFuH3CKQqCyZ74ORnvirFZvg/XrrxT4S0vxNfeHb3SJ9Q0+G5m0nUkVbiyZ0DGGUKSA6E7WwSMg4Jr4Q/4Kuf8FT9W8I+I7f/AIJs/wDBPa7i8X/tKfERm0u1t9KPnw+CLWQbZ9Tv3QkQtFGxdFPKkb2GAA4Bzfww8DeBf+Cq/wDwVq+M/wAZPF2jRa18Kvgh4CvPg/4faSPdbalrGpIza7LGxyC0cLrallI+WQdc5rf/AOCFfxH8Y/A7TPiD/wAEifjxesvjH9nnW3g8Iz3MuW13wbcyPJpt7GScuqBjC3HyDyl4OVH1B+wD+xj4D/YE/ZT8K/sz+Bbt746NaGXXdduAfP1rVJT5l3fTEklnllLNySQMDtXg/wDwVZ/ZQ+NOmeOfCH/BUD9h3w8L74y/CC2lh1TwzAu0+OfDEhDXmkPtBLygAyQZzh8gckUAfb1FeQfsS/twfAH9vv4HWHxx+AXiqO7tpQIda0W4YJf6FegfvLK8h+9DMjAghgMgblyCDXr9AH80f/BEn40f8FYfhN8d/wBqiH/gml+yx4L+I9rffE1G8YS+LNY+ymwkS61P7MIv38W4OGnz1xsHTPP0T/wS8+JOsa7/AMF/df8AiT/wV+8Ia18Pv2oNe8MNYfC/wuunwReGzp/kvEfss4klklmaGKVYyX2vunGSxVBxf/BEb9qfxf8A8ErvjP8AtPr+0T+xH8fdSj+IXxGivPDtx4R+F13eRyQ21zqW9mZtgAb7RGVIyCM1718DdA/a8/4LL/8ABZH4Yft8/EL9jfxR8F/g18A9PvP+EXuvHOmG01jxFeSFwisrAErvKttXdHGqON7NJQB+xtFFFAHmX7ZXwY+Jv7RP7L3jf4HfB74xy+APEXinQJ9O0/xbDp4uX08yrtZgm5TkqWXcCGXduXkCvm/4Kf8ABFbw38JfhT4A+FWjftn/ABs8N6P4I8A2eg/8I58PvGx0nTbq+R3lutSdViMjTTTSyMfmC4P3eBj7dooA+Mfix/wRF+BHx18B33wu+Mf7V/7RXiXw7qYQaho2sfFyea3uNjq670aPBwyqw9wK3rL/AIJLeDdOs4tPsP24v2m4oIIljhiT4y3IVEUYCgeXwABivrCigDw74BfsO2HwGm8V2sn7Tvxg8a6b4s0lLGXTvHvjmS/Om4EivLZzKkctu7rJywckFFKlSK43/gnX/wAEhP2Pf+CZd34s8RfAXRdX1PxJ4y1Wa61nxd4u1AX+qNC0hdLRbhlDCFcjOcs7De7McY+o6KACiiigDw74ef8ABOb9kX4Tftb+I/23fhr8Mn0P4geLbMQeIbzStWubezvjzumks45BBJK+QWdkJLKG+98x9xork/jr8afAn7Ofwe8R/HX4oX0tr4d8KaVLqOt3UEBkaG2jGZHCjltq5OBzxxmgDrKKxfhz8RvAnxd8CaT8T/hh4tsNe8Pa7Yx3uj6xpdwstvdwOMrIjrwQR/gea2qACiiigAooooA+I/28v+Ctnxg/ZU/bP0P9iP8AZ+/YG1v40eKNY+Go8aSnSPHNppP2WyF/LZOCtzEVba8aHIfJ80DbwTXDf8Pff+CoP/SArxx/4evQ/wD43XPftPeMvCHgb/g5O8K6x428V6bo9o/7GVzEt1ql9HbxmQ+KGIQNIQNxAJx14PpX1B/w0Z+z3/0XfwZ/4VFp/wDHKAPAP+Hvv/BUH/pAV44/8PXof/xuj/h77/wVB/6QFeOP/D16H/8AG69//wCGjP2e/wDou/gz/wAKi0/+OUf8NGfs9/8ARd/Bn/hUWn/xygDwD/h77/wVB/6QFeOP/D16H/8AG6P+Hvv/AAVB/wCkBXjj/wAPXof/AMbr3/8A4aM/Z7/6Lv4M/wDCotP/AI5R/wANGfs9/wDRd/Bn/hUWn/xygDwD/h77/wAFQf8ApAV44/8AD16H/wDG68u/bX/b2/4KmftbfskfEX9mWw/4IaeM9Dm8deErzRotYm+MGiTrZtPGUEpjCqXAznbuGfWvtD/hoz9nv/ou/gz/AMKi0/8AjlH/AA0Z+z3/ANF38Gf+FRaf/HKAPzx/Zi8Hfth/8EEfA/hT4vaRp3iHxt+zvq3hvTpfjJ8MZLtr7VPh5qjQp9r1PTQGZXtBIXeaFDgfMwzgMP14+B3x0+EX7Snws0f42fAn4gab4o8La9ai40rWdJuBJFMnQjjlWUgqyMAysCCAQRXzv+1T+1j+z1+yh+z3q37QXx58Z2Ft4TtrLKsGSY6o0iny7a3TOJ5JeiqMg5yeMmvn3/g3r/ZB/aN+Ft18TP2ufFvh68+E3wx+L+rHVvh/+zxuLpokLkEajMsmTazzKP8AURbVCsNw+VFUA/TaiiigAooooA8F/ap/4JgfsCftveObD4l/tXfsw+HfG+u6ZpK6ZYanq/neZDaLLJKIR5cijaHlkbpnLmvMf+IfP/gjH/0j78Ef+TX/AMer7IooA+N/+IfP/gjH/wBI+/BH/k1/8eo/4h8/+CMf/SPvwR/5Nf8Ax6vsiigD43/4h8/+CMf/AEj78Ef+TX/x6j/iHz/4Ix/9I+/BH/k1/wDHq+yKKAPjf/iHz/4Ix/8ASPvwR/5Nf/Hq8G/4Ki/8EPv+CUfwa/4J1/Gj4q/Cn9iDwjo/iXw/8PNSvtD1Wz+0mW1uY4WZJEzKRuBwRkGv1BqtrGi6N4i0ybRfEGk219Z3C7Z7S8gWWKQZzhlYEEZAPI7UAfkd/wAEif8AgmR8f/2vNK+Fv7Z//BUrw/8AZdB+HvhjT7T4HfBG5jYWunJBbxoms6lC4/eXcmwOiOPkBUkDCqP16ACgKoAAHAFAAUBVAAA4AooAKKKKAP/Z" alt="插图"></span>
+      </button>
+      <button type="button" class="opt" data-unit="11" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">二叉树 <img src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAIBAQEBAQIBAQECAgICAgQDAgICAgUEBAMEBgUGBgYFBgYGBwkIBgcJBwYGCAsICQoKCgoKBggLDAsKDAkKCgr/2wBDAQICAgICAgUDAwUKBwYHCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgr/wAARCABOAGMDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD9/KK4/wCP0Pxwn+DXiGH9mu78P2/jttPYeGJvFUcj6cl1kYM4i+cpjP3eelfAPxg+N/8AwX8/ZesfDnxF+PHiv9nG68K33jvQtC1aPw3oupveLHqGoQ2m+NZXVSV83PJHSgD9LqCQOp69K+Df+Cknir9rL4WftK+CP2nP2Kv2tfDGry+HbqHQviB+zz4u8Z6dp+nanp9xMvm3kckrK9tdx5Vi77sImVGA6SeO/tZftMeJP+Cl3/BQzw3+y3+zz+2la/Cn4UfA27g174o/Ebw/4qtLa51XxAyN9n0mwllzHcLCrbpThov3jBgSqggH6qUVleB/Efhzxd4Q03xJ4R8W22v6Zd2iPZ61Z3Mc0V8mMCZZIvkcNjOV+U544rxnW/25bHR/+CkOif8ABPMfDqaW51n4YXPjL/hKP7QURwxxXX2f7P5OzLEk53bgB6UAe90V8R/8FWfjJ8Yfhx+1f+xv4D+GfxT13w5pfjn44SaV4utdGvfKXVbFbJpfs8wwQyFlHbIycEHmvXv+CmX7bt1/wTz/AGStX/afs/hovi6TS9X0yxXQ31f7CJvtd5FbbvO8qXbt8zdjac4xkdaAPfqKqaBf3eq6DZanqFolvPc2kcs8EcvmLG7KCVDYG4AkjOBnGcCk8Q6zb+HNAvvEN3G7xWFnLcSon3mVELEDPfAoAuUV+TfhX/g7o/Y88aTTy+F/2O/jtqtjZ3ht77UNG8LQXccBB+bJjmIyBzgkHFfZ/wDwTr/4K0fsVf8ABUTw7q2rfsrePr241Lw95f8AwkPhjXtMey1LTRISEaSJiVZCVI3xs65GCQeKAPpWiiigDkfj94z1L4c/Anxr8QdFu4oL3QvCWo6hZzzqCkcsNtJIjMDwQGUZBr8wf2SP2av+Cvf/AAU6/ZN+Ev7Rf7Rv/BRTwyPCfiO/0PxnL4C/4VNBDK32S/juooWuopEZQRCGDKvO4cYr9Mv2nfgdZ/tM/s8+NP2edS8X6loFp428OXWi3usaOE+12sFxGYpXhLgqJNjMFYggEg4OMV+Zn7ZXwK+L3/BKO5/ZM+D/AOzP/wAFCPi0mg+J/jpoHgu58MeJNRs7mxh8PLHI9wFSO1RwqBIgTu4Vz9QAcv4N0n4fan/wWJ/bIPjf/gmff/tAlPEHhv7PPZaRpF1/Yw/swZU/2hNGV8zg/JnOzntXzn+wTofwun/4IY+KL3Vf+CQWp+MdUGieNinxbi0LQpIrQi7v9khlmuFuR9lGEOEyPJ+TIAz9R/FnwT+xb4j/AGs/iR+1j+zr/wAHE0fwiu/ijd2Vz4h0LwxdaTJEzW1usEWWnYscAMeQMFiK+RP+CWngL4Z/Ez/gnBZ/D/4j/wDBwVqnwh0nXL3xDYav8KkbShAltLqF0jufPIkxcoxmPP8Ay2OOMUAftD/wRm/5RSfs+/8AZKtI/wDSda+d/wBrDxl4n/Z+/wCC8PhL9pjVfgR8R/E/hCz/AGdbnRbzUvAvgq61YQXs+qNJHE/kqQCVjY9cgY9RX1D/AME0tY/Zn0v9k3wr8CP2XP2gdL+JOh/DHRLPw5N4j0ueORZHihXbvMZKBym1ioJxuHrXnX7Dv7Tnx0+L3/BSP9rD4GfELx42oeE/hprXh+38GaR9gt4xYJd2HnTDzEjEkuXXI3s2Nx7YwAfIn/BUf/goj4A+I37XX7GnijT/ANnr41adF4U+OEuoXVrrfwsvrS4vkNhInlWkbrm5lyc+WnOOa6b/AILT/tkD9sb9gfXPgV8G/wBkj4+vrl/4l0K5iOqfB3UreBIoNSt5ZGeQodoCKT07V61/wWJ/5Pf/AGDP+zh5v/TbJX3N8RL+80r4f67qmnXDRXFto11LBKvVHWJirD3BANAF3w6rJ4fsUdSCLOIEEdPkFZvxT/5Jh4j/AOwDef8Aoh6+Wv8Agg38Xfi/8ff+CYngH4z/AB3+KOseMPFHiK51O41HWNakRpSFvpokjXYqgIqRqAMZ68819S/FP/kmHiP/ALAN5/6IegD8CP8Ag2F/4Ku/sAfsE/sufEz4b/taftE6d4P1rVvifNqGn2N5p91M01t9lhj8wGGJwBuRhgnPFfQX/BGjRdK/a6/4LkfHr/gp3+yx8OP+Ea+BF/4Rfw5pWsQL5MfijUvOsxJcC3LBo1draSY5QBdseQGYkee/8Gln7KP7J3x6/ZC+KniX4+/ALwR4s1K0+K81vaXvifQLa7mhh+yQNsVpVJC7iTgcZJrpv2WfAHwE/Z4/4OgJvgl/wS/1kaf4Cuvhtd3Xxx8KeGrlX0Kwv0D7YkUZRHSQ2pKqf3byMgK/OgAP2vooooA5z4v+K/F3gT4V+IvG3gLwQfE2taRotzeaZ4eW7+ztqU0UbOtusmx9jORtB2nkjivzb8MXn/BQX/grF+2d+zr8X/jL/wAE8td+BHw4+CnibUPFerX3jTxJbzXetXMtl5FpbwWyxrKuGYs5ZdpUkEqQob9R6KAOZuPhH8HLeGS6ufhf4aVEUvI7aHb8Ackn5K+F/wDg3D+CHhqy/wCCUHg6D4jfCCyh1X/hK/FDSprnh9FuNh1y9MZIlTdgoVK57YxxX6HUUAUdB8L+GfCts9n4X8O2OmwyPvkisLRIVZsYyQgAJx3r86/Ff7Dn/BX/AOB/7enxw/ae/Yd8ffBKPw98YNS0u6msvH8GoS3UH2OzWBQBAoVckuep4x0r9IqKAPy4+M/7AP8AwXc/av8Aif8AC34tfGf48fs46Lqfwb8YnxJ4Si0nQNWliubpoGhYTgsCUCt0BBz3r0rx3+z3/wAHCfjXSdb0y/8A25PgFpOnX2j3EK2vh/4XXk9wGaErtjNzMAGY92JAJ6EcV9+0UAfJf/BDn9nz4yfss/8ABMT4a/Az4/8AhCbQvFuiQX66tplxJG7RNJfTyKSY2ZeVdW4J619WavpVlrmk3WiajGXt7y3eCdAxBZHUqwyOnBNWKCQOSaAPz607/g2I/wCCSGircRaH8K/GNhHdytLcQ2PxJ1WFJHbqSqTgGvo79h//AIJofsT/APBOfw5f+Hv2RPgbYeF21cINa1X7RLdX2ohGZkE1xOzO6qXbC5CjJwBXu9FABRRRQAUUUUAeefEn9rv9k/4NeJ28E/GD9p/4d+FNZSFJn0jxL41sLG6WN+VcxTyq4U4ODjB7Vgf8PEf+Cf3/AEfR8HP/AA5ulf8AyRX5sfGL9mn9n79qL/g5q+KXgr9ov4NeHPG2kWP7NWk31npvibSo7uGG5F9aRiVUkBAcJI6564cjvX0x/wAOgv8Aglt/0j/+E3/hE2n/AMRQB9H/APDxH/gn9/0fR8HP/Dm6V/8AJFH/AA8R/wCCf3/R9Hwc/wDDm6V/8kV84f8ADoL/AIJbf9I//hN/4RNp/wDEUf8ADoL/AIJbf9I//hN/4RNp/wDEUAfR/wDw8R/4J/f9H0fBz/w5ulf/ACRR/wAPEf8Agn9/0fR8HP8Aw5ulf/JFfOH/AA6C/wCCW3/SP/4Tf+ETaf8AxFH/AA6C/wCCW3/SP/4Tf+ETaf8AxFAH0f8A8PEf+Cf3/R9Hwc/8ObpX/wAkV8l/8Fzf+CkH7O+k/wDBK74ra1+zB+3F4Bfx/YW+kXfhceEPiHp8+pLcxazYyboI4ZmdyqqzEAEbQ2RjNdL/AMOgv+CW3/SP/wCE3/hE2n/xFH/DoL/glt/0j/8AhN/4RNp/8RQBof8ABLj/AIKfeNfjVrzfsTft3eHbXwZ+0J4b0iO7e2Rtth4100qNmr6a5AVww5khHzRtngAEL9w18Lf8FAP2HvhP+1R8JrPV9Q8YH4feMPh4Tq/w8+KOmSLBdeE7uFdwmD5ANvhQJImO1lHYgEdH/wAETP2+/jB/wUB/ZQufHHxq8CCHV/C3iC48Pv450qIpovjT7M2w6pp+8K/luR8wKBQxIUnkKAfY1FFFABRRRQB+cn7W/wDwSw/4KG+JP+Cm/iP/AIKHfsRftN/DTwlN4k+HVj4Tu9M8beG7q/cQwyJK7AR4UEvFGQc5wCO9Rf8ADH3/AAcQ/wDR9/7O3/htL7/4qv0gooA/N/8A4Y+/4OIf+j7/ANnb/wANpff/ABVH/DH3/BxD/wBH3/s7f+G0vv8A4qv0gooA/N//AIY+/wCDiH/o+/8AZ2/8Npff/FUf8Mff8HEP/R9/7O3/AIbS+/8Aiq/SCigD83/+GPv+DiH/AKPv/Z2/8Npff/FV45+3/N/wX2/4J+/sgeNP2wfG/wC1/wDAbX9K8FWltPd6RpXw6u0uLgTXcFsAjSOFBDThjnspr9g68k/bo/ZC8Eft6fsteJ/2TfiVrt9p2geLmsE1i500Dzzb29/b3bxoTwpkEHl7+du/dg4wQD84LWL4sf8ABwN8QLX4XfDTxLqnhv8AZN8J3MafErxlZIbeb4k6nEVMuk2JOGFijAiSYcMeBniv1k8B+BPB3wv8F6V8Ovh54astG0LRLCKy0nStOt1igtbeNQqRoigBQAAOKy/gj8EfhT+zh8KdD+CHwR8EWPh3wt4csEs9H0jT4tscES/qzE5ZnYlmYliSSTXVUAFFFFAH/9k=" alt="插图"></span>
+      </button>
+      <button type="button" class="opt" data-unit="11" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">栈 <img src="data:image/jpeg;base64,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" alt="插图"></span>
+      </button>
+      <button type="button" class="opt" data-unit="11" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">队列</span>
+      </button></div></section><section class="q-card" data-q="12" id="q12" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 12 题">12</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem">独根树的高度为 1。具有 61 个结点的完全二叉树的高度为（）。</div><div class="opts">
+      <button type="button" class="opt" data-unit="12" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">7</span>
+      </button>
+      <button type="button" class="opt" data-unit="12" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">5</span>
+      </button>
+      <button type="button" class="opt" data-unit="12" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">8</span>
+      </button>
+      <button type="button" class="opt" data-unit="12" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">6</span>
+      </button></div></section><section class="q-card" data-q="13" id="q13" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 13 题">13</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem">干支纪年法是中国传统的纪年方法，由 10 个天干和 12 个地支组合成 60 个天干地支。由公历年份可以根据以下公式和表格换算出对应的天干地支。</div><div class="opts">
+      <button type="button" class="opt" data-unit="13" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">己亥</span>
+      </button>
+      <button type="button" class="opt" data-unit="13" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">己丑</span>
+      </button>
+      <button type="button" class="opt" data-unit="13" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">己卯</span>
+      </button>
+      <button type="button" class="opt" data-unit="13" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">己酉</span>
+      </button></div></section></div><p class="prose">天干=（公历年份）除以 10 所得余数<br>地支=（公历年份）除以 12 所得余数</p><div class="page-sep">第 3 页</div><p class="prose">| 天干 | 甲 | 乙 | 丙 | 丁 | 戊 | 己 | 庚 | 辛 | 壬 | 癸 |  |  |<br>| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |<br>|  | 4 | 5 | 6 | 7 | 8 | 9 | 0 | 1 | 2 | 3 |  |  |<br>| 地支 | 子 | 丑 | 寅 | 卯 | 辰 | 巳 | 午 | 未 | 申 | 酉 | 戌 | 亥 |<br>|  | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 0 | 1 | 2 | 3 |</p><p class="prose">例如，今年是 2020 年，2020 除以 10 余数为 0，查表为“庚”；2020 除以 12，余数为 4，查表为“子”，所以今年是庚子年。</p><p class="prose">请问 1949 年的天干地支是（）</p><div class="q-zone"><section class="q-card" data-q="14" id="q14" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 14 题">14</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem">10 个三好学生名额分配到 7 个班级，每个班级至少有一个名额，一共有（）种不同的分配方案。</div><div class="opts">
+      <button type="button" class="opt" data-unit="14" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">56</span>
+      </button>
+      <button type="button" class="opt" data-unit="14" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">84</span>
+      </button>
+      <button type="button" class="opt" data-unit="14" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">72</span>
+      </button>
+      <button type="button" class="opt" data-unit="14" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">504</span>
+      </button></div></section><section class="q-card" data-q="15" id="q15" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 15 题">15</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem">有五副不同颜色的手套（共 10 只手套，每副手套左右手各 1 只），一次性从中取 6 只手套，请问恰好能配成两副手套的不同取法有（）种。</div><div class="opts">
+      <button type="button" class="opt" data-unit="15" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">30</span>
+      </button>
+      <button type="button" class="opt" data-unit="15" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">150</span>
+      </button>
+      <button type="button" class="opt" data-unit="15" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">180</span>
+      </button>
+      <button type="button" class="opt" data-unit="15" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">120</span>
+      </button></div></section></div><h2 class="section-title">二、阅读程序（程序输入不超过数组或字符串定义的范围；判断题正确填√，错误填×；除特殊说明外，判断题1.5分，选择题3分，共计40分）</h2><div class="code-wrap"><div class="code-bar"><span>C++</span><span class="code-dots">●●●</span></div><pre>#<span class="tok-key">include</span> &lt;cstdlib&gt;
+#<span class="tok-key">include</span> &lt;iostream&gt;
+<span class="tok-key">using</span> <span class="tok-key">namespace</span> std;
+<span class="tok-key">char</span> encoder[26] = {'C', 'S', 'P', 0};
+<span class="tok-key">char</span> decoder[26];
+string st;
+<span class="tok-key">int</span> <span class="tok-key">main</span>() {
+    <span class="tok-key">int</span> k = 0;
+    <span class="tok-key">for</span> (<span class="tok-key">int</span> i = 0; i &lt; 26; ++i)
+        <span class="tok-key">if</span> (encoder[i] != 0)
+            ++k;
+    <span class="tok-key">for</span> (<span class="tok-key">char</span> x = 'A'; x &lt;= 'Z'; ++x) {
+        bool flag = true;
+        <span class="tok-key">for</span> (<span class="tok-key">int</span> i = 0; i &lt; 26; ++i)
+            <span class="tok-key">if</span> (encoder[i] == x) {
+                flag = false;
+                break;
+            }
+        <span class="tok-key">if</span> (flag) {
+            encoder[k] = x;
+            ++k;
+        }
+    }
+    <span class="tok-key">for</span> (<span class="tok-key">int</span> i = 0; i &lt; 26; ++i)
+        decoder[encoder[i] - 'A'] = i + 'A';
+    cin &gt;&gt; st;
+    <span class="tok-key">for</span> (<span class="tok-key">int</span> i = 0; i &lt; st.length(); ++i)
+        st[i] = decoder[st[i] - 'A'];
+    cout &lt;&lt; st;
+    <span class="tok-key">return</span> 0;
+}</pre></div><div class="page-sep">第 4 页</div><p class="prose">- 判断题</p><div class="q-zone"><section class="q-card" data-q="16" id="q16" data-kind="true_false"><div class="q-head"><span class="q-no" title="卷面第 1 题">1</span><span class="q-type">判断题</span><span class="q-mark" data-mark></span></div><div class="q-stem">输入的字符串应当只由大写字母组成，否则在访问数组时可能越界。（）</div><div class="opts is-tf">
+      <button type="button" class="opt" data-unit="16" data-value="T"><span class="opt-key">对</span></button>
+      <button type="button" class="opt" data-unit="16" data-value="F"><span class="opt-key">错</span></button>
+    </div></section><section class="q-card" data-q="17" id="q17" data-kind="true_false"><div class="q-head"><span class="q-no" title="卷面第 2 题">2</span><span class="q-type">判断题</span><span class="q-mark" data-mark></span></div><div class="q-stem">若输入的字符串不是空串，则输入的字符串与输出的字符串一定不一样。（）</div><div class="opts is-tf">
+      <button type="button" class="opt" data-unit="17" data-value="T"><span class="opt-key">对</span></button>
+      <button type="button" class="opt" data-unit="17" data-value="F"><span class="opt-key">错</span></button>
+    </div></section><section class="q-card" data-q="18" id="q18" data-kind="true_false"><div class="q-head"><span class="q-no" title="卷面第 3 题">3</span><span class="q-type">判断题</span><span class="q-mark" data-mark></span></div><div class="q-stem">将第12行的“i &lt; 26”改为“i &lt; 16”，程序运行结果不会改变。（）</div><div class="opts is-tf">
+      <button type="button" class="opt" data-unit="18" data-value="T"><span class="opt-key">对</span></button>
+      <button type="button" class="opt" data-unit="18" data-value="F"><span class="opt-key">错</span></button>
+    </div></section><section class="q-card" data-q="19" id="q19" data-kind="short"><div class="q-head"><span class="q-no" title="卷面第 4 题">4</span><span class="q-type">简答题</span><span class="q-mark" data-mark></span></div><div class="q-stem">将第26行的“i &lt; 26”改为“i &lt; 16”，程序运行结果不会改变。</div><textarea class="short-input" data-unit="19" rows="3" placeholder="在这里作答"></textarea></section></div><h2 class="section-title">- 单选题</h2><div class="q-zone"><section class="q-card" data-q="20" id="q20" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 5 题">5</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem">若输出的字符串为“ABCABCABCA”，则下列说法正确的是（）。A. 输入的字符串中既有 A 又有 P</div><div class="opts">
+      <button type="button" class="opt" data-unit="20" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">输入的字符串中既有 S 又有 B</span>
+      </button>
+      <button type="button" class="opt" data-unit="20" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">输入的字符串中既有 S 又有 P</span>
+      </button>
+      <button type="button" class="opt" data-unit="20" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">输入的字符串中既有 A 又有 B</span>
+      </button></div></section><section class="q-card" data-q="21" id="q21" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 6 题">6</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem">若输出的字符串为“CSPCSPCSPCSP”，则下列说法正确的是（）。A. 输入的字符串中既有 J 又有 R</div><div class="opts">
+      <button type="button" class="opt" data-unit="21" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">输入的字符串中既有 P 又有 K</span>
+      </button>
+      <button type="button" class="opt" data-unit="21" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">输入的字符串中既有 J 又有 K</span>
+      </button>
+      <button type="button" class="opt" data-unit="21" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">输入的字符串中既有 P 又有 R</span>
+      </button></div></section></div><p class="program-title"></p><p class="prose">01 #include &amp;lt;iostream&amp;gt;</p><div class="code-wrap"><div class="code-bar"><span>C++</span><span class="code-dots">●●●</span></div><pre><span class="tok-key">using</span> <span class="tok-key">namespace</span> std;
+long long n, ans;
+<span class="tok-key">int</span> k, len;
+long long d[1000000];
+<span class="tok-key">int</span> <span class="tok-key">main</span>() {
+    cin &gt;&gt; n &gt;&gt; k;
+    d[0] = 0;
+    len = 1;
+    ans = 0;
+    <span class="tok-key">for</span> (long long i = 0; i &lt; n; ++i) {
+        ++d[0];
+        <span class="tok-key">for</span> (<span class="tok-key">int</span> j = 0; j + 1 &lt; len; ++j) {
+            <span class="tok-key">if</span> (d[j] == k) {
+                d[j] = 0;
+                d[j + 1] += 1;
+                ++ans;
+            }
+        }
+        <span class="tok-key">if</span> (d[len - 1] == k) {
+            d[len - 1] = 0;
+            d[len] = 1;
+            ++len;
+            ++ans;
+        }
+    }
+    cout &lt;&lt; ans &lt;&lt; endl;
+    <span class="tok-key">return</span> 0;
+}</pre></div><p class="prose">假设输入的 n 是不超过  <math><msup><mn>2</mn><mn>62</mn></msup></math>  的正整数，k 都是不超过 10000 的正整数，完成下面的判断题和单选题:</p><div class="page-sep">第 5 页</div><h2 class="section-title">- 判断题</h2><div class="q-zone"><section class="q-card" data-q="22" id="q22" data-kind="true_false"><div class="q-head"><span class="q-no" title="卷面第 1 题">1</span><span class="q-type">判断题</span><span class="q-mark" data-mark></span></div><div class="q-stem">若 k=1，则输出 ans 时，len=n。（）</div><div class="opts is-tf">
+      <button type="button" class="opt" data-unit="22" data-value="T"><span class="opt-key">对</span></button>
+      <button type="button" class="opt" data-unit="22" data-value="F"><span class="opt-key">错</span></button>
+    </div></section><section class="q-card" data-q="23" id="q23" data-kind="true_false"><div class="q-head"><span class="q-no" title="卷面第 2 题">2</span><span class="q-type">判断题</span><span class="q-mark" data-mark></span></div><div class="q-stem">若 k&gt;1，则输出 ans 时，len 一定小于 n。（）</div><div class="opts is-tf">
+      <button type="button" class="opt" data-unit="23" data-value="T"><span class="opt-key">对</span></button>
+      <button type="button" class="opt" data-unit="23" data-value="F"><span class="opt-key">错</span></button>
+    </div></section><section class="q-card" data-q="24" id="q24" data-kind="true_false"><div class="q-head"><span class="q-no" title="卷面第 3 题">3</span><span class="q-type">判断题</span><span class="q-mark" data-mark></span></div><div class="q-stem">若 k&gt;1，则输出 ans 时， <math><msup><mi>k</mi><mrow><mi>l</mi><mi>e</mi><mi>n</mi></mrow></msup></math>  一定大于 n。（）</div><div class="opts is-tf">
+      <button type="button" class="opt" data-unit="24" data-value="T"><span class="opt-key">对</span></button>
+      <button type="button" class="opt" data-unit="24" data-value="F"><span class="opt-key">错</span></button>
+    </div></section></div><h2 class="section-title">- 单选题</h2><div class="q-zone"><section class="q-card" data-q="25" id="q25" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 4 题">4</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem">若输入的 n 等于  <math><msup><mn>10</mn><mn>15</mn></msup></math> ，输入的 k 为 1，则输出等于（）。</div><div class="opts">
+      <button type="button" class="opt" data-unit="25" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text"><math><mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msup><mn>10</mn><mn>30</mn></msup><mo>−</mo><msup><mn>10</mn><mn>15</mn></msup><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mi>/</mi><mn>2</mn></mrow></math></span>
+      </button>
+      <button type="button" class="opt" data-unit="25" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text"><math><mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msup><mn>10</mn><mn>30</mn></msup><mo>+</mo><msup><mn>10</mn><mn>15</mn></msup><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mi>/</mi><mn>2</mn></mrow></math></span>
+      </button>
+      <button type="button" class="opt" data-unit="25" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">1</span>
+      </button>
+      <button type="button" class="opt" data-unit="25" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text"><math><msup><mn>10</mn><mn>15</mn></msup></math></span>
+      </button></div></section></div><div class="page-sep">第 6 页</div><div class="q-zone"><section class="q-card" data-q="26" id="q26" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 5 题">5</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem">若输入的 n 等于 205,891,132,094,649(即  <math><msup><mn>3</mn><mn>30</mn></msup></math> )，输入的 k 为 3，则输出等于（）。</div><div class="opts">
+      <button type="button" class="opt" data-unit="26" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text"><math><mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msup><mn>3</mn><mn>30</mn></msup><mo>−</mo><mn>1</mn><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mi>/</mi><mn>2</mn></mrow></math></span>
+      </button>
+      <button type="button" class="opt" data-unit="26" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text"><math><msup><mn>3</mn><mn>30</mn></msup></math></span>
+      </button>
+      <button type="button" class="opt" data-unit="26" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text"><math><mrow><msup><mn>3</mn><mn>30</mn></msup><mo>−</mo><mn>1</mn></mrow></math></span>
+      </button>
+      <button type="button" class="opt" data-unit="26" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text"><math><mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msup><mn>3</mn><mn>30</mn></msup><mo>+</mo><mn>1</mn><mo fence="true" form="postfix" stretchy="false">)</mo></mrow><mi>/</mi><mn>2</mn></mrow></math></span>
+      </button></div></section><section class="q-card" data-q="27" id="q27" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 6 题">6</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem">若输入的 n 等于 100,010,002,000,090，输入的 k 为 10，则输出等于（）。</div><div class="opts">
+      <button type="button" class="opt" data-unit="27" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">11,112,222,444,543</span>
+      </button>
+      <button type="button" class="opt" data-unit="27" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">11,122,222,444,453</span>
+      </button>
+      <button type="button" class="opt" data-unit="27" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">11,122,222,444,543</span>
+      </button>
+      <button type="button" class="opt" data-unit="27" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">11,112,222,444,453</span>
+      </button></div></section></div><div class="code-wrap"><div class="code-bar"><span>C++</span><span class="code-dots">●●●</span></div><pre>#<span class="tok-key">include</span> &lt;algorithm&gt;
+#<span class="tok-key">include</span> &lt;iostream&gt;
+<span class="tok-key">using</span> <span class="tok-key">namespace</span> std;
+<span class="tok-key">int</span> n;
+<span class="tok-key">int</span> d[50][2];
+<span class="tok-key">int</span> ans;
+<span class="tok-key">void</span> dfs(<span class="tok-key">int</span> n, <span class="tok-key">int</span> sum) {
+    <span class="tok-key">if</span> (n == 1) {
+        ans = max(sum, ans);
+        <span class="tok-key">return</span>;
+    }
+    <span class="tok-key">for</span> (<span class="tok-key">int</span> i = 1; i &lt; n; ++i) {
+        <span class="tok-key">int</span> a = d[i - 1][0], b = d[i - 1][1];
+        <span class="tok-key">int</span> x = d[i][0], y = d[i][1];
+        d[i - 1][0] = a + x;
+        d[i - 1][1] = b + y;
+        <span class="tok-key">for</span> (<span class="tok-key">int</span> j = i; j &lt; n - 1; ++j)
+            d[j][0] = d[j + 1][0], d[j][1] = d[j + 1][1];
+        <span class="tok-key">int</span> s = a + x + abs(b - y);
+        dfs(n - 1, sum + s);
+        <span class="tok-key">for</span> (<span class="tok-key">int</span> j = n - 1; j &gt; i; --j)
+            d[j][0] = d[j - 1][0], d[j][1] = d[j - 1][1];
+        d[i - 1][0] = a, d[i - 1][1] = b;
+        d[i][0] = x, d[i][1] = y;
+    }
+}
+<span class="tok-key">int</span> <span class="tok-key">main</span>() {
+    cin &gt;&gt; n;
+    <span class="tok-key">for</span> (<span class="tok-key">int</span> i = 0; i &lt; n; ++i)
+        cin &gt;&gt; d[i][0];
+    <span class="tok-key">for</span> (<span class="tok-key">int</span> i = 0; i &lt; n; ++i)
+        cin &gt;&gt; d[i][1];
+    ans = 0;
+    dfs(n, 0);
+    cout &lt;&lt; ans &lt;&lt; endl;
+    <span class="tok-key">return</span> 0;
+}</pre></div><div class="page-sep">第 7 页</div><p class="prose">假设输入的 n 是不超过 50 的正整数，d[i][0]、d[i][1]都是不超过 10000 的正整数，完成下面的判断题和单选题:</p><p class="prose">- 判断题</p><div class="q-zone"><section class="q-card" data-q="28" id="q28" data-kind="true_false"><div class="q-head"><span class="q-no" title="卷面第 1 题">1</span><span class="q-type">判断题</span><span class="q-mark" data-mark></span></div><div class="q-stem">若输入 n 为  <math><mi>θ</mi></math> ，此程序可能会死循环或发生运行错误。（）</div><div class="opts is-tf">
+      <button type="button" class="opt" data-unit="28" data-value="T"><span class="opt-key">对</span></button>
+      <button type="button" class="opt" data-unit="28" data-value="F"><span class="opt-key">错</span></button>
+    </div></section><section class="q-card" data-q="29" id="q29" data-kind="true_false"><div class="q-head"><span class="q-no" title="卷面第 2 题">2</span><span class="q-type">判断题</span><span class="q-mark" data-mark></span></div><div class="q-stem">若输入 n 为 20，接下来的输入全为 0，则输出为 0。（）</div><div class="opts is-tf">
+      <button type="button" class="opt" data-unit="29" data-value="T"><span class="opt-key">对</span></button>
+      <button type="button" class="opt" data-unit="29" data-value="F"><span class="opt-key">错</span></button>
+    </div></section><section class="q-card" data-q="30" id="q30" data-kind="short"><div class="q-head"><span class="q-no" title="卷面第 3 题">3</span><span class="q-type">简答题</span><span class="q-mark" data-mark></span></div><div class="q-stem">输出的数一定不小于输入的 d[i][θ] 和 d[i][1] 的任意一个。</div><textarea class="short-input" data-unit="30" rows="3" placeholder="在这里作答"></textarea></section></div><h2 class="section-title">- 单选题</h2><div class="q-zone"><section class="q-card" data-q="31" id="q31" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 4 题">4</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem">若输入的 n 为 20，接下来的输入是 20 个 9 和 20 个 0，则输出为（）。</div><div class="opts">
+      <button type="button" class="opt" data-unit="31" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">1917</span>
+      </button>
+      <button type="button" class="opt" data-unit="31" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">1908</span>
+      </button>
+      <button type="button" class="opt" data-unit="31" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">1881</span>
+      </button>
+      <button type="button" class="opt" data-unit="31" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">1890</span>
+      </button></div></section><section class="q-card" data-q="32" id="q32" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 5 题">5</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem">若输入的 n 为 30，接下来的输入是 30 个 0 和 30 个 5，则输出为（）。</div><div class="opts">
+      <button type="button" class="opt" data-unit="32" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">2020</span>
+      </button>
+      <button type="button" class="opt" data-unit="32" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">2030</span>
+      </button>
+      <button type="button" class="opt" data-unit="32" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">2010</span>
+      </button>
+      <button type="button" class="opt" data-unit="32" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">2000</span>
+      </button></div></section><section class="q-card" data-q="33" id="q33" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 6 题">6</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem">（4分）若输入的 n 为 15，接下来的输入是 15 到 1，以及 15 到 1，则输出为（）。</div><div class="opts">
+      <button type="button" class="opt" data-unit="33" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">2420</span>
+      </button>
+      <button type="button" class="opt" data-unit="33" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">2220</span>
+      </button>
+      <button type="button" class="opt" data-unit="33" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">2440</span>
+      </button>
+      <button type="button" class="opt" data-unit="33" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">2240</span>
+      </button></div></section></div><h2 class="section-title">三、完善程序（单选题，每小题3分，共计30分）</h2><h2 class="section-title">1. （质因数分解）给出正整数 n，请输出将 n 质因数分解的结果，结果从小到大输出。</h2><p class="prose">例如:输入 n=120，程序应该输出 2 2 2 3 5，表示  <math><mrow><mn>120</mn><mo>=</mo><mn>2</mn><mo>×</mo><mn>2</mn><mo>×</mo><mn>2</mn><mo>×</mo><mn>3</mn><mo>×</mo><mn>5</mn></mrow></math> 。输入保证  <math><mrow><mn>2</mn><mo>⩽</mo><mi>n</mi><mo>⩽</mo><msup><mn>10</mn><mn>9</mn></msup></mrow></math> 。提示:先从小到大枚举变量 i，然后用 i 不停试除 n 来寻找所有的质因子。</p><p class="prose">试补全程序。</p><p class="prose">#include &amp;lt;cstdio&amp;gt;<br>using namespace std;</p><div class="page-sep">第 8 页</div><div class="code-wrap"><div class="code-bar"><span>C++</span><span class="code-dots">●●●</span></div><pre><span class="tok-key">int</span> n, i;
+<span class="tok-key">int</span> <span class="tok-key">main</span>() {
+    <span class="tok-key">scanf</span>(<span class="tok-str">&quot;%d&quot;</span>, &amp;n);
+    <span class="tok-key">for</span> (i = <span class="blank">①</span>; <span class="blank">②</span> &lt;= n; i++) {
+        <span class="blank">③</span> {
+            <span class="tok-key">printf</span>(<span class="tok-str">&quot;%d &quot;</span>, i);
+            n = n / i;
+        }
+    }
+    <span class="tok-key">if</span> (<span class="blank">④</span>)
+        <span class="tok-key">printf</span>(<span class="tok-str">&quot;%d &quot;</span>, <span class="blank">⑤</span>);
+    <span class="tok-key">return</span> 0;</pre></div><p class="prose">17 }</p><div class="q-zone"><section class="q-card" data-q="34" id="q34" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 1 题">1</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem"><span class="circled">①</span>处应填（）</div><div class="opts">
+      <button type="button" class="opt" data-unit="34" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">n - 1</span>
+      </button>
+      <button type="button" class="opt" data-unit="34" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">0</span>
+      </button>
+      <button type="button" class="opt" data-unit="34" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">1</span>
+      </button>
+      <button type="button" class="opt" data-unit="34" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">2</span>
+      </button></div></section><section class="q-card" data-q="35" id="q35" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 2 题">2</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem"><span class="circled">②</span>处应填（）</div><div class="opts">
+      <button type="button" class="opt" data-unit="35" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">n / i</span>
+      </button>
+      <button type="button" class="opt" data-unit="35" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">n / (i * i)</span>
+      </button>
+      <button type="button" class="opt" data-unit="35" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">i * i * i</span>
+      </button>
+      <button type="button" class="opt" data-unit="35" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">i * i</span>
+      </button></div></section><section class="q-card" data-q="36" id="q36" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 3 题">3</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem"><span class="circled">③</span>处应填（）</div><div class="opts">
+      <button type="button" class="opt" data-unit="36" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">if (i * i &lt;= n)</span>
+      </button>
+      <button type="button" class="opt" data-unit="36" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">if (n % i == 0)</span>
+      </button>
+      <button type="button" class="opt" data-unit="36" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">while (i * i &lt;= n)</span>
+      </button>
+      <button type="button" class="opt" data-unit="36" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">while (n % i == 0)</span>
+      </button></div></section><section class="q-card" data-q="37" id="q37" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 4 题">4</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem"><span class="circled">④</span>处应填（）</div><div class="opts">
+      <button type="button" class="opt" data-unit="37" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">n &gt; 1</span>
+      </button>
+      <button type="button" class="opt" data-unit="37" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">n &lt;= 1</span>
+      </button>
+      <button type="button" class="opt" data-unit="37" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">i + i &lt;= n</span>
+      </button>
+      <button type="button" class="opt" data-unit="37" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">i &lt; n / i</span>
+      </button></div></section><section class="q-card" data-q="38" id="q38" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 5 题">5</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem"><span class="circled">⑤</span>处应填（）</div><div class="opts">
+      <button type="button" class="opt" data-unit="38" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">2</span>
+      </button>
+      <button type="button" class="opt" data-unit="38" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">i</span>
+      </button>
+      <button type="button" class="opt" data-unit="38" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">n / i</span>
+      </button>
+      <button type="button" class="opt" data-unit="38" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">n</span>
+      </button></div></section></div><p class="program-title">(最小区间覆盖)给出 n 个区间，第 i 个区间的左右端点是  <math><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><msub><mi>a</mi><mi>i</mi></msub><mo separator="true">,</mo><msub><mi>b</mi><mi>i</mi></msub><mo fence="true" form="postfix" stretchy="false">]</mo></mrow></math> 。现在要在这些区间中选出若干个，使得区间  <math><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mi>θ</mi><mo separator="true">,</mo><mi>m</mi><mo fence="true" form="postfix" stretchy="false">]</mo></mrow></math>  被所选区间的并覆盖（即每一个  <math><mrow><mi>θ</mi><mo>⩽</mo><mi>i</mi><mo>⩽</mo><mi>m</mi></mrow></math>  都在某个所选的区间中）。保证答案存在，求所选区间个数的最小值。</p><p class="prose">输入第一行包含两个整数 n 和 m ( <math><mrow><mn>1</mn><mo>⩽</mo><mi>n</mi><mo>⩽</mo><mn>5000</mn><mo separator="true">,</mo><mn>1</mn><mo>⩽</mo><mi>m</mi><mo>⩽</mo><msup><mn>10</mn><mn>9</mn></msup></mrow></math> )。</p><p class="prose">接下来 n 行，每行两个整数  <math><msub><mi>a</mi><mi>i</mi></msub></math> ， <math><msub><mi>b</mi><mi>i</mi></msub></math>  ( <math><mrow><mi>θ</mi><mo>⩽</mo><msub><mi>a</mi><mi>i</mi></msub></mrow></math> ， <math><mrow><msub><mi>b</mi><mi>i</mi></msub><mo>⩽</mo><mi>m</mi></mrow></math> )。</p><p class="prose">提示:使用贪心法解决这个问题。先用  <math><mrow><mi>θ</mi><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><msup><mi>n</mi><mn>2</mn></msup><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math>  的时间复杂度排序，然后贪心选择这些区间。</p><p class="prose">试补全程序。</p><div class="page-sep">第 9 页</div><div class="code-wrap"><div class="code-bar"><span>C++</span><span class="code-dots">●●●</span></div><pre>#<span class="tok-key">include</span> &lt;iostream&gt;
+<span class="tok-key">using</span> <span class="tok-key">namespace</span> std;
+<span class="tok-key">const</span> <span class="tok-key">int</span> MAXN = 5000;
+<span class="tok-key">int</span> n, m;
+struct segment {
+    <span class="tok-key">int</span> a, b;
+} A[MAXN];
+<span class="tok-key">void</span> sort() <span class="tok-com">// 排序</span>
+{
+    <span class="tok-key">for</span> (<span class="tok-key">int</span> i = 0; i &lt; n; i++)
+        <span class="tok-key">for</span> (<span class="tok-key">int</span> j = 1; j &lt; n; j++)
+            <span class="tok-key">if</span> (<span class="blank">①</span>) {
+                segment t = A[j];
+                <span class="blank">②</span>
+            }
+}
+<span class="tok-key">int</span> <span class="tok-key">main</span>() {
+    cin &gt;&gt; n &gt;&gt; m;
+    <span class="tok-key">for</span> (<span class="tok-key">int</span> i = 0; i &lt; n; i++)
+        cin &gt;&gt; A[i].a &gt;&gt; A[i].b;
+    sort();
+    <span class="tok-key">int</span> p = 1;
+    <span class="tok-key">for</span> (<span class="tok-key">int</span> i = 1; i &lt; n; i++)
+        <span class="tok-key">if</span> (<span class="blank">③</span>)
+            A[p++] = A[i];
+    n = p;
+    <span class="tok-key">int</span> ans = 0, r = 0;
+    <span class="tok-key">int</span> q = 0;
+    <span class="tok-key">while</span> (r &lt; m) {
+        <span class="tok-key">while</span> (<span class="blank">④</span>)
+            q++;
+        <span class="blank">⑤</span>;
+        ans++;
+    }
+    cout &lt;&lt; ans &lt;&lt; endl;
+    <span class="tok-key">return</span> 0;
+}</pre></div><div class="page-sep">第 10 页</div><p class="prose"><img src="data:image/jpeg;base64,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" alt="插图"></p><div class="q-zone"><section class="q-card" data-q="39" id="q39" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 1 题">1</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem"><span class="circled">①</span>处应填（）</div><div class="opts">
+      <button type="button" class="opt" data-unit="39" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">A[j].b &lt; A[j - 1].b</span>
+      </button>
+      <button type="button" class="opt" data-unit="39" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">A[j].b &gt; A[j - 1].b</span>
+      </button>
+      <button type="button" class="opt" data-unit="39" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">A[j].a &lt; A[j - 1].a</span>
+      </button>
+      <button type="button" class="opt" data-unit="39" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">A[j].a &gt; A[j - 1].a</span>
+      </button></div></section><section class="q-card" data-q="40" id="q40" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 2 题">2</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem"><span class="circled">②</span>处应填（）</div><div class="opts">
+      <button type="button" class="opt" data-unit="40" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">A[j - 1] = A[j]; A[j] = t;</span>
+      </button>
+      <button type="button" class="opt" data-unit="40" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">A[j + 1] = A[j]; A[j] = t;</span>
+      </button>
+      <button type="button" class="opt" data-unit="40" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">A[j] = A[j - 1]; A[j - 1] = t;</span>
+      </button>
+      <button type="button" class="opt" data-unit="40" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">A[j] = A[j + 1]; A[j + 1] = t;</span>
+      </button></div></section><section class="q-card" data-q="41" id="q41" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 3 题">3</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem"><span class="circled">③</span>处应填（）</div><div class="opts">
+      <button type="button" class="opt" data-unit="41" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">A[i].b &lt; A[p - 1].b</span>
+      </button>
+      <button type="button" class="opt" data-unit="41" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">A[i].b &gt; A[i - 1].b</span>
+      </button>
+      <button type="button" class="opt" data-unit="41" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">A[i].b &gt; A[p - 1].b</span>
+      </button>
+      <button type="button" class="opt" data-unit="41" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">A[i].b &lt; A[i - 1].b</span>
+      </button></div></section><section class="q-card" data-q="42" id="q42" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 4 题">4</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem"><span class="circled">④</span>处应填（）</div><div class="opts">
+      <button type="button" class="opt" data-unit="42" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text">q + 1 &lt; n &amp;&amp; A[q + 1].b &lt;= r</span>
+      </button>
+      <button type="button" class="opt" data-unit="42" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text">q + 1 &lt; n &amp;&amp; A[q + 1].a &lt;= r</span>
+      </button>
+      <button type="button" class="opt" data-unit="42" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text">q &lt; n &amp;&amp; A[q].a &lt;= r</span>
+      </button>
+      <button type="button" class="opt" data-unit="42" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text">q &lt; n &amp;&amp; A[q].b &lt;= r</span>
+      </button></div></section><section class="q-card" data-q="43" id="q43" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 5 题">5</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem"><span class="circled">⑤</span>处应填（）</div><div class="opts">
+      <button type="button" class="opt" data-unit="43" data-value="A">
+        <span class="opt-key">A</span><span class="opt-text"><math><mrow><mi>r</mi><mo>=</mo><mrow><mi>max</mi><mo>⁡</mo></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>r</mi><mo separator="true">,</mo><mi>A</mi><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mi>q</mi><mo>+</mo><mn>1</mn><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mi>.</mi><mi>a</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math></span>
+      </button>
+      <button type="button" class="opt" data-unit="43" data-value="B">
+        <span class="opt-key">B</span><span class="opt-text"><math><mrow><mi>r</mi><mo>=</mo><mrow><mi>max</mi><mo>⁡</mo></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>r</mi><mo separator="true">,</mo><mi>A</mi><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mi>q</mi><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mi>.</mi><mi>b</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math></span>
+      </button>
+      <button type="button" class="opt" data-unit="43" data-value="C">
+        <span class="opt-key">C</span><span class="opt-text"><math><mrow><mi>r</mi><mo>=</mo><mrow><mi>max</mi><mo>⁡</mo></mrow><mrow><mo fence="true" form="prefix" stretchy="false">(</mo><mi>r</mi><mo separator="true">,</mo><mi>A</mi><mrow><mo fence="true" form="prefix" stretchy="false">[</mo><mi>q</mi><mo>+</mo><mn>1</mn><mo fence="true" form="postfix" stretchy="false">]</mo></mrow><mi>.</mi><mi>b</mi><mo fence="true" form="postfix" stretchy="false">)</mo></mrow></mrow></math></span>
+      </button>
+      <button type="button" class="opt" data-unit="43" data-value="D">
+        <span class="opt-key">D</span><span class="opt-text"><math><mrow><mi>q</mi><mo>+</mo><mo form="prefix" stretchy="false">+</mo></mrow></math></span>
+      </button></div></section></div>
+  </main>
+</div>
+<footer>自包含答题页:正文来自转换后的 Markdown,答案来自题库或 answers.json,图片内联,公式为 MathML;未改写题目内容。</footer>
+<script>
+const answers = new Map();
+const total = 43;
+const startAt = Date.now();
+let finishedAt = 0;
+const esc = function (value) {
+  return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
+    return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch];
+  });
+};
+const letters = function (value) {
+  return String(value == null ? '' : value).toUpperCase().replace(/[^A-H]/g, '').split('').sort().join('');
+};
+const truth = function (value) {
+  const text = String(value == null ? '' : value).trim().toLowerCase();
+  if (['t', 'true', '对', '正确', '√', 'y', 'yes', '1'].indexOf(text) >= 0) return 'T';
+  if (['f', 'false', '错', '错误', '×', 'x', 'n', 'no', '0'].indexOf(text) >= 0) return 'F';
+  return text;
+};
+const plain = function (value) {
+  return String(value == null ? '' : value).replace(/s+/g, '').trim();
+};
+
+function refresh() {
+  const done = answers.size;
+  document.getElementById('progress').textContent = '已答 ' + done + ' / ' + total;
+  document.getElementById('doneCount').textContent = String(done);
+  document.getElementById('sideBar').style.width = (total ? Math.round(done / total * 100) : 0) + '%';
+}
+function tick() {
+  if (finishedAt) return;
+  const seconds = Math.floor((Date.now() - startAt) / 1000);
+  document.getElementById('timer').textContent =
+    String(Math.floor(seconds / 60)).padStart(2, '0') + ':' + String(seconds % 60).padStart(2, '0');
+}
+setInterval(tick, 1000);
+tick();
+
+document.querySelectorAll('.opt').forEach(function (button) {
+  button.addEventListener('click', function () {
+    const card = button.closest('.q-card');
+    const unit = card.dataset.q;
+    const multi = button.closest('.opts') && button.closest('.opts').dataset.multi === '1';
+    const group = button.parentElement;
+    if (!multi) group.querySelectorAll('.opt').forEach(function (other) { other.classList.remove('sel'); });
+    button.classList.toggle('sel');
+    const selected = [].slice.call(group.querySelectorAll('.opt.sel')).map(function (item) { return item.dataset.value; });
+    if (selected.length) answers.set(unit, selected.join('')); else answers.delete(unit);
+    refresh();
+    const target = document.querySelector('[data-target="q' + unit + '"]');
+    if (target) target.classList.toggle('done', answers.has(unit));
+  });
+});
+document.querySelectorAll('.blank-input, .short-input').forEach(function (input) {
+  input.addEventListener('input', function () {
+    const unit = input.dataset.unit;
+    if (input.value.trim()) answers.set(unit, input.value); else answers.delete(unit);
+    refresh();
+  });
+});
+document.querySelectorAll('.grid-btn').forEach(function (button) {
+  button.addEventListener('click', function () {
+    const target = document.getElementById(button.dataset.target);
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+});
+
+function markCard(card, status) {
+  card.classList.add('graded');
+  if (status) card.classList.add(status);
+  const mark = card.querySelector('.q-mark');
+  if (mark) {
+    mark.textContent = status === 'correct' ? '✓ 正确' : status === 'wrong' ? '✗ 错误' : '参考';
+    mark.className = 'q-mark ' + (status || '');
+  }
+  card.querySelectorAll('.opt').forEach(function (opt) { opt.disabled = true; });
+  const input = card.querySelector('.blank-input, .short-input');
+  if (input) input.disabled = true;
+}
+function explain(card, expected, analysis) {
+  const box = document.createElement('div');
+  box.className = 'q-explain';
+  const parts = [];
+  if (expected) parts.push('<b>参考答案:</b> ' + esc(expected));
+  if (analysis) parts.push(esc(analysis));
+  box.innerHTML = '<span class="ex-label">解析</span>' + (parts.join('<br>') || '本题未提供解析。');
+  card.appendChild(box);
+}
+
+function grade() {
+  if (finishedAt) return;
+  finishedAt = Date.now();
+  let correct = 0;
+  let wrong = 0;
+  let unanswered = 0;
+  let ungraded = 0;
+  document.querySelectorAll('.q-card').forEach(function (card) {
+    const kind = card.dataset.kind;
+    const expected = String(card.dataset.answer || '').trim();
+    const analysis = card.dataset.analysis || '';
+    const reference = card.dataset.reference || '';
+    const got = answers.get(card.dataset.q) || '';
+    if (!expected) {
+      if (reference) { markCard(card, ''); explain(card, reference, analysis); }
+      ungraded += 1;
+      return;
+    }
+    if (kind === 'short' || kind === 'program') {
+      markCard(card, '');
+      explain(card, reference || expected, analysis);
+      ungraded += 1;
+      return;
+    }
+    let ok = false;
+    if (!got) unanswered += 1;
+    else if (kind === 'choice') ok = letters(got) === letters(expected);
+    else if (kind === 'true_false') ok = truth(got) === truth(expected);
+    else ok = plain(got) === plain(expected);
+    if (got) { if (ok) correct += 1; else wrong += 1; }
+    markCard(card, ok ? 'correct' : 'wrong');
+    if (!got) {
+      const mark = card.querySelector('.q-mark');
+      if (mark) { mark.textContent = '未答'; mark.className = 'q-mark wrong'; }
+    }
+    const shown = kind === 'true_false' ? (truth(expected) === 'T' ? '对' : '错') : expected;
+    explain(card, shown, analysis);
+    const map = document.querySelector('[data-target="q' + card.dataset.q + '"]');
+    if (map) map.className = 'grid-btn ' + (ok && got ? 'right' : 'wrong');
+  });
+  const gradedTotal = correct + wrong + unanswered;
+  const percent = gradedTotal ? Math.round(correct / gradedTotal * 100) : 0;
+  document.getElementById('ring').style.setProperty('--p', String(percent));
+  document.getElementById('score').textContent = String(percent);
+  document.getElementById('right').textContent = String(correct);
+  document.getElementById('wrong').textContent = String(wrong + unanswered);
+  document.getElementById('rate').textContent = gradedTotal ? percent + '%' : '—';
+  const elapsed = Math.max(0, Math.round((finishedAt - startAt) / 1000));
+  document.getElementById('elapsed').textContent = Math.floor(elapsed / 60) + ':' + String(elapsed % 60).padStart(2, '0');
+  const note = gradedTotal
+    ? '客观题 ' + gradedTotal + ' 题：答对 ' + correct + '、答错 ' + wrong + '、未答 ' + unanswered +
+      (ungraded ? '；另有 ' + ungraded + ' 题为主观题或未提供答案，请对照参考答案自评' : '') + '。'
+    : '本卷没有可自动判分的答案；请在原文核对，或补充答案后重新生成。';
+  document.getElementById('resultText').textContent = note;
+  document.getElementById('result').classList.add('show');
+  document.getElementById('submit').disabled = true;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+document.getElementById('submit').addEventListener('click', grade);
+</script>
+</body>
+</html>

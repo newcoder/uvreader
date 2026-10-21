@@ -62,6 +62,39 @@ A. 1 B. 2 C. 3 D. 4
   assert.equal(result.stats.ai.answers, 0);
 });
 
+test("the model structure list stops numbered pseudocode from becoming questions", async () => {
+  const markdown = `## 一、单项选择题
+
+1. 冒泡排序伪代码：
+2. FLAG = n
+3. while FLAG > 1 do
+4. 第二题（）
+A. 1 B. 2 C. 3 D. 4
+`;
+  let called = 0;
+  const result = await buildQuizPaper({
+    markdown,
+    baseDir: process.cwd(),
+    structure: async () => { called += 1; return '{"starts":[3,6]}'; },
+  });
+  assert.equal(called, 1);
+  assert.equal(result.stats.structure, "ai");
+  assert.equal(result.stats.units, 2, "伪代码行不再各算一题");
+  assert.match(result.html, /FLAG = n/);
+  assert.doesNotMatch(result.html, /data-q="3"/);
+});
+
+test("an invalid structure answer falls back to rules", async () => {
+  const markdown = "## 一、单项选择题\n\n1. 第一题（）\nA. 1 B. 2\n2. 第二题（）\nA. 1 B. 2\n";
+  const result = await buildQuizPaper({
+    markdown,
+    baseDir: process.cwd(),
+    structure: async () => '{"starts":[999]}',
+  });
+  assert.equal(result.stats.structure, "rules");
+  assert.equal(result.stats.units, 2);
+});
+
 test("an image after the options becomes a figure, not part of the last option", async () => {
   const markdown = `## 一、单项选择题
 

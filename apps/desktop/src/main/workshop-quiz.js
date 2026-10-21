@@ -57,7 +57,7 @@ export function registerQuizRunners(workshop, {
     const config = normalizeAiConfig(payload.config);
     const canAI = Boolean(aiRuntime && config.id && config.base && config.model
       && (!config.needsKey || config.key));
-    const solve = canAI
+    const askAi = canAI
       ? async (messages, options = {}) => {
         const requestId = `quiz-ai-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
         const inner = options.signal;
@@ -78,12 +78,13 @@ export function registerQuizRunners(workshop, {
       }
       : null;
 
-    report({ label: canAI ? "AI 生成答案/解析…" : "渲染答题页…" });
+    report({ label: canAI ? "AI 识别题目 + 生成答案…" : "渲染答题页…" });
     const result = await buildQuizPaper({
       markdown: extracted.markdown,
       baseDir: path.dirname(extracted.path || absolute),
       bank,
-      solve,
+      solve: askAi,
+      structure: askAi,
       title: stem,
       signal,
       onProgress: (done, total) => report({ label: `AI 生成答案/解析 ${done} / ${total}` }),
@@ -92,7 +93,11 @@ export function registerQuizRunners(workshop, {
     fs.mkdirSync(path.dirname(out), { recursive: true });
     fs.writeFileSync(out, result.html, "utf8");
     const ai = result.stats.ai;
-    const bits = [`${result.stats.units} 题`, `有答案 ${result.stats.answered} 题`];
+    const bits = [
+      `${result.stats.units} 题`,
+      `题目识别 ${result.stats.structure === "ai" ? "AI" : "规则"}`,
+      `有答案 ${result.stats.answered} 题`,
+    ];
     if (canAI) bits.push(`AI 补答案 ${ai.answers} · 补解析 ${ai.analyses}${ai.failed ? ` · 失败 ${ai.failed}` : ""}`);
     else bits.push("未配置 AI:仅用原文/题库答案");
     return { output: out, detail: bits.join(" · ") };

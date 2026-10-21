@@ -105,6 +105,48 @@ export function normalizeSolve(raw) {
   return { answer, analysis };
 }
 
+// 题目边界识别:只输出「真正题干的起始行号」,不生成正文。
+export function buildStructureMessages({ numbered = "", candidates = [] } = {}) {
+  return [
+    {
+      role: "system",
+      content: `你是试卷结构分析器，负责找出每道题的起始行。${JSON_RULES}`,
+    },
+    {
+      role: "user",
+      content: [
+        "下面是带行号的试卷 Markdown。请找出所有**真正题干的起始行**。",
+        "注意：",
+        "1) 伪代码、算法步骤、代码行即使以数字开头也不是题目；",
+        "2) 选项行（A. / B. / C. / D.）不是题目；",
+        "3) 小节标题、页眉页脚、答案/解析不是题目；",
+        "4) 只返回输入里存在的行号，不要编造。",
+        "",
+        `候选题号行（规则识别，可能有误）: ${candidates.join(", ") || "(无)"}`,
+        "",
+        "带行号的原文:",
+        numbered,
+        "",
+        'JSON 字段：starts（题目起始行号数组）。示例：{"starts":[40,57,71]}',
+      ].join("\n"),
+    },
+  ];
+}
+
+export function parseStructureStarts(text, { maxLine = 0, candidates = [] } = {}) {
+  const raw = parseJudgeJson(text);
+  const list = Array.isArray(raw?.starts) ? raw.starts : Array.isArray(raw) ? raw : [];
+  const allowed = new Set((candidates || []).map(Number));
+  const starts = [];
+  for (const value of list) {
+    const line = Number(value);
+    if (!Number.isInteger(line) || line < 1 || (maxLine && line > maxLine)) continue;
+    if (allowed.size && !allowed.has(line)) continue;
+    if (!starts.includes(line)) starts.push(line);
+  }
+  return starts.sort((a, b) => a - b);
+}
+
 export function parseJudgeJson(text) {
   let value = String(text ?? "").replace(/^\uFEFF/, "").trim();
   if (!value) return null;

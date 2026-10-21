@@ -31,10 +31,14 @@ function makeRunner({ aiRuntime = null } = {}) {
 }
 
 test("quiz-export writes an answering page next to the source", async () => {
-  const calls = [];
+  const calls = { structure: 0, solve: 0 };
   const aiRuntime = {
     stream: async (payload) => {
-      calls.push(payload.messages[1].content);
+      if (String(payload.messages[0]?.content || "").includes("结构分析器")) {
+        calls.structure += 1;
+        return { ok: true, answer: '{"starts":[3]}' };
+      }
+      calls.solve += 1;
       return { ok: true, answer: JSON.stringify({ answer: "B", analysis: "1+1=2" }) };
     },
     abort: () => {},
@@ -57,8 +61,10 @@ test("quiz-export writes an answering page next to the source", async () => {
   const html = fs.readFileSync(out, "utf8");
   assert.match(html, /data-answer="B"/);
   assert.match(html, /1\+1=2/);
-  assert.equal(calls.length, 1);
   assert.match(result.detail, /AI 补答案 1/);
+  assert.match(result.detail, /题目识别 AI/);
+  assert.equal(calls.structure, 1);
+  assert.equal(calls.solve, 1);
 });
 
 test("quiz-export still works without AI: raw answers only", async () => {
