@@ -108,6 +108,21 @@ D. 丁
   assert.doesNotMatch(card, /A\. 甲[\s\S]*A\. 甲/, "A 不应该同时留在题干和选项里");
 });
 
+test("an OCR list marker l before 判断题 still switches the section type", async () => {
+  const markdown = `## l 单选题
+
+21. 选择题（）。A. 甲 B. 乙
+
+l 判断题
+
+22. 输出的第二行一定由字母组成。
+23. 可能存在输入不同但输出相同的情形。
+`;
+  const result = await buildQuizPaper({ markdown, baseDir: process.cwd() });
+  const cards = [...result.html.matchAll(/data-q="(\d+)"[^>]*data-kind="([^"]+)"/g)].map((match) => [match[1], match[2]]);
+  assert.deepEqual(cards, [["1", "choice"], ["2", "true_false"], ["3", "true_false"]]);
+});
+
 test("markdown tables inside a question render as a real table", async () => {
   const markdown = `## 一、单项选择题
 

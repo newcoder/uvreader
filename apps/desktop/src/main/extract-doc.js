@@ -451,12 +451,16 @@ export async function mergePdfMarkdown({ docPath, source, python = "python", wor
 export async function extractMarkdown(source, { kind, settings = {}, docvortex, workDir, signal, log = () => {}, spawnImpl = spawn, textLayer = null, refresh = false, engine = null, report = null } = {}) {
   const resolvedKind = kind || extractionKind(source);
   // 提取产物里的「假代码块」(MinerU 把正文段落包进围栏)按段落还原,公式才会渲染。
-  const readMarkdown = (file) => {
-    const raw = fs.readFileSync(file, "utf8");
-    let cleaned = unwrapProseFences(raw);
+  const repairMarkdown = (text) => {
+    let cleaned = unwrapProseFences(text);
     cleaned = joinSplitCodeFences(cleaned);
     cleaned = stripCodeLineNumbers(cleaned);
-    if (cleaned !== raw) log("prose fences unwrapped", path.basename(file));
+    return cleaned;
+  };
+  const readMarkdown = (file) => {
+    const raw = fs.readFileSync(file, "utf8");
+    const cleaned = repairMarkdown(raw);
+    if (cleaned !== raw) log("markdown code fences repaired", path.basename(file));
     return cleaned;
   };
   if (resolvedKind === "pdf") {
@@ -495,6 +499,7 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
       const cachedRaw = fs.readFileSync(mergedPath, "utf8");
       // 老缓存里没有脚注(上游 Doc JSON 丢了这个类型):复用顺手补上,缓存自愈。
       let cachedText = appendFootnotes(cachedRaw, collectPageFootnotes(workDir));
+      cachedText = repairMarkdown(cachedText);
       // R2:上游标了 continuation 的半句接回上一段(老缓存里没有标记就什么都不做)。
       cachedText = joinContinuationLines(cachedText, collectContinuations(docCandidates.find(fresh)));
       if (cachedText !== cachedRaw) fs.writeFileSync(mergedPath, cachedText, "utf8");
@@ -569,6 +574,7 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
     if (merged) {
       // 脚注在上面两步里都不会出现(上游 Doc JSON 丢了这个类型):写完合并稿再补。
       let withNotes = appendFootnotes(merged, collectPageFootnotes(workDir));
+      withNotes = repairMarkdown(withNotes);
       // R2:上游标了 continuation 的半句接回上一段。
       withNotes = joinContinuationLines(withNotes, collectContinuations(files.json || cachedDoc));
       fs.writeFileSync(mergedPath, withNotes, "utf8");

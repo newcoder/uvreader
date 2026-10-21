@@ -81,14 +81,19 @@ export function joinSplitCodeFences(markdown) {
     const first = blocks[index];
     const second = blocks[index + 1];
     if (first.info || second.info) continue;
-    if (lines.slice(first.end + 1, second.start).some((line) => line.trim())) continue;
+    const between = lines.slice(first.end + 1, second.start);
+    const pageBreak = between.some((line) => /^\s*<!--\s*page:\s*\d+\s*-->\s*$/i.test(line));
+    const onlyFurniture = between.every((line) => !line.trim() || /^\s*<!--\s*page:\s*\d+\s*-->\s*$/i.test(line));
+    if (!onlyFurniture) continue;
     const firstBody = lines.slice(first.bodyStart, first.end).filter((line) => line.trim());
     const secondBody = lines.slice(second.bodyStart, second.end).filter((line) => line.trim());
     if (!firstBody.length || !secondBody.length) continue;
-    const secondNumber = /^\s*(\d{1,3})[\s.]/.exec(secondBody[0]);
-    if (!secondNumber) continue;
-    const firstNumber = /^\s*(\d{1,3})[\s.]/.exec(firstBody[firstBody.length - 1]);
-    if (firstNumber && Number(secondNumber[1]) !== Number(firstNumber[1]) + 1) continue;
+    if (!pageBreak) {
+      const secondNumber = /^\s*(\d{1,3})[\s.]/.exec(secondBody[0]);
+      if (!secondNumber) continue;
+      const firstNumber = /^\s*(\d{1,3})[\s.]/.exec(firstBody[firstBody.length - 1]);
+      if (firstNumber && Number(secondNumber[1]) !== Number(firstNumber[1]) + 1) continue;
+    }
     for (let line = first.end; line <= second.start; line += 1) drop.add(line);
     // 合并后的块继续参与下一轮(整段程序跨三页也能接上)。
     blocks[index + 1] = { ...second, start: first.start, info: "", bodyStart: first.bodyStart };
@@ -140,6 +145,15 @@ export function stripCodeLineNumbers(markdown) {
     if (best.count >= 3 && (best.count >= Math.ceil(body.length * 0.5) || endsAtBlock)) {
       // 记的是**闭区间**的最后一行的下一个位置,和下面 for (index < end) 对齐。
       strips.push([body[best.start], body[best.start + best.count - 1] + 1]);
+    }
+    // 跨页代码里页边行号可能独占一行(如 CSP2021 第 39、43 行):至少两个且递增,
+    // 才按家具行号删除。C/C++ 里独占一行的纯数字不可能是正常语句。
+    const bare = body.filter((lineIndex) => /^\s*\d{1,3}\s*$/.test(lines[lineIndex]));
+    if (bare.length >= 2) {
+      const values = bare.map((lineIndex) => Number(lines[lineIndex].trim()));
+      if (values.every((value, position) => position === 0 || value > values[position - 1])) {
+        for (const lineIndex of bare) lines[lineIndex] = "";
+      }
     }
   };
   lines.forEach((line, index) => {

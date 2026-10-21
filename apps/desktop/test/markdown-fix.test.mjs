@@ -58,6 +58,32 @@ test("a program split across a page break is joined back into one fence", () => 
   assert.match(joined, /23 for \(int i = 0; i < n; \+\+i\)\n```/);
 });
 
+test("a program split across a page marker is joined even when the second part starts mid-statement", () => {
+  const md = [
+    "```",
+    "int main() {",
+    "  g();",
+    "```",
+    "",
+    "<!--page:8-->",
+    "",
+    "```",
+    "g[i * k] = g[i] * k + d[i];",
+    "39",
+    "int main()",
+    "43",
+    "int x;",
+    "```",
+  ].join("\n");
+  const joined = joinSplitCodeFences(md);
+  assert.equal((joined.match(/```/g) || []).length, 2, "页标记两侧的围栏并成一段");
+  assert.doesNotMatch(joined, /<!--page:8-->/);
+  const cleaned = stripCodeLineNumbers(joined);
+  assert.doesNotMatch(cleaned, /^\s*39\s*$/m);
+  assert.doesNotMatch(cleaned, /^\s*43\s*$/m);
+  assert.match(cleaned, /g\[i \* k\] = g\[i\] \* k \+ d\[i\];\n+int main\(\)/);
+});
+
 test("fences separated by text, or with discontinuous numbering, stay split", () => {
   const withLabel = ["```", "01 int main() {", "```", "", "（2）下面是另一个程序", "", "```", "05 int x;", "```"].join("\n");
   assert.equal(joinSplitCodeFences(withLabel), withLabel, "中间有文字不合并");

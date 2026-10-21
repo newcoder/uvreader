@@ -404,11 +404,12 @@ for (let index = 0; index < lines.length; index += 1) {
     blocks.push({ kind: "heading", level: heading[1].length, text: title });
     continue;
   }
-  // 「- 判断题 / - 单选题」在 MinerU 产物里是列表行,也当小节题型处理。
-  if (/^[-*]\s*(?:判断题|单选题|多选题|选择题|填空题)\s*$/.test(trimmed)) {
+  // 「- 判断题 / - 单选题」在 MinerU 产物里是列表行,也当小节题型处理;
+  // OCR 常把列表符识别成 l / I / |,甚至漏掉列表符,只留「判断题」。
+  if (/^(?:[-*lIi|]\s*)?(?:判断题|单选题|多选题|选择题|填空题)\s*$/.test(trimmed)) {
     flushParagraph();
     sectionType = typeFromSectionText(trimmed);
-    blocks.push({ kind: "heading", level: 4, text: trimmed.replace(/^[-*]\s*/, "") });
+    blocks.push({ kind: "heading", level: 4, text: trimmed.replace(/^[-*lIi|]\s*/, "") });
     continue;
   }
   if (/^\s*```/.test(line)) {
