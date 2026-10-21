@@ -245,7 +245,7 @@ for (let index = 0; index < lines.length; index += 1) {
     continue;
   }
   const question = QUESTION.exec(line);
-  const isOptionLine = /^\s*[A-H]\s*[.、．)）]\s+/.test(line);
+  const isOptionLine = /^\s*[A-H]\s*[.、．)）](?:\s|$)/.test(line);
   if (question && !isOptionLine) {
     addUnit(question[1], question[2] || "");
     continue;
@@ -261,6 +261,24 @@ for (let index = 0; index < lines.length; index += 1) {
       lastUnit.options.push({ label: single[1], text: (single[2] || "").trim() });
       continue;
     }
+  }
+  // 原文自带的答案/解析:挂到上一题,不要粘进选项。
+  const answerMeta = /^(?:标准答案|参考答案|答案)\s*[:：]\s*(.*)$/.exec(trimmed);
+  if (answerMeta && lastUnit) {
+    lastUnit.inlineAnswer = answerMeta[1].trim();
+    continue;
+  }
+  const analysisMeta = /^(?:试题解析|答案解析|解析)\s*[:：]\s*(.*)$/.exec(trimmed);
+  if (analysisMeta && lastUnit) {
+    lastUnit.inlineAnalysis = analysisMeta[1].trim();
+    continue;
+  }
+  if (/^(?:试题编号|试题类型|试题难度|题型|难度|知识点|考点|来源|分值|考生答案|考生得分|得分|分数|是否评分|评价描述)\s*[:：]/.test(trimmed)) continue;
+  // 选项文字可能分多行(例如 "A." 单独一行,下一行才是 4*9=):接到最后一个选项上。
+  if (lastUnit && lastUnit.options.length && !isOptionLine) {
+    const last = lastUnit.options[lastUnit.options.length - 1];
+    last.text = `${last.text} ${trimmed}`.trim();
+    continue;
   }
   if (lastUnit && lastUnit.kind === "true_false" && /^[（(]/.test(trimmed)) {
     paragraph.push(line);
@@ -321,6 +339,28 @@ function typeMatches(question, unit) {
   if (unit.kind === "blank") return type === "fill_blank";
   return ["short_answer", "program", "calculation", "proof"].includes(type);
 }
+function applyAnswer(unit, answer, analysis) {
+  const text = String(answer ?? "").trim();
+  if (!text) return false;
+  if (unit.kind === "choice") {
+    const letters = normalizeChoice(text);
+    if (!letters) return false;
+    unit.answer = letters;
+  } else if (unit.kind === "true_false") {
+    const truth = normalizeTruth(text);
+    if (!truth) return false;
+    unit.answer = truth;
+  } else if (unit.kind === "blank") {
+    unit.answer = text;
+  } else if (unit.kind === "short" || unit.kind === "program") {
+    unit.reference = text;
+  } else {
+    return false;
+  }
+  if (analysis) unit.analysis = String(analysis);
+  return true;
+}
+
 function attachAnswers() {
   let bank = [];
   if (bankPath) {
@@ -338,33 +378,24 @@ function attachAnswers() {
   }
   const used = new Set();
   for (const unit of units) {
+    const candidates = (byNumber.get(String(unit.number)) || []).filter((question) => !used.has(question));
+    const bankMatch = candidates.find((question) => typeMatches(question, unit)) || candidates[0];
+    if (bankMatch) used.add(bankMatch);
     const raw = override[unit.number] ?? override[`q${unit.card}`] ?? override[unit.id];
     const entry = raw && typeof raw === "object" ? raw : (raw != null ? { answer: raw } : null);
-    let source = entry;
-    if (!source) {
-      const candidates = (byNumber.get(String(unit.number)) || []).filter((question) => !used.has(question));
-      const match = candidates.find((question) => typeMatches(question, unit)) || candidates[0];
-      if (match) {
-        used.add(match);
-        source = { answer: match.answer, analysis: match.analysis };
-        if (match.type === "multiple_choice") unit.multi = true;
-      }
+    if (entry) {
+      if (bankMatch?.type === "multiple_choice") unit.multi = true;
+      applyAnswer(unit, entry.answer ?? entry.value ?? "", entry.analysis || "");
+      continue;
     }
-    if (!source) continue;
-    const answer = source.answer ?? source.value ?? "";
-    const analysis = String(source.analysis || "");
-    if (unit.kind === "choice") {
-      const letters = normalizeChoice(answer);
-      if (letters) { unit.answer = letters; unit.analysis = analysis; }
-    } else if (unit.kind === "true_false") {
-      const truth = normalizeTruth(answer);
-      if (truth) { unit.answer = truth; unit.analysis = analysis; }
-    } else if (unit.kind === "blank") {
-      const text = String(answer ?? "").trim();
-      if (text) { unit.answer = text; unit.analysis = analysis; }
-    } else if (unit.kind === "short" || unit.kind === "program") {
-      const text = String(answer ?? "").trim();
-      if (text) { unit.reference = text; unit.analysis = analysis; }
+    // 原文自带的「标准答案/试题解析」优先,题库只补空缺。
+    if (unit.inlineAnswer) {
+      applyAnswer(unit, unit.inlineAnswer, unit.inlineAnalysis || bankMatch?.analysis || "");
+      continue;
+    }
+    if (bankMatch) {
+      if (bankMatch.type === "multiple_choice") unit.multi = true;
+      applyAnswer(unit, bankMatch.answer, bankMatch.analysis || "");
     }
   }
 }
