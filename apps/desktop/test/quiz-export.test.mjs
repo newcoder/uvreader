@@ -62,6 +62,26 @@ A. 1 B. 2 C. 3 D. 4
   assert.equal(result.stats.ai.answers, 0);
 });
 
+test("a code line before the fence is absorbed and entities are unescaped", async () => {
+  const markdown = `## 一、单项选择题
+
+1. 程序输出什么（）
+01 #include &lt;iostream&gt;
+<!--page:2-->
+\`\`\`
+using namespace std;
+int main() { return 0; }
+\`\`\`
+A. 1 B. 2 C. 3 D. 4
+`;
+  const result = await buildQuizPaper({ markdown, baseDir: process.cwd() });
+  const pre = /<pre>[\s\S]*?<\/pre>/.exec(result.html)?.[0] || "";
+  const code = pre.replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+  assert.match(code, /#include <iostream>/);
+  assert.match(code, /using namespace std;/);
+  assert.doesNotMatch(result.html, /&amp;lt;/);
+});
+
 test("section types cover statements without parentheses and inline option A", async () => {
   const markdown = `## 二、阅读程序
 
@@ -120,6 +140,23 @@ A. 1 B. 2 C. 3 D. 4
   assert.equal(result.stats.units, 2, "伪代码行不再各算一题");
   assert.match(result.html, /FLAG = n/);
   assert.doesNotMatch(result.html, /data-q="3"/);
+});
+
+test("a real question survives when the model omits its start", async () => {
+  const markdown = `## 一、单项选择题
+
+1. 第一题（）
+A. 1 B. 2
+2. 第二题（）
+A. 1 B. 2
+`;
+  const result = await buildQuizPaper({
+    markdown,
+    baseDir: process.cwd(),
+    structure: async () => '{"starts":[3]}',
+  });
+  assert.equal(result.stats.structure, "ai");
+  assert.equal(result.stats.units, 2, "模型漏掉第二题时,规则仍保留它");
 });
 
 test("an invalid structure answer falls back to rules", async () => {

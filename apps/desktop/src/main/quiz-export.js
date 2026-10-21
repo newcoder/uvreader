@@ -19,7 +19,7 @@ export async function buildQuizPaper({
   codeFormatter = null,
 } = {}) {
   const md = String(markdown || "").replace(/\r\n?/g, "\n");
-  const lines = md.split("\n");
+  const lines = absorbOrphanCode(md.split("\n"));
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -81,8 +81,52 @@ function formatBlock(text, fence) {
   return { language, text: String(text) };
 }
 
+// 跨页时 MinerU 可能把代码第一行丢在围栏外(如 `01 #include <iostream>`):
+// 开围栏时把紧邻的、看起来像代码的行吸进代码块,并去掉页边行号。
+function absorbOrphanCode(lines) {
+  const isCodeLine = (text) => /^\s*(?:\d{1,3}\s+)?(?:#\s*include|#\s*define|using\s+namespace|typedef\b|struct\b|class\b|int\s+[A-Za-z_]|long\s+[A-Za-z_]|char\s+[A-Za-z_]|void\s+[A-Za-z_]|double\s+[A-Za-z_]|const\b)/.test(text);
+  const out = [];
+  let inFence = false;
+  for (const line of lines) {
+    if (/^\s*```/.test(line)) {
+      if (!inFence) {
+        const moved = [];
+        let index = out.length - 1;
+        while (index >= 0) {
+          const text = out[index].trim();
+          if (!text || /^<!--\s*page:\s*\d+\s*-->$/i.test(text)) {
+            index -= 1;
+            continue;
+          }
+          if (!isCodeLine(text)) break;
+          moved.unshift(out[index].replace(/^\s*\d{1,3}\s+/, ""));
+          out.splice(index, 1);
+          index -= 1;
+        }
+        out.push(line);
+        out.push(...moved);
+        inFence = true;
+      } else {
+        out.push(line);
+        inFence = false;
+      }
+      continue;
+    }
+    out.push(line);
+  }
+  return out;
+}
+
+function unescapeCode(text) {
+  return String(text ?? "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+}
 function highlightCode(code, fence) {
-  const formatted = formatBlock(code, fence);
+  const formatted = formatBlock(unescapeCode(code), fence);
   let html = escapeHtml(formatted.text);
   html = html.replace(/(\/\/[^\n]*)/g, '<span class="tok-com">$1</span>');
   html = html.replace(/(&quot;[^&\n]*?&quot;)/g, '<span class="tok-str">$1</span>');
@@ -305,7 +349,9 @@ for (let index = 0; index < lines.length; index += 1) {
   const question = QUESTION.exec(line);
   const isOptionLine = /^\s*[A-H]\s*[.、．)）](?:\s|$)/.test(line);
   if (question && !isOptionLine) {
-    if (allowedStarts && !allowedStarts.has(index + 1)) {
+    if (allowedStarts && !allowedStarts.has(index + 1)
+      && !/[（(]\s*[）)]/.test(trimmed)
+      && !optionRun(trimmed)) {
       // 模型判定这行不是题干(例如伪代码步骤):并入上一题或段落。
       if (lastUnit && !lastUnit.options.length) lastUnit.between.push(trimmed);
       else paragraph.push(line);

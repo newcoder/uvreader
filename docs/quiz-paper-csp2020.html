@@ -404,7 +404,8 @@ string st;
       </button>
       <button type="button" class="opt" data-unit="21" data-value="D">
         <span class="opt-key">D</span><span class="opt-text">输入的字符串中既有 P 又有 R</span>
-      </button></div></section><section class="q-card" data-q="22" id="q22" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 2 题">2</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem"></div><div class="q-note">01 #include &amp;lt;iostream&amp;gt;</div><div class="code-wrap"><div class="code-bar"><span>C++</span><span class="code-dots">●●●</span></div><pre><span class="tok-key">using</span> <span class="tok-key">namespace</span> std;
+      </button></div></section><section class="q-card" data-q="22" id="q22" data-kind="choice"><div class="q-head"><span class="q-no" title="卷面第 2 题">2</span><span class="q-type">选择题</span><span class="q-mark" data-mark></span></div><div class="q-stem"></div><div class="code-wrap"><div class="code-bar"><span>C++</span><span class="code-dots">●●●</span></div><pre>#<span class="tok-key">include</span> &lt;iostream&gt;
+<span class="tok-key">using</span> <span class="tok-key">namespace</span> std;
 long long n, ans;
 <span class="tok-key">int</span> k, len;
 long long d[1000000];
@@ -557,7 +558,9 @@ long long d[1000000];
       </button>
       <button type="button" class="opt" data-unit="34" data-value="D">
         <span class="opt-key">D</span><span class="opt-text">2240</span>
-      </button></div></section></div><h2 class="section-title">三、完善程序（单选题，每小题3分，共计30分）</h2><h2 class="section-title">1. （质因数分解）给出正整数 n，请输出将 n 质因数分解的结果，结果从小到大输出。</h2><p class="prose">例如:输入 n=120，程序应该输出 2 2 2 3 5，表示  <math><mrow><mn>120</mn><mo>=</mo><mn>2</mn><mo>×</mo><mn>2</mn><mo>×</mo><mn>2</mn><mo>×</mo><mn>3</mn><mo>×</mo><mn>5</mn></mrow></math> 。输入保证  <math><mrow><mn>2</mn><mo>⩽</mo><mi>n</mi><mo>⩽</mo><msup><mn>10</mn><mn>9</mn></msup></mrow></math> 。提示:先从小到大枚举变量 i，然后用 i 不停试除 n 来寻找所有的质因子。</p><p class="prose">试补全程序。</p><p class="prose">#include &amp;lt;cstdio&amp;gt;<br>using namespace std;</p><div class="page-sep">第 8 页</div><div class="code-wrap"><div class="code-bar"><span>C++</span><span class="code-dots">●●●</span></div><pre><span class="tok-key">int</span> n, i;
+      </button></div></section></div><h2 class="section-title">三、完善程序（单选题，每小题3分，共计30分）</h2><h2 class="section-title">1. （质因数分解）给出正整数 n，请输出将 n 质因数分解的结果，结果从小到大输出。</h2><p class="prose">例如:输入 n=120，程序应该输出 2 2 2 3 5，表示  <math><mrow><mn>120</mn><mo>=</mo><mn>2</mn><mo>×</mo><mn>2</mn><mo>×</mo><mn>2</mn><mo>×</mo><mn>3</mn><mo>×</mo><mn>5</mn></mrow></math> 。输入保证  <math><mrow><mn>2</mn><mo>⩽</mo><mi>n</mi><mo>⩽</mo><msup><mn>10</mn><mn>9</mn></msup></mrow></math> 。提示:先从小到大枚举变量 i，然后用 i 不停试除 n 来寻找所有的质因子。</p><p class="prose">试补全程序。</p><div class="page-sep">第 8 页</div><div class="code-wrap"><div class="code-bar"><span>C++</span><span class="code-dots">●●●</span></div><pre>#<span class="tok-key">include</span> &lt;cstdio&gt;
+<span class="tok-key">using</span> <span class="tok-key">namespace</span> std;
+<span class="tok-key">int</span> n, i;
 <span class="tok-key">int</span> <span class="tok-key">main</span>() {
     <span class="tok-key">scanf</span>(<span class="tok-str">&quot;%d&quot;</span>, &amp;n);
     <span class="tok-key">for</span> (i = <span class="blank">①</span>; <span class="blank">②</span> &lt;= n; i++) {
