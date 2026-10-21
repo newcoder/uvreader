@@ -38,6 +38,7 @@
   "author": "newcoder",
   "license": "GPL-3.0-only",
   "devDependencies": {
+    "@wasm-fmt/clang-format": "^23.1.1",
     "esbuild": "0.28.1",
     "eslint": "^9.39.5",
     "jsdom": "^29.1.1"

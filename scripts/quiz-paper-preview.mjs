@@ -15,6 +15,15 @@ if (!mdPath || !outPath) {
 const md = fs.readFileSync(mdPath, "utf8").replace(/\r\n?/g, "\n");
 const lines = md.split("\n");
 
+// C/C++/Java/JS/C# 的格式化交给 clang-format(WASM,离线可用);
+// 装不上或格式化失败时退回下面的轻量缩进。
+let clangFormat = null;
+try {
+  ({ format: clangFormat } = await import("@wasm-fmt/clang-format"));
+} catch {
+  clangFormat = null;
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -24,17 +33,80 @@ function escapeHtml(value) {
 }
 
 // 轻量 C++ 着色:注释、字符串、关键字;不引第三方库,离线也能用。
-function highlightCode(code) {
-  let html = escapeHtml(code);
+// 跨页拼接的代码常常一半有缩进、一半从行首开始:clang-format 不可用时的兜底。
+function formatCode(code) {
+  const lines = String(code || "").split("\n");
+  const control = /^(?:for|while|if|else(?:\s+if)?|switch)\b/;
+  const out = [];
+  let level = 0;
+  let pendingBody = false;
+  for (const raw of lines) {
+    const trimmed = raw.trim();
+    if (!trimmed) { out.push(""); continue; }
+    if (trimmed.startsWith("#")) { out.push(trimmed); continue; }
+    if (trimmed.startsWith("}")) level = Math.max(0, level - 1);
+    const indent = level + (pendingBody ? 1 : 0);
+    out.push(`${"    ".repeat(indent)}${trimmed}`);
+    pendingBody = false;
+    if (trimmed.endsWith("{")) {
+      level += 1;
+      continue;
+    }
+    if (control.test(trimmed) && !trimmed.endsWith(";")) pendingBody = true;
+  }
+  return out.join("\n");
+}
+
+const LANGUAGE_LABELS = { cpp: "C++", java: "Java", cs: "C#", js: "JavaScript", python: "Python" };
+const LANGUAGE_FILES = { cpp: "main.cc", java: "Main.java", cs: "Main.cs", js: "main.js" };
+
+function languageOf(text, fence) {
+  const info = String(fence || "").toLowerCase().trim();
+  if (["cpp", "c++", "cc", "cxx", "c", "h", "hpp"].includes(info)) return "cpp";
+  if (info === "java") return "java";
+  if (["cs", "csharp"].includes(info)) return "cs";
+  if (["js", "javascript", "ts", "typescript"].includes(info)) return "js";
+  if (["py", "python"].includes(info)) return "python";
+  if (/#include|using namespace|std::|printf\s*\(|scanf\s*\(|int main\s*\(/.test(text)) return "cpp";
+  if (/public\s+(?:final\s+)?class|System\.out\./.test(text)) return "java";
+  return "other";
+}
+
+function formatBlock(text, fence) {
+  const language = languageOf(text, fence);
+  if (["cpp", "java", "cs", "js"].includes(language)) {
+    if (clangFormat) {
+      try {
+        return {
+          language,
+          text: clangFormat(String(text), LANGUAGE_FILES[language], JSON.stringify({
+            BasedOnStyle: "LLVM",
+            IndentWidth: 4,
+            ColumnLimit: 0,
+            SortIncludes: false,
+          })),
+        };
+      } catch { /* 落到兜底缩进 */ }
+    }
+    return { language, text: formatCode(text) };
+  }
+  return { language, text: String(text) };
+}
+
+function highlightCode(code, fence) {
+  const formatted = formatBlock(code, fence);
+  let html = escapeHtml(formatted.text);
   html = html.replace(/(\/\/[^\n]*)/g, '<span class="tok-com">$1</span>');
   html = html.replace(/(&quot;[^&\n]*?&quot;)/g, '<span class="tok-str">$1</span>');
   html = html.replace(/\b(include|using|namespace|const|int|unsigned|char|void|for|while|if|else|return|scanf|printf|memset|sizeof|main)\b/g, '<span class="tok-key">$1</span>');
   html = html.replace(/([①②③④⑤⑥⑦⑧⑨])/g, '<span class="blank">$1</span>');
-  return html;
+  return { html, language: formatted.language };
 }
 
 function codeHtml(text, lang = "") {
-  return `<div class="code-wrap"><div class="code-bar"><span>${escapeHtml(lang || "code")}</span><span class="code-dots">●●●</span></div><pre>${highlightCode(text)}</pre></div>`;
+  const { html, language } = highlightCode(text, lang);
+  const label = LANGUAGE_LABELS[language] || "CODE";
+  return `<div class="code-wrap"><div class="code-bar"><span>${escapeHtml(label)}</span><span class="code-dots">●●●</span></div><pre>${html}</pre></div>`;
 }
 
 function inline(value, baseDir) {
