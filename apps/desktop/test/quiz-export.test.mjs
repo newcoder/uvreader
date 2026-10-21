@@ -62,6 +62,21 @@ A. 1 B. 2 C. 3 D. 4
   assert.equal(result.stats.ai.answers, 0);
 });
 
+test("markdown tables inside a question render as a real table", async () => {
+  const markdown = `## 一、单项选择题
+
+1. 干支对照表如下（）
+| 天干 | 甲 | 乙 |
+| --- | --- | --- |
+| 序号 | 4 | 5 |
+A. 1 B. 2 C. 3 D. 4
+`;
+  const result = await buildQuizPaper({ markdown, baseDir: process.cwd() });
+  assert.match(result.html, /<table class="q-table">/);
+  assert.match(result.html, /<th>天干<\/th>/);
+  assert.match(result.html, /<td>4<\/td>/);
+});
+
 test("the model structure list stops numbered pseudocode from becoming questions", async () => {
   const markdown = `## 一、单项选择题
 

@@ -244,7 +244,7 @@ for (let index = 0; index < lines.length; index += 1) {
       index += 1;
     }
     const codeBlock = { kind: "code", lang: fence, text: body.join("\n") };
-    if (lastUnit && !lastUnit.options.length && lastUnit.stem.length <= 70) {
+    if (lastUnit && !lastUnit.options.length) {
       lastUnit.between.push(codeBlock);
     } else {
       lastUnit = null;
@@ -279,7 +279,7 @@ for (let index = 0; index < lines.length; index += 1) {
   if (question && !isOptionLine) {
     if (allowedStarts && !allowedStarts.has(index + 1)) {
       // 模型判定这行不是题干(例如伪代码步骤):并入上一题或段落。
-      if (lastUnit && !lastUnit.options.length && lastUnit.stem.length <= 70) lastUnit.between.push(trimmed);
+      if (lastUnit && !lastUnit.options.length) lastUnit.between.push(trimmed);
       else paragraph.push(line);
       continue;
     }
@@ -329,7 +329,7 @@ for (let index = 0; index < lines.length; index += 1) {
     paragraph.push(line);
     continue;
   }
-  if (lastUnit && !lastUnit.options.length && lastUnit.stem.length <= 70) {
+  if (lastUnit && !lastUnit.options.length) {
     lastUnit.between.push(line);
     continue;
   }
@@ -480,6 +480,36 @@ if (typeof solve === "function") {
 }
 const answeredBank = units.filter((unit) => unit.answer).length;
 
+// Markdown 表格(题目里的干支表等):连续 "| ... |" 行 + 分隔行 → 真表格。
+function tableRun(entries, start) {
+  if (typeof entries[start] !== "string" || !entries[start].includes("|")) return null;
+  if (!/^\s*\|?\s*:?-{3,}/.test(entries[start + 1] || "")) return null;
+  const rows = [];
+  let index = start;
+  while (index < entries.length && typeof entries[index] === "string" && entries[index].includes("|")) {
+    rows.push(entries[index]);
+    index += 1;
+  }
+  return rows.length >= 2 ? { rows, end: index } : null;
+}
+
+function tableHtml(rows, baseDir) {
+  const cells = (line) => line.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map((cell) => cell.trim());
+  let header = cells(rows[0]);
+  let body = rows.slice(2).map(cells);
+  const width = Math.max(header.length, ...body.map((row) => row.length));
+  header = [...header, ...Array(width - header.length).fill("")];
+  body = body.map((row) => [...row, ...Array(width - row.length).fill("")]);
+  // 末尾整列为空(提取时多出来的 | | |):去掉,表格才不会多两列空白。
+  let columns = width;
+  while (columns > 0 && !header[columns - 1] && body.every((row) => !row[columns - 1])) columns -= 1;
+  header = header.slice(0, columns);
+  body = body.map((row) => row.slice(0, columns));
+  const head = header.map((cell) => `<th>${inline(cell, baseDir)}</th>`).join("");
+  const bodyHtml = body.map((row) => `<tr>${row.map((cell) => `<td>${inline(cell, baseDir)}</td>`).join("")}</tr>`).join("");
+  return `<div class="q-table-wrap"><table class="q-table"><thead><tr>${head}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`;
+}
+
 function renderUnit(unit) {
   const number = unit.card;
   const head = `<div class="q-head"><span class="q-no" title="卷面第 ${escapeHtml(unit.number)} 题">${escapeHtml(unit.number)}</span><span class="q-type">${
@@ -491,6 +521,12 @@ function renderUnit(unit) {
   }
   const between = unit.between || [];
   for (let index = 0; index < between.length; index += 1) {
+    const table = tableRun(between, index);
+    if (table) {
+      body += tableHtml(table.rows, baseDir);
+      index = table.end - 1;
+      continue;
+    }
     const entry = between[index];
     if (typeof entry !== "string") {
       if (entry?.kind === "code") body += codeHtml(entry.text, entry.lang);
@@ -553,7 +589,15 @@ for (const block of blocks) {
       for (const figure of block.unit.figures || []) {
         html += `<div class="q-fig">${inline(figure, baseDir)}</div>`;
       }
-      for (const entry of block.unit.between || []) {
+      const between = block.unit.between || [];
+      for (let index = 0; index < between.length; index += 1) {
+        const table = tableRun(between, index);
+        if (table) {
+          html += tableHtml(table.rows, baseDir);
+          index = table.end - 1;
+          continue;
+        }
+        const entry = between[index];
         if (typeof entry === "string") {
           html += `<p class="prose">${inline(entry, baseDir)}</p>`;
         } else if (entry?.kind === "code") {
@@ -637,6 +681,10 @@ aside h3{font-size:12px;color:var(--soft);letter-spacing:.06em;margin-bottom:8px
 .program-title{font-weight:600;color:var(--primary-deep);margin-top:18px}
 .q-note{font-family:var(--serif);font-size:14px;line-height:1.8;color:#333a45;margin:6px 0}
 .q-pseudo{font-family:var(--mono);font-size:12.5px;line-height:1.7;white-space:pre;overflow-x:auto;background:#f7f8fb;border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin:8px 0;color:#2c3340}
+.q-table-wrap{overflow-x:auto;margin:8px 0}
+.q-table{border-collapse:collapse;font-size:13px}
+.q-table th,.q-table td{border:1px solid var(--line);padding:4px 9px;text-align:center;white-space:nowrap}
+.q-table th{background:#f6f7fa;font-weight:600}
 .short-input{width:100%;margin-top:10px;border:1px solid var(--line-strong);border-radius:8px;padding:8px 10px;font-family:var(--serif);font-size:14px;background:#fff;color:var(--ink)}
 .page-sep{text-align:center;font-size:10px;color:var(--faint);letter-spacing:.12em;margin:14px 0;border-top:1px dashed var(--line);padding-top:6px}
 .code-wrap{background:#f7f8fb;border:1px solid var(--line);border-radius:9px;overflow:hidden;margin:10px 0}
