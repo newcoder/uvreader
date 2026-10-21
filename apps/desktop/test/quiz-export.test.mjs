@@ -75,6 +75,34 @@ test("an image after the options becomes a figure, not part of the last option",
   assert.match(result.html, /<span class="circled">①<\/span>|<img src="missing-figure.png"/);
 });
 
+test("an image between options stays with the option above it", async () => {
+  const markdown = `## 一、单项选择题
+
+1. 选择正确的图片（）
+A. 第一张
+![图一](a.png)
+B. 第二张
+C. 第三张
+`;
+  const result = await buildQuizPaper({ markdown, baseDir: process.cwd() });
+  assert.match(result.html, /第一张[\s\S]*a\.png/);
+  assert.doesNotMatch(result.html, /class="q-fig"/, "夹在选项中的图不当题干图");
+});
+
+test("an image after the last option without a stem reference stays with that option", async () => {
+  const markdown = `## 一、单项选择题
+
+1. 选择（）
+A. 甲
+B. 乙
+C. 丙
+![图三](c.png)
+`;
+  const result = await buildQuizPaper({ markdown, baseDir: process.cwd() });
+  assert.match(result.html, /丙[\s\S]*c\.png/);
+  assert.doesNotMatch(result.html, /class="q-fig"/);
+});
+
 test("circled blanks are wrapped so their digits stay readable", async () => {
   const result = await buildQuizPaper({
     markdown: "## 一、单项选择题\n\n1. ① 处应填（）\nA. 1 B. 2\n",

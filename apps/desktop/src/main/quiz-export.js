@@ -238,10 +238,21 @@ for (let index = 0; index < lines.length; index += 1) {
     flushParagraph();
     continue;
   }
-  // 独立一行的插图(常见于「如图」题):归到上一题的 figures,
-  // 不要被下面「续接到最后一个选项」的逻辑吃进 C/D。
+  // 独立一行的插图:按位置判断归属——题干提到「如图/右图」且图在最后一项之后
+  // 才归题干;夹在选项之间、紧跟在空选项后、或选项文字提到图,归选项。
   if (lastUnit && /^!\[[^\]]*\]\([^)\s]+\)$/.test(trimmed)) {
-    lastUnit.figures.push(trimmed);
+    const last = lastUnit.options[lastUnit.options.length - 1];
+    const figureRef = (text) => /(?:如|见|下|上|右|左).{0,4}图|图所示|图中/.test(text);
+    const stemRef = figureRef(String(lastUnit.stem || ""));
+    const optionRef = last ? figureRef(String(last.text || "")) : false;
+    const next = lines.slice(index + 1).find((entry) => entry.trim());
+    const nextIsOption = Boolean(next && /^\s*[A-H]\s*[.、．)）]/.test(next));
+    const optionImage = Boolean(last) && (optionRef || !String(last.text || "").trim() || nextIsOption || !stemRef);
+    if (optionImage) {
+      last.text = `${last.text || ""} ${trimmed}`.trim();
+    } else {
+      lastUnit.figures.push(trimmed);
+    }
     continue;
   }
   const question = QUESTION.exec(line);
@@ -634,6 +645,7 @@ math mtd{padding-top:.18em;padding-bottom:.18em}
 .qbr-matrix{display:inline-block;border-left:1.2px solid currentColor;border-right:1.2px solid currentColor;padding:0 .3em;vertical-align:middle}
 .q-fig{display:flex;justify-content:center;padding:6px 0}
 .q-fig img{max-width:100%;max-height:260px;border-radius:6px}
+.opt-text img{max-width:100%;max-height:200px;border-radius:6px;margin-top:4px}
 .math-raw{font-family:var(--mono);font-size:.9em;color:var(--bad)}
 @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 footer{max-width:900px;margin:0 auto 40px;padding:0 18px;font-size:11.5px;color:var(--faint)}
