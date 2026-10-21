@@ -57,10 +57,64 @@ export function unwrapProseFences(markdown) {
   return out.join("\n");
 }
 
+// DOCX/网页导出常把「参考程序」的每一行都当普通段落,中间还夹空行,
+// 结果代码没有围栏。这里把连续的代码样段落重新包成一块,交给后面的格式化器。
+const PROSE_CODE_START = /^\s*(?:#\s*(?:include|define|pragma)\b|using\s+namespace\b|\/\/|\/\*|(?:int|long|short|char|bool|float|double|void|unsigned|signed|const|static|struct|class|enum|typedef|template|namespace|return|if|else|for|while|do|switch|case|break|continue|goto|try|catch|throw|new|delete|public|private|protected|std::|string|vector|map|set|pair|queue|stack|deque)\b)/;
+
+function looksLikeProseCodeLine(line) {
+  const text = String(line || "").trim();
+  if (!text) return false;
+  if (/[\u4e00-\u9fff]/.test(text) && !/^(?:\/\/|\/\*|\*)/.test(text) && !/[;{}]|<<|>>/.test(text)) return false;
+  if (/^(?:#\s*(?:include|define|pragma)\b|using\s+namespace\b|\/\/|\/\*|\*\/|[{}]|[+\-]{1,2}[A-Za-z_])/.test(text)) return true;
+  if (/^(?:int|long|short|char|bool|float|double|void|unsigned|signed|const|static|struct|class|enum|typedef|template|namespace|return|if|else|for|while|do|switch|case|break|continue|goto|try|catch|throw|new|delete|public|private|protected|std::|string|vector|map|set|pair|queue|stack|deque)\b/.test(text)) return true;
+  if (/[;{}]\s*$/.test(text)) return true;
+  return /^[A-Za-z_]\w*(?:\s*\[[^\]]*\])?\s*(?:=|\+=|-=|\*=|<<|>>|\.|->)/.test(text);
+}
+
+export function fenceProseCode(markdown) {
+  const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
+  const out = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (/^\s*```/.test(line)) {
+      out.push(line);
+      index += 1;
+      while (index < lines.length && !/^\s*```/.test(lines[index])) {
+        out.push(lines[index]);
+        index += 1;
+      }
+      if (index < lines.length) out.push(lines[index]);
+      continue;
+    }
+    if (!PROSE_CODE_START.test(line)) {
+      out.push(line);
+      continue;
+    }
+    const code = [];
+    let at = index;
+    while (at < lines.length) {
+      if (!lines[at].trim()) {
+        at += 1;
+        continue;
+      }
+      if (!looksLikeProseCodeLine(lines[at])) break;
+      code.push(lines[at].replace(/\s+$/, ""));
+      at += 1;
+    }
+    if (code.length < 2) {
+      out.push(line);
+      continue;
+    }
+    out.push("```", ...code, "```");
+    index = at - 1;
+  }
+  return out.join("\n");
+}
+
 // MinerU 按页切块:一段程序跨页时会被切成两个相邻的无语言围栏(第二段通常从行号继续,
 // 如 22 memset…),md 里就成了两段代码。这里把这种「跨页截断」的围栏并回一段:
-// 中间只能有空行;两段都必须是没语言标记的裸围栏;第二段第一行要以行号开头;
-// 若第一段末尾也带行号,则必须连续(22 接 21)。有文字/题目标签隔开的一律不动。
+// 中间只能有空行/页标记;两段都必须是没语言标记的裸围栏;第二段第一行要以行号开头,
+// 或两段只是被空行/页标记隔开且不像两个独立程序。有文字/题目标签隔开的一律不动。
 export function joinSplitCodeFences(markdown) {
   const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
   const blocks = [];

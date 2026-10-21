@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { cleanChapterTitle, isProseFence, joinContinuationLines, joinSplitCodeFences, looksLikeHeadingTitle, looksLikeProseBlock, splitMarkdownChapters, stripCodeLineNumbers, unwrapProseFences } from "../src/shared/markdown-fix.js";
+import { cleanChapterTitle, fenceProseCode, isProseFence, joinContinuationLines, joinSplitCodeFences, looksLikeHeadingTitle, looksLikeProseBlock, splitMarkdownChapters, stripCodeLineNumbers, unwrapProseFences } from "../src/shared/markdown-fix.js";
 
 test("stripCodeLineNumbers removes PDF margin numbers only when they are sequential", () => {
   const numbered = "```\n22 memset(cnt, 0, sizeof(cnt));\n23 for (int i = 0; i < n; ++i)\n24   cnt[i] += 1;\n```\n";
@@ -31,6 +31,30 @@ test("stripCodeLineNumbers removes PDF margin numbers only when they are sequent
 
   const padded = "```\n#include <iostream>\n03\nint n;\n```\n";
   assert.doesNotMatch(stripCodeLineNumbers(padded), /^\s*03\s*$/m, "带前导 0 的孤立页码也要剥");
+});
+
+test("prose code paragraphs are fenced again", () => {
+  const md = [
+    "参考程序：",
+    "",
+    "#include &lt;iostream&gt;",
+    "",
+    "using namespace std;",
+    "",
+    "int main() {",
+    "",
+    "int n;",
+    "",
+    "return 0;",
+    "",
+    "}",
+    "",
+    "考生得分：90",
+  ].join("\n");
+  const fenced = fenceProseCode(md);
+  assert.match(fenced, /```\n#include &lt;iostream&gt;\nusing namespace std;\nint main\(\) \{\nint n;\nreturn 0;\n\}\n```/);
+  assert.match(fenced, /考生得分：90/);
+  assert.equal((fenced.match(/```/g) || []).length, 2, "只生成一对围栏");
 });
 
 test("a program split across pages merges first, then loses its line numbers", () => {

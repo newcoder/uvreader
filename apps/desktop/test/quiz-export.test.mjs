@@ -160,6 +160,33 @@ A. 1 B. 2 C. 3 D. 4
   assert.doesNotMatch(result.html, /data-q="3"/);
 });
 
+test("prose code paragraphs are recognized and formatted as a code block", async () => {
+  const markdown = `## 编程题
+
+1. 参考程序：
+ 
+#include &lt;iostream&gt;
+
+using namespace std;
+
+int main() {
+
+int n;
+
+return 0;
+
+}
+
+考生得分：90
+`;
+  const result = await buildQuizPaper({ markdown, baseDir: process.cwd() });
+  assert.equal((result.html.match(/<pre>/g) || []).length, 1);
+  assert.doesNotMatch(result.html, /class="q-note">#include/);
+  const code = /<pre>([\s\S]*?)<\/pre>/.exec(result.html)?.[1].replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&") || "";
+  assert.match(code, /#include <iostream>/);
+  assert.match(code, /\n    int n;/);
+});
+
 test("consecutive code fences in the source are merged before rendering", async () => {
   const markdown = `## 二、阅读程序
 
