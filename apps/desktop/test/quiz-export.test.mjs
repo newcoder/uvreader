@@ -62,6 +62,29 @@ A. 1 B. 2 C. 3 D. 4
   assert.equal(result.stats.ai.answers, 0);
 });
 
+test("section types cover statements without parentheses and inline option A", async () => {
+  const markdown = `## 二、阅读程序
+
+- 判断题
+
+1）这段程序在任何输入下都会结束。
+
+## - 单选题
+
+2）下列说法正确的是（）。A. 甲
+B. 乙
+C. 丙
+D. 丁
+`;
+  const result = await buildQuizPaper({ markdown, baseDir: process.cwd() });
+  assert.match(result.html, /data-kind="true_false"/);
+  assert.doesNotMatch(result.html, /data-kind="short"/);
+  const card = /data-q="2"[\s\S]*?<\/section>/.exec(result.html)?.[0] || "";
+  assert.match(card, /data-value="A"/);
+  assert.match(card, /data-value="D"/);
+  assert.doesNotMatch(card, /A\. 甲[\s\S]*A\. 甲/, "A 不应该同时留在题干和选项里");
+});
+
 test("markdown tables inside a question render as a real table", async () => {
   const markdown = `## 一、单项选择题
 

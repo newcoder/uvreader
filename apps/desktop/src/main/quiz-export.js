@@ -156,8 +156,8 @@ function inline(value, baseDir) {
 }
 
 function optionRun(line) {
-  const matches = [...line.matchAll(/(^|[\s）)。；;])([A-H])\s*[.、．)）]\s*/g)];
-  if (matches.length < 2) return null;
+  const matches = [...line.matchAll(/(^|[\s）)。；;.：:])([A-H])\s*[.、．)）]\s*/g)];
+  if (!matches.length) return null;
   const labelStart = (match) => match.index + match[1].length;
   const head = line.slice(0, labelStart(matches[0])).trim();
   const options = matches.map((match, index) => {
@@ -169,6 +169,21 @@ function optionRun(line) {
 }
 
 const QUESTION = /^(\d{1,3})\s*[.、．)）]\s*(.*)$/;
+
+function typeFromSectionText(text) {
+  const value = String(text || "");
+  // 「阅读程序 / 完善程序」是容器标题,不是题型。
+  if (/阅读程序|完善程序/.test(value)) return "";
+  if (/多选/.test(value)) return "multiple_choice";
+  if (/判断/.test(value)) return "true_false";
+  if (/单选|选择/.test(value)) return "single_choice";
+  if (/填空/.test(value)) return "fill_blank";
+  if (/程序/.test(value)) return "program";
+  if (/计算/.test(value)) return "calculation";
+  if (/证明/.test(value)) return "proof";
+  if (/简答|问答/.test(value)) return "short_answer";
+  return "";
+}
 
 // AI 结构识别(可选):只允许模型列出的行作为题目起点。伪代码/算法行即使
 // 以数字开头,也不会被切成一题一行;模型漏太多时回落到规则。
@@ -191,6 +206,7 @@ if (typeof structure === "function") {
 const blocks = [];
 const units = [];
 let section = "";
+let sectionType = "";
 let paragraph = [];
 let lastUnit = null;
 let lastContext = "";
@@ -204,7 +220,7 @@ function flushParagraph() {
 
 function addUnit(number, stem) {
   flushParagraph();
-  const unit = { number, stem, options: [], between: [], figures: [], context: lastContext, kind: "text", section, id: `u${units.length + 1}` };
+  const unit = { number, stem, options: [], between: [], figures: [], context: lastContext, section, sectionType, kind: "text", id: `u${units.length + 1}` };
   const run = optionRun(stem);
   if (run) {
     unit.stem = run.head;
@@ -230,8 +246,20 @@ for (let index = 0; index < lines.length; index += 1) {
     flushParagraph();
     lastUnit = null;
     lastContext = "";
-    if (heading[1].length <= 2) section = heading[2].replace(/[（(].*$/, "").trim() || section;
-    blocks.push({ kind: "heading", level: heading[1].length, text: heading[2] });
+    const title = heading[2];
+    const topLevel = heading[1].length <= 2 && /^[一二三四五六七八九十]+\s*[、.]/.test(title);
+    if (topLevel) section = title.replace(/[（(].*$/, "").trim() || section;
+    const sectionKind = typeFromSectionText(title);
+    if (sectionKind) sectionType = sectionKind;
+    else if (topLevel) sectionType = "";
+    blocks.push({ kind: "heading", level: heading[1].length, text: title });
+    continue;
+  }
+  // 「- 判断题 / - 单选题」在 MinerU 产物里是列表行,也当小节题型处理。
+  if (/^[-*]\s*(?:判断题|单选题|多选题|选择题|填空题)\s*$/.test(trimmed)) {
+    flushParagraph();
+    sectionType = typeFromSectionText(trimmed);
+    blocks.push({ kind: "heading", level: 4, text: trimmed.replace(/^[-*]\s*/, "") });
     continue;
   }
   if (/^\s*```/.test(line)) {
@@ -340,8 +368,9 @@ flushParagraph();
 // 选项行可能分多行(A/B/C/D 各一行),因此题型在全部行读完后统一判定。
 for (const unit of units) {
   if (unit.options.length >= 2) unit.kind = "choice";
+  else if (unit.sectionType === "true_false" || /[（(]\s*[）)]\s*$/.test(unit.stem)) unit.kind = "true_false";
+  else if (unit.sectionType === "single_choice" || unit.sectionType === "multiple_choice") unit.kind = "choice";
   else if (unit.between.some((entry) => entry?.kind === "code")) unit.kind = "program";
-  else if (/[（(]\s*[）)]\s*$/.test(unit.stem)) unit.kind = "true_false";
   else if (/_{3,}/.test(unit.stem)) unit.kind = "blank";
   else if (/[（(]\s*[）)]/.test(unit.stem) && unit.stem.length < 120) unit.kind = "blank";
   else if (unit.stem.length > 70) unit.kind = "description";
