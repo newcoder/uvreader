@@ -57,6 +57,11 @@ def audit_doc(doc: dict, *, base: Path | None = None,
         elif t == "text":
             if not str(b.get("text") or "").strip():
                 warnings.append(f"{bid}: 空文本块")
+            if b.get("question_options_incomplete"):
+                miss = "".join(b.get("options_missing") or [])
+                qno = b.get("question_no")
+                where = f"第 {qno} 题" if isinstance(qno, int) else "题目"
+                warnings.append(f"{bid}: {where}选项不完整（缺 {miss or '未知'}）")
         elif t == "table":
             headers = b.get("headers") or []
             rows = b.get("rows") or []

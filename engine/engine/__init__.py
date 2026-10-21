@@ -7,7 +7,7 @@
 - 能力清单从 engine.json 读出来经 /v1/health 上报(应用据此判断装了什么)。
 """
 
-__version__ = "0.1.9"
+__version__ = "0.1.10"
 
 # 可选组件(components/)装在自己的目录里,这里挂到 sys.path 上:
 # 引擎自己的代码与子进程(python -c …)都能 import 到它。

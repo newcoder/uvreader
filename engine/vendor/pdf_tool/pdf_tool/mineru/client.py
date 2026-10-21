@@ -15,6 +15,7 @@ import json
 import logging
 import re
 import time
+import unicodedata
 import zipfile
 from html.parser import HTMLParser
 from pathlib import Path
@@ -257,8 +258,12 @@ def looks_like_prose(text: str) -> bool:
 
 # ---------------- 代码块识别 / 行号剥离（reader 2026-10-20） ----------------
 
-_OPTION_LINE_RE = re.compile(r"^\s*[A-H][.、)]\s")
-_QNUM_LINE_RE = re.compile(r"^\s*\d{1,3}\s*[)）.、]\s")
+_OPTION_LINE_RE = re.compile(r"^\s*[A-H]\s*[.．、)]\s*")
+_QNUM_LINE_RE = re.compile(r"^\s*\d{1,3}\s*[)）.、．]\s*")
+_QNUM_HEAD_RE = re.compile(r"^\s*(\d{1,3})\s*[.．、)]\s*")
+# 选项标记（可出现在句末 `。A.`、行首、空白后；不匹配单词内部）
+_OPTION_MARK_RE = re.compile(
+    r"(?:^|[\s）)。，；：、\]】,;:!?])([A-H])\s*[.．、)]\s*")
 _CODE_LINE_HINT_RE = re.compile(
     r"^\s*(?:#\s*include|#\s*define|using\s+namespace|typedef\b|struct\b|class\b|"
     r"for\s*\(|while\s*\(|if\s*\(|else\b|switch\s*\(|case\b|break\s*;|continue\s*;|"
@@ -386,11 +391,11 @@ def _line_pitch(entries) -> float | None:
     return diffs[len(diffs) // 2] if diffs else None
 
 
-def _ocr_page_lines(pdf, page_no: int, *, dpi: int = 200) -> list[tuple[float, str]]:
-    """整页 OCR（仅在有缺口时调用）：返回 [(页内归一化 y 中心, 文本)]，已去行号。
+def _ocr_page_boxes(pdf, page_no: int, *, dpi: int = 200) -> list[dict]:
+    """整页 OCR（仅按需调用）：返回 [{"text","y","x0","x1"}]，已去行号/纯数字。
 
-    缺口小条 OCR 对裁剪/缩放很敏感（实测同一行会读残），整页识别稳定得多
-    （reader 2026-10-20 建议 2 的落地方式）。
+    y/x 均为页内归一化 0-1000（与 content_list bbox 同一坐标系）。缺口小条 OCR
+    对裁剪/缩放很敏感（实测同一行会读残），整页识别稳定得多（reader 2026-10-20）。
     """
     if pdf is None:
         return []
@@ -412,8 +417,8 @@ def _ocr_page_lines(pdf, page_no: int, *, dpi: int = 200) -> list[tuple[float, s
         finally:
             doc.close()
         img = np.array(Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB"))
-        ih = img.shape[0]
-        out: list[tuple[float, str]] = []
+        ih, iw = img.shape[0], img.shape[1]
+        out: list[dict] = []
         for ln in make_backend("rapid").ocr(img):
             t = str(getattr(ln, "text", "") or "").strip()
             m = _LEADING_LINE_NO_RE.match(t)
@@ -424,12 +429,21 @@ def _ocr_page_lines(pdf, page_no: int, *, dpi: int = 200) -> list[tuple[float, s
             quad = getattr(ln, "quad", None) or []
             if not quad:
                 continue
+            xs = [float(p[0]) for p in quad]
             ys = [float(p[1]) for p in quad]
-            out.append(((min(ys) + max(ys)) / 2 / max(1, ih) * 1000, t))
+            out.append({"text": t,
+                        "y": (min(ys) + max(ys)) / 2 / max(1, ih) * 1000,
+                        "x0": min(xs) / max(1, iw) * 1000,
+                        "x1": max(xs) / max(1, iw) * 1000})
         return out
     except Exception as e:
-        log.warning("[mineru] 缺口整页 OCR 失败（Page %s）：%s", page_no, e)
+        log.warning("[mineru] 整页 OCR 失败（Page %s）：%s", page_no, e)
         return []
+
+
+def _ocr_page_lines(pdf, page_no: int, *, dpi: int = 200) -> list[tuple[float, str]]:
+    """代码缺口补行用：整页 OCR 的 (y 中心, 文本) 列表。"""
+    return [(b["y"], b["text"]) for b in _ocr_page_boxes(pdf, page_no, dpi=dpi)]
 
 
 def _fill_code_gaps(entries, *, pdf, page_no: int) -> tuple[list[dict], list[dict], int]:
@@ -517,6 +531,135 @@ def _attach_code_gaps(block: dict, gaps, page_no: int, filled: int, stats: dict)
             block["code_gaps"].append(entry)
         block["incomplete"] = True
         stats["code_gap_lines"] = stats.get("code_gap_lines", 0) + len(nums)
+
+
+# ---------------- 选择题选项完整性 / 定向补识别（reader 2026-10-21） ----------------
+
+def _option_letters(text) -> list[str]:
+    """题干/选项行里出现的选项字母（A-H，按出现顺序，可重复）。"""
+    return _OPTION_MARK_RE.findall(unicodedata.normalize("NFKC", str(text or "")))
+
+
+def _question_no(text) -> int | None:
+    m = _QNUM_HEAD_RE.match(unicodedata.normalize("NFKC", str(text or "")))
+    return int(m.group(1)) if m else None
+
+
+def _option_fragments(line: str) -> dict[str, str]:
+    """`A. 6 B. 10 C. 15 D. 12` → {'A': 'A. 6', ...}（先做 NFKC 归一）。"""
+    text = unicodedata.normalize("NFKC", str(line or ""))
+    marks = list(re.finditer(
+        r"(?:^|[\s）)。，；：、\]】,;:!?])([A-H])\s*[.．、)]\s*", text))
+    out: dict[str, str] = {}
+    for i, m in enumerate(marks):
+        end = marks[i + 1].start(1) if i + 1 < len(marks) else len(text)
+        out[m.group(1)] = text[m.start(1):end].strip()
+    return out
+
+
+def _group_ocr_lines(boxes, *, tol: float = 6.0) -> list[dict]:
+    """按 y 中心把 OCR 框分组（同一行的多段按 x 合并）。"""
+    groups: list[list[dict]] = []
+    for box in sorted(boxes, key=lambda x: (x["y"], x["x0"])):
+        if groups:
+            gy = sum(x["y"] for x in groups[-1]) / len(groups[-1])
+            if abs(box["y"] - gy) <= tol:
+                groups[-1].append(box)
+                continue
+        groups.append([box])
+    out: list[dict] = []
+    for g in groups:
+        g = sorted(g, key=lambda x: x["x0"])
+        out.append({"y": sum(x["y"] for x in g) / len(g),
+                    "text": " ".join(x["text"] for x in g)})
+    return out
+
+
+def _recover_options_from_ocr(boxes, bbox, existing, missing) -> dict[str, str]:
+    """在题目块 bbox 内找选项行；只接受同时含已有字母与缺失字母的行。
+
+    bbox 的 y 范围是硬边界（外扩 10），避免把下一题的选项补到本题（reader 2026-10-21）。
+    """
+    y0, y1 = float(bbox[1]), float(bbox[3])
+    merged: dict[str, str] = {}
+    for g in _group_ocr_lines(boxes):
+        if not (y0 - 2 <= g["y"] <= y1 + 10):
+            continue
+        merged.update(_option_fragments(g["text"]))
+    if all(c in merged for c in existing) and all(c in merged for c in missing):
+        return merged
+    return {}
+
+
+def _append_options(text: str, frags: list[str]) -> str:
+    """把补回的选项片段追加到最后一条含选项的行（通常就是选项行）。"""
+    lines = str(text).splitlines() or [str(text)]
+    for i in range(len(lines) - 1, -1, -1):
+        if _option_letters(lines[i]):
+            lines[i] = lines[i].rstrip() + " " + " ".join(frags)
+            return "\n".join(lines)
+    return str(text).rstrip() + " " + " ".join(frags)
+
+
+def repair_missing_options(blocks: list[dict], *, pdf) -> tuple[list[dict], dict]:
+    """选择题选项完整性检查：缺 A–D 选项时用原页整页 OCR 补回，补不上则标记。
+
+    - 只处理带题号且含 ≥2 个选项标记的 text 块；缺 D（或 A–C 任一）时触发；
+    - 下一块若是不带题号的续选项块，视为排版拆分，不报缺；
+    - 补回范围限制在题目块 bbox 的 y 区间内，绝不跨题拼接；
+    - 未补齐：块上记 `question_options_incomplete` / `options_missing` / `question_no`，
+      由 `model/audit.py` 写入 audit warning（reader 2026-10-21）。
+    """
+    stats = {"options_checked": 0, "options_repaired": 0,
+             "options_incomplete": 0, "options_pages_ocr": 0}
+    page_cache: dict[int, list[dict]] = {}
+    try:
+        for idx, b in enumerate(blocks):
+            if b.get("type") != "text":
+                continue
+            text = str(b.get("text") or "")
+            qno = _question_no(text)
+            if qno is None:
+                continue  # 只检查带题号的题目块；选项续块（无题号）不单独检查
+            letters = _option_letters(text)
+            if len(letters) < 2:
+                continue
+            missing = [c for c in "ABCD" if c not in letters]
+            if not missing:
+                continue
+            nxt = blocks[idx + 1] if idx + 1 < len(blocks) else None
+            if (nxt is not None and nxt.get("type") == "text"
+                    and _question_no(nxt.get("text")) is None):
+                nxt_letters = _option_letters(nxt.get("text"))
+                if all(c in nxt_letters for c in missing):
+                    continue  # 选项被排版拆到下一块，不是缺失
+            stats["options_checked"] += 1
+            bbox = b.get("_bbox")
+            frags: dict[str, str] = {}
+            if pdf is not None and bbox:
+                pg = _page_num(b)
+                if pg:
+                    if pg not in page_cache:
+                        page_cache[pg] = _ocr_page_boxes(pdf, pg)
+                        stats["options_pages_ocr"] += 1
+                    frags = _recover_options_from_ocr(
+                        page_cache[pg], bbox, letters, missing)
+            add = [frags[c] for c in missing if c in frags]
+            if add:
+                b["text"] = _append_options(text, add)
+                stats["options_repaired"] += len(add)
+            left = [c for c in "ABCD" if c not in _option_letters(b["text"])]
+            if left:
+                b["question_options_incomplete"] = True
+                b["options_missing"] = left
+                if qno is not None:
+                    b["question_no"] = qno
+                stats["options_incomplete"] += 1
+    finally:
+        for b in blocks:
+            if isinstance(b, dict):
+                b.pop("_bbox", None)
+    return blocks, stats
 
 
 def _single_numbered_line(text: str) -> bool:
@@ -884,6 +1027,11 @@ def content_list_to_blocks(items: list[dict], *, base: Path,
                 blocks.append({"type": "heading", "position": pos,
                                "level": int(level), "text": text})
             else:
+                # 选择题块：带 bbox 供选项缺失时的定向 OCR（`repair_missing_options` 清理）
+                if not extra and len(_option_letters(text)) >= 2:
+                    bbox = it.get("bbox") or []
+                    if len(bbox) == 4:
+                        extra = {"_bbox": [float(v) for v in bbox]}
                 blocks.append({"type": "text", "position": pos, "text": text, **extra})
         elif t == "equation":
             stats["equations"] += 1
@@ -1213,6 +1361,9 @@ def parse_to_blocks(client, pdf: Path, out_dir: Path, *, max_pages: int = 200,
     blocks, stats = content_list_to_blocks(parsed["items"], base=out_dir,
                                            eq_images=eq_images, image_prefix="mineru",
                                            footnotes=footnotes)
+    # 选择题缺选项：原页 OCR 补回 / 标记不完整（reader 2026-10-21；先于缝合，bbox 用完即清）
+    blocks, ostats = repair_missing_options(blocks, pdf=pdf)
+    stats = {**stats, **ostats}
     if stitch:
         blocks, sstats = stitch_blocks(blocks, pdf=pdf)
         stats = {**stats, **sstats}
