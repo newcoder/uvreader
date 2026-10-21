@@ -22,6 +22,9 @@ export function docvortexCandidates(settings = {}) {
   const list = [];
   if (custom) list.push({ command: custom, args: [], kind: "custom" });
   list.push({ command: "docvortex", args: [], kind: "path" });
+  // DocVortex 0.5.16 有 console entry point,但包没有 __main__,
+  // 所以 `python -m docvortex` 在部分环境会失败;直接调 cli.main 更稳。
+  list.push({ command: python, args: ["-c", "from docvortex.cli import main; main()"], kind: "python-cli" });
   list.push({ command: python, args: ["-m", "docvortex"], kind: "python" });
   return list;
 }

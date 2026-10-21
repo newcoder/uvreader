@@ -51,12 +51,13 @@ test("convertArgs builds the docvortex command line", () => {
 test("docvortexCandidates prefers a custom path, then PATH, then python", () => {
   assert.deepEqual(
     docvortexCandidates({ docvortexPath: "D:/tools/docvortex.exe", docvortexPython: "py" }).map((entry) => entry.kind),
-    ["custom", "path", "python"],
+    ["custom", "path", "python-cli", "python"],
   );
   const fallback = docvortexCandidates({ ocrPython: "python3" });
-  assert.deepEqual(fallback.map((entry) => entry.kind), ["path", "python"]);
-  assert.deepEqual(fallback[1].args, ["-m", "docvortex"]);
+  assert.deepEqual(fallback.map((entry) => entry.kind), ["path", "python-cli", "python"]);
+  assert.deepEqual(fallback[1].args, ["-c", "from docvortex.cli import main; main()"]);
   assert.equal(fallback[1].command, "python3");
+  assert.deepEqual(fallback[2].args, ["-m", "docvortex"]);
 });
 
 // Markdown / 纯文本 DocVortex 收不了(0.5.16 的原生输入里没有它们,直接给会报
@@ -189,6 +190,22 @@ test("probe falls back through the candidates and reports the first that answers
   assert.equal(result.kind, "path");
   assert.match(result.detail, /0\.5\.16/);
   assert.equal(calls[0].args.at(-1), "--version");
+});
+
+test("probe falls back to the python cli entry point when the executable is missing", async () => {
+  const { spawnImpl } = fakeSpawn((call, child) => {
+    if (call.command === "python" && call.args[0] === "-c") {
+      child.stdout.emit("data", "docvortex, version 0.5.16\n");
+      child.emit("close", 0);
+      return;
+    }
+    child.emit("error", new Error("ENOENT"));
+  });
+  const docvortex = createDocvortex({ spawnImpl, probeTimeoutMs: 200 });
+  const result = await docvortex.probe({ ocrPython: "python" });
+  assert.equal(result.ok, true);
+  assert.equal(result.kind, "python-cli");
+  assert.match(result.detail, /0\.5\.16/);
 });
 
 test("probe reports a hint when nothing answers", async () => {
