@@ -47,6 +47,7 @@ export function docvortexFormatExt(target) {
 export const CONVERT_FORMATS = Object.freeze([
   ...DOCVORTEX_FORMATS,
   { id: "quiz", label: "答题页(交互 HTML)", ext: "quiz.html" },
+  { id: "quiz-ai", label: "AI 答题页(实验)", ext: "AI答题页.html" },
 ]);
 
 // 电子书产物统一归「电子书制作」:互转目标 + 图片打包目标。

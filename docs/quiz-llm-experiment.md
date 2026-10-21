@@ -147,6 +147,7 @@
 
 ## 9. 复现
 
+
 ```powershell
 # 设置模型凭据(不要把 key 写进仓库)
 $env:DEEPSEEK_API_KEY = "..."
@@ -234,3 +235,16 @@ LLM 直接生成 HTML **有可用性,但还没有达到生产门槛**。它适�
 | 失败模式 | 规则覆盖不到的 OCR/版式边界 | 漏段、答案标记、位置/格式漂移 |
 
 结论:**LLM 版在版面观感和题数覆盖上有优势,当前确定性版在可验证性、图片/公式/代码和答案结构化上明显更强。** 直接替换不划算;更合理的是「LLM 结构标注 + 现有渲染器」或「LLM 页面 + 本地后处理/硬校验」二选一,继续对照。
+
+## 12. 应用接入(2026-10-22,应用 0.7.43)
+
+- 「格式转换」目标格式新增 **AI 答题页(实验)**;原「答题页(交互 HTML)」保持不变。
+- 主进程 runner:`quiz-llm-export` → 提取 Markdown → 提示词 v4 → AI 生成整页 → 后处理 → `<源名>.AI答题页.html`。
+- 后处理与实验脚本分离,避免把 jsdom 打包进 Electron:
+  - 公式 Temml → MathML;
+  - C/C++ 代码缩进(伪代码跳过);
+  - 图片按 `baseDir` 读成 data URL,页面真正自包含;
+  - `data-source="generated"` 答案块初始隐藏,交卷时展开;
+  - 补 `resultSummary` 等缺失 DOM 节点。
+- AI 未配置时任务直接失败并提示「设置 → AI 助读」;失败不影响确定性答题页。
+- 提示词模块 `packages/reader/src/quiz-llm-prompt.js` 由 `scripts/generate-quiz-llm-prompt.mjs` 从 `docs/quiz-llm-prompt.txt` 生成,测试会校验两者同步。

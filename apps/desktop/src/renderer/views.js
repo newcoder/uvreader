@@ -997,6 +997,7 @@ const WORKSHOP_KIND_LABELS = {
   "formula-probe": "公式检测",
   "formula-convert": "公式",
   "quiz-export": "答题页",
+  "quiz-llm-export": "AI 答题页",
   "calibre-probe": "检测",
   "ebook-convert": "互转",
   "images-cbz": "打包",
@@ -2554,6 +2555,7 @@ export function createWorkshopView(leaf, options) {
         this._convertFormat.createEl("option", { attr: { value: format.id }, text: format.label });
       }
       optionCard.createDiv({ cls: "qbr-workshop-hint", text: "输出与源文件同目录,用目标扩展名;同名自动加序号。" });
+      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "AI 答题页(实验)需要先在「设置 → AI 助读」配置模型;生成约 1–3 分钟,图片会内联进 HTML。" });
       const parseRow = optionCard.createDiv("qbr-workshop-row");
       this._convertParseRow = parseRow;
       parseRow.createSpan({ cls: "qbr-workshop-hint", text: "解析方式" });
@@ -2825,11 +2827,12 @@ export function createWorkshopView(leaf, options) {
       const formula = this.formulaSettings();
       const parseMode = String(this._convertParse?.value || "local");
       for (const rel of files) {
-        if (format === "quiz") {
-          const out = convertPath(rel, "答题页.html", (candidate) => Boolean(app?.vault?.getAbstractFileByPath?.(candidate)));
+        if (format === "quiz" || format === "quiz-ai") {
+          const ai = format === "quiz-ai";
+          const out = convertPath(rel, ai ? "AI答题页.html" : "答题页.html", (candidate) => Boolean(app?.vault?.getAbstractFileByPath?.(candidate)));
           void bridge.start({
-            kind: "quiz-export",
-            title: "答题页",
+            kind: ai ? "quiz-llm-export" : "quiz-export",
+            title: ai ? "AI 答题页" : "答题页",
             detail: rel,
             payload: { settings: formula, source: rel, out, config: this.aiReadyConfig() },
           }).catch((error) => new Notice(String(error?.message || error)));

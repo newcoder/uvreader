@@ -25,6 +25,7 @@ import { createPdfOcr, OCR_PROBE_TIMEOUT, resolveOcrOutput } from "./pdf-ocr.js"
 import { registerOcrRunners } from "./workshop-ocr.js";
 import { registerQuestionRunners } from "./workshop-questions.js";
 import { registerQuizRunners } from "./workshop-quiz.js";
+import { registerQuizLlmRunner } from "./workshop-quiz-llm.js";
 import { createTextLayerReader } from "./text-layer.js";
 import { createWorkshopQueue } from "./workshop.js";
 import { createBookDownloads } from "./book-downloads.js";
@@ -124,6 +125,15 @@ registerQuestionRunners(workshop, {
   cacheRoot: bookCacheRoot,
 });
 registerQuizRunners(workshop, {
+  extractMarkdown,
+  docvortex,
+  textLayer: createTextLayerReader({ engine: engineClient }),
+  engine: engineClient,
+  vaultRoot,
+  cacheRoot: bookCacheRoot,
+  aiRuntime,
+});
+registerQuizLlmRunner(workshop, {
   extractMarkdown,
   docvortex,
   textLayer: createTextLayerReader({ engine: engineClient }),
