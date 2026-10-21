@@ -90,9 +90,16 @@ export function joinSplitCodeFences(markdown) {
     if (!firstBody.length || !secondBody.length) continue;
     if (!pageBreak) {
       const secondNumber = /^\s*(\d{1,3})[\s.]/.exec(secondBody[0]);
-      if (!secondNumber) continue;
-      const firstNumber = /^\s*(\d{1,3})[\s.]/.exec(firstBody[firstBody.length - 1]);
-      if (firstNumber && Number(secondNumber[1]) !== Number(firstNumber[1]) + 1) continue;
+      if (secondNumber) {
+        const firstNumber = /^\s*(\d{1,3})[\s.]/.exec(firstBody[firstBody.length - 1]);
+        if (firstNumber && Number(secondNumber[1]) !== Number(firstNumber[1]) + 1) continue;
+      } else {
+        // 连续两个代码块之间只有空行:多半是同一段程序被分页/分块。
+        // 只有「上一段已经以 } 收尾、下一段又从 #include 重新开始」才当成两个程序。
+        const firstLast = firstBody[firstBody.length - 1].trim();
+        const secondFirst = secondBody[0].trim();
+        if (/}\s*$/.test(firstLast) && /^(?:#\s*include|using\s+namespace)/.test(secondFirst)) continue;
+      }
     }
     for (let line = first.end; line <= second.start; line += 1) drop.add(line);
     // 合并后的块继续参与下一轮(整段程序跨三页也能接上)。
@@ -154,6 +161,10 @@ export function stripCodeLineNumbers(markdown) {
       if (values.every((value, position) => position === 0 || value > values[position - 1])) {
         for (const lineIndex of bare) lines[lineIndex] = "";
       }
+    }
+    // 带前导 0 的孤立页码(如 `03`)在 C/C++ 代码里几乎不可能是语句。
+    for (const lineIndex of body) {
+      if (/^\s*0\d{1,3}\s*$/.test(lines[lineIndex])) lines[lineIndex] = "";
     }
   };
   lines.forEach((line, index) => {

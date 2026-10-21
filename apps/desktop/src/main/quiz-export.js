@@ -5,6 +5,7 @@ import path from "node:path";
 
 import temml from "temml";
 import { buildSolveMessages, buildStructureMessages, normalizeSolve, parseJudgeJson, parseStructureStarts } from "../../../../packages/reader/src/quiz-judge.js";
+import { joinSplitCodeFences, stripCodeLineNumbers } from "../shared/markdown-fix.js";
 
 export async function buildQuizPaper({
   markdown = "",
@@ -19,7 +20,7 @@ export async function buildQuizPaper({
   signal = null,
   codeFormatter = null,
 } = {}) {
-  const md = String(markdown || "").replace(/\r\n?/g, "\n");
+  const md = stripCodeLineNumbers(joinSplitCodeFences(String(markdown || "").replace(/\r\n?/g, "\n")));
   const lines = splitInlineQuestions(splitPageMarkers(absorbOrphanCode(md.split("\n"))));
 
 function escapeHtml(value) {

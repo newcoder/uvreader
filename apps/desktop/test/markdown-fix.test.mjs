@@ -28,6 +28,9 @@ test("stripCodeLineNumbers removes PDF margin numbers only when they are sequent
   const stripped = stripCodeLineNumbers(real);
   assert.doesNotMatch(stripped, /^\s*2[2-6] /m);
   assert.match(stripped, /^memset/m);
+
+  const padded = "```\n#include <iostream>\n03\nint n;\n```\n";
+  assert.doesNotMatch(stripCodeLineNumbers(padded), /^\s*03\s*$/m, "带前导 0 的孤立页码也要剥");
 });
 
 test("a program split across pages merges first, then loses its line numbers", () => {
@@ -82,6 +85,15 @@ test("a program split across a page marker is joined even when the second part s
   assert.doesNotMatch(cleaned, /^\s*39\s*$/m);
   assert.doesNotMatch(cleaned, /^\s*43\s*$/m);
   assert.match(cleaned, /g\[i \* k\] = g\[i\] \* k \+ d\[i\];\n+int main\(\)/);
+});
+
+test("adjacent fences with only a blank line are merged when the second continues mid-statement", () => {
+  const md = ["```", "int f() {", "  return 1;", "```", "", "```", "int g() {", "  return 2;", "}", "```"].join("\n");
+  const joined = joinSplitCodeFences(md);
+  assert.equal((joined.match(/```/g) || []).length, 2, "两个连续的围栏并成一段");
+  assert.match(joined, /return 1;\nint g\(\)/);
+  const distinct = ["```", "int main() {}", "```", "", "```", "#include <iostream>", "int main() {}", "```"].join("\n");
+  assert.equal(joinSplitCodeFences(distinct), distinct, "上一段已收尾、下一段重新 include 时保持分开");
 });
 
 test("fences separated by text, or with discontinuous numbering, stay split", () => {

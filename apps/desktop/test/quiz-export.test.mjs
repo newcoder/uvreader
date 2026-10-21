@@ -160,6 +160,28 @@ A. 1 B. 2 C. 3 D. 4
   assert.doesNotMatch(result.html, /data-q="3"/);
 });
 
+test("consecutive code fences in the source are merged before rendering", async () => {
+  const markdown = `## 二、阅读程序
+
+1. 程序输出什么（）
+
+\`\`\`
+int f() {
+\`\`\`
+
+\`\`\`
+  return 1;
+}
+\`\`\`
+
+A. 1 B. 2
+`;
+  const result = await buildQuizPaper({ markdown, baseDir: process.cwd() });
+  assert.equal((result.html.match(/<pre>/g) || []).length, 1, "只剩一个代码块");
+  const code = /<pre>([\s\S]*?)<\/pre>/.exec(result.html)?.[1].replace(/<[^>]+>/g, "") || "";
+  assert.match(code, /int f\(\)[\s\S]*return 1;/);
+});
+
 test("a page marker sharing a line with the next question is split", async () => {
   const markdown = `## - 单选题
 
