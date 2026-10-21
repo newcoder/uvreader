@@ -160,6 +160,59 @@ A. 1 B. 2 C. 3 D. 4
   assert.doesNotMatch(result.html, /data-q="3"/);
 });
 
+test("bracket answers and analyses stay on the question instead of the last option", async () => {
+  const markdown = `## 一、单项选择题
+
+1. 1+1 等于（） 
+A. 1 B. 2 C. 3 D. 4
+【详解】因为 1+1=2，故选 B。
+
+2. 2+2 等于（） 
+A. 1 B. 3 C. 4 D. 5
+【答案】C
+【解析】2+2=4。
+`;
+  const result = await buildQuizPaper({ markdown, baseDir: process.cwd() });
+  const cards = [...result.html.matchAll(/<section class="q-card"[\s\S]*?<\/section>/g)].map((match) => match[0]);
+  assert.equal(cards.length, 2);
+  assert.match(cards[0], /data-answer="B"/);
+  assert.match(cards[0], /data-analysis="[^"]*1\+1=2/);
+  assert.doesNotMatch(cards[0], /data-value="D"[\s\S]*?【详解】/, "解析不能粘到选项 D");
+  assert.match(cards[1], /data-answer="C"/);
+  assert.match(cards[1], /data-analysis="[^"]*2\+2=4/);
+  assert.doesNotMatch(cards[1], /data-value="D"[\s\S]*?【答案】/, "答案不能粘到选项 D");
+});
+
+test("a plain 非选择题 section uses a short-answer box and hides source answers", async () => {
+  const markdown = `## 二、非选择题
+
+11. 某实验题
+
+(1) 选择正确的步骤。
+
+A. ①② B. ②① C. ①③
+
+【答案】(1) B (2) 15.7
+
+【解析】正确的顺序是②①。
+
+12. 计算题
+
+求速度。
+
+【答案】$v_0$
+【解析】由公式可得。
+`;
+  const result = await buildQuizPaper({ markdown, baseDir: process.cwd() });
+  assert.equal(result.stats.interactive, 2);
+  const cards = [...result.html.matchAll(/<section class="q-card"[\s\S]*?<\/section>/g)].map((match) => match[0]);
+  assert.ok(cards.every((card) => /data-kind="short"/.test(card)));
+  assert.ok(cards.every((card) => /class="short-input"/.test(card)));
+  assert.match(cards[0], /data-reference="[^"]*\(1\) B/);
+  assert.match(cards[0], /data-analysis="[^"]*正确的顺序/);
+  assert.match(cards[1], /data-reference="[^"]*v_0/);
+});
+
 test("a plain 编程题 section becomes answerable with a large code box", async () => {
   const markdown = `**试卷标题**
 

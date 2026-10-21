@@ -310,6 +310,7 @@ function typeFromSectionText(text) {
   // 「阅读程序 / 完善程序」是容器标题,不是题型;「编程题」是真正要作答的编程题。
   if (/阅读程序|完善程序/.test(value)) return "";
   if (/编程题|程序设计题/.test(value)) return "coding";
+  if (/非选择/.test(value)) return "short_answer";
   if (/多选/.test(value)) return "multiple_choice";
   if (/判断/.test(value)) return "true_false";
   if (/单选|选择/.test(value)) return "single_choice";
@@ -363,9 +364,29 @@ function flushParagraph() {
   paragraph = [];
 }
 
+// 【答案】/【解析】/【详解】/【小问 1 详解】,以及普通「答案：」。
+// 返回 null 表示这一行不是答案/解析;否则 answer/analysis 至少一个非空。
+function sourceMeta(text) {
+  const value = String(text || "").trim();
+  const answer = /^[【\[]?\s*答案\s*[】\]]?\s*[:：]?\s*([\s\S]*)$/.exec(value);
+  if (answer) {
+    let body = answer[1].trim();
+    let analysis = "";
+    const parts = body.split(/[【\[]?\s*(?:解析|详解|分析)\s*[】\]]?\s*[:：]?/);
+    if (parts.length > 1) {
+      body = parts[0].trim();
+      analysis = parts.slice(1).join(" ").trim();
+    }
+    return { marker: "answer", answer: body, analysis };
+  }
+  const analysis = /^[【\[]?\s*(?:解析|详解|分析|小问[^】\]]*详解)\s*[】\]]?\s*[:：]?\s*([\s\S]*)$/.exec(value);
+  if (analysis) return { marker: "analysis", answer: "", analysis: analysis[1].trim() };
+  return null;
+}
+
 function addUnit(number, stem) {
   flushParagraph();
-  const unit = { number, stem, options: [], between: [], figures: [], context: lastContext, section, sectionType, kind: "text", id: `u${units.length + 1}` };
+  const unit = { number, stem, options: [], between: [], figures: [], context: lastContext, section, sectionType, kind: "text", id: `u${units.length + 1}`, inlineAnswer: "", inlineAnalysis: "", answerOpen: false, analysisOpen: false };
   const run = optionRun(stem);
   if (run) {
     unit.stem = run.head;
@@ -394,7 +415,7 @@ for (let index = 0; index < lines.length; index += 1) {
   }
   afterPageBreak = false;
   // DOCX 常把「一、编程题」写成普通段落(没有 #):同样当小节标题,否则题型沿用上一节。
-  if (/^[一二三四五六七八九十]+\s*[、.．]\s*(?:单项|多项|选择|判断|填空|阅读程序|完善程序|编程题|程序设计|简答|计算|证明)/.test(trimmed)) {
+  if (/^[一二三四五六七八九十]+\s*[、.．]\s*(?:单项|多项|选择|非选择|判断|填空|阅读程序|完善程序|编程题|程序设计|简答|计算|证明)/.test(trimmed)) {
     flushParagraph();
     lastUnit = null;
     lastContext = "";
@@ -496,6 +517,37 @@ for (let index = 0; index < lines.length; index += 1) {
     addUnit(question[1], question[2] || "");
     continue;
   }
+  // 原文答案/解析:支持【答案】【解析】【详解】【小问 1 详解】,
+  // 必须排在选项续行之前,否则会被粘到最后一个选项 D 里。
+  const meta = lastUnit ? sourceMeta(trimmed) : null;
+  if (meta) {
+    if (meta.answer) {
+      lastUnit.inlineAnswer = lastUnit.inlineAnswer ? `${lastUnit.inlineAnswer}\n${meta.answer}` : meta.answer;
+      lastUnit.answerOpen = /^(?:[（(]\s*\d+\s*[）)]|\d+\s*[.、])/.test(meta.answer);
+    }
+    if (meta.analysis) {
+      lastUnit.inlineAnalysis = lastUnit.inlineAnalysis ? `${lastUnit.inlineAnalysis}\n${meta.analysis}` : meta.analysis;
+    }
+    if (meta.marker === "analysis") {
+      lastUnit.analysisOpen = true;
+      lastUnit.answerOpen = false;
+    } else if (meta.answer && !lastUnit.answerOpen) {
+      lastUnit.analysisOpen = true;
+    }
+    continue;
+  }
+  if (lastUnit?.answerOpen) {
+    lastUnit.inlineAnswer = `${lastUnit.inlineAnswer}\n${trimmed}`;
+    continue;
+  }
+  if (/^(?:试题编号|试题类型|试题难度|题型|难度|知识点|考点|来源|分值|考生答案|考生得分|得分|分数|是否评分|评价描述)\s*[:：]/.test(trimmed)) {
+    if (lastUnit) { lastUnit.answerOpen = false; lastUnit.analysisOpen = false; }
+    continue;
+  }
+  if (lastUnit?.analysisOpen) {
+    lastUnit.inlineAnalysis = `${lastUnit.inlineAnalysis}\n${trimmed}`;
+    continue;
+  }
   if (isOptionLine && lastUnit) {
     const run = optionRun(line);
     if (run && run.options.length > 1) {
@@ -549,7 +601,8 @@ flushParagraph();
 
 // 选项行可能分多行(A/B/C/D 各一行),因此题型在全部行读完后统一判定。
 for (const unit of units) {
-  if (unit.options.length >= 2) unit.kind = "choice";
+  if (unit.sectionType === "short_answer") unit.kind = "short";
+  else if (unit.options.length >= 2) unit.kind = "choice";
   else if (unit.sectionType === "true_false" || /[（(]\s*[）)]\s*$/.test(unit.stem)) unit.kind = "true_false";
   else if (unit.sectionType === "single_choice" || unit.sectionType === "multiple_choice") unit.kind = "choice";
   else if (unit.sectionType === "coding") unit.kind = "coding";
@@ -558,6 +611,11 @@ for (const unit of units) {
   else if (/[（(]\s*[）)]/.test(unit.stem) && unit.stem.length < 120) unit.kind = "blank";
   else if (unit.stem.length > 70) unit.kind = "description";
   else unit.kind = "short";
+  // q1 这类只有【详解】、结论写「故选 C」的题,从解析里补答案。
+  if (!unit.inlineAnswer && unit.inlineAnalysis && unit.kind === "choice") {
+    const pick = /(?:故选|应选|答案(?:是|为|选)?|选择)\s*([A-H])/.exec(unit.inlineAnalysis);
+    if (pick) unit.inlineAnswer = pick[1];
+  }
 }
 const interactive = units.filter((unit) => ["choice", "true_false", "blank", "short", "coding"].includes(unit.kind));
 interactive.forEach((unit, index) => { unit.card = index + 1; });
@@ -757,6 +815,12 @@ function renderUnit(unit) {
     }
     body += `<pre class="q-pseudo">${escapeHtml(run.join("\n"))}</pre>`;
     index = next - 1;
+  }
+  if (unit.kind === "short" && unit.options.length) {
+    // 非选择题里的 A/B/C 只是题内小问的选项,不渲染成可点击的答题选项。
+    for (const option of unit.options) {
+      body += `<div class="q-note">${escapeHtml(option.label)}. ${inline(option.text, baseDir)}</div>`;
+    }
   }
   if (unit.kind === "choice") {
     body += `<div class="opts"${unit.multi ? ' data-multi="1"' : ""}>${unit.options.map((option) => `
