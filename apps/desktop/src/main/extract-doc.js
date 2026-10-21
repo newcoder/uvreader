@@ -442,8 +442,9 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
     try {
       cachedVersion = fs.readFileSync(versionMark, "utf8").trim();
     } catch { /* 老缓存没有版本标记 */ }
-    const engineStale = Boolean(engineVersion) && cachedVersion !== engineVersion;
-    if (engineStale) log("extract: engine changed, ignoring cached markdown", `${cachedVersion || "(none)"} -> ${engineVersion}`);
+    const engineStale = Boolean(engine && String(settings.engineUrl || "").trim())
+      && (engineVersion ? cachedVersion !== engineVersion : cachedVersion !== "local");
+    if (engineStale) log("extract: engine changed, ignoring cached markdown", `${cachedVersion || "(none)"} -> ${engineVersion || "local"}`, engineVersion ? "" : "(health unavailable)");
     if (!refresh && !engineStale && fresh(mergedPath) && docCandidates.some(fresh)) {
       log("extract: reuse cached merged markdown", mergedPath);
       const cachedRaw = fs.readFileSync(mergedPath, "utf8");
@@ -499,6 +500,10 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
           spawnImpl,
         });
         if (!result.ok) return { ok: false, error: result.error };
+        // 本机 pdf_tool 产出的缓存:标记 local,引擎探测失败时不再反复重跑。
+        try {
+          fs.writeFileSync(versionMark, "local", "utf8");
+        } catch { /* 标记写不了不影响提取 */ }
       }
     } else {
       log("extract: reuse cached doc json", cachedDoc);

@@ -170,7 +170,8 @@ export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000,
     try {
       cachedVersion = fs.readFileSync(versionMark, "utf8").trim();
     } catch { /* 老缓存没有版本标记 */ }
-    const engineStale = Boolean(engineVersion) && cachedVersion !== engineVersion;
+    const engineStale = Boolean(engine && String(settings.engineUrl || "").trim())
+      && (engineVersion ? cachedVersion !== engineVersion : cachedVersion !== "local");
     // 块规则变过(选项/代码块/家具):旧 Doc JSON 直接作废,不赌引擎版本探测。
     const formatMark = path.join(workDir, "cache-version.txt");
     let cachedFormat = "";
@@ -179,7 +180,7 @@ export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000,
     } catch { /* 老缓存没有格式版本 */ }
     const formatStale = cachedFormat !== FORMULA_CACHE_VERSION;
     if (formatStale) log("formula chain: cache format changed, re-parsing", cachedFormat || "(none)");
-    if (engineStale) log("formula chain: engine changed, ignoring cached doc", `${cachedVersion || "(none)"} -> ${engineVersion}`);
+    if (engineStale) log("formula chain: engine changed, ignoring cached doc", `${cachedVersion || "(none)"} -> ${engineVersion || "local"}`, engineVersion ? "" : "(health unavailable)");
     const reusable = (() => {
       if (refresh || engineStale || formatStale || !fs.existsSync(docPath)) return false;
       try {
@@ -256,7 +257,7 @@ export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000,
     if (!fs.existsSync(docPath)) return { ok: false, error: "pdf_tool 没有生成 Doc JSON" };
     // 记下这份 Doc JSON 是哪个引擎版本产出的:升级后版本对不上就重新解析。
     try {
-      fs.writeFileSync(versionMark, usedEngine ? engineVersion : "", "utf8");
+      fs.writeFileSync(versionMark, usedEngine ? engineVersion : "local", "utf8");
       fs.writeFileSync(formatMark, FORMULA_CACHE_VERSION, "utf8");
     } catch { /* 标记写不了不影响转换 */ }
     report?.({ label: "生成公式 HTML" });

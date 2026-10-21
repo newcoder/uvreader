@@ -463,6 +463,49 @@ test("extractMarkdown ignores a cached merged markdown when the engine version c
   assert.match(reused.markdown, /新引擎的稿子/);
 });
 
+test("an unknown engine version refreshes an unmarked cache once, then marks it local", async () => {
+  const vault = tempDir("qbr-extract-local-");
+  fs.mkdirSync(path.join(vault, "pdf_tool"), { recursive: true });
+  fs.writeFileSync(path.join(vault, "pdf_tool", "pdf_to_doc.py"), "# stub\n");
+  const source = path.join(vault, "论文.pdf");
+  fs.writeFileSync(source, "%PDF-1.4", "utf8");
+  const workDir = path.join(vault, "work");
+  fs.mkdirSync(workDir, { recursive: true });
+  fs.writeFileSync(path.join(workDir, "论文_doc.json"), JSON.stringify({ schema_version: 1, pages: [] }));
+  fs.writeFileSync(path.join(workDir, "论文_doc.html"), "<p>旧</p>");
+  fs.writeFileSync(path.join(workDir, "merged.md"), "# 旧引擎的稿子\n");
+  // 没有 engine-version.txt:老缓存
+  const { spawnImpl, calls } = fakeSpawn((call, child) => {
+    const outDir = call.args[call.args.indexOf("--out-dir") + 1];
+    fs.writeFileSync(path.join(outDir, "论文_doc.md"), "# 本机的新稿子\n");
+    fs.writeFileSync(path.join(outDir, "论文_doc.json"), JSON.stringify({ schema_version: 1, pages: [] }));
+    fs.writeFileSync(path.join(outDir, "论文_doc.html"), "<p>新</p>");
+    child.emit("close", 0);
+  });
+  const engine = {
+    health: async () => ({ ok: false }),
+    runJob: async () => ({ ok: false, error: "401" }),
+  };
+  const options = {
+    kind: "pdf",
+    settings: { engineUrl: "http://127.0.0.1:8760", ocrSidecarDir: vault },
+    workDir,
+    engine,
+    spawnImpl,
+    log: () => {},
+    textLayer: { read: async () => ({ ok: false, error: "no layer" }) },
+  };
+  const first = await extractMarkdown(source, options);
+  assert.equal(first.ok, true, first.error);
+  assert.equal(calls.length, 1, "没有版本标记的旧缓存要重跑本机 pdf_tool");
+  assert.equal(fs.readFileSync(path.join(workDir, "engine-version.txt"), "utf8"), "local");
+  assert.match(first.markdown, /本机的新稿子/);
+
+  const second = await extractMarkdown(source, options);
+  assert.equal(second.ok, true, second.error);
+  assert.equal(calls.length, 1, "标记 local 后,引擎探测失败时不再反复重跑");
+});
+
 test("the pdf runner reuses existing products instead of parsing the cloud again", async () => {
   const vault = tempDir("qbr-extract-reuse-");
   fs.mkdirSync(path.join(vault, "pdf_tool"), { recursive: true });

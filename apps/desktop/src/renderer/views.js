@@ -593,9 +593,10 @@ export function createSettingsView(leaf, options) {
         persist("engineUrl", result.engineUrl);
         engineUrl.value = result.engineUrl;
       }
-      if (result.token) {
-        persist("engineToken", result.token);
-        engineToken.value = result.token;
+      const startedToken = result.engineToken || result.token;
+      if (startedToken) {
+        persist("engineToken", startedToken);
+        engineToken.value = startedToken;
       }
       renderEngineService(result);
       void checkEngine(true);
