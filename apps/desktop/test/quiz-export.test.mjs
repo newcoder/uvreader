@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import { buildQuizPaper } from "../src/main/quiz-export.js";
@@ -217,6 +220,40 @@ test("circled blanks are wrapped so their digits stay readable", async () => {
     baseDir: process.cwd(),
   });
   assert.match(result.html, /<span class="circled">①<\/span>/);
+});
+
+test("a small image right after a page break is treated as a header logo", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "quiz-header-"));
+  const png = (width, height) => {
+    const buffer = Buffer.alloc(32);
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(buffer, 0);
+    buffer.writeUInt32BE(width, 16);
+    buffer.writeUInt32BE(height, 20);
+    return buffer;
+  };
+  fs.writeFileSync(path.join(dir, "logo.png"), png(252, 172));
+  fs.writeFileSync(path.join(dir, "figure.png"), png(800, 600));
+  const result = await buildQuizPaper({
+    markdown: `## 一、单项选择题
+
+1. 第一题（）
+A. 1 B. 2
+<!--page:10-->
+![插图](logo.png)
+
+## 二、阅读程序
+2. 第二题（）
+A. 1 B. 2
+<!--page:11-->
+![大图](figure.png)
+3. 第三题（）
+A. 1 B. 2
+`,
+    baseDir: dir,
+  });
+  assert.equal(result.stats.headerImages, 1);
+  assert.equal((result.html.match(/<img /g) || []).length, 1, "只保留正常大图");
+  assert.match(result.html, /data:image\/png;base64,iVBORw0KGgo/, "正常大图仍内联");
 });
 
 test("the exported page is self-contained: MathML, inlined images, no CDN", async () => {

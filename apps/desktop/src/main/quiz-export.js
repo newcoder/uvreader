@@ -125,6 +125,29 @@ function unescapeCode(text) {
     .replace(/&#39;/g, "'")
     .replace(/&amp;/g, "&");
 }
+
+// 页眉 logo 在 MinerU 里有时被标成 image(其它页是 header):只看文件尺寸,
+// 且只丢弃「分页后的第一张、尺寸很小」的图,避免误伤正常插图。
+function imageSize(file) {
+  try {
+    const buffer = fs.readFileSync(file);
+    if (buffer.length > 24 && buffer.readUInt32BE(0) === 0x89504e47) {
+      return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+    }
+    if (buffer[0] === 0xff && buffer[1] === 0xd8) {
+      let offset = 2;
+      while (offset + 9 < buffer.length) {
+        if (buffer[offset] !== 0xff) { offset += 1; continue; }
+        const marker = buffer[offset + 1];
+        if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+          return { height: buffer.readUInt16BE(offset + 5), width: buffer.readUInt16BE(offset + 7) };
+        }
+        offset += 2 + buffer.readUInt16BE(offset + 2);
+      }
+    }
+  } catch { /* 读不了就不判 */ }
+  return null;
+}
 function highlightCode(code, fence) {
   const formatted = formatBlock(unescapeCode(code), fence);
   let html = escapeHtml(formatted.text);
@@ -247,6 +270,7 @@ if (typeof structure === "function") {
   } catch { /* 结构识别失败就用规则 */ }
 }
 
+const baseDir = String(baseDirInput || process.cwd());
 const blocks = [];
 const units = [];
 let section = "";
@@ -254,6 +278,8 @@ let sectionType = "";
 let paragraph = [];
 let lastUnit = null;
 let lastContext = "";
+let afterPageBreak = false;
+let droppedHeaderImages = 0;
 
 function flushParagraph() {
   if (!paragraph.length) return;
@@ -278,13 +304,20 @@ function addUnit(number, stem) {
 for (let index = 0; index < lines.length; index += 1) {
   const line = lines[index];
   const trimmed = line.trim();
+  const firstAfterPage = afterPageBreak;
 
+  if (!trimmed) {
+    flushParagraph();
+    continue;
+  }
   if (/^<!--\s*page:\s*\d+\s*-->$/i.test(trimmed)) {
     flushParagraph();
     // 跨页不丢上一题:选项/伪代码可能在后一页。
     blocks.push({ kind: "page", page: Number(trimmed.replace(/\D/g, "")) });
+    afterPageBreak = true;
     continue;
   }
+  afterPageBreak = false;
   const heading = /^(#{1,6})\s+(.*)$/.exec(line);
   if (heading) {
     flushParagraph();
@@ -328,6 +361,15 @@ for (let index = 0; index < lines.length; index += 1) {
   if (!trimmed) {
     flushParagraph();
     continue;
+  }
+  // 分页后的第一张图如果是小尺寸,基本是页眉 logo(如 CCF);正常插图在题干后,不会紧贴分页。
+  const leadingImage = /^!\[[^\]]*\]\(([^)\s]+)\)$/.exec(trimmed);
+  if (firstAfterPage && leadingImage) {
+    const size = imageSize(path.resolve(baseDir, decodeURIComponent(leadingImage[1])));
+    if (size && size.width <= 420 && size.height <= 260) {
+      droppedHeaderImages += 1;
+      continue;
+    }
   }
   // 独立一行的插图:按位置判断归属——题干提到「如图/右图」且图在最后一项之后
   // 才归题干;夹在选项之间、紧跟在空选项后、或选项文字提到图,归选项。
@@ -440,8 +482,6 @@ for (const unit of units) {
   unit.group = currentGroup.id;
   unit.groupTitle = currentGroup.title;
 }
-const baseDir = String(baseDirInput || process.cwd());
-
 // ---- 答案(来自题库 JSON 或单独的 answers.json) -------------------------
 function normalizeChoice(value) {
   return String(value ?? "").toUpperCase().replace(/[^A-H]/g, "").split("").sort().join("");
@@ -1020,6 +1060,7 @@ document.getElementById('submit').addEventListener('click', grade);
       ai: aiStats,
       structure: allowedStarts ? "ai" : "rules",
       blocks: blocks.length,
+      headerImages: droppedHeaderImages,
     },
   };
 }
