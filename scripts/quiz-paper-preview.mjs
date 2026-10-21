@@ -6,11 +6,16 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const [mdPath, outPath] = process.argv.slice(2);
+import temml from "temml";
+
+const args = process.argv.slice(2);
+const [mdPath, outPath] = args;
 if (!mdPath || !outPath) {
-  console.error("用法:node scripts/quiz-paper-preview.mjs <paper.md> <out.html>");
+  console.error("用法:node scripts/quiz-paper-preview.mjs <paper.md> <out.html> [--bank questions.json] [--answers answers.json]");
   process.exit(1);
 }
+const bankPath = args.includes("--bank") ? args[args.indexOf("--bank") + 1] : "";
+const answersPath = args.includes("--answers") ? args[args.indexOf("--answers") + 1] : "";
 
 const md = fs.readFileSync(mdPath, "utf8").replace(/\r\n?/g, "\n");
 const lines = md.split("\n");
@@ -109,21 +114,53 @@ function codeHtml(text, lang = "") {
   return `<div class="code-wrap"><div class="code-bar"><span>${escapeHtml(label)}</span><span class="code-dots">●●●</span></div><pre>${html}</pre></div>`;
 }
 
+const IMAGE_MIME = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  bmp: "image/bmp",
+  svg: "image/svg+xml",
+};
+
+function imageSrc(src, baseDir) {
+  const value = String(src || "");
+  if (!value || /^(?:data:|https?:|file:|app:|\/\/)/i.test(value)) return value;
+  try {
+    const absolute = path.resolve(baseDir, decodeURIComponent(value));
+    const stat = fs.statSync(absolute);
+    if (!stat.isFile() || stat.size > 8 * 1024 * 1024) return value;
+    const mime = IMAGE_MIME[path.extname(absolute).slice(1).toLowerCase()] || "application/octet-stream";
+    return `data:${mime};base64,${fs.readFileSync(absolute).toString("base64")}`;
+  } catch {
+    return value;
+  }
+}
+
+function mathHtml(tex, display) {
+  try {
+    return temml.renderToString(String(tex), { throwOnError: false, displayMode: display === true });
+  } catch {
+    return `<span class="math-raw">${escapeHtml(tex)}</span>`;
+  }
+}
+
 function inline(value, baseDir) {
-  let text = escapeHtml(value);
-  // 图片:相对 md 的路径换成 file://,独立页面才能显示。
-  text = text.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_match, alt, src) => {
-    const absolute = path.resolve(baseDir, decodeURI(src));
-    return `<img src="${escapeHtml(`file://${absolute.replace(/\\/g, "/")}`)}" alt="${alt}">`;
-  });
-  // 公式留给 KaTeX 的 auto-render(离线时至少保留 $...$ 原文)。
-  // 公式原样交给 KaTeX:md 里已经是标准 LaTeX(单反斜杠命令 + 双反斜杠换行),
-  // 不要再“还原”反斜杠,否则矩阵的行会被压平。
+  const tokens = [];
+  const keep = (html) => `\u0000T${tokens.push(html) - 1}\u0000`;
+  let text = String(value ?? "");
+  // 公式转成 MathML(自包含,不依赖 CDN);图片内联成 data URL。
+  text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_match, tex) => keep(mathHtml(tex, true)));
+  text = text.replace(/\$([^$\n]+)\$/g, (_match, tex) => keep(mathHtml(tex, false)));
+  text = text.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_match, alt, src) => keep(
+    `<img src="${escapeHtml(imageSrc(src, baseDir))}" alt="${escapeHtml(alt)}">`,
+  ));
+  text = escapeHtml(text);
   text = text.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
-  // 只还原 Markdown 的转义(星号/下划线等);不要动反斜杠对 —— LaTeX 的
-  // `\\`(矩阵换行)必须原样留给 KaTeX。
+  // 只还原 Markdown 的转义;数学/图片已经切出去了。
   text = text.replace(/\\([*_`{}[\]()#+\-.!])/g, "$1");
-  return text;
+  return text.replace(/\u0000T(\d+)\u0000/g, (_match, index) => tokens[Number(index)]);
 }
 
 function optionRun(line) {
@@ -267,6 +304,73 @@ for (const unit of units) {
 }
 const baseDir = path.dirname(path.resolve(mdPath));
 
+// ---- 答案(来自题库 JSON 或单独的 answers.json) -------------------------
+function normalizeChoice(value) {
+  return String(value ?? "").toUpperCase().replace(/[^A-H]/g, "").split("").sort().join("");
+}
+function normalizeTruth(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (["t", "true", "对", "正确", "√", "y", "yes", "1"].includes(text)) return "T";
+  if (["f", "false", "错", "错误", "×", "x", "n", "no", "0"].includes(text)) return "F";
+  return "";
+}
+function typeMatches(question, unit) {
+  const type = String(question?.type || "");
+  if (unit.kind === "choice") return type === "single_choice" || type === "multiple_choice";
+  if (unit.kind === "true_false") return type === "true_false";
+  if (unit.kind === "blank") return type === "fill_blank";
+  return ["short_answer", "program", "calculation", "proof"].includes(type);
+}
+function attachAnswers() {
+  let bank = [];
+  if (bankPath) {
+    try { bank = JSON.parse(fs.readFileSync(bankPath, "utf8")).questions || []; } catch { bank = []; }
+  }
+  const byNumber = new Map();
+  for (const question of bank) {
+    const key = String(question.number || "");
+    if (!byNumber.has(key)) byNumber.set(key, []);
+    byNumber.get(key).push(question);
+  }
+  let override = {};
+  if (answersPath) {
+    try { override = JSON.parse(fs.readFileSync(answersPath, "utf8")); } catch { override = {}; }
+  }
+  const used = new Set();
+  for (const unit of units) {
+    const raw = override[unit.number] ?? override[`q${unit.card}`] ?? override[unit.id];
+    const entry = raw && typeof raw === "object" ? raw : (raw != null ? { answer: raw } : null);
+    let source = entry;
+    if (!source) {
+      const candidates = (byNumber.get(String(unit.number)) || []).filter((question) => !used.has(question));
+      const match = candidates.find((question) => typeMatches(question, unit)) || candidates[0];
+      if (match) {
+        used.add(match);
+        source = { answer: match.answer, analysis: match.analysis };
+        if (match.type === "multiple_choice") unit.multi = true;
+      }
+    }
+    if (!source) continue;
+    const answer = source.answer ?? source.value ?? "";
+    const analysis = String(source.analysis || "");
+    if (unit.kind === "choice") {
+      const letters = normalizeChoice(answer);
+      if (letters) { unit.answer = letters; unit.analysis = analysis; }
+    } else if (unit.kind === "true_false") {
+      const truth = normalizeTruth(answer);
+      if (truth) { unit.answer = truth; unit.analysis = analysis; }
+    } else if (unit.kind === "blank") {
+      const text = String(answer ?? "").trim();
+      if (text) { unit.answer = text; unit.analysis = analysis; }
+    } else if (unit.kind === "short" || unit.kind === "program") {
+      const text = String(answer ?? "").trim();
+      if (text) { unit.reference = text; unit.analysis = analysis; }
+    }
+  }
+}
+attachAnswers();
+const answeredBank = units.filter((unit) => unit.answer).length;
+
 function renderUnit(unit) {
   const number = unit.card;
   const head = `<div class="q-head"><span class="q-no" title="卷面第 ${escapeHtml(unit.number)} 题">${escapeHtml(unit.number)}</span><span class="q-type">${
@@ -281,7 +385,7 @@ function renderUnit(unit) {
     }
   }
   if (unit.kind === "choice") {
-    body += `<div class="opts">${unit.options.map((option) => `
+    body += `<div class="opts"${unit.multi ? ' data-multi="1"' : ""}>${unit.options.map((option) => `
       <button type="button" class="opt" data-unit="${number}" data-value="${option.label}">
         <span class="opt-key">${option.label}</span><span class="opt-text">${inline(option.text, baseDir)}</span>
       </button>`).join("")}</div>`;
@@ -295,7 +399,13 @@ function renderUnit(unit) {
   } else if (unit.kind === "short") {
     body += `<textarea class="short-input" data-unit="${number}" rows="3" placeholder="在这里作答"></textarea>`;
   }
-  return `<section class="q-card" data-q="${number}" id="q${number}">${head}${body}</section>`;
+  const meta = [
+    `data-kind="${unit.kind}"`,
+    unit.answer ? `data-answer="${escapeHtml(unit.answer)}"` : "",
+    unit.analysis ? `data-analysis="${escapeHtml(unit.analysis)}"` : "",
+    unit.reference ? `data-reference="${escapeHtml(unit.reference)}"` : "",
+  ].filter(Boolean).join(" ");
+  return `<section class="q-card" data-q="${number}" id="q${number}" ${meta}>${head}${body}</section>`;
 }
 
 let html = "";
@@ -365,7 +475,6 @@ const document = `<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${escapeHtml(paperTitle)} · 答题页预览</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <style>
 :root{--paper:#f3f4f7;--surface:#fffefc;--surface-2:#f6f7fa;--ink:#262b33;--soft:#5d6573;--faint:#8a92a0;--primary:#2b3a55;--primary-deep:#1e2a40;--primary-soft:#eaeef6;--line:#e2e4ea;--line-strong:#cdd2dc;--accent:#b98a3e;--accent-soft:#f6edd9;--ok:#1e7a4a;--bad:#bf3b2b;--serif:"Noto Serif SC","Songti SC","SimSun",serif;--sans:"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;--mono:ui-monospace,"Cascadia Code",Consolas,monospace}
 *{margin:0;padding:0;box-sizing:border-box}
@@ -426,9 +535,30 @@ aside h3{font-size:12px;color:var(--soft);letter-spacing:.06em;margin-bottom:8px
 .opt-text{flex:1;min-width:0}
 .blank-input{border:1px solid var(--line-strong);border-radius:6px;background:#fff;padding:1px 8px;min-width:90px;font-family:var(--sans)}
 .result{display:none;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:14px}
-.result.show{display:block}
-.result h2{font-family:var(--serif);font-size:18px;color:var(--primary-deep);margin-bottom:6px}
-.result p{font-size:13px;color:var(--soft)}
+.result.show{display:block;animation:fadeIn .25s ease}
+.result-top{display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+.ring{width:96px;height:96px;flex:none;border-radius:50%;background:conic-gradient(var(--accent) calc(var(--p,0) * 1%),#ede6d6 0);display:flex;align-items:center;justify-content:center}
+.ring-inner{width:74px;height:74px;border-radius:50%;background:var(--surface);display:flex;flex-direction:column;align-items:center;justify-content:center}
+.ring-inner b{font-family:var(--serif);font-size:26px;line-height:1;color:var(--primary-deep)}
+.ring-inner span{font-size:11px;color:var(--faint)}
+.result-stats{flex:1;min-width:220px;display:grid;grid-template-columns:repeat(2,minmax(110px,1fr));gap:8px 18px}
+.result-stats b{display:block;font-family:var(--serif);font-size:19px;color:var(--ink)}
+.result-stats span{font-size:11.5px;color:var(--faint)}
+.result p{margin-top:12px;font-size:12.5px;color:var(--soft);border-top:1px dashed var(--line);padding-top:10px}
+.q-mark.correct{color:var(--ok)}
+.q-mark.wrong{color:var(--bad)}
+.q-card.correct{border-color:var(--ok)}
+.q-card.wrong{border-color:var(--bad)}
+.opt.good{border-color:var(--ok);background:var(--ok-soft,#e3f2e9)}
+.opt.good .opt-key{background:var(--ok);border-color:var(--ok);color:#fff}
+.opt.bad{border-color:var(--bad);background:var(--bad-soft,#fbe9e6)}
+.opt.bad .opt-key{background:var(--bad);border-color:var(--bad);color:#fff}
+.q-explain{display:none;margin-top:12px;border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;padding:10px 14px;font-size:13.5px;line-height:1.85;color:#4c4129;white-space:pre-wrap}
+.q-card.graded .q-explain{display:block}
+.q-explain .ex-label{font-weight:700;color:#7a5a1e;margin-right:6px}
+math{font-size:1.03em}
+.math-raw{font-family:var(--mono);font-size:.9em;color:var(--bad)}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 footer{max-width:900px;margin:0 auto 40px;padding:0 18px;font-size:11.5px;color:var(--faint)}
 @media(max-width:920px){.layout{flex-direction:column}aside{width:100%;position:static;order:-1}main{width:100%}}
 </style>
@@ -437,8 +567,9 @@ footer{max-width:900px;margin:0 auto 40px;padding:0 18px;font-size:11.5px;color:
 <header class="topbar">
   <div><div class="title">${escapeHtml(paperTitle)}</div><div class="sub">文档模式答题页预览 · 完整保留原文</div></div>
   <div class="spacer"></div>
+  <div class="progress-pill" id="timer">00:00</div>
   <div class="progress-pill" id="progress">已答 0 / ${interactive.length}</div>
-  <button class="progress-pill" id="submit" style="cursor:pointer">交卷</button>
+  <button class="progress-pill" id="submit" style="cursor:pointer">交卷判分</button>
 </header>
 <div class="layout">
   <aside>
@@ -451,70 +582,173 @@ footer{max-width:900px;margin:0 auto 40px;padding:0 18px;font-size:11.5px;color:
   </aside>
   <main>
     <section class="result" id="result">
-      <h2>已交卷（原型）</h2>
+      <div class="result-top">
+        <div class="ring" id="ring"><div class="ring-inner"><b id="score">0</b><span>分</span></div></div>
+        <div class="result-stats">
+          <div><b id="right">0</b><span>答对</span></div>
+          <div><b id="wrong">0</b><span>答错 / 未答</span></div>
+          <div><b id="rate">—</b><span>正确率</span></div>
+          <div><b id="elapsed">—</b><span>用时</span></div>
+        </div>
+      </div>
       <p id="resultText"></p>
     </section>
     ${html}
   </main>
 </div>
-<footer>原型：正文来自转换后的 Markdown，控件由锚点注入；未改写任何题目内容。</footer>
-<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}]})"></script>
+<footer>自包含答题页:正文来自转换后的 Markdown,答案来自题库或 answers.json,图片内联,公式为 MathML;未改写题目内容。</footer>
 <script>
 const answers = new Map();
 const total = ${interactive.length};
+const startAt = Date.now();
+let finishedAt = 0;
+const esc = function (value) {
+  return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
+    return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch];
+  });
+};
+const letters = function (value) {
+  return String(value == null ? '' : value).toUpperCase().replace(/[^A-H]/g, '').split('').sort().join('');
+};
+const truth = function (value) {
+  const text = String(value == null ? '' : value).trim().toLowerCase();
+  if (['t', 'true', '对', '正确', '√', 'y', 'yes', '1'].indexOf(text) >= 0) return 'T';
+  if (['f', 'false', '错', '错误', '×', 'x', 'n', 'no', '0'].indexOf(text) >= 0) return 'F';
+  return text;
+};
+const plain = function (value) {
+  return String(value == null ? '' : value).replace(/\s+/g, '').trim();
+};
+
 function refresh() {
   const done = answers.size;
   document.getElementById('progress').textContent = '已答 ' + done + ' / ' + total;
   document.getElementById('doneCount').textContent = String(done);
   document.getElementById('sideBar').style.width = (total ? Math.round(done / total * 100) : 0) + '%';
 }
-document.querySelectorAll('.opt').forEach((button) => {
-  button.addEventListener('click', () => {
-    const unit = button.dataset.unit;
-    const multi = button.closest('.opts')?.dataset.multi === '1';
+function tick() {
+  if (finishedAt) return;
+  const seconds = Math.floor((Date.now() - startAt) / 1000);
+  document.getElementById('timer').textContent =
+    String(Math.floor(seconds / 60)).padStart(2, '0') + ':' + String(seconds % 60).padStart(2, '0');
+}
+setInterval(tick, 1000);
+tick();
+
+document.querySelectorAll('.opt').forEach(function (button) {
+  button.addEventListener('click', function () {
+    const card = button.closest('.q-card');
+    const unit = card.dataset.q;
+    const multi = button.closest('.opts') && button.closest('.opts').dataset.multi === '1';
     const group = button.parentElement;
-    if (!multi) group.querySelectorAll('.opt').forEach((other) => other.classList.remove('sel'));
+    if (!multi) group.querySelectorAll('.opt').forEach(function (other) { other.classList.remove('sel'); });
     button.classList.toggle('sel');
-    const selected = [...group.querySelectorAll('.opt.sel')].map((item) => item.dataset.value);
+    const selected = [].slice.call(group.querySelectorAll('.opt.sel')).map(function (item) { return item.dataset.value; });
     if (selected.length) answers.set(unit, selected.join('')); else answers.delete(unit);
     refresh();
-    const target = document.querySelector('[data-target="q' + button.closest('.q-card').dataset.q + '"]');
+    const target = document.querySelector('[data-target="q' + unit + '"]');
     if (target) target.classList.toggle('done', answers.has(unit));
   });
 });
-document.querySelectorAll('.blank-input').forEach((input) => {
-  input.addEventListener('input', () => {
+document.querySelectorAll('.blank-input, .short-input').forEach(function (input) {
+  input.addEventListener('input', function () {
     const unit = input.dataset.unit;
     if (input.value.trim()) answers.set(unit, input.value); else answers.delete(unit);
     refresh();
   });
 });
-document.querySelectorAll('.short-input').forEach((input) => {
-  input.addEventListener('input', () => {
-    const unit = input.dataset.unit;
-    if (input.value.trim()) answers.set(unit, input.value); else answers.delete(unit);
-    refresh();
+document.querySelectorAll('.grid-btn').forEach(function (button) {
+  button.addEventListener('click', function () {
+    const target = document.getElementById(button.dataset.target);
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 });
-document.querySelectorAll('.grid-btn').forEach((button) => {
-  button.addEventListener('click', () => {
-    document.getElementById(button.dataset.target)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+function markCard(card, status) {
+  card.classList.add('graded');
+  if (status) card.classList.add(status);
+  const mark = card.querySelector('.q-mark');
+  if (mark) {
+    mark.textContent = status === 'correct' ? '✓ 正确' : status === 'wrong' ? '✗ 错误' : '参考';
+    mark.className = 'q-mark ' + (status || '');
+  }
+  card.querySelectorAll('.opt').forEach(function (opt) { opt.disabled = true; });
+  const input = card.querySelector('.blank-input, .short-input');
+  if (input) input.disabled = true;
+}
+function explain(card, expected, analysis) {
+  const box = document.createElement('div');
+  box.className = 'q-explain';
+  const parts = [];
+  if (expected) parts.push('<b>参考答案:</b> ' + esc(expected));
+  if (analysis) parts.push(esc(analysis));
+  box.innerHTML = '<span class="ex-label">解析</span>' + (parts.join('<br>') || '本题未提供解析。');
+  card.appendChild(box);
+}
+
+function grade() {
+  if (finishedAt) return;
+  finishedAt = Date.now();
+  let correct = 0;
+  let wrong = 0;
+  let unanswered = 0;
+  let ungraded = 0;
+  document.querySelectorAll('.q-card').forEach(function (card) {
+    const kind = card.dataset.kind;
+    const expected = String(card.dataset.answer || '').trim();
+    const analysis = card.dataset.analysis || '';
+    const reference = card.dataset.reference || '';
+    const got = answers.get(card.dataset.q) || '';
+    if (!expected) {
+      if (reference) { markCard(card, ''); explain(card, reference, analysis); }
+      ungraded += 1;
+      return;
+    }
+    if (kind === 'short' || kind === 'program') {
+      markCard(card, '');
+      explain(card, reference || expected, analysis);
+      ungraded += 1;
+      return;
+    }
+    let ok = false;
+    if (!got) unanswered += 1;
+    else if (kind === 'choice') ok = letters(got) === letters(expected);
+    else if (kind === 'true_false') ok = truth(got) === truth(expected);
+    else ok = plain(got) === plain(expected);
+    if (got) { if (ok) correct += 1; else wrong += 1; }
+    markCard(card, ok ? 'correct' : 'wrong');
+    if (!got) {
+      const mark = card.querySelector('.q-mark');
+      if (mark) { mark.textContent = '未答'; mark.className = 'q-mark wrong'; }
+    }
+    const shown = kind === 'true_false' ? (truth(expected) === 'T' ? '对' : '错') : expected;
+    explain(card, shown, analysis);
+    const map = document.querySelector('[data-target="q' + card.dataset.q + '"]');
+    if (map) map.className = 'grid-btn ' + (ok && got ? 'right' : 'wrong');
   });
-});
-document.querySelectorAll('.q-card').forEach((card) => {
-  const button = document.querySelector('[data-target="q' + card.dataset.q + '"]');
-  if (button) button.addEventListener('click', () => {});
-});
-document.getElementById('submit').addEventListener('click', () => {
+  const gradedTotal = correct + wrong + unanswered;
+  const percent = gradedTotal ? Math.round(correct / gradedTotal * 100) : 0;
+  document.getElementById('ring').style.setProperty('--p', String(percent));
+  document.getElementById('score').textContent = String(percent);
+  document.getElementById('right').textContent = String(correct);
+  document.getElementById('wrong').textContent = String(wrong + unanswered);
+  document.getElementById('rate').textContent = gradedTotal ? percent + '%' : '—';
+  const elapsed = Math.max(0, Math.round((finishedAt - startAt) / 1000));
+  document.getElementById('elapsed').textContent = Math.floor(elapsed / 60) + ':' + String(elapsed % 60).padStart(2, '0');
+  const note = gradedTotal
+    ? '客观题 ' + gradedTotal + ' 题：答对 ' + correct + '、答错 ' + wrong + '、未答 ' + unanswered +
+      (ungraded ? '；另有 ' + ungraded + ' 题为主观题或未提供答案，请对照参考答案自评' : '') + '。'
+    : '本卷没有可自动判分的答案；请在原文核对，或补充答案后重新生成。';
+  document.getElementById('resultText').textContent = note;
   document.getElementById('result').classList.add('show');
-  document.getElementById('resultText').textContent = '已作答 ' + answers.size + ' / ' + total + ' 题。原型页不判分；应用内会把这 ' + answers.size + ' 题交给 AI 判题并显示解析。';
+  document.getElementById('submit').disabled = true;
   window.scrollTo({ top: 0, behavior: 'smooth' });
-});
+}
+document.getElementById('submit').addEventListener('click', grade);
 </script>
 </body>
 </html>`;
 
 fs.mkdirSync(path.dirname(outPath), { recursive: true });
 fs.writeFileSync(outPath, document, "utf8");
-console.log(JSON.stringify({ units: units.length, interactive: interactive.length, blocks: blocks.length, out: path.resolve(outPath) }, null, 2));
+console.log(JSON.stringify({ units: units.length, interactive: interactive.length, answered: answeredBank, blocks: blocks.length, out: path.resolve(outPath) }, null, 2));

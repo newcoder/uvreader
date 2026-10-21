@@ -41,7 +41,8 @@
     "@wasm-fmt/clang-format": "^23.1.1",
     "esbuild": "0.28.1",
     "eslint": "^9.39.5",
-    "jsdom": "^29.1.1"
+    "jsdom": "^29.1.1",
+    "temml": "^0.14.0"
   },
   "dependencies": {
     "foliate-js": "^1.0.1",
