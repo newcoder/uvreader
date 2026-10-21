@@ -62,6 +62,27 @@ A. 1 B. 2 C. 3 D. 4
   assert.equal(result.stats.ai.answers, 0);
 });
 
+test("an image after the options becomes a figure, not part of the last option", async () => {
+  const markdown = `## 一、单项选择题
+
+1. 一棵二叉树如右图所示，该数组最大下标至少为（） A. 6 B. 10 C. 15
+![插图](missing-figure.png)
+`;
+  const result = await buildQuizPaper({ markdown, baseDir: process.cwd() });
+  assert.match(result.html, /class="q-fig"/);
+  const options = /<div class="opts[\s\S]*?<\/div>/.exec(result.html)[0];
+  assert.doesNotMatch(options, /<img/, "插图不能落在选项里");
+  assert.match(result.html, /<span class="circled">①<\/span>|<img src="missing-figure.png"/);
+});
+
+test("circled blanks are wrapped so their digits stay readable", async () => {
+  const result = await buildQuizPaper({
+    markdown: "## 一、单项选择题\n\n1. ① 处应填（）\nA. 1 B. 2\n",
+    baseDir: process.cwd(),
+  });
+  assert.match(result.html, /<span class="circled">①<\/span>/);
+});
+
 test("the exported page is self-contained: MathML, inlined images, no CDN", async () => {
   const result = await buildQuizPaper({
     markdown: "## 一、单项选择题\n\n1. 公式 $x^2$ 的结果是（）\nA. 1 B. 2\n",

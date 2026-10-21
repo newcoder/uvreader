@@ -122,7 +122,14 @@ function imageSrc(src, baseDir) {
 
 function mathHtml(tex, display) {
   try {
-    return temml.renderToString(String(tex), { throwOnError: false, displayMode: display === true });
+    let html = temml.renderToString(String(tex), { throwOnError: false, displayMode: display === true });
+    // 浏览器不一定会把 [ ] 拉到矩阵高度:换成 CSS 边框,行距也更稳。
+    html = html.replace(
+      /(<mo fence="true"[^>]*>\s*\[\s*<\/mo>)(<mtable[\s\S]*?<\/mtable>)(<mo fence="true"[^>]*>\s*\]\s*<\/mo>)/g,
+      (_match, _open, table) => `<mrow class="qbr-matrix">${table}</mrow>`,
+    );
+    html = html.replace(/<mtable/g, '<mtable rowspacing="0.4em"');
+    return html;
   } catch {
     return `<span class="math-raw">${escapeHtml(tex)}</span>`;
   }
@@ -142,6 +149,8 @@ function inline(value, baseDir) {
   text = text.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
   // 只还原 Markdown 的转义;数学/图片已经切出去了。
   text = text.replace(/\\([*_`{}[\]()#+\-.!])/g, "$1");
+  // 圆圈数字(①②③)在题干/选项里也放大一些,避免看不清。
+  text = text.replace(/([①②③④⑤⑥⑦⑧⑨⑩])/g, '<span class="circled">$1</span>');
   return text.replace(/\u0000T(\d+)\u0000/g, (_match, index) => tokens[Number(index)]);
 }
 
@@ -176,7 +185,7 @@ function flushParagraph() {
 
 function addUnit(number, stem) {
   flushParagraph();
-  const unit = { number, stem, options: [], between: [], context: lastContext, kind: "text", section, id: `u${units.length + 1}` };
+  const unit = { number, stem, options: [], between: [], figures: [], context: lastContext, kind: "text", section, id: `u${units.length + 1}` };
   const run = optionRun(stem);
   if (run) {
     unit.stem = run.head;
@@ -227,6 +236,12 @@ for (let index = 0; index < lines.length; index += 1) {
   }
   if (!trimmed) {
     flushParagraph();
+    continue;
+  }
+  // 独立一行的插图(常见于「如图」题):归到上一题的 figures,
+  // 不要被下面「续接到最后一个选项」的逻辑吃进 C/D。
+  if (lastUnit && /^!\[[^\]]*\]\([^)\s]+\)$/.test(trimmed)) {
+    lastUnit.figures.push(trimmed);
     continue;
   }
   const question = QUESTION.exec(line);
@@ -426,6 +441,9 @@ function renderUnit(unit) {
     unit.kind === "choice" ? "选择题" : unit.kind === "true_false" ? "判断题" : unit.kind === "blank" ? "填空题" : "简答题"
   }</span><span class="q-mark" data-mark></span></div>`;
   let body = `<div class="q-stem">${inline(unit.stem, baseDir)}</div>`;
+  for (const figure of unit.figures || []) {
+    body += `<div class="q-fig">${inline(figure, baseDir)}</div>`;
+  }
   for (const entry of unit.between || []) {
     if (typeof entry === "string") {
       body += `<div class="q-note">${inline(entry, baseDir)}</div>`;
@@ -472,6 +490,9 @@ for (const block of blocks) {
     if (block.unit.kind === "description" || block.unit.kind === "program") {
       if (openCard) { html += "</div>"; openCard = false; }
       html += `<p class="program-title">${inline(block.unit.stem, baseDir)}</p>`;
+      for (const figure of block.unit.figures || []) {
+        html += `<div class="q-fig">${inline(figure, baseDir)}</div>`;
+      }
       for (const entry of block.unit.between || []) {
         if (typeof entry === "string") {
           html += `<p class="prose">${inline(entry, baseDir)}</p>`;
@@ -561,7 +582,8 @@ aside h3{font-size:12px;color:var(--soft);letter-spacing:.06em;margin-bottom:8px
 .code-bar{display:flex;align-items:center;justify-content:space-between;padding:5px 12px;background:#eef0f5;border-bottom:1px solid var(--line);font-size:10px;color:var(--faint);letter-spacing:.06em;text-transform:uppercase}
 .code-dots{letter-spacing:2px;font-size:7px;color:#c2c7d1}
 .code-wrap pre{font-family:var(--mono);font-size:12.5px;line-height:1.62;padding:14px 16px;color:#2c3340;white-space:pre;overflow-x:auto}
-.code-wrap .blank{display:inline-block;min-width:20px;text-align:center;color:#a1291c;font-weight:700;background:#fdeee9;border:1px dashed #d98a7c;border-radius:4px;padding:0 3px}
+.code-wrap .blank{display:inline-block;min-width:24px;text-align:center;color:#a1291c;font-weight:700;font-size:15px;font-family:"Segoe UI Symbol","Noto Sans SC","Microsoft YaHei",sans-serif;line-height:1.35;background:#fdeee9;border:1px dashed #d98a7c;border-radius:6px;padding:1px 5px;vertical-align:-2px}
+.circled{font-size:1.25em;font-weight:600;color:#a1291c;line-height:1;font-family:"Segoe UI Symbol","Noto Sans SC","Microsoft YaHei",sans-serif}
 .tok-com{color:#7c8798;font-style:italic}
 .tok-str{color:#1e7a4a}
 .tok-key{color:#2b5b9e;font-weight:600}
@@ -606,6 +628,12 @@ aside h3{font-size:12px;color:var(--soft);letter-spacing:.06em;margin-bottom:8px
 .q-card.graded .q-explain{display:block}
 .q-explain .ex-label{font-weight:700;color:#7a5a1e;margin-right:6px}
 math{font-size:1.03em}
+math mtable{border-collapse:collapse}
+math mtr{line-height:1.7}
+math mtd{padding-top:.18em;padding-bottom:.18em}
+.qbr-matrix{display:inline-block;border-left:1.2px solid currentColor;border-right:1.2px solid currentColor;padding:0 .3em;vertical-align:middle}
+.q-fig{display:flex;justify-content:center;padding:6px 0}
+.q-fig img{max-width:100%;max-height:260px;border-radius:6px}
 .math-raw{font-family:var(--mono);font-size:.9em;color:var(--bad)}
 @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 footer{max-width:900px;margin:0 auto 40px;padding:0 18px;font-size:11.5px;color:var(--faint)}
