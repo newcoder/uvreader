@@ -14,12 +14,13 @@ export async function buildQuizPaper({
   solve = null,
   structure = null,
   title = "试卷",
+  dropImages = [],
   onProgress = () => {},
   signal = null,
   codeFormatter = null,
 } = {}) {
   const md = String(markdown || "").replace(/\r\n?/g, "\n");
-  const lines = absorbOrphanCode(md.split("\n"));
+  const lines = splitInlineQuestions(splitPageMarkers(absorbOrphanCode(md.split("\n"))));
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -113,6 +114,71 @@ function absorbOrphanCode(lines) {
       continue;
     }
     out.push(line);
+  }
+  return out;
+}
+
+// 上游有时把页标记和下一行粘在一起(`<!--page:6--> 5）…`):先拆开。
+function splitPageMarkers(lines) {
+  const out = [];
+  for (const line of lines) {
+    const match = /^\s*(<!--\s*page:\s*\d+\s*-->)\s*(\S.*)$/i.exec(line);
+    if (match) {
+      out.push(match[1]);
+      out.push(match[2]);
+    } else {
+      out.push(line);
+    }
+  }
+  return out;
+}
+
+// 跨页/文本层合并可能把两道题拼成一行(`…D. 10^15 5）若输入…`):
+// 只在同一行已经有一道题、且第二个题号前有选项、后面又像题目时才拆。
+function splitInlineQuestions(lines) {
+  const out = [];
+  let inFence = false;
+  for (const line of lines) {
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence;
+      out.push(line);
+      continue;
+    }
+    if (inFence) {
+      out.push(line);
+      continue;
+    }
+    const leading = /^\s*(\d{1,3})\s*[.、．)）]/.exec(line);
+    if (!leading) {
+      out.push(line);
+      continue;
+    }
+    const cuts = [];
+    const re = /(?:^|\s)(\d{1,3})\s*[)）]\s*(?=\S)/g;
+    let match;
+    while ((match = re.exec(line))) {
+      if (Number(match[1]) <= Number(leading[1])) continue;
+      const start = match.index + (match[0].startsWith(" ") ? 1 : 0);
+      if (cuts.length && start <= cuts[cuts.length - 1]) continue;
+      const prefix = line.slice(0, start);
+      const suffix = line.slice(start);
+      const hasOptions = /(?:^|\s)[A-H]\s*[.、．)）]\s*\S/.test(prefix);
+      const looksLikeQuestion = /[（(][^）)]{0,16}[）)]/.test(suffix)
+        || /(?:^|\s)[A-H]\s*[.、．)）]\s*\S/.test(suffix);
+      if (hasOptions && looksLikeQuestion) cuts.push(start);
+    }
+    if (!cuts.length) {
+      out.push(line);
+      continue;
+    }
+    let last = 0;
+    for (const cut of cuts) {
+      const part = line.slice(last, cut).trim();
+      if (part) out.push(part);
+      last = cut;
+    }
+    const tail = line.slice(last).trim();
+    if (tail) out.push(tail);
   }
   return out;
 }
@@ -271,6 +337,12 @@ if (typeof structure === "function") {
 }
 
 const baseDir = String(baseDirInput || process.cwd());
+const furnitureImages = new Set(
+  (Array.isArray(dropImages) ? dropImages : [dropImages])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .map((item) => path.basename(item)),
+);
 const blocks = [];
 const units = [];
 let section = "";
@@ -364,11 +436,18 @@ for (let index = 0; index < lines.length; index += 1) {
   }
   // 分页后的第一张图如果是小尺寸,基本是页眉 logo(如 CCF);正常插图在题干后,不会紧贴分页。
   const leadingImage = /^!\[[^\]]*\]\(([^)\s]+)\)$/.exec(trimmed);
-  if (firstAfterPage && leadingImage) {
-    const size = imageSize(path.resolve(baseDir, decodeURIComponent(leadingImage[1])));
-    if (size && size.width <= 420 && size.height <= 260) {
+  if (leadingImage) {
+    const src = decodeURIComponent(leadingImage[1]);
+    if (furnitureImages.has(path.basename(src))) {
       droppedHeaderImages += 1;
       continue;
+    }
+    if (firstAfterPage) {
+      const size = imageSize(path.resolve(baseDir, src));
+      if (size && size.width <= 420 && size.height <= 260) {
+        droppedHeaderImages += 1;
+        continue;
+      }
     }
   }
   // 独立一行的插图:按位置判断归属——题干提到「如图/右图」且图在最后一项之后

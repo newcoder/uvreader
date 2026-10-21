@@ -192,7 +192,11 @@ export function joinContinuationLines(markdown, texts) {
     let at = out.length - 1;
     while (at >= 0 && !out[at].trim()) at -= 1;
     const last = at >= 0 ? out[at].trim() : "";
-    if (at >= 0 && !/^[!|#>`]/.test(last)) out[at] = joinInlineFragment(out[at], value);
+    // 页首的新题/选项/标题即使被上游标了 continuation,也不能接到上一行:
+    // 典型是跨页后 `5）若输入…` 被粘到上一题选项 D 后面。
+    const startsBlock = /^(?:\d{1,3}\s*[.、．)）]\s*\S|[A-H]\s*[.、．)）]\s*\S|#{1,6}\s)/.test(value);
+    const lastIsPageMark = /^<!--\s*page:\s*\d+\s*-->$/i.test(last);
+    if (at >= 0 && !startsBlock && !lastIsPageMark && !/^[!|#>`]/.test(last)) out[at] = joinInlineFragment(out[at], value);
     else out.push(line);
     wanted.delete(value);
   }

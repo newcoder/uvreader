@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { adoptPdfToolOutputs, appendFootnotes, collectContinuations, collectPageFootnotes, collectUpstreamTocEntries, extractionKind, extractMarkdown, mergePdfMarkdown, patchMarkdownCaptions, registerExtractRunners, splitMarkdownChapters } from "../src/main/extract-doc.js";
+import { adoptPdfToolOutputs, appendFootnotes, collectContinuations, collectHeaderImages, collectPageFootnotes, collectUpstreamTocEntries, extractionKind, extractMarkdown, mergePdfMarkdown, patchMarkdownCaptions, registerExtractRunners, splitMarkdownChapters } from "../src/main/extract-doc.js";
 import { unwrapProseFences } from "../src/shared/markdown-fix.js";
 import { createWorkshopQueue } from "../src/main/workshop.js";
 import { waitForTask } from "./wait-for-task.mjs";
@@ -818,6 +818,22 @@ test("collectContinuations reads the blocks pdf_tool marked", () => {
   }), "utf8");
   assert.deepEqual(collectContinuations(docPath), ["的努力？"]);
   assert.deepEqual(collectContinuations(path.join(dir, "没有.json")), []);
+});
+
+test("collectHeaderImages drops an image whose bbox matches a header on another page", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-header-"));
+  fs.mkdirSync(path.join(dir, "mineru"));
+  fs.writeFileSync(path.join(dir, "mineru", "middle_json.json"), JSON.stringify({
+    pages: [
+      { blocks: [{ type: "header", bbox: [0.021, 0.017, 0.172, 0.089] }] },
+      { blocks: [
+        { type: "image", bbox: [0.02, 0.017, 0.172, 0.09], content: [{ image_path: "images/page_9_image_0.jpg" }] },
+        { type: "image", bbox: [0.158, 0.647, 0.212, 0.716], content: [{ image_path: "images/page_1_image_9.jpg" }] },
+      ] },
+    ],
+  }), "utf8");
+  assert.deepEqual(collectHeaderImages(dir), ["images/page_9_image_0.jpg"]);
+  assert.deepEqual(collectHeaderImages(path.join(dir, "missing")), []);
 });
 
 test("the pdf outline reader returns entries and fails quietly", async () => {

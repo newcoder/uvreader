@@ -19,8 +19,9 @@ function makeRunner({ aiRuntime = null } = {}) {
     {
       extractMarkdown: async () => ({
         ok: true,
-        markdown: "## 一、单项选择题\n\n1. 1+1 等于多少？（）\nA. 1 B. 2 C. 3 D. 4\n",
+        markdown: "## 一、单项选择题\n\n1. 1+1 等于多少？（）\nA. 1 B. 2 C. 3 D. 4\n![插图](mineru/images/page_9_image_0.jpg)\n",
         path: path.join(cacheRoot, "paper.md"),
+        headerImages: ["images/page_9_image_0.jpg"],
       }),
       aiRuntime,
       vaultRoot,
@@ -61,6 +62,7 @@ test("quiz-export writes an answering page next to the source", async () => {
   const html = fs.readFileSync(out, "utf8");
   assert.match(html, /data-answer="B"/);
   assert.match(html, /1\+1=2/);
+  assert.doesNotMatch(html, /page_9_image_0\.jpg/, "提取阶段标出的页眉图被丢掉");
   assert.match(result.detail, /AI 补答案 1/);
   assert.match(result.detail, /题目识别 AI/);
   assert.equal(calls.structure, 1);

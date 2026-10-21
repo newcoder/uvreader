@@ -82,6 +82,7 @@ export function registerQuizRunners(workshop, {
     const result = await buildQuizPaper({
       markdown: extracted.markdown,
       baseDir: path.dirname(extracted.path || absolute),
+      dropImages: extracted.headerImages || [],
       bank,
       solve: askAi,
       structure: askAi,

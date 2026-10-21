@@ -181,6 +181,51 @@ export function collectContinuations(docPath) {
   }
 }
 
+// 页眉/页脚图片的块类型不一定一致(同一 logo 可能被标 header 或 image)。
+// 用 MinerU 的 middle_json:与任意页 header/footer 的 normalized bbox 高度重合的
+// image 块,按家具图丢弃;正常插图不会和页眉框重合。
+export function collectHeaderImages(workDir) {
+  try {
+    const file = path.join(String(workDir || ""), "mineru", "middle_json.json");
+    if (!fs.existsSync(file)) return [];
+    const doc = JSON.parse(fs.readFileSync(file, "utf8"));
+    const pages = Array.isArray(doc?.pages) ? doc.pages : [];
+    const furniture = [];
+    for (const page of pages) {
+      for (const block of Array.isArray(page?.blocks) ? page.blocks : []) {
+        if (["header", "footer", "page_number", "page_footnote"].includes(String(block?.type || "")) && Array.isArray(block?.bbox)) {
+          furniture.push(block.bbox);
+        }
+      }
+    }
+    if (!furniture.length) return [];
+    const overlap = (a, b) => {
+      const width = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0]));
+      const height = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+      const inter = width * height;
+      const areaA = Math.max(0, a[2] - a[0]) * Math.max(0, a[3] - a[1]);
+      const areaB = Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]);
+      return inter / Math.max(1e-9, Math.min(areaA, areaB));
+    };
+    const out = new Set();
+    for (const page of pages) {
+      for (const block of Array.isArray(page?.blocks) ? page.blocks : []) {
+        if (String(block?.type || "") !== "image" || !Array.isArray(block?.bbox)) continue;
+        if (!furniture.some((box) => overlap(block.bbox, box) >= 0.75)) continue;
+        const paths = [];
+        if (block?.image_path) paths.push(block.image_path);
+        for (const item of Array.isArray(block?.content) ? block.content : []) {
+          if (item?.image_path) paths.push(item.image_path);
+        }
+        for (const item of paths) out.add(String(item));
+      }
+    }
+    return [...out];
+  } catch {
+    return [];
+  }
+}
+
 export function adoptPdfToolOutputs(outDir, name, { renameAssets = true } = {}) {
   const files = {};
   // caption 补全用的块列表(pdf_tool 的 Doc JSON,读不到就算了)。
@@ -453,7 +498,7 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
       // R2:上游标了 continuation 的半句接回上一段(老缓存里没有标记就什么都不做)。
       cachedText = joinContinuationLines(cachedText, collectContinuations(docCandidates.find(fresh)));
       if (cachedText !== cachedRaw) fs.writeFileSync(mergedPath, cachedText, "utf8");
-      return { ok: true, markdown: cachedText, path: mergedPath, tocEntries: collectUpstreamTocEntries(docCandidates.find(fresh)) };
+      return { ok: true, markdown: cachedText, path: mergedPath, tocEntries: collectUpstreamTocEntries(docCandidates.find(fresh)), headerImages: collectHeaderImages(workDir) };
     }
     // refresh = 忽略缓存重新提取:连 Doc JSON 也不复用,真的再跑一次上游。
     const cachedDoc = refresh || engineStale ? undefined : docCandidates.find(fresh);
@@ -527,14 +572,14 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
       // R2:上游标了 continuation 的半句接回上一段。
       withNotes = joinContinuationLines(withNotes, collectContinuations(files.json || cachedDoc));
       fs.writeFileSync(mergedPath, withNotes, "utf8");
-      return { ok: true, markdown: withNotes, path: mergedPath, tocEntries: collectUpstreamTocEntries(files.json || cachedDoc) };
+      return { ok: true, markdown: withNotes, path: mergedPath, tocEntries: collectUpstreamTocEntries(files.json || cachedDoc), headerImages: collectHeaderImages(workDir) };
     }
     const raw = readMarkdown(files.md);
     // 没有文字层可合并时,也要把这次的结果写回 merged.md:否则下次会命中上一版遗留的合并稿。
     try {
       fs.writeFileSync(mergedPath, raw, "utf8");
     } catch { /* 写不了缓存不影响本次结果 */ }
-    return { ok: true, markdown: raw, path: files.md, tocEntries: collectUpstreamTocEntries(files.json || cachedDoc) };
+    return { ok: true, markdown: raw, path: files.md, tocEntries: collectUpstreamTocEntries(files.json || cachedDoc), headerImages: collectHeaderImages(workDir) };
   }
   if (!docvortex) return { ok: false, error: "DocVortex 不可用" };
   fs.mkdirSync(workDir, { recursive: true });

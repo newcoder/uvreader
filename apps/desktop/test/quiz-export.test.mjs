@@ -145,6 +145,28 @@ A. 1 B. 2 C. 3 D. 4
   assert.doesNotMatch(result.html, /data-q="3"/);
 });
 
+test("a page marker sharing a line with the next question is split", async () => {
+  const markdown = `## - 单选题
+
+4）若输入的 n 等于  $10^{15}$ ，输入的 k 为 1，则输出等于（）。A. 1 B. 2 C. 3 D. 4
+<!--page:6--> 5）若输入的 n 等于 205,891,132,094,649，输入的 k 为 3，则输出等于（）。A. 5 B. 6 C. 7 D. 8
+`;
+  const result = await buildQuizPaper({ markdown, baseDir: process.cwd() });
+  assert.equal(result.stats.units, 2);
+  assert.match(result.html, /data-q="1"[\s\S]*?data-q="2"/, "两道题是两张卡");
+});
+
+test("two questions merged onto one line are split at the second number", async () => {
+  const markdown = `## - 单选题
+
+4）若输入的 n 等于  $10^{15}$ ，输入的 k 为 1，则输出等于（）。A.  $(10^{30}-10^{15})/2$  B.  $(10^{30}+10^{15})/2$  C. 1 D.  $10^{15}$ 5）若输入的 n 等于 205,891,132,094,649，输入的 k 为 3，则输出等于（）。A.  $(3^{30}-1)/2$  B.  $3^{30}$  C.  $3^{30}-1$  D.  $(3^{30}+1)/2$
+`;
+  const result = await buildQuizPaper({ markdown, baseDir: process.cwd() });
+  assert.equal(result.stats.units, 2, "同一行里的第 5 题被拆出来");
+  assert.match(result.html, /data-q="2"[\s\S]*?205,891,132,094,649/);
+  assert.doesNotMatch(result.html, /data-q="1"[\s\S]*?205,891,132,094,649[\s\S]*?data-q="2"/, "第 5 题不能留在第 4 题卡里");
+});
+
 test("a real question survives when the model omits its start", async () => {
   const markdown = `## 一、单项选择题
 
@@ -254,6 +276,24 @@ A. 1 B. 2
   assert.equal(result.stats.headerImages, 1);
   assert.equal((result.html.match(/<img /g) || []).length, 1, "只保留正常大图");
   assert.match(result.html, /data:image\/png;base64,iVBORw0KGgo/, "正常大图仍内联");
+});
+
+test("a known furniture image is dropped without a page marker", async () => {
+  const markdown = `## 一、单项选择题
+
+1. 第一题（）
+A. 1 B. 2
+![插图](mineru/images/page_9_image_0.jpg)
+2. 第二题（）
+A. 1 B. 2
+`;
+  const result = await buildQuizPaper({
+    markdown,
+    baseDir: process.cwd(),
+    dropImages: ["images/page_9_image_0.jpg"],
+  });
+  assert.equal(result.stats.headerImages, 1);
+  assert.equal((result.html.match(/<img /g) || []).length, 0);
 });
 
 test("the exported page is self-contained: MathML, inlined images, no CDN", async () => {

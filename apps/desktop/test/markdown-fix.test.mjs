@@ -213,4 +213,8 @@ test("joinContinuationLines puts an upstream continuation back into the sentence
   assert.match(english, /was flat and clean/, "拉丁文字之间补空格");
   const guarded = joinContinuationLines(["![插图](a.jpg)", "", "flat and clean"].join("\n"), ["flat and clean"]);
   assert.match(guarded, /\n\nflat and clean/, "上一行是图片时不往上粘");
+  const question = joinContinuationLines(["4）若输入 n 等于 1，输出（）。A. 1 B. 2 C. 3 D. 4", "", "5）若输入 n 等于 2，输出（）。A. 1 B. 2 C. 3 D. 4"].join("\n"), ["5）若输入 n 等于 2，输出（）。A. 1 B. 2 C. 3 D. 4"]);
+  assert.match(question, /\n\n5）若输入/, "新题号即使被标 continuation 也另起一行");
+  const afterPage = joinContinuationLines(["4）上一题", "", "<!--page:6-->", "", "5）下一题（）"].join("\n"), ["5）下一题（）"]);
+  assert.match(afterPage, /<!--page:6-->\n\n5）下一题/, "页标记后的新题不粘到页标记上");
 });
