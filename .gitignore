@@ -41,3 +41,5 @@ main.js.json
 # Python bytecode caches (the workshop engine)
 __pycache__/
 *.pyc
+
+experiments/quiz-llm/runs/
