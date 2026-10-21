@@ -268,6 +268,19 @@ node scripts/quiz-paper-preview.mjs <paper.md> <out.html> [--bank questions.json
 - 有答案的样卷:`docs/quiz-paper-python.html`(35 题自动判分);
   无答案的样卷:`docs/quiz-paper-preview.html`(CSP2019,提示无法自动判分)。
 
+### 9.1 应用内:格式转换 → 答题页
+
+- 目标格式下拉新增 **答题页(交互 HTML)**,产物 `<源名>.答题页.html`;
+- runner `quiz-export`:提取正文(引擎优先)→ 源文件旁题库 → 缺答案/解析的题用 AI 补
+  (`buildSolveMessages`,带小节/程序上下文,已知答案作参考)→ 同一个 `buildQuizPaper` 渲染;
+- AI 来自「设置 → AI 助读」;未配置时只用原文/题库答案,任务详情会说明;
+- 页面仍是完全自包含的,答案/解析都在隐藏字段里。
+
+### 9.2 LLM 答案
+
+生成答案和解析时只输出 `{answer, analysis}`;写进 `data-answer` / `data-analysis`。
+未作答/主观题不会被瞎判:客观题本地判分,主观题展示参考答案自评。
+
 LLM 答案:先用模型生成一份 `answers.json`(`{"1":"C","2":"A",...}` 或 `{number:{answer,analysis}}`),再走同一个导出命令即可;页面本身不需要联网。
 
 ## 10. 风险与对策

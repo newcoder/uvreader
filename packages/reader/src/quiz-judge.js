@@ -65,6 +65,46 @@ export function buildJudgeMessages(question, answer) {
   ];
 }
 
+// 生成答案(没有标准答案时):只输出 {answer, analysis};上下文(程序/小节)
+// 一起给模型,阅读程序/完善程序才不会脱离代码猜。
+export function buildSolveMessages(question, { context = "", section = "", knownAnswer = "" } = {}) {
+  const parts = [
+    `题型：${TYPE_NAMES[question?.type] || "题目"}`,
+  ];
+  if (section) parts.push(`小节：${section}`);
+  parts.push("", "题目：", String(question?.stem || "").trim());
+  const options = optionLines(question);
+  if (options) parts.push("", "选项：", options);
+  if (context) parts.push("", "相关程序/材料：", String(context).trim());
+  if (knownAnswer) parts.push("", "已知答案（以此为准）：", String(knownAnswer).trim());
+  return [
+    {
+      role: "system",
+      content: `你是 CCF CSP 试卷的解题老师，负责给出正确答案和解析。${JSON_RULES}`,
+    },
+    {
+      role: "user",
+      content: [
+        ...parts,
+        "",
+        "要求：",
+        "1. 自己解题；选择题只给字母（多选按字母顺序），判断题给“对”或“错”，填空题给要填的内容，简答/程序题给参考答案要点。",
+        "2. 解析不超过 200 字，说明关键步骤。",
+        "3. JSON 字段：answer（答案）、analysis（解析）。",
+        "4. 原文没有的信息不要编造；不确定时 answer 留空，并在 analysis 里说明。",
+      ].join("\n"),
+    },
+  ];
+}
+
+export function normalizeSolve(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const answer = String(raw.answer ?? "").trim();
+  const analysis = String(raw.analysis ?? "").trim();
+  if (!answer && !analysis) return null;
+  return { answer, analysis };
+}
+
 export function parseJudgeJson(text) {
   let value = String(text ?? "").replace(/^\uFEFF/, "").trim();
   if (!value) return null;

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 
-import { buildJudgeMessages, judgeAttempt, mergeJudge, normalizeJudge, parseJudgeJson } from "../packages/reader/src/quiz-judge.js";
+import { buildJudgeMessages, buildSolveMessages, judgeAttempt, mergeJudge, normalizeJudge, normalizeSolve, parseJudgeJson } from "../packages/reader/src/quiz-judge.js";
 import { createAttempt, gradeQuestion } from "../packages/reader/src/quiz-attempt.js";
 import { renderQuizPanel } from "../packages/reader/src/quiz-panel.js";
 
@@ -56,6 +56,19 @@ test("a standard answer keeps the deterministic verdict while the model supplies
 
   const blank = mergeJudge(gradeQuestion({ ...QUESTION, answer: "" }, ""), { verdict: "blank" });
   assert.equal(blank.status, "unanswered");
+});
+
+test("the solve prompt carries the program context and normalises its answer", () => {
+  const messages = buildSolveMessages(
+    { type: "single_choice", stem: "程序输出什么？（）", options: [{ label: "A", text: "1" }, { label: "B", text: "2" }] },
+    { section: "二、阅读程序", context: "int main() { return 0; }" },
+  );
+  const prompt = messages.map((message) => message.content).join("\n");
+  assert.match(prompt, /程序输出什么/);
+  assert.match(prompt, /int main\(\) \{ return 0; \}/);
+  assert.match(prompt, /二、阅读程序/);
+  assert.deepEqual(normalizeSolve({ answer: "B", analysis: "返回 0" }), { answer: "B", analysis: "返回 0" });
+  assert.equal(normalizeSolve({}), null);
 });
 
 test("judgeAttempt only asks for answered questions and keeps partial results", async () => {

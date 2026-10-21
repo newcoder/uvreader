@@ -42,6 +42,13 @@ export function docvortexFormatExt(target) {
   return found ? found.ext : String(target || "out").replace(/^\./, "");
 }
 
+// 格式转换面板的目标格式:DocVortex 的文档格式 + reader 自己的「答题页」。
+// 答题页不是 DocVortex 格式,选中时走 quiz-export。
+export const CONVERT_FORMATS = Object.freeze([
+  ...DOCVORTEX_FORMATS,
+  { id: "quiz", label: "答题页(交互 HTML)", ext: "quiz.html" },
+]);
+
 // 电子书产物统一归「电子书制作」:互转目标 + 图片打包目标。
 export const EBOOK_TARGETS = [
   { id: "azw3", label: "AZW3(Kindle 主流)", ext: "azw3" },

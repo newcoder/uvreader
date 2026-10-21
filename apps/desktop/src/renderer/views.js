@@ -1,7 +1,7 @@
 import { ItemView, Notice, setIcon } from "obsidian";
 
 import { iconResolver } from "./icons.js";
-import { DOCVORTEX_FORMATS, DOCVORTEX_INPUTS, EBOOK_TARGETS, IMAGE_BOOK_TARGETS, TEXT_SOURCE_EXTENSIONS, docvortexFormatExt } from "../shared/workshop-formats.js";
+import { CONVERT_FORMATS, DOCVORTEX_INPUTS, EBOOK_TARGETS, IMAGE_BOOK_TARGETS, TEXT_SOURCE_EXTENSIONS, docvortexFormatExt } from "../shared/workshop-formats.js";
 import { BOOK_STYLE_DEFAULTS, COVER_PALETTES } from "../shared/book-styles.js";
 import { chapterStats, mergeChapters, moveChapter, removeChapter, renameChapter, splitChapter } from "../shared/book-chapters.js";
 import { splitTextChapters } from "../main/text-book.js";
@@ -995,6 +995,7 @@ const WORKSHOP_KIND_LABELS = {
   "docvortex-convert": "转换",
   "formula-probe": "公式检测",
   "formula-convert": "公式",
+  "quiz-export": "答题页",
   "calibre-probe": "检测",
   "ebook-convert": "互转",
   "images-cbz": "打包",
@@ -2548,7 +2549,7 @@ export function createWorkshopView(leaf, options) {
       this._convertFormatRow = formatRow;
       formatRow.createSpan({ cls: "qbr-workshop-hint", text: "目标格式" });
       this._convertFormat = formatRow.createEl("select", { cls: "qbr-workshop-select" });
-      for (const format of DOCVORTEX_FORMATS) {
+      for (const format of CONVERT_FORMATS) {
         this._convertFormat.createEl("option", { attr: { value: format.id }, text: format.label });
       }
       optionCard.createDiv({ cls: "qbr-workshop-hint", text: "输出与源文件同目录,用目标扩展名;同名自动加序号。" });
@@ -2823,6 +2824,16 @@ export function createWorkshopView(leaf, options) {
       const formula = this.formulaSettings();
       const parseMode = String(this._convertParse?.value || "local");
       for (const rel of files) {
+        if (format === "quiz") {
+          const out = convertPath(rel, "答题页.html", (candidate) => Boolean(app?.vault?.getAbstractFileByPath?.(candidate)));
+          void bridge.start({
+            kind: "quiz-export",
+            title: "答题页",
+            detail: rel,
+            payload: { settings: formula, source: rel, out, config: this.aiReadyConfig() },
+          }).catch((error) => new Notice(String(error?.message || error)));
+          continue;
+        }
         const out = convertPath(rel, ext, (candidate) => Boolean(app?.vault?.getAbstractFileByPath?.(candidate)));
         const isPdf = /\.pdf$/i.test(rel);
         const useFormula = (parseMode === "mineru" || parseMode === "mineru-local") && isPdf;

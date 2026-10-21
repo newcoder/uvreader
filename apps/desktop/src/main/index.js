@@ -24,6 +24,7 @@ import { registerAiRunners } from "./workshop-ai.js";
 import { createPdfOcr, OCR_PROBE_TIMEOUT, resolveOcrOutput } from "./pdf-ocr.js";
 import { registerOcrRunners } from "./workshop-ocr.js";
 import { registerQuestionRunners } from "./workshop-questions.js";
+import { registerQuizRunners } from "./workshop-quiz.js";
 import { createTextLayerReader } from "./text-layer.js";
 import { createWorkshopQueue } from "./workshop.js";
 import { createBookDownloads } from "./book-downloads.js";
@@ -121,6 +122,15 @@ registerQuestionRunners(workshop, {
   engine: engineClient,
   vaultRoot,
   cacheRoot: bookCacheRoot,
+});
+registerQuizRunners(workshop, {
+  extractMarkdown,
+  docvortex,
+  textLayer: createTextLayerReader({ engine: engineClient }),
+  engine: engineClient,
+  vaultRoot,
+  cacheRoot: bookCacheRoot,
+  aiRuntime,
 });
 // LLM 辅助(W2-1):AI 元数据推断 / AI 封面文案 / AI 分章建议 / AI 清理 —— 复用伴读的 AI 运行时与凭据。
 registerAiRunners(workshop, { aiRuntime, vaultRoot, cacheRoot: bookCacheRoot });
