@@ -97,8 +97,43 @@ if (!input || !fs.existsSync(input)) {
 }
 const dom = new JSDOM(fs.readFileSync(input, "utf8"));
 const doc = dom.window.document;
-const stats = { math: 0, mathFailed: 0, code: 0, codeSkipped: 0 };
+const stats = { math: 0, mathFailed: 0, code: 0, codeSkipped: 0, hiddenGenerated: 0, missingElements: 0 };
 walk(doc.body, doc, stats);
 formatCodeBlocks(doc, stats);
+// 模型偶尔引用不存在的 DOM 节点(例如 getElementById('resultSummary') 但没写元素),
+// 交卷脚本会在第一行抛错。补一个占位节点,让脚本和交卷流程能继续。
+const scriptText = [...doc.querySelectorAll("script:not([src])")].map((script) => script.textContent || "").join("\n");
+for (const match of scriptText.matchAll(/getElementById\(\s*['"]([^'"]+)['"]\s*\)/g)) {
+  const id = match[1];
+  if (doc.getElementById(id)) continue;
+  const placeholder = doc.createElement("div");
+  placeholder.id = id;
+  placeholder.className = "post-injected";
+  const firstScript = doc.body.querySelector("script");
+  if (firstScript) firstScript.parentNode.insertBefore(placeholder, firstScript);
+  else doc.body.appendChild(placeholder);
+  stats.missingElements += 1;
+}
+// 模型有时把「生成标准答案」块直接显示出来;统一收回隐藏状态,交卷时再展开。
+const generated = [...doc.querySelectorAll('[data-source="generated"]')];
+for (const block of generated) {
+  block.hidden = true;
+  block.style.display = "none";
+  stats.hiddenGenerated += 1;
+}
+if (generated.length) {
+  const script = doc.createElement("script");
+  script.textContent = `(function(){
+    var blocks = Array.prototype.slice.call(document.querySelectorAll('[data-source="generated"]'));
+    function reveal() {
+      blocks.forEach(function (block) { block.hidden = false; block.style.display = ''; });
+    }
+    document.addEventListener('click', function (event) {
+      var button = event.target && event.target.closest ? event.target.closest('button') : null;
+      if (button && /交卷|提交/.test(button.textContent || '')) setTimeout(reveal, 0);
+    }, true);
+  })();`;
+  doc.body.appendChild(script);
+}
 fs.writeFileSync(output, dom.serialize(), "utf8");
 console.log(JSON.stringify({ input: path.resolve(input), output: path.resolve(output), ...stats }, null, 2));
