@@ -12,6 +12,8 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 >
 > **原则**：做好、做快、轻量、扩展（Do it well, do it fast, keep it lean, scale it.）
 
+[功能总览](#功能总览) · [界面预览](#界面预览) · [下载与安装](#下载与安装) · [常见问题](#常见问题) · [从源码运行](#从源码运行)
+
 ## 功能总览
 
 ### 阅读
@@ -107,7 +109,46 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 - 本地优先：无账号、无强制云同步；支持系统凭据存储保存 AI 密钥。
 - 阅读器核心与 Electron 壳解耦，90+ 个 host-agnostic 模块，便于测试和后续扩展。
 
-## 快速开始
+## 界面预览
+
+| 阅读 | 划线、注音与翻译 |
+| --- | --- |
+| ![PDF 原页阅读](docs/assets/showcase-4.2.4-pdf.jpg) | ![选中文本后的划线与辅助操作](docs/assets/showcase-4.2.4-selection.jpg) |
+| **AI 伴读** | **书库** |
+| ![AI 伴读与书籍上下文](docs/assets/showcase-4.2.4-ai.jpg) | ![书库、封面与阅读进度](docs/assets/showcase-4.2.4-library.jpg) |
+
+更多截图见 [docs/showcase.md](docs/showcase.md)。截图来自早期发布版本，具体界面以当前安装包为准。
+
+## 下载与安装
+
+- 安装包：[GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.55)。
+- Windows：`UV-Reader-<版本>-setup.exe` 安装版，或 `UV-Reader-<版本>-portable.exe` 免安装版。
+- macOS：按 Releases 页面提供的 `UV-Reader-<版本>-<架构>.dmg` 安装。
+- 首次启动不需要账号；AI、OCR 和文档转换组件都是可选的，不配置也能正常阅读和做笔记。
+
+## 常见问题
+
+**不配置 AI 能用吗？**
+
+可以。阅读、划线、注音、翻译、笔记、书库和书坊的本地功能都不依赖 AI；AI 只在主动使用时发送请求。
+
+**AI 密钥和书籍内容会发到哪里？**
+
+密钥保存在系统凭据存储。云端 AI、Google 翻译和 MinerU 云端 OCR 只会在你主动使用对应功能时发送所需内容；本地模型端点不会离开本机。详见 [数据与隐私](#数据与隐私)。
+
+**OCR 或格式转换提示缺少组件怎么办？**
+
+pdf_tool、MinerU、DocVortex、Calibre 等是可选外部工具；在「设置 → 书坊」里配置或探测即可。缺少组件只影响对应工具，不影响阅读已有书籍。
+
+**网络搜书下载的内容可以直接使用吗？**
+
+不保证。请只从有权访问的来源下载，并遵守来源授权和当地法律；项目不托管第三方书源。详见[免责声明](DISCLAIMER.md)。
+
+**阅读笔记在哪里？**
+
+每本书可以关联一篇普通 Markdown 阅读笔记，笔记和书籍数据默认保存在本机；可在设置中调整笔记文件夹。
+
+## 从源码运行
 
 前置：Node.js 22 或更高版本。
 
@@ -195,6 +236,8 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 
 **Principles:** do it well, do it fast, keep it lean, scale it.
 
+[Features](#features) · [Download](#download) · [FAQ](#faq) · [Build](#build)
+
 **Status:** `0.7.55`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.55). Read the [Disclaimer](DISCLAIMER.md) before use.
 
 ## Features
@@ -205,6 +248,28 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 - **Workshop:** OCR/text layers for scanned PDFs; DocVortex format conversion (Office/ODF/PDF/EPUB/HTML/OFD/Markdown/text → Markdown/HTML/LaTeX/DOCX/PDF, EPUB → Markdown, images → PDF); content extraction to Markdown/HTML/JSON/assets (extracted HTML renders LaTeX as offline MathML); question-bank extraction; EPUB creation from PDF/Office/text/Markdown/images with chapters, metadata, covers and TOC; AZW3/MOBI via Calibre; image → CBZ/EPUB; deterministic and experimental AI answer pages.
 - **AI (optional):** OpenAI-compatible cloud providers or local endpoints (Ollama, llama.cpp, LM Studio); AI companion conversations remember the book location with a clickable chip back to the passage and support full-page or region screenshots; explanations, summaries, translation, custom prompts; AI metadata/cover copy/chapter suggestions/cleanup; AI answer-page generation. All local reading, annotation and conversion features work without AI.
 - **Local-first:** no account, no mandatory cloud library; keys use OS credential storage; network is used only for explicitly enabled AI, translation, or cloud OCR.
+
+## Download
+
+Installers are available on [GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.55). Windows builds include `UV-Reader-<version>-setup.exe` and `UV-Reader-<version>-portable.exe`; macOS builds provide `UV-Reader-<version>-<arch>.dmg`. No account is required on first launch, and AI, OCR and document-conversion components are optional. See the screenshots above or [docs/showcase.md](docs/showcase.md); they are from an earlier build and the current UI may differ.
+
+## FAQ
+
+**Can I use it without AI?**
+
+Yes. Reading, highlights, pinyin, translation, notes, the library and local workshop tools work without AI; AI requests are sent only when you explicitly use an AI feature.
+
+**Where do AI keys and book content go?**
+
+Keys use OS credential storage. Cloud AI, Google Translate and MinerU cloud OCR send only the content needed for the action you invoke; local model endpoints stay on your machine. See [Data and privacy](#data-and-privacy) below.
+
+**What if OCR or conversion reports a missing component?**
+
+pdf_tool, MinerU, DocVortex and Calibre are optional external tools. Configure or probe them in Workshop settings; a missing tool affects only that feature, not reading.
+
+**Are books found online free to use?**
+
+Not necessarily. Download only from sources you are entitled to use and follow their licenses and local law. The project does not host third-party book sources; see the [Disclaimer](DISCLAIMER.md).
 
 ## Build
 
@@ -223,4 +288,13 @@ Release: set the root `package.json` version, push a `v<version>` tag; the relea
 
 Architecture: `apps/desktop` is the Electron shell; `packages/reader/src` contains the host-agnostic reader core (90+ modules); `packages/host-shim` is only used by the Obsidian compatibility adapters. The reader no longer embeds an answering panel; interactive answer pages are standalone HTML exports.
 
-License: GNU GPL v3.0 only. See [LICENSE](LICENSE), [NOTICE.md](NOTICE.md) and the [Disclaimer](DISCLAIMER.md).
+## Data and privacy
+
+- Books, covers, reading progress, highlights, notes and settings live in the local app-data directory by default; there is no account system.
+- AI sends selected text or book context only when explicitly used; local model endpoints never leave the machine.
+- Translation uses Google Translate and requires network access (can be disabled); MinerU cloud mode uploads scanned pages to the configured service.
+- AI keys are stored in OS credential storage, not in books or notes. See [SECURITY.md](SECURITY.md).
+
+## License
+
+GNU GPL v3.0 only. See [LICENSE](LICENSE), [NOTICE.md](NOTICE.md) and the [Disclaimer](DISCLAIMER.md).
