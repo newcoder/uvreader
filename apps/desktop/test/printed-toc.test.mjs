@@ -236,6 +236,18 @@ test("page markers in the outline are not a table of contents", () => {
   assert.equal(real.ruler, false);
   assert.equal(real.dropped, 0);
   assert.equal(real.entries.length, 3);
+
+  // PDF 大纲标题直接是页码范围:整份大纲都是翻页书签,不是目录。
+  const ranges = [
+    { label: "1-21", page: 17, level: 1 },
+    { label: "22-51", page: 38, level: 1 },
+    { label: "52-81", page: 68, level: 1 },
+    { label: "82-111", page: 98, level: 1 },
+  ];
+  const rangeResult = stripPageMarkers(ranges);
+  assert.equal(rangeResult.ruler, true);
+  assert.deepEqual(rangeResult.entries, []);
+  assert.equal(rangeResult.dropped, 4);
 });
 
 test("front-matter entries with no chapter land at the front, not mid-book", () => {

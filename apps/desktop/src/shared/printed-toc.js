@@ -296,8 +296,23 @@ export function isPageMarkerEntry(entry) {
   return /^\d{1,4}$/.test(String(entry?.label || "").trim());
 }
 
+// 有些 PDF 的大纲标题直接写成页码范围(如「1-21」「22-51」),它们只是
+// 阅读器的翻页书签,不是章标题;不能当成目录使用。
+export function isPageRangeEntry(entry) {
+  return /^\d{1,4}\s*[-–—~]\s*\d{1,4}$/.test(String(entry?.label || "").trim());
+}
+
 export function stripPageMarkers(entries) {
   const list = Array.isArray(entries) ? entries : [];
+  const ranges = [];
+  for (let index = 0; index < list.length; index += 1) {
+    if (isPageRangeEntry(list[index])) ranges.push(index);
+  }
+  if (ranges.length >= 2 && ranges.length >= list.length * 0.5) {
+    const rangeSet = new Set(ranges);
+    const kept = list.filter((_entry, index) => !rangeSet.has(index));
+    return { entries: kept, dropped: ranges.length, ruler: ranges.length >= list.length * 0.8 };
+  }
   const markers = [];
   let section = -1;
   for (let index = 0; index < list.length; index += 1) {
