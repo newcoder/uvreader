@@ -10,7 +10,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 >
 > **来源**：fork 自 Obsidian 插件 [qiaomu-reader](https://github.com/joeseesun/qiaomu-reader)，现在作为独立桌面应用维护；Obsidian 插件形态不再作为主线。
 >
-> **原则**：读得好、做得快、保持轻量，再逐步扩展（Do it well, do it fast, do it lean, then scale it.）
+> **原则**：做好、做快、轻量、扩展（Do it well, do it fast, keep it lean, scale it.）
 
 ## 功能总览
 
@@ -29,6 +29,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 ### 高亮、批注和笔记
 
 - 选中文本后高亮、写批注、改颜色、复制、搜索、翻译或询问 AI。
+- **划线注音 / 划线翻译**：选中中文显示拼音和释义，可把注音固定到原文；选中文本可直接翻译，翻译结果可复制或保存到阅读笔记。
 - 高亮可以带批注和位置书签；支持跨页/跨章节选择与定位。
 - 拼音提示、词义/生词辅助；选中文本可以直接查词。
 - 删除书籍时一并清理该书的高亮、注音、书签、草稿和会话等阅读痕迹；阅读笔记保留。
@@ -41,6 +42,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 - 本地导入 EPUB / PDF / MOBI / AZW3 / FB2 / CBZ 等文件，支持拖拽、批量导入和文件关联。
 - 封面、书名、作者、语言、标签、简介等元数据编辑；可以选封面、自动取封面或生成模板封面。
 - 最近阅读、阅读进度、阅读中/未读状态、书库筛选和搜索。
+- **网络搜书**：按书名检索可配置的第三方书源（如 Project Gutenberg、Standard Ebooks），查看可用版本并下载到书库；使用下载内容时请遵守来源授权和[免责声明](DISCLAIMER.md)。
 - 所有书籍、进度、标注和笔记都保存在本地应用数据目录，不依赖云书库。
 - 制作完成的电子书自动入库；从阅读器返回书库会刷新列表，不再显示旧内容。
 
@@ -94,6 +96,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 
 - 支持 HTTP OpenAI 兼容服务（DeepSeek、Kimi、通义千问、智谱 GLM、MiniMax、OpenRouter、OpenAI 等），也支持本地 OpenAI 兼容端点（Ollama、llama.cpp、LM Studio）。
 - **AI 助读**：选中文本解释、总结、追问、翻译，读取书籍上下文；可以自定义提示词和回复语言。
+- **AI 伴读**：AI 对话会记录提问时所在的书籍位置，点击位置标签即可回到书内；支持整页截图或框选截图提问，并结合当前书籍上下文继续追问。
 - **AI 书坊**：推断元数据、生成封面文案、建议分章规则、按块做最小文本清理。
 - **AI 答题页**：生成答案、解析和整页交互 HTML（实验功能）。
 - 不配置 AI 时，阅读、标注、笔记、转换、成书全部照常工作；AI 请求只在用户主动操作时发生。
@@ -190,15 +193,17 @@ GPL-3.0-only。第三方组件、字体和示例书声明见 [NOTICE.md](NOTICE.
 
 UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, PDF, FB2/FBZ, MOBI/AZW/AZW3 and CBZ. Reading, highlighting, notes, library management and optional AI assistance live in one local-first app; Obsidian is no longer required.
 
+**Principles:** do it well, do it fast, keep it lean, scale it.
+
 **Status:** `0.7.55`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.55). Read the [Disclaimer](DISCLAIMER.md) before use.
 
 ## Features
 
 - **Reading:** paged or scrolling mode, single/two columns, wheel/keyboard/swipe paging, page and chapter jumps, fit width/height, PDF original-page rendering and zoom, multiple themes and fonts, per-device reading settings, location bookmarks, reading statistics and daily goals.
-- **Annotations and notes:** multi-colour highlights, inline comments, cross-page selection, pinyin/word hints, translation, AI explain/ask, bookmarks; one Markdown reading note per book with chapter-grouped excerpts and links back to the source; book notes and highlight export. Deleting a book also removes its highlights, pinyin pins, bookmarks, drafts and conversations; reading notes are kept.
-- **Library:** local import, covers and metadata editing, tags, recent books, progress, search and file associations; generated ebooks are added automatically, and returning to the library refreshes the list.
+- **Annotations and notes:** multi-colour highlights, inline comments, cross-page selection, pinyin annotations pinned to the text, selection translation (copy it or save it to the reading note), word hints, AI explain/ask, bookmarks; one Markdown reading note per book with chapter-grouped excerpts and links back to the source; book notes and highlight export. Deleting a book also removes its highlights, pinyin pins, bookmarks, drafts and conversations; reading notes are kept.
+- **Library:** local import, covers and metadata editing, tags, recent books, progress, search and file associations; generated ebooks are added automatically, and returning to the library refreshes the list. Configurable online book search can query sources such as Project Gutenberg and Standard Ebooks, preview available versions and download them into the library; verify the source's rights before using downloaded content (see the [Disclaimer](DISCLAIMER.md)).
 - **Workshop:** OCR/text layers for scanned PDFs; DocVortex format conversion (Office/ODF/PDF/EPUB/HTML/OFD/Markdown/text → Markdown/HTML/LaTeX/DOCX/PDF, EPUB → Markdown, images → PDF); content extraction to Markdown/HTML/JSON/assets (extracted HTML renders LaTeX as offline MathML); question-bank extraction; EPUB creation from PDF/Office/text/Markdown/images with chapters, metadata, covers and TOC; AZW3/MOBI via Calibre; image → CBZ/EPUB; deterministic and experimental AI answer pages.
-- **AI (optional):** OpenAI-compatible cloud providers or local endpoints (Ollama, llama.cpp, LM Studio); reading companion, explanations, summaries, translation, custom prompts; AI metadata/cover copy/chapter suggestions/cleanup; AI answer-page generation. All local reading, annotation and conversion features work without AI.
+- **AI (optional):** OpenAI-compatible cloud providers or local endpoints (Ollama, llama.cpp, LM Studio); AI companion conversations remember the book location with a clickable chip back to the passage and support full-page or region screenshots; explanations, summaries, translation, custom prompts; AI metadata/cover copy/chapter suggestions/cleanup; AI answer-page generation. All local reading, annotation and conversion features work without AI.
 - **Local-first:** no account, no mandatory cloud library; keys use OS credential storage; network is used only for explicitly enabled AI, translation, or cloud OCR.
 
 ## Build
