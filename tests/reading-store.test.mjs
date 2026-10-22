@@ -5,6 +5,7 @@ import {
   createReadingStore,
   readingBookPaths,
   readingProjectPath,
+  readingSourceChanged,
   sanitizeReadingFileName,
   sanitizeReadingFolder,
 } from "../packages/reader/src/reading-store.js";
@@ -89,6 +90,14 @@ test("book folder names are readable and filesystem safe", () => {
   assert.equal(sanitizeReadingFolder("x".repeat(200)).length, 60);
 });
 
+test("source identity changes when a reused path holds a different file", () => {
+  assert.equal(readingSourceChanged({ source: { path: "Books/a.pdf", size: 10 } }, { sourcePath: "Books/a.pdf", size: 10 }), false);
+  assert.equal(readingSourceChanged({ source: { path: "Books/a.pdf", size: 10 } }, { sourcePath: "Books/a.pdf", size: 11 }), true);
+  assert.equal(readingSourceChanged({ source: { path: "Books/a.pdf", size: 10 } }, { sourcePath: "Books/b.pdf", size: 10 }), true);
+  assert.equal(readingSourceChanged({ source: { path: "Books/a.pdf" } }, { sourcePath: "Books/a.pdf", size: 11 }), false);
+  assert.equal(readingSourceChanged(null, { sourcePath: "Books/a.pdf", size: 11 }), false);
+});
+
 test("ensureBook assigns one stable folder per book and writes book.json", async () => {
   const adapter = memoryAdapter();
   const store = createReadingStore({ adapter, root: "plugin/reading" });
@@ -168,6 +177,41 @@ test("a damaged book file blocks that book only", async () => {
   assert.equal(loaded.highlights, null, "the unreadable file yields no data");
   assert.deepEqual(loaded.progress, { pct: 0.2, lastRead: 5 }, "the other files stay usable");
   assert.deepEqual(loaded.blocked, [paths.highlights]);
+});
+
+test("deleting a book removes its traces and lets a reused path start clean", async () => {
+  const adapter = memoryAdapter();
+  const store = createReadingStore({ adapter, root: "reading" });
+  const first = await store.ensureBook("Books/a.pdf", { title: "Same title", format: "pdf" });
+  await store.saveBook("Books/a.pdf", "pins", [{ id: "old-pin", pinyin: "jiù" }]);
+  await store.saveBook("Books/a.pdf", "highlights", [{ id: "old-highlight" }]);
+  await store.moveBook("Books/a.pdf", "Project");
+  const projectPaths = readingBookPaths("reading", first.folder, "Project");
+
+  await store.deleteBook("Books/a.pdf");
+  const index = await store.readIndex();
+  assert.equal(index.books["Books/a.pdf"], undefined);
+  assert.equal(adapter.files.has(projectPaths.pins), false);
+  assert.equal(adapter.files.has(projectPaths.progress), false);
+  assert.equal(adapter.dirs.has(projectPaths.tracesDir), false);
+  assert.deepEqual((await store.listProjects())[0].books, []);
+
+  const reused = await store.ensureBook("Books/a.pdf", { title: "Same title", format: "pdf" });
+  assert.equal(reused.folder, first.folder, "the freed folder name can be reused");
+  const loaded = await store.loadBook("Books/a.pdf");
+  assert.equal(loaded.pins, null);
+  assert.equal(loaded.highlights, null);
+});
+
+test("deleting a book keeps other books' traces", async () => {
+  const adapter = memoryAdapter();
+  const store = createReadingStore({ adapter, root: "reading" });
+  await store.ensureBook("Books/a.pdf", { title: "A" });
+  await store.ensureBook("Books/b.pdf", { title: "B" });
+  await store.saveBook("Books/b.pdf", "pins", [{ id: "keep" }]);
+  await store.deleteBook("Books/a.pdf");
+  const b = await store.loadBook("Books/b.pdf");
+  assert.deepEqual(b.pins, [{ id: "keep" }]);
 });
 
 test("migration splits the legacy global files into per-book folders", async () => {

@@ -175,17 +175,55 @@ test("writeNoteText prefers process() and falls back to modify", async () => {
 test("dropBookState forgets every path-keyed store", async () => {
   const { notes } = setup();
   let saves = 0;
+  const cleared = [];
+  const drafts = [];
+  let deletedBook = "";
   const plugin = {
     progress: { "a.epub": 1 },
     progressBackups: { "a.epub": 1 },
     highlights: { "a.epub": [] },
-    settings: { coverFits: { "a.epub": "cover" } },
+    highlightsBackups: { "a.epub": [] },
+    pins: { "a.epub": [{ id: "p1" }] },
+    settings: {
+      coverFits: { "a.epub": "cover" },
+      bookTags: { "a.epub": ["old"] },
+      bookNoteLinks: { "a.epub": "notes/old.md" },
+      bookNotePrompted: { "a.epub": true },
+      bookTemplates: { "a.epub": "templates/old.md" },
+      locationMarks: [{ id: "m1", bookPath: "a.epub" }, { id: "m2", bookPath: "b.epub" }],
+      aiChatHistory: [{ id: "c1", bookPath: "a.epub" }, { id: "c2", bookPath: "b.epub" }],
+      importedBooks: { "C:/old.epub": "a.epub", "C:/keep.epub": "b.epub" },
+      lastBookPath: "a.epub",
+    },
+    _lastBookPath: "a.epub",
+    _marksByBook: new Map([["a.epub", []], ["b.epub", []]]),
+    aiDraftStore: {
+      set(path, text) { drafts.push([path, text]); },
+      async flush() {},
+    },
+    async clearPins(path) { cleared.push(path); delete this.pins[path]; },
+    _readingStore: () => ({ async deleteBook(path) { deletedBook = path; } }),
     saveAll: async () => { saves += 1; },
   };
   await notes.dropBookState(plugin, "a.epub");
   assert.deepEqual(plugin.progress, {});
   assert.deepEqual(plugin.highlights, {});
+  assert.deepEqual(plugin.pins, {});
   assert.deepEqual(plugin.settings.coverFits, {});
+  assert.deepEqual(plugin.settings.bookTags, {});
+  assert.deepEqual(plugin.settings.bookNoteLinks, {});
+  assert.deepEqual(plugin.settings.bookNotePrompted, {});
+  assert.deepEqual(plugin.settings.bookTemplates, {});
+  assert.deepEqual(plugin.settings.locationMarks.map((mark) => mark.id), ["m2"]);
+  assert.deepEqual(plugin.settings.aiChatHistory.map((chat) => chat.id), ["c2"]);
+  assert.deepEqual(plugin.settings.importedBooks, { "C:/keep.epub": "b.epub" });
+  assert.equal(plugin._lastBookPath, "");
+  assert.equal(plugin.settings.lastBookPath, "");
+  assert.deepEqual(cleared, ["a.epub"]);
+  assert.deepEqual(drafts, [["a.epub", ""]]);
+  assert.equal(deletedBook, "a.epub");
+  assert.equal(plugin._marksByBook.has("a.epub"), false);
+  assert.equal(plugin._marksByBook.has("b.epub"), true);
   assert.equal(saves, 1);
 });
 

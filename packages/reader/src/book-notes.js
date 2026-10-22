@@ -318,11 +318,41 @@ export function createBookNotes({
     return menu;
   }
   // Path-keyed stores have to forget the removed book, otherwise stale progress,
-  // backups, highlights and cover fits resurface if the path is ever reused.
+  // highlights, pins and cover fits resurface if the path is ever reused.
   async function dropBookState(plugin, bookPath) {
-    const stores = [plugin.progress, plugin.progressBackups, plugin.highlights, plugin.settings && plugin.settings.coverFits];
+    if (!plugin || !bookPath) return false;
+    const settings = plugin.settings || {};
+    const stores = [
+      plugin.progress, plugin.progressBackups, plugin.highlights, plugin.highlightsBackups,
+      plugin.pins, settings.coverFits, settings.bookTags, settings.bookNoteLinks,
+      settings.bookNotePrompted, settings.bookTemplates,
+    ];
     for (const store of stores) if (store) delete store[bookPath];
-    return plugin.saveAll();
+    if (Array.isArray(settings.locationMarks)) {
+      settings.locationMarks = settings.locationMarks.filter((mark) => mark?.bookPath !== bookPath);
+    }
+    if (Array.isArray(settings.aiChatHistory)) {
+      settings.aiChatHistory = settings.aiChatHistory.filter((chat) => chat?.bookPath !== bookPath);
+    }
+    if (settings.importedBooks) {
+      for (const [source, target] of Object.entries(settings.importedBooks)) {
+        if (target === bookPath) delete settings.importedBooks[source];
+      }
+    }
+    if (plugin._lastBookPath === bookPath) plugin._lastBookPath = "";
+    if (settings.lastBookPath === bookPath) settings.lastBookPath = "";
+    if (plugin._marksByBook && typeof plugin._marksByBook.delete === "function") plugin._marksByBook.delete(bookPath);
+    // The pinned-pinyin store has its own persistence; clearing the in-memory
+    // map alone would leave the old entries on disk. In the per-book layout the
+    // whole reading folder is removed below.
+    try { await plugin.clearPins?.(bookPath); } catch { /* best effort */ }
+    try {
+      plugin.aiDraftStore?.set?.(bookPath, "");
+      await plugin.aiDraftStore?.flush?.();
+    } catch { /* best effort */ }
+    try { await plugin._readingStore?.().deleteBook?.(bookPath); } catch { /* best effort */ }
+    if (typeof plugin.saveAll === "function") return plugin.saveAll();
+    return true;
   }
   function deleteBookFromVault(app, plugin, file, onDone) {
     if (!file) {

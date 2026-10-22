@@ -43,6 +43,20 @@ export function readingProjectPath(root, project) {
 // bookmarks, later derivatives). The moveable reading traces (progress,
 // highlights, drafts, conversations, attachments) live in the same folder by
 // default, or under the project folder once the book joins a reading project.
+// A book path can be reused after deletion, or the file at that path can be
+// replaced by another copy. The source record in book.json identifies the file
+// the anchors were taken from; a different path or size means the old text
+// traces must not be applied to the new file.
+export function readingSourceChanged(stored, meta) {
+  const normalize = (value) => String(value || "").replace(/\\/g, "/");
+  const oldPath = normalize(stored?.source?.path);
+  const nextPath = normalize(meta?.sourcePath);
+  if (oldPath && nextPath && oldPath !== nextPath) return true;
+  const oldSize = Number(stored?.source?.size) || 0;
+  const nextSize = Number(meta?.size) || 0;
+  return Boolean(oldSize && nextSize && oldSize !== nextSize);
+}
+
 export function readingBookPaths(root, folder, project = "") {
   const book = `${root}/${folder}`;
   const traces = project ? `${readingProjectPath(root, project)}/${folder}` : book;
@@ -341,6 +355,43 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
     return true;
   }
 
+  // Deletes every trace belonging to one book. This runs when the book file is
+  // removed from the vault: keeping the folder would let a later book that
+  // reuses the same path inherit stale pins, highlights and metadata.
+  async function deleteBookUnlocked(bookPath) {
+    const index = await readIndex();
+    const entry = index.books[bookPath];
+    if (!entry?.folder) return false;
+    const paths = readingBookPaths(base, entry.folder, entry.project);
+    if (entry.project && paths.tracesDir !== paths.dir) {
+      await removeFolder(paths.tracesDir);
+      await removeProjectBookUnlocked(entry.project, bookPath);
+    }
+    await removeFolder(paths.dir);
+    delete index.books[bookPath];
+    await writeIndexUnlocked(index);
+    return true;
+  }
+
+  // DataAdapter implementations differ in how folders are removed. Prefer the
+  // recursive rmdir when the host exposes it; the desktop adapter and the test
+  // adapter both support recursive remove.
+  async function removeFolder(dir) {
+    try {
+      if (typeof adapter.rmdir === "function") {
+        await adapter.rmdir(dir, true);
+        return;
+      }
+    } catch {
+      // fall through to remove()
+    }
+    try {
+      await adapter.remove(dir);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+  }
+
   // Conversations are stored one file per chat. The in-memory history stays the
   // working copy; these two calls are how it reaches the book folder.
   async function updateChatCountUnlocked(bookPath, paths) {
@@ -575,6 +626,7 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
   const rebuildIndex = (books = []) => queue.run(() => rebuildIndexUnlocked(books));
   const migrate = (data = {}) => queue.run(() => migrateUnlocked(data));
   const clearBook = (bookPath, kind) => queue.run(() => clearBookUnlocked(bookPath, kind));
+  const deleteBook = (bookPath) => queue.run(() => deleteBookUnlocked(bookPath));
   const readBookMeta = (bookPath) => queue.run(() => readBookMetaUnlocked(bookPath));
   const updateBookMeta = (bookPath, patch = {}) => {
     const snapshot = cloneJson(patch);
@@ -602,6 +654,7 @@ export function createReadingStore({ adapter, root, now = Date.now }) {
     rebuildIndex,
     saveBook,
     clearBook,
+    deleteBook,
     readBookMeta,
     updateBookMeta,
     migrate,

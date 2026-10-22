@@ -6,7 +6,7 @@
 
 UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支持 EPUB、PDF、FB2/FBZ、MOBI/AZW/AZW3、CBZ，内置高亮、批注、阅读笔记和可选的 AI 助读。书籍、进度和笔记默认都在本机；日常阅读不需要账号，也不需要联网。
 
-> **当前版本**：`0.7.49`。Windows / macOS 安装包见 [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.49)。
+> **当前版本**：`0.7.54`。Windows / macOS 安装包见 [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.54)。
 >
 > **来源**：fork 自 Obsidian 插件 [qiaomu-reader](https://github.com/joeseesun/qiaomu-reader)，现在作为独立桌面应用维护；Obsidian 插件形态不再作为主线。
 >
@@ -31,6 +31,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 - 选中文本后高亮、写批注、改颜色、复制、搜索、翻译或询问 AI。
 - 高亮可以带批注和位置书签；支持跨页/跨章节选择与定位。
 - 拼音提示、词义/生词辅助；选中文本可以直接查词。
+- 删除书籍时一并清理该书的高亮、注音、书签、草稿和会话等阅读痕迹；阅读笔记保留。
 - **每本书一篇 Markdown 阅读笔记**：摘录按章节分组，带原文位置链接，点击可跳回书内。
 - 书籍笔记、自动追加摘录、AI 回复追加到笔记；也可以导出全部高亮。
 - 笔记和摘录使用普通 Markdown，便于外部编辑、搜索和备份。
@@ -187,12 +188,12 @@ GPL-3.0-only。第三方组件、字体和示例书声明见 [NOTICE.md](NOTICE.
 
 UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, PDF, FB2/FBZ, MOBI/AZW/AZW3 and CBZ. Reading, highlighting, notes, library management and optional AI assistance live in one local-first app; Obsidian is no longer required.
 
-**Status:** `0.7.49`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.49).
+**Status:** `0.7.54`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.54).
 
 ## Features
 
 - **Reading:** paged or scrolling mode, single/two columns, wheel/keyboard/swipe paging, page and chapter jumps, fit width/height, PDF original-page rendering and zoom, multiple themes and fonts, per-device reading settings, location bookmarks, reading statistics and daily goals.
-- **Annotations and notes:** multi-colour highlights, inline comments, cross-page selection, pinyin/word hints, translation, AI explain/ask, bookmarks; one Markdown reading note per book with chapter-grouped excerpts and links back to the source; book notes and highlight export.
+- **Annotations and notes:** multi-colour highlights, inline comments, cross-page selection, pinyin/word hints, translation, AI explain/ask, bookmarks; one Markdown reading note per book with chapter-grouped excerpts and links back to the source; book notes and highlight export. Deleting a book also removes its highlights, pinyin pins, bookmarks, drafts and conversations; reading notes are kept.
 - **Library:** local import, covers and metadata editing, tags, recent books, progress, search and file associations.
 - **Workshop:** OCR/text layers for scanned PDFs; DocVortex format conversion (Office/ODF/PDF/EPUB/HTML/OFD/Markdown/text → Markdown/HTML/LaTeX/DOCX/PDF, EPUB → Markdown, images → PDF); content extraction to Markdown/HTML/JSON/assets; question-bank extraction; EPUB creation from PDF/Office/text/Markdown/images with chapters, metadata, covers and TOC; AZW3/MOBI via Calibre; image → CBZ/EPUB; deterministic and experimental AI answer pages.
 - **AI (optional):** OpenAI-compatible cloud providers or local endpoints (Ollama, llama.cpp, LM Studio); reading companion, explanations, summaries, translation, custom prompts; AI metadata/cover copy/chapter suggestions/cleanup; AI answer-page generation. All local reading, annotation and conversion features work without AI.

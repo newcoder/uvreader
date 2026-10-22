@@ -11,7 +11,7 @@ import { searchablePdfName } from "./pdf-scan.js";
 import { aiProviderFor, normalizeAiBase } from "./ai-providers.js";
 import { aiAttachmentFileName } from "./ai-attachments.js";
 import { normalizeAiCapabilities } from "./ai-capability.js";
-import { createReadingStore } from "./reading-store.js";
+import { createReadingStore, readingSourceChanged } from "./reading-store.js";
 import { cloneJson, createSerialTaskQueue, isPlainRecord, mergeReadingProgress, readJsonRecordStore, writeVerifiedJsonRecord } from "./storage.js";
 import { createStarterLibraryInstaller } from "./starter-library.js";
 import { disposeReaderFonts } from "./reader-fonts.js";
@@ -507,9 +507,42 @@ export function createPlugin({
   async ensureReadingFolder(bookPath) {
     if (this.settings.storageLayout !== "books" || !bookPath) return;
     try {
-      await this._readingStore().ensureBook(bookPath, this._bookMeta(bookPath));
+      const store = this._readingStore();
+      const meta = this._bookMeta(bookPath);
+      const stored = await store.readBookMeta(bookPath);
+      if (readingSourceChanged(stored, meta)) {
+        await this._resetReplacedBook(bookPath);
+        await this.saveAll();
+      }
+      await store.ensureBook(bookPath, meta);
     } catch (error) {
       console.error("UV Reader: could not create the reading folder", error);
+    }
+  }
+  // The path was reused by a different file. Tags and the note link still
+  // identify the book the user sees, but progress, highlights, pinned pinyin,
+  // bookmarks, drafts and conversations all point into the old text; keeping
+  // them would paint notes onto unrelated characters.
+  async _resetReplacedBook(bookPath) {
+    for (const store of [this.progress, this.progressBackups, this.highlights, this.highlightsBackups, this.pins]) {
+      if (store) delete store[bookPath];
+    }
+    const settings = this.settings;
+    if (settings.coverFits) delete settings.coverFits[bookPath];
+    if (Array.isArray(settings.locationMarks)) {
+      settings.locationMarks = settings.locationMarks.filter((mark) => mark?.bookPath !== bookPath);
+    }
+    if (Array.isArray(settings.aiChatHistory)) {
+      settings.aiChatHistory = settings.aiChatHistory.filter((chat) => chat?.bookPath !== bookPath);
+    }
+    if (this._marksByBook && typeof this._marksByBook.delete === "function") this._marksByBook.delete(bookPath);
+    try { await this.clearPins?.(bookPath); } catch { /* best effort */ }
+    try {
+      this.aiDraftStore?.set?.(bookPath, "");
+      await this.aiDraftStore?.flush?.();
+    } catch { /* best effort */ }
+    try { await this._readingStore().deleteBook(bookPath); } catch (error) {
+      console.error("UV Reader: could not clear replaced book traces", error);
     }
   }
   // Where an attachment's bytes go: into the book's folder when the per-book
@@ -2063,6 +2096,17 @@ export function createPlugin({
     void this._persistPins(path5, (disk) => {
       if (disk[path5]) disk[path5] = disk[path5].filter((pin) => pin.id !== id);
     });
+  }
+  // Deleting a book must also delete its pinned pinyin. Clearing the map alone
+  // is not enough: the legacy store is a file and the per-book layout keeps a
+  // pins.json, either of which would resurface when a new book reuses the path.
+  async clearPins(bookPath) {
+    if (!bookPath) return false;
+    delete this.pins[bookPath];
+    if (this.settings.storageLayout === "books") {
+      return this._readingStore().clearBook(bookPath, "pins");
+    }
+    return this._persistPins(bookPath, (disk) => { delete disk[bookPath]; });
   }
   _persistPins(bookPath, applyFn) {
     const operation = (this._pinChain || Promise.resolve()).then(() => this._writePinStore(bookPath, applyFn));
