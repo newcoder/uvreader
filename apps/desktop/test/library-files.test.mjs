@@ -5,7 +5,7 @@ import { filterLibraryFiles, libraryRoot } from "../src/shared/library-files.js"
 
 const file = (path, extension = path.split(".").pop()) => ({ path, extension, basename: path.split("/").pop() });
 
-test("workshop library lists default to Books and ignore stale root files", () => {
+test("workshop library lists include books at the root and under Books", () => {
   const files = [
     file("old.pdf"),
     file("Books/下载/book.epub"),
@@ -14,14 +14,14 @@ test("workshop library lists default to Books and ignore stale root files", () =
     file("notes/note.md"),
     file("CSP2019_questions.md"),
   ];
-  assert.equal(libraryRoot(files, ""), "Books");
+  assert.equal(libraryRoot(files, ""), "");
   assert.deepEqual(
     filterLibraryFiles(files, { extensions: ["pdf", "epub", "fb2"] }).map((entry) => entry.path),
-    ["Books/下载/book.epub", "Books/示例书库/example.fb2"],
+    ["old.pdf", "Books/下载/book.epub", "Books/示例书库/example.fb2"],
   );
 });
 
-test("a configured books folder wins and the root fallback is not recursive", () => {
+test("a configured books folder wins and a non-recursive filter is gone", () => {
   const files = [
     file("Books/下载/a.epub"),
     file("Books/下载/docs/b.docx"),
@@ -32,7 +32,7 @@ test("a configured books folder wins and the root fallback is not recursive", ()
     ["Books/下载/a.epub", "Books/下载/docs/b.docx"],
   );
   const rootOnly = [file("a.pdf"), file("notes/b.pdf"), file("images/c.jpg")];
-  assert.deepEqual(filterLibraryFiles(rootOnly, { extensions: ["pdf"] }).map((entry) => entry.path), ["a.pdf"]);
+  assert.deepEqual(filterLibraryFiles(rootOnly, { extensions: ["pdf"] }).map((entry) => entry.path), ["a.pdf", "notes/b.pdf"]);
 });
 
 test("the library predicate can exclude data roots", () => {

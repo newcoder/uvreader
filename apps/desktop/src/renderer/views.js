@@ -1,7 +1,7 @@
 import { ItemView, Notice, setIcon } from "obsidian";
 
 import { iconResolver } from "./icons.js";
-import { CONVERT_FORMATS, DOCVORTEX_INPUTS, EBOOK_TARGETS, IMAGE_BOOK_TARGETS, TEXT_SOURCE_EXTENSIONS, docvortexFormatExt } from "../shared/workshop-formats.js";
+import { CONVERT_FORMATS, DOCVORTEX_INPUTS, EBOOK_TARGETS, IMAGE_BOOK_TARGETS, docvortexFormatExt } from "../shared/workshop-formats.js";
 import { BOOK_STYLE_DEFAULTS, COVER_PALETTES } from "../shared/book-styles.js";
 import { chapterStats, mergeChapters, moveChapter, removeChapter, renameChapter, splitChapter } from "../shared/book-chapters.js";
 import { splitTextChapters } from "../main/text-book.js";
@@ -1418,7 +1418,7 @@ export function createWorkshopView(leaf, options) {
     }
 
     extractFiles() {
-      return this.libraryFiles([...DOCVORTEX_INPUTS, ...IMAGE_INPUTS, ...TEXT_SOURCE_EXTENSIONS]);
+      return this.libraryFiles(BOOK_EXTENSIONS);
     }
 
     toggleExtractBookList() {
@@ -2402,7 +2402,7 @@ export function createWorkshopView(leaf, options) {
     }
 
     bookSourceFiles() {
-      return this.libraryFiles(["txt", "md", "markdown", ...DOCVORTEX_INPUTS, ...IMAGE_INPUTS]);
+      return this.libraryFiles(BOOK_EXTENSIONS);
     }
 
     toggleBookSourceList() {
@@ -2594,7 +2594,7 @@ export function createWorkshopView(leaf, options) {
     }
 
     convertBooks() {
-      return this.libraryFiles([...DOCVORTEX_INPUTS, ...TEXT_SOURCE_EXTENSIONS]);
+      return this.libraryFiles(BOOK_EXTENSIONS);
     }
 
     toggleConvertBookList() {

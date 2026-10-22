@@ -1,15 +1,11 @@
-// 书坊「选择书库文件」的过滤:只看当前书库根目录,不再列出书库外的
-// 测试文件、提取中间产物或旧文档。
+// 书坊「选择书库文件」的过滤:只列书库里的书籍,不再列出
+// 书库外的测试文件、提取中间产物或旧文档。
 //
-// 书库根目录:
-// 1. 设置里的 booksFolder(用户明确指定);
-// 2. 否则如果存在 Books/,以 Books/ 为当前书库(下载、示例书库都在这里);
-// 3. 否则退回 vault 根目录,但只列根目录文件(不递归到 notes/、assets/ 等)。
-export function libraryRoot(files, booksFolder = "") {
-  const configured = String(booksFolder || "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-  if (configured) return configured;
-  const list = Array.isArray(files) ? files : [];
-  return list.some((file) => String(file?.path || "").replace(/\\/g, "/").startsWith("Books/")) ? "Books" : "";
+// 如果设置里明确填了 booksFolder,只在该目录(含子目录)里找;
+// 否则在整个 vault 里找书籍格式。notes/、images/、assets/ 等目录里的
+// 非书籍文件本来就会被扩展名过滤掉,.uvtext.pdf 这类生成物另行排除。
+export function libraryRoot(_files, booksFolder = "") {
+  return String(booksFolder || "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
 }
 
 export function filterLibraryFiles(files, {
@@ -28,7 +24,6 @@ export function filterLibraryFiles(files, {
     if (wanted.size && !wanted.has(ext)) return false;
     // PDF 文字层 sidecar 是生成物,不是书库书籍。
     if (/\.uvtext\.pdf$/i.test(raw)) return false;
-    if (root) return raw.startsWith(`${root}/`);
-    return !raw.includes("/");
+    return root ? raw.startsWith(`${root}/`) : true;
   });
 }
