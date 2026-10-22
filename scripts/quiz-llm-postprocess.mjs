@@ -125,7 +125,9 @@ if (generated.length) {
   const script = doc.createElement("script");
   script.textContent = `(function(){
     var blocks = Array.prototype.slice.call(document.querySelectorAll('[data-source="generated"]'));
+    var covers = document.querySelectorAll('style[data-llm-generated-hidden]');
     function reveal() {
+      Array.prototype.forEach.call(covers, function (cover) { cover.remove(); });
       blocks.forEach(function (block) { block.hidden = false; block.style.display = ''; });
     }
     document.addEventListener('click', function (event) {

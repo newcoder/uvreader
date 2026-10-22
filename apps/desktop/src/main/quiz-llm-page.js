@@ -169,7 +169,8 @@ function hideGenerated(html, stats) {
   const style = '<style data-llm-generated-hidden>[data-source="generated"]{display:none!important}</style>';
   const script = `<script data-llm-generated-reveal>(function(){
     var blocks = Array.prototype.slice.call(document.querySelectorAll('[data-source="generated"]'));
-    function reveal(){ blocks.forEach(function(b){ b.hidden=false; b.style.display=''; }); }
+    var covers = document.querySelectorAll('style[data-llm-generated-hidden]');
+    function reveal(){ Array.prototype.forEach.call(covers, function(cover){ cover.remove(); }); blocks.forEach(function(b){ b.hidden=false; b.style.display=''; }); }
     document.addEventListener('click', function(event){
       var button = event.target && event.target.closest ? event.target.closest('button') : null;
       if (button && /交卷|提交/.test(button.textContent || '')) setTimeout(reveal, 0);

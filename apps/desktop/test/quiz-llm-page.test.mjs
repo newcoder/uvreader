@@ -31,6 +31,8 @@ int x;
   assert.match(result.html, /int main\(\) \{\n    int x;/);
   assert.match(result.html, /data:image\/png;base64,/);
   assert.match(result.html, /data-source="generated"[^>]*hidden/);
+  assert.match(result.html, /data-llm-generated-hidden/);
+  assert.match(result.html, /cover\.remove\(\)/);
   assert.match(result.html, /id="resultSummary"/);
   assert.ok(result.stats.math >= 1);
   assert.equal(result.stats.imagesInlined, 1);
