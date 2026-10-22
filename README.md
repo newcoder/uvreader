@@ -2,7 +2,7 @@
 
 # UV Reader（纽扣）
 
-**简体中文** · [English](#english) · [许可证](LICENSE) · [问题反馈](https://github.com/newcoder/uvreader/issues)
+**简体中文** · [English](#english) · [许可证](LICENSE) · [免责声明](DISCLAIMER.md) · [问题反馈](https://github.com/newcoder/uvreader/issues)
 
 UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支持 EPUB、PDF、FB2/FBZ、MOBI/AZW/AZW3、CBZ，内置高亮、批注、阅读笔记和可选的 AI 助读。书籍、进度和笔记默认都在本机；日常阅读不需要账号，也不需要联网。
 
@@ -180,7 +180,7 @@ CI 顺序：test → test:shim → test:desktop → check:i18n → eslint → de
 
 ## 许可证
 
-GPL-3.0-only。第三方组件、字体和示例书声明见 [NOTICE.md](NOTICE.md)、[fonts/README.md](fonts/README.md) 和 [licenses/](licenses/)。商业授权请联系项目作者。
+GPL-3.0-only。第三方组件、字体和示例书声明见 [NOTICE.md](NOTICE.md)、[fonts/README.md](fonts/README.md) 和 [licenses/](licenses/)。商业授权请联系项目作者。使用前请阅读[免责声明](DISCLAIMER.md)。
 
 ---
 
@@ -190,7 +190,7 @@ GPL-3.0-only。第三方组件、字体和示例书声明见 [NOTICE.md](NOTICE.
 
 UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, PDF, FB2/FBZ, MOBI/AZW/AZW3 and CBZ. Reading, highlighting, notes, library management and optional AI assistance live in one local-first app; Obsidian is no longer required.
 
-**Status:** `0.7.55`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.55).
+**Status:** `0.7.55`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.55). Read the [Disclaimer](DISCLAIMER.md) before use.
 
 ## Features
 
@@ -218,4 +218,4 @@ Release: set the root `package.json` version, push a `v<version>` tag; the relea
 
 Architecture: `apps/desktop` is the Electron shell; `packages/reader/src` contains the host-agnostic reader core (90+ modules); `packages/host-shim` is only used by the Obsidian compatibility adapters. The reader no longer embeds an answering panel; interactive answer pages are standalone HTML exports.
 
-License: GNU GPL v3.0 only. See [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md).
+License: GNU GPL v3.0 only. See [LICENSE](LICENSE), [NOTICE.md](NOTICE.md) and the [Disclaimer](DISCLAIMER.md).
