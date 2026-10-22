@@ -12,7 +12,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 >
 > **原则**：做好、做快、轻量、扩展（Do it well, do it fast, keep it lean, scale it.）
 
-[功能总览](#功能总览) · [界面预览](#界面预览) · [下载与安装](#下载与安装) · [常见问题](#常见问题) · [从源码运行](#从源码运行)
+[功能总览](#功能总览) · [下载与安装](#下载与安装) · [常见问题](#常见问题) · [从源码运行](#从源码运行)
 
 ## 功能总览
 
@@ -108,16 +108,6 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 - 界面支持 9 种语言。
 - 本地优先：无账号、无强制云同步；支持系统凭据存储保存 AI 密钥。
 - 阅读器核心与 Electron 壳解耦，90+ 个 host-agnostic 模块，便于测试和后续扩展。
-
-## 界面预览
-
-| 阅读 | 划线、注音与翻译 |
-| --- | --- |
-| ![PDF 原页阅读](docs/assets/showcase-4.2.4-pdf.jpg) | ![选中文本后的划线与辅助操作](docs/assets/showcase-4.2.4-selection.jpg) |
-| **AI 伴读** | **书库** |
-| ![AI 伴读与书籍上下文](docs/assets/showcase-4.2.4-ai.jpg) | ![书库、封面与阅读进度](docs/assets/showcase-4.2.4-library.jpg) |
-
-更多截图见 [docs/showcase.md](docs/showcase.md)。截图来自早期发布版本，具体界面以当前安装包为准。
 
 ## 下载与安装
 
@@ -251,7 +241,7 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 
 ## Download
 
-Installers are available on [GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.55). Windows builds include `UV-Reader-<version>-setup.exe` and `UV-Reader-<version>-portable.exe`; macOS builds provide `UV-Reader-<version>-<arch>.dmg`. No account is required on first launch, and AI, OCR and document-conversion components are optional. See the screenshots above or [docs/showcase.md](docs/showcase.md); they are from an earlier build and the current UI may differ.
+Installers are available on [GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.55). Windows builds include `UV-Reader-<version>-setup.exe` and `UV-Reader-<version>-portable.exe`; macOS builds provide `UV-Reader-<version>-<arch>.dmg`. No account is required on first launch, and AI, OCR and document-conversion components are optional.
 
 ## FAQ
 
