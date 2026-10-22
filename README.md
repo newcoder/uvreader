@@ -2,97 +2,182 @@
 
 # UV Reader（纽扣）
 
-**中文** · [English](#english) · [许可证](LICENSE) · [问题反馈](https://github.com/newcoder/uvreader/issues)
+**简体中文** · [English](#english) · [许可证](LICENSE) · [问题反馈](https://github.com/newcoder/uvreader/issues)
 
-UV Reader 是中文优先的**独立桌面阅读器**（Electron），支持 EPUB、PDF、FB2、MOBI、AZW3 和 CBZ。阅读、划线、批注、阅读笔记和可选的 AI 伴读都在同一个窗口里完成，不再依赖 Obsidian。
+UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支持 EPUB、PDF、FB2/FBZ、MOBI/AZW/AZW3、CBZ，内置高亮、批注、阅读笔记和可选的 AI 助读。书籍、进度和笔记默认都在本机；日常阅读不需要账号，也不需要联网。
 
-> **关于本项目**：fork 自 Obsidian 插件 [qiaomu-reader](https://github.com/joeseesun/qiaomu-reader)，现已发展为独立桌面应用，不再以插件形态维护。
+> **当前版本**：`0.7.49`。Windows / macOS 安装包见 [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.49)。
 >
-> **宗旨**：为了更好的阅读体验（For a better reading experience）。
+> **来源**：fork 自 Obsidian 插件 [qiaomu-reader](https://github.com/joeseesun/qiaomu-reader)，现在作为独立桌面应用维护；Obsidian 插件形态不再作为主线。
 >
-> **设计原则**：好快省多（Do it well, do it fast, do it lean, then scale it.）
+> **原则**：读得好、做得快、保持轻量，再逐步扩展（Do it well, do it fast, do it lean, then scale it.）
 
-> 状态：v0.3.1 已发布，提供 Windows / macOS / Linux 安装包，见 [Releases](https://github.com/newcoder/uvreader/releases)；也可从源码构建运行。
+## 功能总览
 
-## 功能
+### 阅读
 
-| 能力 | 说明 |
-| --- | --- |
-| 阅读 | 分页 / 滚动两种模式，滚轮翻页，页码跳转，单栏或双栏，五套阅读主题，内置与自定义字体 |
-| 划线批注 | 三色划线、就近批注、右键菜单，阅读笔记自动汇总 |
-| 阅读笔记 | 每本书一篇 Markdown 笔记，`↩` 可跳回原文对应位置 |
-| 目录 | 左侧栏，可搜索、可关闭，高度与阅读区一致 |
-| 适合页面 | 正文按可用宽度铺满；PDF 切到单页并放大到约 90% 阅读区宽度 |
-| AI 伴读（可选） | HTTP 服务（DeepSeek、Kimi、通义千问、智谱 GLM、MiniMax、硅基流动、豆包、OpenRouter、OpenAI）与本地端点（Ollama、LM Studio、自定义 OpenAI 兼容接口），由主进程的 pi-ai 运行时统一承载 |
-| 本地优先 | 书籍、进度、划线、笔记都保存在本机文件；AI 关闭时不联网 |
+- **格式**：EPUB、PDF、FB2、FBZ、MOBI、AZW、AZW3、CBZ；支持系统文件关联，双击书籍直接打开。
+- **阅读模式**：分页 / 滚动；单栏 / 双栏；鼠标滚轮、触控板、方向键、按钮和滑动翻页；页码跳转、章节跳转、阅读位置自动恢复。
+- **版面**：适配页宽 / 页高、PDF 原始页面渲染与缩放、页间距、页边距、对齐方式；不同设备可以保存不同阅读设置。
+- **目录**：PDF 大纲、印刷目录、正文标题等多来源目录；层级导航、当前章节定位、目录搜索。
+- **搜索**：全书搜索、结果定位、命中高亮。
+- **外观**：多套阅读主题、字体、字号、行距、段距、对齐和栏数设置；内置阅读字体，也支持导入字体。
+- **PDF**：原页渲染、文本层、可搜索 PDF；扫描页可以通过文字层 / OCR 变成可搜索、可划线的文本。
+- **阅读统计**：累计阅读时间、连续天数、每日目标、最近两周阅读图表。
+- **位置书签**：保存 / 重命名 / 删除阅读位置。
 
-## 运行
+### 高亮、批注和笔记
 
-前置：Node.js 22 或更高。
+- 选中文本后高亮、写批注、改颜色、复制、搜索、翻译或询问 AI。
+- 高亮可以带批注和位置书签；支持跨页/跨章节选择与定位。
+- 拼音提示、词义/生词辅助；选中文本可以直接查词。
+- **每本书一篇 Markdown 阅读笔记**：摘录按章节分组，带原文位置链接，点击可跳回书内。
+- 书籍笔记、自动追加摘录、AI 回复追加到笔记；也可以导出全部高亮。
+- 笔记和摘录使用普通 Markdown，便于外部编辑、搜索和备份。
+
+### 书库
+
+- 本地导入 EPUB / PDF / MOBI / AZW3 / FB2 / CBZ 等文件，支持拖拽、批量导入和文件关联。
+- 封面、书名、作者、语言、标签、简介等元数据编辑；可以选封面、自动取封面或生成模板封面。
+- 最近阅读、阅读进度、阅读中/未读状态、书库筛选和搜索。
+- 所有书籍、进度、标注和笔记都保存在本地应用数据目录，不依赖云书库。
+
+### 书坊（Workshop）
+
+书坊是阅读器内置的文档处理工作台，任务进入队列，可以取消、重试、打开产物。
+
+#### 文字层与可搜索 PDF
+
+- 把扫描 PDF 变成可搜索、可划线的 PDF。
+- 支持本地文字层写回阅读器，也可以导出 `<源名>.uvtext.pdf`。
+- 可选 OCR DPI、识别模式；处理过程有进度和失败页统计。
+
+#### 格式转换（DocVortex）
+
+- 输入：PDF、Office（DOC/DOCX/PPT/PPTX/XLS/XLSX/CSV/TSV/RTF）、ODF、HTML/MHTML、EPUB、OFD、Markdown、纯文本等。
+- 输出：Markdown、HTML、LaTeX、DOCX、PDF；另有 EPUB → Markdown、图片 → PDF 预设。
+- 尽量保持内容与版式；Markdown / 纯文本会先渲染成 HTML 再交给 DocVortex。
+- 可选公式优先路径（MinerU）处理公式较多的 PDF。
+
+#### 内容提取
+
+- PDF / DOCX / 图片 / Office / ODF / OFD / HTML / EPUB / Markdown / 纯文本 → **Markdown / HTML / 结构化 JSON / 图片资源**。
+- 文本型 PDF 使用本地确定性提取：去页眉页脚、页码、水印，合并跨页段落和代码。
+- 扫描 PDF / 公式文档可走 MinerU；公式保留为 LaTeX / MathML。
+- 题库提取：生成 `uvreader.question-bank/v1` JSON，作为答题页和外部工具的索引。
+- 提取结果可以在面板里预览 Markdown / HTML / JSON，并查看缺图、重复图、失败页等体检信息。
+
+#### 电子书制作
+
+- 从 PDF、Office、ODF、OFD、HTML、EPUB、txt、Markdown、图片制作 EPUB。
+- 自动提取 / 分章，编辑章节标题、合并 / 拆分 / 排序，设置元数据、封面、目录和基础排版样式。
+- EPUB 3 输出（nav + NCX），公式转 MathML，图片嵌入，生成后可直接在 UV Reader 打开。
+- 通过 Calibre 可继续转换为 AZW3 / MOBI；图片可以打包成 CBZ 或 EPUB。
+- 支持多本书批量制作。
+
+#### 答题页
+
+- **答题页（交互 HTML）**：把转换后的 Markdown 试卷生成自包含 HTML；客观题本地判分，主观题显示参考答案自评，答案/解析初始隐藏。
+- **AI 答题页（实验）**：用提示词让 AI 从 Markdown 直接生成整页答题页，支持答案解析、导航配色、MathML 公式、代码格式化和圆圈数字占位符；生成后用本地后处理内联图片、校正公式/代码。
+- 两者都保留在格式转换中；AI 答题页需要先在「设置 → AI 助读」配置模型。
+
+#### 任务与外部组件
+
+- 统一的运行队列：进度、取消、重试、产物打开、失败信息。
+- 可选本地引擎：pdf_tool / MinerU / DocVortex / Calibre；设置页提供探测、路径配置和启动状态。
+- 外部工具缺失时只影响对应功能，不影响阅读和已有书籍。
+
+### AI（可选）
+
+- 支持 HTTP OpenAI 兼容服务（DeepSeek、Kimi、通义千问、智谱 GLM、MiniMax、OpenRouter、OpenAI 等），也支持本地 OpenAI 兼容端点（Ollama、llama.cpp、LM Studio）。
+- **AI 助读**：选中文本解释、总结、追问、翻译，读取书籍上下文；可以自定义提示词和回复语言。
+- **AI 书坊**：推断元数据、生成封面文案、建议分章规则、按块做最小文本清理。
+- **AI 答题页**：生成答案、解析和整页交互 HTML（实验功能）。
+- 不配置 AI 时，阅读、标注、笔记、转换、成书全部照常工作；AI 请求只在用户主动操作时发生。
+
+### 其他
+
+- 界面支持 9 种语言。
+- 本地优先：无账号、无强制云同步；支持系统凭据存储保存 AI 密钥。
+- 阅读器核心与 Electron 壳解耦，90+ 个 host-agnostic 模块，便于测试和后续扩展。
+
+## 快速开始
+
+前置：Node.js 22 或更高版本。
 
 ```bash
 npm ci
-npm run desktop:install   # 安装 Electron；网络受限时先设置 ELECTRON_MIRROR
+npm run desktop:install   # 安装 Electron；网络受限时可设置 ELECTRON_MIRROR
 npm run desktop:build
 npm run desktop:start
 ```
 
-- 开发：`npm run desktop:dev`（watch 构建，重启应用生效）
-- 冒烟：`npm run desktop:smoke`（打开内置示例书，退出码 0/1）
-- 端到端：`npm run desktop:e2e`（Playwright 驱动 Electron：翻页、划线、笔记、目录、AI 密钥链路等）
-
-## 打包
+开发：
 
 ```bash
-npm run desktop:dist:dir   # 只出免安装目录（apps/desktop/release/win-unpacked）
-npm run desktop:dist       # Windows：NSIS 安装包 + 便携版
-npm run desktop:smoke:packaged   # 用打包产物跑冒烟（退出码 0/1）
-npm run build:icon         # 由 logo.jpg 重新生成品牌 logo 与应用图标（需要已安装 Electron）
-npm run build:icons        # 从 uvreader_icons.png 重新切出工具栏图标（纯 Node，白底转透明）
+npm run desktop:dev       # watch 编译 + 启动应用
+npm run desktop:smoke     # 启动冒烟测试，退出码 0/1
+npm run desktop:e2e       # Playwright-Electron 端到端
 ```
 
-- 产物：`apps/desktop/release/UV-Reader-<版本>-setup.exe`、`UV-Reader-<版本>-portable.exe`；macOS 为 dmg、Linux 为 AppImage（需在对应系统上构建）。
-- 发布：把版本号写进根 `package.json` 后推送 `v<版本>` tag，`.github/workflows/release.yml` 会先跑门禁校验版本一致性，再在三个平台构建并创建 GitHub Release。
-- 版本号取自根 `package.json`；品牌 logo 与应用图标由 `logo.jpg` 经 `apps/desktop/scripts/import-logo.cjs` 生成到 `apps/desktop/assets/logo.png` 与 `apps/desktop/build/icon.png`（`npm run build:icon`）；工具栏图标由 `uvreader_icons.png` 经 `scripts/slice-app-icons.mjs` 切到 `apps/desktop/assets/icons/`（`npm run build:icons`）。
-- 已注册 `.epub/.pdf/.mobi/.azw3/.fb2/.cbz` 文件关联与单实例；用“打开方式”传入的路径会在启动后自动打开。
-- 网络受限时先设置镜像：`ELECTRON_MIRROR`、`ELECTRON_BUILDER_BINARIES_MIRROR`（例如 npmmirror 对应路径）。
-
-## 测试与校验
+## 构建与发布
 
 ```bash
-npm test              # 阅读核心单元测试
-npm run test:shim     # 宿主兼容层契约测试
+npm run desktop:dist:dir       # 只生成安装目录 apps/desktop/release/win-unpacked
+npm run desktop:dist           # Windows NSIS 安装包 + 便携版；macOS 生成 dmg
+npm run desktop:smoke:packaged # 用打包产物做冒烟测试
+npm run build:icon             # logo.jpg → 应用图标
+npm run build:icons            # uvreader_icons.png → 各平台图标
+```
+
+- 发行产物：`apps/desktop/release/UV-Reader-<版本>-setup.exe`、`-portable.exe`、macOS `.dmg`。
+- 发版：修改根 `package.json` 版本，提交后推送 `v<版本>` tag；`.github/workflows/release.yml` 会校验版本、跑测试、构建 Windows/macOS 并创建 GitHub Release。
+- 详细工具链：`docs/workshop-implementation.md`。
+
+## 项目结构
+
+```text
+apps/desktop/         Electron 壳：主进程、preload、渲染进程、构建脚本
+  src/main/           阅读/书坊/引擎/AI 主进程服务
+  src/preload/        受控 IPC 桥
+  src/renderer/       阅读器、书库、书坊、设置界面
+packages/reader/src/  阅读器核心：阅读引擎、标注、笔记、AI 适配等 90+ 模块
+  main.js             薄入口，export { default } from "./wire.js"
+  wire.js             依赖装配与宿主接线
+  plugin.js           Obsidian 兼容适配器（仅保留兼容）
+  settings-tab.js     设置页适配器
+packages/host-shim/   Obsidian API 兼容层，仅由适配器使用
+assets/starter-books/ 内置公版示例书
+docs/                 设计、实现、实验和验收记录
+scripts/              构建、检查、预览和转换工具
+```
+
+阅读器核心不依赖 Electron/Obsidian；AI 请求和文档工具由桌面主进程提供。独立答题页与阅读器内阅读界面分开，阅读器不再内置旧答题面板。
+
+## 测试与检查
+
+```bash
+npm test              # reader-core 单元测试
+npm run test:shim     # host-shim 兼容层测试
 npm run test:desktop  # 桌面壳测试
-npm run check:i18n    # 9 种语言字典与占位符一致性
+npm run check:i18n    # 9 种语言的字典 / 占位符 / 链接一致性
+npm run check:epub -- "path/to/book.epub"   # EPUB 结构检查
 npx eslint packages/reader/src packages/host-shim apps/desktop/src apps/desktop/test apps/desktop/scripts apps/desktop/build.mjs tests scripts --max-warnings=0
 ```
 
-CI（`.github/workflows/ci.yml`）按上述顺序执行，并在 xvfb 下跑一次桌面冒烟。
+CI 顺序：test → test:shim → test:desktop → check:i18n → eslint → desktop build → xvfb 下的 smoke。转换矩阵可用 `npm run desktop:matrix` 跑 DocVortex / 文本 PDF / MinerU / Calibre / CBZ 等真实链路。
 
-AI 伴读的传输层由桌面主进程的 pi-ai 运行时提供：渲染层通过 preload 桥发送请求，主进程负责 provider 调用、流式增量与错误归一化。本地模型只需提供 OpenAI 兼容端点（Ollama / llama.cpp server / LM Studio）即可接入。
+## 数据与隐私
 
-## 架构
+- 书籍、封面、阅读进度、高亮、笔记和设置默认保存在本机应用数据目录；没有账号体系。
+- AI 只在主动使用时发送所选文本 / 书籍上下文；本地模型端点不会离开本机。
+- 翻译使用 Google Translate 网络请求（可关闭）；MinerU 云端模式会把扫描页发送到对应服务。
+- AI 密钥保存在系统凭据存储，不写进书籍或笔记文件。
+- 具体安全说明见 [SECURITY.md](SECURITY.md)。
 
-```text
-apps/desktop/         Electron 壳：主进程、预加载、渲染进程、打包脚本
-packages/reader/src/  阅读核心：90+ 个宿主无关模块（阅读、划线、笔记、AI、界面）
-  main.js             入口（仅 re-export，供桌面壳与测试引用）
-  wire.js             辅助函数与端口装配（唯一接触宿主 API 的接线层）
-  plugin.js           Obsidian 插件适配（注入 Plugin 基类）
-  settings-tab.js     设置页适配（注入 PluginSettingTab 基类）
-packages/host-shim/   Obsidian API 兼容层（仅 wire/plugin/settings-tab 使用）
-assets/starter-books/ 内置公版示例书
-```
+## 许可证
 
-迁移状态：阅读、划线、批注、笔记、AI 与全部界面/弹窗都已是宿主无关模块，可独立单测；只有 `wire.js`、`plugin.js`、`settings-tab.js` 通过 `packages/host-shim` 接触宿主 API。计划与进度见 [docs/standalone-desktop-plan.md](docs/standalone-desktop-plan.md)。
-
-## 隐私
-
-书籍、阅读进度、划线和笔记都在本地文件中，无账号、无遥测。可选联网能力默认关闭：翻译（Google Translate）、AI 伴读（你选择并配置的服务，含本地模型端点）。详见 [SECURITY.md](SECURITY.md)。
-
-## 许可
-
-项目整体采用 **GNU GPL v3.0 only**（`GPL-3.0-only`），完整条款见 [LICENSE](LICENSE)。第三方组件、字体与改编来源见 [NOTICE.md](NOTICE.md)、[fonts/README.md](fonts/README.md) 与 [licenses/](licenses/)。需要 GPL 之外的授权可联系作者协商[商业授权](COMMERCIAL-LICENSE.md)。
+GPL-3.0-only。第三方组件、字体和示例书声明见 [NOTICE.md](NOTICE.md)、[fonts/README.md](fonts/README.md) 和 [licenses/](licenses/)。商业授权请联系项目作者。
 
 ---
 
@@ -100,19 +185,22 @@ assets/starter-books/ 内置公版示例书
 
 # English
 
-UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, PDF, FB2, MOBI, AZW3 and CBZ. Reading, highlighting, notes and an optional AI companion live in one window; Obsidian is no longer required.
+UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, PDF, FB2/FBZ, MOBI/AZW/AZW3 and CBZ. Reading, highlighting, notes, library management and optional AI assistance live in one local-first app; Obsidian is no longer required.
 
-> **About**: forked from the Obsidian plugin [qiaomu-reader](https://github.com/joeseesun/qiaomu-reader) and now developed as a standalone desktop app; the plugin form is no longer maintained.
->
-> **Purpose**: for a better reading experience.
->
-> **Design principles**: do it well, do it fast, do it lean, then scale it.
+**Status:** `0.7.49`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.49).
 
-> Status: v0.3.1 is released with Windows / macOS / Linux installers — see [Releases](https://github.com/newcoder/uvreader/releases). You can also build from source.
+## Features
 
-Features: paged/scrolling reading, wheel paging, page jump, single or two columns, five page themes, bundled and custom fonts, three-colour highlights with inline comments, one Markdown reading note per book with backlinks, a searchable left TOC sidebar, fit-to-width reading (PDFs are zoomed to ~90% of the reading area), and optional AI assistance through HTTP providers or local OpenAI-compatible endpoints (Ollama, LM Studio, llama.cpp).
+- **Reading:** paged or scrolling mode, single/two columns, wheel/keyboard/swipe paging, page and chapter jumps, fit width/height, PDF original-page rendering and zoom, multiple themes and fonts, per-device reading settings, location bookmarks, reading statistics and daily goals.
+- **Annotations and notes:** multi-colour highlights, inline comments, cross-page selection, pinyin/word hints, translation, AI explain/ask, bookmarks; one Markdown reading note per book with chapter-grouped excerpts and links back to the source; book notes and highlight export.
+- **Library:** local import, covers and metadata editing, tags, recent books, progress, search and file associations.
+- **Workshop:** OCR/text layers for scanned PDFs; DocVortex format conversion (Office/ODF/PDF/EPUB/HTML/OFD/Markdown/text → Markdown/HTML/LaTeX/DOCX/PDF, EPUB → Markdown, images → PDF); content extraction to Markdown/HTML/JSON/assets; question-bank extraction; EPUB creation from PDF/Office/text/Markdown/images with chapters, metadata, covers and TOC; AZW3/MOBI via Calibre; image → CBZ/EPUB; deterministic and experimental AI answer pages.
+- **AI (optional):** OpenAI-compatible cloud providers or local endpoints (Ollama, llama.cpp, LM Studio); reading companion, explanations, summaries, translation, custom prompts; AI metadata/cover copy/chapter suggestions/cleanup; AI answer-page generation. All local reading, annotation and conversion features work without AI.
+- **Local-first:** no account, no mandatory cloud library; keys use OS credential storage; network is used only for explicitly enabled AI, translation, or cloud OCR.
 
-Build and run:
+## Build
+
+Requires Node.js 22+.
 
 ```bash
 npm ci
@@ -121,6 +209,10 @@ npm run desktop:build
 npm run desktop:start
 ```
 
-Tests: `npm test`, `npm run test:shim`, `npm run test:desktop`, `npm run check:i18n`, `npx eslint packages/reader/src packages/host-shim apps/desktop/src apps/desktop/test apps/desktop/scripts apps/desktop/build.mjs tests scripts --max-warnings=0`.
+Tests: `npm test`, `npm run test:shim`, `npm run test:desktop`, `npm run check:i18n`, `npm run check:epub -- "path/to/book.epub"`, and the ESLint command in the Chinese section.
 
-License: GNU GPL v3.0 only. Third-party notices live in [NOTICE.md](NOTICE.md).
+Release: set the root `package.json` version, push a `v<version>` tag; the release workflow verifies the version, builds Windows/macOS installers and creates the GitHub Release.
+
+Architecture: `apps/desktop` is the Electron shell; `packages/reader/src` contains the host-agnostic reader core (90+ modules); `packages/host-shim` is only used by the Obsidian compatibility adapters. The reader no longer embeds an answering panel; interactive answer pages are standalone HTML exports.
+
+License: GNU GPL v3.0 only. See [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md).
