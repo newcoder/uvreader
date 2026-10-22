@@ -105,3 +105,21 @@ test("an absolute path under the vault root is still reused, not copied", async 
   assert.equal(h.created.length, 0, "no duplicate for a book already in the library");
   assert.equal(h.reads.length, 0);
 });
+
+test("reopening the library refreshes the existing tab before revealing it", async () => {
+  const method = pluginSource.slice(
+    pluginSource.indexOf("  async openLibrary("),
+    pluginSource.indexOf("  async openBookAt("),
+  );
+  const openLibrary = vm.runInNewContext(`({${method}})`, { LIB_VIEW_TYPE: "qiaomu-reader-library" }).openLibrary;
+  let refreshed = 0;
+  let revealed = 0;
+  const leaf = { view: { async refresh() { refreshed += 1; } } };
+  const plugin = {
+    app: { workspace: { getLeavesOfType: () => [leaf], revealLeaf: () => { revealed += 1; } } },
+    closeReadingCompanion() {},
+  };
+  await openLibrary.call(plugin, false);
+  assert.equal(refreshed, 1, "the cached library tab is rebuilt");
+  assert.equal(revealed, 1);
+});

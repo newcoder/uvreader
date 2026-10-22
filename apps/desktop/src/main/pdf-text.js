@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { blocksToHtml, blocksToMarkdown } from "./formula-html.js";
+import { renderMathInHtml, rewriteHtmlMath } from "./html-math.js";
 import { uniqueFile } from "./paths.js";
 import { tableModeFor } from "./workshop-formula.js";
 import { docvortexFormatExt } from "../shared/workshop-formats.js";
@@ -730,7 +731,7 @@ export function writeTextProducts(doc, { outDir, stem, assets = [] } = {}) {
   files.md = target(".md");
   fs.writeFileSync(files.md, markdown, "utf8");
   files.html = target(".html");
-  fs.writeFileSync(files.html, blocksToHtml(doc.pages.flatMap((page) => page.blocks), { title: stem }), "utf8");
+  fs.writeFileSync(files.html, renderMathInHtml(blocksToHtml(doc.pages.flatMap((page) => page.blocks), { title: stem })), "utf8");
   files.json = target(".json");
   fs.writeFileSync(files.json, JSON.stringify(doc, null, 2), "utf8");
   const blocks = doc.pages.flatMap((page) => page.blocks);
@@ -784,6 +785,7 @@ export function registerTextConvertRunner(workshop, { docvortex, vaultRoot = "",
     const result = await docvortex.convert(settings, { source: htmlPath, format, out, signal });
     if (signal.aborted) throw new Error("任务已取消");
     if (!result.ok) throw new Error(String(result.error || "转换失败"));
+    if (format === "html") rewriteHtmlMath(out, { log });
     return { output: out, detail: `${format} · ${path.basename(out)}` };
   });
 

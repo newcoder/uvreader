@@ -441,6 +441,9 @@ export function createPlugin({
     const existing = this.app.workspace.getLeavesOfType(LIB_VIEW_TYPE);
     if (existing.length && !inNewWindow) {
       this.app.workspace.revealLeaf(existing[0]);
+      try { await existing[0].view.refresh?.(); } catch (error) {
+        console.warn("UV Reader: library refresh failed", error);
+      }
       return;
     }
     const leaf = inNewWindow && !this.app.isMobile && this.app.workspace.openPopoutLeaf

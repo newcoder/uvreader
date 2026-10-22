@@ -6,7 +6,7 @@
 
 UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支持 EPUB、PDF、FB2/FBZ、MOBI/AZW/AZW3、CBZ，内置高亮、批注、阅读笔记和可选的 AI 助读。书籍、进度和笔记默认都在本机；日常阅读不需要账号，也不需要联网。
 
-> **当前版本**：`0.7.54`。Windows / macOS 安装包见 [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.54)。
+> **当前版本**：`0.7.55`。Windows / macOS 安装包见 [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.55)。
 >
 > **来源**：fork 自 Obsidian 插件 [qiaomu-reader](https://github.com/joeseesun/qiaomu-reader)，现在作为独立桌面应用维护；Obsidian 插件形态不再作为主线。
 >
@@ -42,6 +42,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 - 封面、书名、作者、语言、标签、简介等元数据编辑；可以选封面、自动取封面或生成模板封面。
 - 最近阅读、阅读进度、阅读中/未读状态、书库筛选和搜索。
 - 所有书籍、进度、标注和笔记都保存在本地应用数据目录，不依赖云书库。
+- 制作完成的电子书自动入库；从阅读器返回书库会刷新列表，不再显示旧内容。
 
 ### 书坊（Workshop）
 
@@ -57,6 +58,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 
 - 输入：PDF、Office（DOC/DOCX/PPT/PPTX/XLS/XLSX/CSV/TSV/RTF）、ODF、HTML/MHTML、EPUB、OFD、Markdown、纯文本等。
 - 输出：Markdown、HTML、LaTeX、DOCX、PDF；另有 EPUB → Markdown、图片 → PDF 预设。
+- 内容提取生成的 HTML 会把 `$…$` / `$$…$$` 公式离线渲染成 MathML，直接打开即可阅读，不依赖 CDN。
 - 尽量保持内容与版式；Markdown / 纯文本会先渲染成 HTML 再交给 DocVortex。
 - 可选公式优先路径（MinerU）处理公式较多的 PDF。
 
@@ -188,14 +190,14 @@ GPL-3.0-only。第三方组件、字体和示例书声明见 [NOTICE.md](NOTICE.
 
 UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, PDF, FB2/FBZ, MOBI/AZW/AZW3 and CBZ. Reading, highlighting, notes, library management and optional AI assistance live in one local-first app; Obsidian is no longer required.
 
-**Status:** `0.7.54`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.54).
+**Status:** `0.7.55`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.55).
 
 ## Features
 
 - **Reading:** paged or scrolling mode, single/two columns, wheel/keyboard/swipe paging, page and chapter jumps, fit width/height, PDF original-page rendering and zoom, multiple themes and fonts, per-device reading settings, location bookmarks, reading statistics and daily goals.
 - **Annotations and notes:** multi-colour highlights, inline comments, cross-page selection, pinyin/word hints, translation, AI explain/ask, bookmarks; one Markdown reading note per book with chapter-grouped excerpts and links back to the source; book notes and highlight export. Deleting a book also removes its highlights, pinyin pins, bookmarks, drafts and conversations; reading notes are kept.
-- **Library:** local import, covers and metadata editing, tags, recent books, progress, search and file associations.
-- **Workshop:** OCR/text layers for scanned PDFs; DocVortex format conversion (Office/ODF/PDF/EPUB/HTML/OFD/Markdown/text → Markdown/HTML/LaTeX/DOCX/PDF, EPUB → Markdown, images → PDF); content extraction to Markdown/HTML/JSON/assets; question-bank extraction; EPUB creation from PDF/Office/text/Markdown/images with chapters, metadata, covers and TOC; AZW3/MOBI via Calibre; image → CBZ/EPUB; deterministic and experimental AI answer pages.
+- **Library:** local import, covers and metadata editing, tags, recent books, progress, search and file associations; generated ebooks are added automatically, and returning to the library refreshes the list.
+- **Workshop:** OCR/text layers for scanned PDFs; DocVortex format conversion (Office/ODF/PDF/EPUB/HTML/OFD/Markdown/text → Markdown/HTML/LaTeX/DOCX/PDF, EPUB → Markdown, images → PDF); content extraction to Markdown/HTML/JSON/assets (extracted HTML renders LaTeX as offline MathML); question-bank extraction; EPUB creation from PDF/Office/text/Markdown/images with chapters, metadata, covers and TOC; AZW3/MOBI via Calibre; image → CBZ/EPUB; deterministic and experimental AI answer pages.
 - **AI (optional):** OpenAI-compatible cloud providers or local endpoints (Ollama, llama.cpp, LM Studio); reading companion, explanations, summaries, translation, custom prompts; AI metadata/cover copy/chapter suggestions/cleanup; AI answer-page generation. All local reading, annotation and conversion features work without AI.
 - **Local-first:** no account, no mandatory cloud library; keys use OS credential storage; network is used only for explicitly enabled AI, translation, or cloud OCR.
 

@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { blocksFromDoc, blocksToHtml, tableModeFor } from "./formula-html.js";
+import { rewriteHtmlMath } from "./html-math.js";
 import { resolveLocalBackend, resolveMineruLocalUrl } from "./mineru-local.js";
 import { uniqueFile } from "./paths.js";
 import { mergeBlocksWithTextLayer } from "./text-merge.js";
@@ -325,6 +326,7 @@ export function registerFormulaRunners(workshop, { chain, docvortex, vaultRoot =
     const result = await docvortex.convert(settings, { source: prepared.htmlPath, format, out, signal });
     if (signal.aborted) throw new Error("任务已取消");
     if (!result.ok) throw new Error(String(result.error || "转换失败"));
+    if (format === "html") rewriteHtmlMath(out, { log });
     return { output: out, detail: `${format} · ${path.basename(out)}` };
   });
 

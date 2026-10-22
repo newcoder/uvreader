@@ -12,6 +12,7 @@ import { textSourceKind } from "../shared/workshop-formats.js";
 import { joinContinuationLines, joinSplitCodeFences, splitMarkdownChapters, stripCodeLineNumbers, unwrapProseFences } from "../shared/markdown-fix.js";
 import { tocKey, tocLevel } from "../shared/printed-toc.js";
 import { blocksFromDoc, blocksToMarkdown, cleanFootnoteText } from "./formula-html.js";
+import { rewriteHtmlMath } from "./html-math.js";
 import { buildTextDoc, createPdfTextReader, writeTextProducts } from "./pdf-text.js";
 import { removeTextSourceBridge, writeTextSourceBridge } from "./docvortex.js";
 import { removeFile, removeTree } from "./paths.js";
@@ -666,6 +667,7 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", ca
       });
       if (signal.aborted) throw new Error("任务已取消");
       if (mergedCache) fs.writeFileSync(cached.md, mergedCache, "utf8");
+      rewriteHtmlMath(cached.html, { log });
       return { output: cached.md, detail: `Markdown · ${Math.round(fs.statSync(cached.md).size / 1024)} KB`, outputs: cached };
     }
     report({ label: `提取中（${mode}）` });
@@ -751,6 +753,7 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", ca
     });
     if (signal.aborted) throw new Error("任务已取消");
     if (merged) fs.writeFileSync(files.md, merged, "utf8");
+    rewriteHtmlMath(files.html, { log });
     writeExtractMark(cacheRoot, source, { mode, model, stat, outputs: files });
     return { output: files.md, detail: `Markdown · ${Math.round(fs.statSync(files.md).size / 1024)} KB`, outputs: files };
   });
@@ -801,6 +804,7 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", ca
       removeTextSourceBridge(bridge, { log });
     }
     if (!outputs.md) throw new Error("提取完成但没有找到 Markdown 产物");
+    rewriteHtmlMath(outputs.html, { log });
     return { output: outputs.md, detail: `Markdown · ${Math.round(fs.statSync(outputs.md).size / 1024)} KB`, outputs };
   });
 

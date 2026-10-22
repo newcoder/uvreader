@@ -3563,6 +3563,13 @@ const LibraryView = class extends ItemView {
     this.containerEl.addClass("qiaomu-reader-modal-lib", "qiaomu-reader-lib-as-view");
     await LibraryModal.prototype.onOpen.call(this);
   }
+  // A tab stays put while the workshop finishes a book or another window adds
+  // files. Re-run the modal render when the user navigates back so the library
+  // never shows the list it had when the tab was first opened.
+  async refresh() {
+    this.modalEl ||= this.containerEl;
+    await LibraryModal.prototype.onOpen.call(this);
+  }
   close() { /* a tab stays put */ }
   onClose() {
     this._libraryRender = null;

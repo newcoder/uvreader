@@ -8,6 +8,7 @@ import path from "node:path";
 import { cleanedPdfFor, createPdfCleaner } from "./pdf-text.js";
 import { restoreDocxLists } from "./docx-numbering.js";
 import { escapeHtml, mathScript, stripMathDelimiters } from "./formula-html.js";
+import { rewriteHtmlMath } from "./html-math.js";
 import { markdownToHtml, textToHtml } from "./text-book.js";
 import { removeFile, uniqueFile } from "./paths.js";
 import { DOCVORTEX_FORMATS, docvortexFormatExt, textSourceKind } from "../shared/workshop-formats.js";
@@ -232,6 +233,7 @@ export function registerDocvortexRunners(workshop, { docvortex, vaultRoot = "", 
         const restored = await restoreDocxLists(out, { log });
         if (restored) log("docx lists restored", restored, path.basename(out));
       }
+      if (format === "html") rewriteHtmlMath(out, { log });
     } finally {
       removeTextSourceBridge(bridge, { log });
     }

@@ -148,6 +148,7 @@ test("the pdf runner drives pdf_tool and adopts its products next to the source"
     const outDir = call.args[call.args.indexOf("--out-dir") + 1];
     const stem = "试卷";
     fs.writeFileSync(path.join(outDir, `${stem}_doc.md`), "![图](mineru/images/a.jpg)\n\n正文");
+    fs.writeFileSync(path.join(outDir, `${stem}_doc.html`), "<p>公式 $x^2$ 和 $\\mathcal { M } _ { t }$。</p>");
     fs.writeFileSync(path.join(outDir, `${stem}_doc.json`), "{}");
     fs.mkdirSync(path.join(outDir, "mineru", "images"), { recursive: true });
     fs.writeFileSync(path.join(outDir, "mineru", "images", "a.jpg"), "img");
@@ -164,6 +165,9 @@ test("the pdf runner drives pdf_tool and adopts its products next to the source"
   assert.equal(task.status, "done", task.error);
   assert.equal(task.output, path.join(vault, "试卷.md"));
   assert.ok(fs.existsSync(path.join(vault, "试卷.json")));
+  const html = fs.readFileSync(path.join(vault, "试卷.html"), "utf8");
+  assert.match(html, /<math[\s>]/, "extracted HTML renders formulas as MathML");
+  assert.doesNotMatch(html, /\$x\^2\$/, "the raw LaTeX markers are gone");
   assert.ok(fs.existsSync(path.join(vault, "试卷.assets", "images", "a.jpg")));
   assert.equal(calls[0].args[calls[0].args.indexOf("--mode") + 1], "mineru");
   assert.equal(calls[0].args[calls[0].args.indexOf("--formats") + 1], "json,md,html");
