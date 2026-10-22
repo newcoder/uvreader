@@ -120,12 +120,28 @@ function formatCodeBlocks(html, stats) {
     const code = unescapeHtml(String(inner || "").replace(/<[^>]+>/g, ""));
     if (!code.trim()) return full;
     if (/算法\s|伪代码|输入:\s*数组/.test(code)) { stats.codeSkipped += 1; return full; }
-    if (!/#\s*include|using\s+namespace|int\s+main\s*\(|\bfor\s*\(|\bwhile\s*\(/.test(code)) return full;
-    const formatted = formatCode(code);
-    if (formatted === code) return full;
-    stats.code += 1;
-    return `<pre${attrs}>${escapeHtml(formatted)}</pre>`;
+    const hasCpp = /#\s*include|using\s+namespace|int\s+main\s*\(|\bfor\s*\(|\bwhile\s*\(/.test(code);
+    const hasBlank = /[\u2460-\u2473\u2776-\u277f]/.test(code);
+    if (!hasCpp && !hasBlank) return full;
+    const formatted = hasCpp ? formatCode(code) : code;
+    const decorated = escapeHtml(formatted).replace(/([\u2460-\u2473\u2776-\u277f])/g, '<span class="code-blank">$1</span>');
+    if (decorated === escapeHtml(code)) return full;
+    stats.code += formatted === code ? 0 : 1;
+    return `<pre${attrs}>${decorated}</pre>`;
   });
+}
+
+function decorateBlanks(html, stats) {
+  const blankRe = /[\u2460-\u2473\u2776-\u277f]/g;
+  const count = (html.match(blankRe) || []).length;
+  if (!count) return html;
+  stats.blankSymbols = count;
+  const style = `<style data-llm-code-blank>
+.code-blank,.circled-blank{font-size:1.35em;line-height:1;vertical-align:-0.08em;font-family:"Segoe UI Symbol","Noto Sans SC","Microsoft YaHei",sans-serif;padding:0 .06em}
+</style>`;
+  let output = html.replace(/<\/head>/i, `${style}</head>`);
+  if (!/<style data-llm-code-blank>/i.test(output)) output = `${style}${output}`;
+  return output;
 }
 
 function inlineImages(html, { baseDir = "", dropImages = [] }, stats) {
@@ -207,10 +223,12 @@ export function postprocessQuizLlmHtml(html, { baseDir = "", dropImages = [] } =
     imagesInlined: 0,
     imagesDropped: 0,
     imagesMissing: 0,
+    blankSymbols: 0,
   };
   let output = String(html || "");
   output = convertMathOutsideProtectedTags(output, stats);
   output = formatCodeBlocks(output, stats);
+  output = decorateBlanks(output, stats);
   output = addMissingElements(output, stats);
   output = hideGenerated(output, stats);
   output = inlineImages(output, { baseDir, dropImages }, stats);

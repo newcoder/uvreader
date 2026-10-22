@@ -20,6 +20,7 @@ test("the LLM page postprocessor converts formulas, formats code and inlines ima
   const html = `<!doctype html><html><body><main id="paper">
 <p>公式 $x^2$</p>
 <pre>int main() {
+cin >> ①;
 int x;
 }</pre>
 <div id="gen" data-source="generated">答案：A</div>
@@ -28,7 +29,7 @@ int x;
 </main></body></html>`;
   const result = postprocessQuizLlmHtml(html, { baseDir: dir });
   assert.match(result.html, /<math/);
-  assert.match(result.html, /int main\(\) \{\n    int x;/);
+  assert.match(result.html, /int main\(\) \{\n    cin &gt;&gt; <span class="code-blank">①<\/span>;/);
   assert.match(result.html, /data:image\/png;base64,/);
   assert.match(result.html, /data-source="generated"[^>]*hidden/);
   assert.match(result.html, /data-llm-generated-hidden/);
@@ -37,6 +38,7 @@ int x;
   assert.ok(result.stats.math >= 1);
   assert.equal(result.stats.imagesInlined, 1);
   assert.equal(result.stats.generatedHidden, 1);
+  assert.equal(result.stats.blankSymbols, 1);
 });
 
 test("the LLM page extractor strips fenced output and surrounding prose", () => {

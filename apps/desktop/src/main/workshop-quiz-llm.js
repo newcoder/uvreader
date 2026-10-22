@@ -90,6 +90,7 @@ export function registerQuizLlmRunner(workshop, {
         `${stats.code} 代码块格式化`,
         `${stats.imagesInlined} 图片内联`,
         `${stats.generatedHidden} 生成答案隐藏`,
+        `${stats.blankSymbols} 圆圈占位符`,
       ].join(" · "),
     };
   });
