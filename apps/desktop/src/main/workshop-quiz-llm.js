@@ -63,7 +63,7 @@ export function registerQuizLlmRunner(workshop, {
         requestId,
         config,
         messages: [{ role: "user", content: prompt }],
-        options: { timeoutMs: 600000 },
+        options: { timeoutMs: 600000, maxTokens: 120000 },
       });
       if (signal?.aborted) throw new Error("已取消");
       if (!result?.ok) throw new Error(String(result?.message || result?.reason || "AI 请求失败"));
@@ -73,7 +73,9 @@ export function registerQuizLlmRunner(workshop, {
     }
 
     const page = extractQuizLlmHtml(raw);
-    if (!/<html[\s>]/i.test(page) || page.length < 80) throw new Error("AI 没有返回完整 HTML,请重试");
+    if (!/<html[\s>]/i.test(page) || !/<body[\s>]/i.test(page) || !/<\/html\s*>/i.test(page) || page.length < 200) {
+      throw new Error("AI 返回的页面不完整(可能达到输出上限),未写入产物;请提高 AI 最大输出或重试");
+    }
     const processed = postprocessQuizLlmHtml(page, {
       baseDir: path.dirname(extracted.path || absolute),
       dropImages: extracted.headerImages || [],

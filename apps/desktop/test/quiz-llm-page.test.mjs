@@ -58,7 +58,7 @@ test("the quiz-llm runner writes a self-contained page", async () => {
       aiRuntime: {
         stream: async () => ({
           ok: true,
-          answer: "<!doctype html><html><body><main id=\"paper\"><h1>测试试卷</h1><p>题目 $x^2$ 的说明文字，必须完整保留。</p><p>这是一段用于验证页面完整性的正文。</p><img src=\"pic.png\"></main></body></html>",
+          answer: "<!doctype html><html><body><main id=\"paper\"><h1>测试试卷</h1><p>题目 $x^2$ 的说明文字，必须完整保留。</p><p>这是一段用于验证页面完整性的正文。</p><p>再补一段足够长的内容，确保它超过应用端的最小完整性阈值，模拟真实模型返回的完整页面。</p><img src=\"pic.png\"></main></body></html>",
         }),
         abort: () => {},
       },

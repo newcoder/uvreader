@@ -221,7 +221,7 @@ export function createAiRuntime({ modelsFor } = {}) {
         signal: controller.signal,
         apiKey: String(config.key || "") || undefined,
         temperature: 0.2,
-        maxTokens: options.connectionTest ? CONNECTION_TEST_MAX_TOKENS : Number(config.maxTokens) || DEFAULT_MAX_TOKENS,
+        maxTokens: options.connectionTest ? CONNECTION_TEST_MAX_TOKENS : Number(options.maxTokens) || Number(config.maxTokens) || DEFAULT_MAX_TOKENS,
         // Only providers that declare thinking support receive a reasoning
         // level; local models that reject thinking keep working with "off".
         reasoning: config.thinking === true && config.supportsThinking === true && !options.connectionTest ? "medium" : "off",
