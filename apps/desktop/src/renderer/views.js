@@ -13,6 +13,7 @@ import { engineCapabilityRows, engineComponentSummary } from "../main/engine-cli
 import { decodeText } from "../shared/text-encoding.js";
 import { applyChapterRule, describeChapterRule } from "../shared/chapter-rules.js";
 import { describeIssues, scanChapterIssues, splitCleanupBlocks } from "../shared/text-issues.js";
+import { filterLibraryFiles } from "../shared/library-files.js";
 
 // 书坊的 AI 辅助复用伴读的配置读取(供应商 / 模型 / 密钥都从同一份设置与密钥库来,
 // 不新增设置项);这里只用 aiConfig,翻译与高亮定位给最小实现。
@@ -1198,7 +1199,7 @@ export function createWorkshopView(leaf, options) {
       pickVault.addEventListener("click", () => this.toggleOcrBookList());
       const pickLocal = pickRow.createEl("button", { text: "打开本地文件…" });
       pickLocal.addEventListener("click", () => void this.pickLocalOcrFiles());
-      pickRow.createSpan({ cls: "qbr-workshop-hint", text: "本地文件就地处理,产物落在源文件旁" });
+      pickRow.createSpan({ cls: "qbr-workshop-hint", text: "本地文件就地处理;书库列表只显示当前书库里的 PDF" });
       this._ocrBookList = inputCard.createDiv("qbr-workshop-booklist");
       this._ocrBookList.hidden = true;
       this._ocrChips = inputCard.createDiv("qbr-workshop-chips");
@@ -1229,10 +1230,17 @@ export function createWorkshopView(leaf, options) {
       this.renderOcrChips();
     }
 
+    libraryFiles(wanted) {
+      const files = filterLibraryFiles(app?.vault?.getFiles?.() || [], {
+        booksFolder: plugin?.settings?.booksFolder || "",
+        extensions: wanted,
+        isLibraryBook: (file) => plugin?.isLibraryBook?.(file) !== false,
+      });
+      return files.sort((a, b) => String(a.basename).localeCompare(String(b.basename), "ru"));
+    }
+
     ocrBooks() {
-      return (app?.vault?.getFiles?.() || [])
-        .filter((file) => String(file?.extension || "").toLowerCase() === "pdf")
-        .sort((a, b) => String(a.basename).localeCompare(String(b.basename), "ru"));
+      return this.libraryFiles(["pdf"]);
     }
 
     toggleOcrBookList() {
@@ -1367,7 +1375,7 @@ export function createWorkshopView(leaf, options) {
       pickVault.addEventListener("click", () => this.toggleExtractBookList());
       const pickLocal = pickRow.createEl("button", { text: "打开本地文件…" });
       pickLocal.addEventListener("click", () => void this.pickLocalExtractFiles());
-      pickRow.createSpan({ cls: "qbr-workshop-hint", text: "PDF / Office / OFD / HTML / 图片;本地文件就地处理" });
+      pickRow.createSpan({ cls: "qbr-workshop-hint", text: "PDF / Office / OFD / HTML / 图片;书库列表只显示当前书库,其它文件用本地打开" });
       this._extractBookList = inputCard.createDiv("qbr-workshop-booklist");
       this._extractBookList.hidden = true;
       this._extractChips = inputCard.createDiv("qbr-workshop-chips");
@@ -1410,10 +1418,7 @@ export function createWorkshopView(leaf, options) {
     }
 
     extractFiles() {
-      const wanted = [...DOCVORTEX_INPUTS, ...IMAGE_INPUTS, ...TEXT_SOURCE_EXTENSIONS];
-      return (app?.vault?.getFiles?.() || [])
-        .filter((file) => wanted.includes(String(file?.extension || "").toLowerCase()))
-        .sort((a, b) => String(a.basename).localeCompare(String(b.basename), "ru"));
+      return this.libraryFiles([...DOCVORTEX_INPUTS, ...IMAGE_INPUTS, ...TEXT_SOURCE_EXTENSIONS]);
     }
 
     toggleExtractBookList() {
@@ -1580,11 +1585,12 @@ export function createWorkshopView(leaf, options) {
 
       // ① 内容
       const sourceStep = this.bookStep(controls, "1", "内容", "书稿来源");
-      const sourceRow = sourceStep.createDiv("qbr-workshop-row");      const pickSource = sourceRow.createEl("button", { text: "选择书稿…" });
+      const sourceRow = sourceStep.createDiv("qbr-workshop-row");
+      const pickSource = sourceRow.createEl("button", { text: "选择书稿…" });
       pickSource.addEventListener("click", () => this.toggleBookSourceList());
       const pickSourceLocal = sourceRow.createEl("button", { text: "打开本地文件…" });
       pickSourceLocal.addEventListener("click", () => void this.pickLocalBookSources());
-      sourceRow.createSpan({ cls: "qbr-workshop-hint", text: "本地文件就地处理,产物落在源文件旁" });
+      sourceRow.createSpan({ cls: "qbr-workshop-hint", text: "书稿列表只显示当前书库;其它文件用「打开本地文件…」" });
       this._bookSourceList = sourceStep.createDiv("qbr-workshop-booklist");
       this._bookSourceList.hidden = true;
       this._bookSourceChips = sourceStep.createDiv("qbr-workshop-chips");
@@ -1688,7 +1694,7 @@ export function createWorkshopView(leaf, options) {
       pickVault.addEventListener("click", () => this.toggleBookList());
       const pickLocal = pickRow.createEl("button", { text: "打开本地文件…" });
       pickLocal.addEventListener("click", () => void this.pickLocalBookFiles());
-      pickRow.createSpan({ cls: "qbr-workshop-hint", text: "输入 EPUB/MOBI/AZW3/FB2/CBZ;本地文件就地处理" });
+      pickRow.createSpan({ cls: "qbr-workshop-hint", text: "书库列表只显示当前书库里的电子书;本地文件就地处理" });
       this._bookList = convertBlock.createDiv("qbr-workshop-booklist");
       this._bookList.hidden = true;
       this._bookChips = convertBlock.createDiv("qbr-workshop-chips");
@@ -1749,10 +1755,7 @@ export function createWorkshopView(leaf, options) {
     }
 
     bookFiles() {
-      const wanted = ["epub", "mobi", "azw", "azw3", "fb2", "fbz", "cbz"];
-      return (app?.vault?.getFiles?.() || [])
-        .filter((file) => wanted.includes(String(file?.extension || "").toLowerCase()))
-        .sort((a, b) => String(a.basename).localeCompare(String(b.basename), "ru"));
+      return this.libraryFiles(["epub", "mobi", "azw", "azw3", "fb2", "fbz", "cbz"]);
     }
 
     toggleBookList() {
@@ -2399,10 +2402,7 @@ export function createWorkshopView(leaf, options) {
     }
 
     bookSourceFiles() {
-      const wanted = ["txt", "md", "markdown", ...DOCVORTEX_INPUTS, ...IMAGE_INPUTS];
-      return (app?.vault?.getFiles?.() || [])
-        .filter((file) => wanted.includes(String(file?.extension || "").toLowerCase()))
-        .sort((a, b) => String(a.basename).localeCompare(String(b.basename), "ru"));
+      return this.libraryFiles(["txt", "md", "markdown", ...DOCVORTEX_INPUTS, ...IMAGE_INPUTS]);
     }
 
     toggleBookSourceList() {
@@ -2539,7 +2539,7 @@ export function createWorkshopView(leaf, options) {
       pickVault.addEventListener("click", () => this.toggleConvertBookList());
       const pickLocal = pickRow.createEl("button", { text: "打开本地文件…" });
       pickLocal.addEventListener("click", () => void this.pickLocalConvertFiles());
-      pickRow.createSpan({ cls: "qbr-workshop-hint", text: "本地文件就地处理,产物落在源文件旁" });
+      pickRow.createSpan({ cls: "qbr-workshop-hint", text: "书库列表只显示当前书库;其它文件请用「打开本地文件…」" });
       inputCard.createDiv({ cls: "qbr-workshop-hint", text: "Markdown / 纯文本也能转:DocVortex 不收 .md / .txt,书坊先渲染成 HTML(公式仍是公式)再交给它。" });
       this._convertBookList = inputCard.createDiv("qbr-workshop-booklist");
       this._convertBookList.hidden = true;
@@ -2594,10 +2594,7 @@ export function createWorkshopView(leaf, options) {
     }
 
     convertBooks() {
-      const wanted = [...DOCVORTEX_INPUTS, ...TEXT_SOURCE_EXTENSIONS];
-      return (app?.vault?.getFiles?.() || [])
-        .filter((file) => wanted.includes(String(file?.extension || "").toLowerCase()))
-        .sort((a, b) => String(a.basename).localeCompare(String(b.basename), "ru"));
+      return this.libraryFiles([...DOCVORTEX_INPUTS, ...TEXT_SOURCE_EXTENSIONS]);
     }
 
     toggleConvertBookList() {
