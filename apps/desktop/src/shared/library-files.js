@@ -2,8 +2,8 @@
 // 书库外的测试文件、提取中间产物或旧文档。
 //
 // 如果设置里明确填了 booksFolder,只在该目录(含子目录)里找;
-// 否则在整个 vault 里找书籍格式。notes/、images/、assets/ 等目录里的
-// 非书籍文件本来就会被扩展名过滤掉,.uvtext.pdf 这类生成物另行排除。
+// 否则和书库界面一样,在整个 vault 里找书籍格式。notes/、images/、assets/
+// 等目录里的非书籍文件由扩展名过滤掉。
 export function libraryRoot(_files, booksFolder = "") {
   return String(booksFolder || "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
 }
@@ -22,8 +22,7 @@ export function filterLibraryFiles(files, {
     if (isLibraryBook && isLibraryBook(file) === false) return false;
     const ext = String(file?.extension || raw.split(".").pop() || "").toLowerCase();
     if (wanted.size && !wanted.has(ext)) return false;
-    // PDF 文字层 sidecar 是生成物,不是书库书籍。
-    if (/\.uvtext\.pdf$/i.test(raw)) return false;
+    // 与书库界面使用同一套可见性判定:书库里能看到的书,书坊列表也要有。
     return root ? raw.startsWith(`${root}/`) : true;
   });
 }

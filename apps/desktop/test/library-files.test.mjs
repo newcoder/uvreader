@@ -17,7 +17,7 @@ test("workshop library lists include books at the root and under Books", () => {
   assert.equal(libraryRoot(files, ""), "");
   assert.deepEqual(
     filterLibraryFiles(files, { extensions: ["pdf", "epub", "fb2"] }).map((entry) => entry.path),
-    ["old.pdf", "Books/下载/book.epub", "Books/示例书库/example.fb2"],
+    ["old.pdf", "Books/下载/book.epub", "Books/示例书库/example.fb2", "Books/下载/book.uvtext.pdf"],
   );
 });
 
