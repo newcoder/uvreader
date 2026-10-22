@@ -2850,10 +2850,38 @@ export function createWorkshopView(leaf, options) {
       this.selectTool("tasks");
     }
 
+    // 电子书制作完成后,把产物放进当前书库。源文件本来就在书库时 import 只返回
+    // 现有路径;源文件在本地时会在书库创建一份并自动打「导入」标签。之后任务行
+    // 的「打开产物」使用书库路径,点击即进入阅读器。
+    adoptBookBuildOutputs(tasks) {
+      if (!plugin?.importBookToLibrary) return;
+      const root = String(window.qbrDesktop?.paths?.vaultRoot || "").replace(/\\/g, "/").replace(/\/+$/, "");
+      this._bookLibraryOutputs ||= new Map();
+      for (const task of tasks) {
+        if (task.kind !== "book-build" || task.status !== "done" || !task.output) continue;
+        if (this._bookLibraryOutputs.has(task.id)) continue;
+        const raw = String(task.output).replace(/\\/g, "/");
+        const absolute = /^[a-zA-Z]:\//.test(raw) || raw.startsWith("//");
+        // Already inside the app library: just remember its vault-relative path.
+        if (!absolute || (root && raw.toLowerCase().startsWith(`${root.toLowerCase()}/`))) {
+          this._bookLibraryOutputs.set(task.id, absolute && root ? raw.slice(root.length + 1) : raw);
+          continue;
+        }
+        // Output landed outside the library: import it once, then open the copy.
+        this._bookLibraryOutputs.set(task.id, null);
+        void Promise.resolve(plugin.importBookToLibrary(task.output))
+          .then((path) => {
+            if (path) this._bookLibraryOutputs.set(task.id, path);
+          })
+          .catch(() => {});
+      }
+    }
+
     // 任务状态由主进程推送:徽标、任务面板与底部任务条一起刷新。
     renderTasks(state) {
       const tasks = Array.isArray(state?.tasks) ? state.tasks : [];
       this._lastState = state;
+      this.adoptBookBuildOutputs(tasks);
       this.captureAiSuggestions(tasks);
       const running = tasks.filter((task) => task.status === "running");
       const queued = tasks.filter((task) => task.status === "queued");
@@ -2988,12 +3016,18 @@ export function createWorkshopView(leaf, options) {
         retry.addEventListener("click", () => { void bridge?.retry?.(task.id).catch(() => {}); });
       }
       if (task.status === "done" && /[\\/]/.test(String(task.output || ""))) {
+        const libraryOutput = this._bookLibraryOutputs?.get(task.id) || "";
+        const target = libraryOutput || String(task.output || "");
         const open = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "打开产物" });
-        open.addEventListener("click", () => { void window.qbrDesktop?.openPath?.(task.output); });
+        open.addEventListener("click", () => {
+          const isBook = /\.(epub|pdf|fb2|fbz|mobi|azw|azw3|cbz)$/i.test(target);
+          if (isBook && window.qbrDesktop?.openBookPath) void window.qbrDesktop.openBookPath(target);
+          else void window.qbrDesktop?.openPath?.(target);
+        });
         const reveal = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "在文件夹中显示" });
-        reveal.addEventListener("click", () => { void window.qbrDesktop?.showItemInFolder?.(task.output); });
-      }
-      if (task.error) row.createDiv({ cls: "qbr-workshop-task-error", text: task.error });
+        reveal.addEventListener("click", () => { void window.qbrDesktop?.showItemInFolder?.(target); });
+        row.createDiv({ cls: "qbr-workshop-task-output", text: target });
+      } else if (task.error) row.createDiv({ cls: "qbr-workshop-task-error", text: task.error });
       else if (task.output) row.createDiv({ cls: "qbr-workshop-task-output", text: task.output });
     }
   }

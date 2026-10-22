@@ -15,6 +15,7 @@ window.qbrDesktop = {
   },
   getLaunchFile: () => ipcRenderer.invoke("qbr:launch-file"),
   openBookDialog: () => ipcRenderer.invoke("qbr:open-book-dialog"),
+  openBookPath: (target) => ipcRenderer.invoke("qbr:open-book-path", target),
   openPath: (target) => ipcRenderer.invoke("qbr:open-path", target),
   reportBoot: (payload) => ipcRenderer.invoke("qbr:boot", payload),
   onOpenBook: (callback) => {

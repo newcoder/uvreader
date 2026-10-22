@@ -585,6 +585,12 @@ ipcMain.handle("qbr:ai:test", (_event, config) => aiRuntime.test(config || {}));
 ipcMain.handle("qbr:ai:probe", (_event, payload) => aiRuntime.probe(payload || {}));
 ipcMain.handle("qbr:ai:pick-files", () => pickAiAttachments());
 ipcMain.handle("qbr:ai:read-file", (_event, target) => readAiAttachment(target));
+ipcMain.handle("qbr:open-book-path", (_event, target) => {
+  const filePath = String(target || "");
+  if (!filePath) return false;
+  sendOpen(filePath);
+  return true;
+});
 ipcMain.handle("qbr:ai:capture-region", (_event, rect) => captureRegion(rect));
 ipcMain.on("qbr:secret-sync", (event, id) => {
   const store = readSecrets();
