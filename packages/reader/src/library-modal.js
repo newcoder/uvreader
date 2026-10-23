@@ -43,7 +43,7 @@ export function createLibraryModal({
       cls: "qiaomu-reader-lib-navbtn",
       attr: { type: "button", "aria-label": qiaomuReaderTranslate("expand-nav") },
     });
-    svgIcon(navBtn, "navigator");
+    svgIcon(navBtn, "chevron-right");
     const { input } = this._buildLibSearch(toolbar);
     const viewLabel = toolbar.createDiv("qiaomu-reader-lib-viewlabel");
     const backdrop = main.createDiv("qiaomu-reader-lib-side-backdrop");

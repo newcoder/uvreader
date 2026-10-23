@@ -843,6 +843,11 @@ test("AI setup uses one status-driven flow and enables only after a successful t
   assert.match(settingsTabSource, /s\.aiNeedsVerification = true/);
 });
 
+test("library navigation uses matching collapse and expand arrows", () => {
+  assert.match(librarySource, /svgIcon\(navBtn, "chevron-right"\)/);
+  assert.match(librarySource, /svgIcon\(collapse, "chevron-left"\)/);
+});
+
 test("confirming AI settings automatically prepares, tests, and enables the selected provider", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   // The settings group modal lives in its own module; the readiness helpers
