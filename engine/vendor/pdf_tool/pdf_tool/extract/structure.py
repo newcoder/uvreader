@@ -38,6 +38,14 @@ _HEADING_LIKE_RE = re.compile(
     r"^(?:第\s*[一二三四五六七八九十百零〇\d]+\s*[章篇部节]|"
     r"\d+(?:\.\d+)*[.、\s]|[一二三四五六七八九十]+、)")
 
+# 页首「新块」标记：题号 / 选项 / Markdown 标题 / 页标记——不能当上一页的续行
+# （reader 2026-10-21：CSP2020 q5 以 `5）` 开头却被标 continuation）
+_NEW_BLOCK_START_RE = re.compile(
+    r"^\s*(?:\d{1,3}\s*[.、．)）]\s*\S|"
+    r"[A-H]\s*[.、．)）]\s*\S|"
+    r"#{1,6}\s|"
+    r"<!--\s*page[:：])")
+
 # 正文块类型（判断页边界时忽略页眉/页脚/页码等家具）
 _BODY_TYPES = ("text", "heading", "code", "table", "image", "equation", "page_footnote")
 
@@ -257,6 +265,11 @@ def _fragment_ok(text: str) -> bool:
         return False
     # 短且未收句 → 更像标题（译者序/目录/前言…）；其余视为被截断的正文
     return not (len(t) < _SHORT and t[-1] not in _TERMINAL)
+
+
+def _starts_new_block(text) -> bool:
+    """页首是否题号/选项/标题/页标记开头——这些是明确的新块，不能接上一页。"""
+    return bool(_NEW_BLOCK_START_RE.match(str(text or "").strip()))
 
 
 # ---------------- 目录层级：几何（缩进/位置）优先 ----------------
@@ -496,10 +509,13 @@ def annotate_doc(doc: dict, *, line_provider=None, printed_pages: dict | None = 
         body = [b for b in (pg.get("blocks") or []) if b.get("type") in _BODY_TYPES
                 and (b.get("type") != "text" or str(b.get("text") or "").strip())]
         cur = body[0] if body else None
+        if cur is not None and _starts_new_block(cur.get("text")):
+            cur.pop("continuation", None)  # 重复 annotate 时清掉旧标记
         if (cur is not None and prev_last is not None
                 and pg.get("page") == (prev_page or 0) + 1
                 and prev_last.get("type") == "text"
-                and _is_open_ended(prev_last.get("text"))):
+                and _is_open_ended(prev_last.get("text"))
+                and not _starts_new_block(cur.get("text"))):
             if cur.get("type") == "text" and _fragment_ok(cur.get("text")):
                 cur["continuation"] = True
                 stats["continuations"] += 1

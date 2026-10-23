@@ -92,10 +92,20 @@ if (pdfToolDir) {
   // 注意嵌套一层:pdf_to_doc.py 里 `from pdf_tool.convert.cli import main`,要求
   // <bundle>/pdf-tool 在 sys.path 上、包目录叫 pdf_tool/。
   copyTree(packageDir, path.join(stage, "pdf-tool", "pdf_tool"), { skip: (value) => /__pycache__|\.pyc$/.test(value) });
+  // The vendored snapshot carries its own SOURCE.txt; prefer that commit over
+  // asking git, because the vendor directory lives inside this repository and
+  // would otherwise report the reader's HEAD instead of pdf_tool's snapshot.
   let commit = "";
-  try {
-    commit = run("git", ["-C", packageDir, "rev-parse", "HEAD"]);
-  } catch { /* 不是 git 目录就算了 */ }
+  const sourceManifest = path.join(source, "SOURCE.txt");
+  if (fs.existsSync(sourceManifest)) {
+    const match = /^commit:\s*([0-9a-f]{7,40})\s*$/im.exec(fs.readFileSync(sourceManifest, "utf8"));
+    if (match) commit = match[1];
+  }
+  if (!commit) {
+    try {
+      commit = run("git", ["-C", packageDir, "rev-parse", "HEAD"]);
+    } catch { /* 不是 git 目录就算了 */ }
+  }
   fs.writeFileSync(path.join(stage, "pdf-tool", "SOURCE.txt"), `来源: ${packageDir}\ncommit: ${commit}\n`, "utf8");
   console.log(`· 带上 pdf_tool(${commit.slice(0, 8) || "无 commit"})`);
 }

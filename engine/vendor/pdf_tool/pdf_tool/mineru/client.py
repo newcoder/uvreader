@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import difflib
 import html
 import io
 import itertools
@@ -987,28 +988,255 @@ def _continuity_ok(prev: dict, nxt: dict) -> bool:
     return b == a + 1
 
 
+_FURNITURE_IMAGE_TYPES = ("header", "footer", "page_number", "aside_text")
+
+
+def _bbox_1000(bbox) -> list[float] | None:
+    """bbox → 0-1000 归一化（兼容 MinerU middle/model_output 的 0-1 写法）。"""
+    if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+        return None
+    try:
+        vals = [float(v) for v in bbox]
+    except (TypeError, ValueError):
+        return None
+    if max(vals) <= 1.5:
+        vals = [v * 1000 for v in vals]
+    return vals
+
+
+def _bbox_close(a, b, tol: float = 6.0) -> bool:
+    return all(abs(float(x) - float(y)) <= tol for x, y in zip(a, b, strict=True))
+
+
+_FIGURE_LABEL_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]?$")
+
+
+def _bbox_intersects(a, b) -> bool:
+    return (min(a[2], b[2]) > max(a[0], b[0])
+            and min(a[3], b[3]) > max(a[1], b[1]))
+
+
+def _word_in_bbox(word: dict, bbox) -> bool:
+    cx = (float(word["x0"]) + float(word["x1"])) / 2
+    return bbox[0] <= cx <= bbox[2] and bbox[1] <= float(word["y"]) <= bbox[3]
+
+
+def _page_word_boxes(pdf, page_no: int) -> list[dict] | None:
+    """页内词坐标（0-1000）：优先 PDF 文字层 words，扫描页退回 OCR 单标签框。
+
+    返回 None 表示既无文字层也无可用 OCR 词框（调用方记 figure_text_overlap）。
+    """
+    if pdf is None:
+        return None
+    words: list[dict] = []
+    try:
+        import fitz
+
+        doc = fitz.open(str(pdf))
+        try:
+            if not (1 <= int(page_no) <= doc.page_count):
+                return None
+            page = doc[int(page_no) - 1]
+            w, h = page.rect.width, page.rect.height
+            raw = page.get_text("words")
+        finally:
+            doc.close()
+        words = [{"text": str(x[4]).strip(),
+                  "x0": float(x[0]) / w * 1000, "x1": float(x[2]) / w * 1000,
+                  "y": (float(x[1]) + float(x[3])) / 2 / h * 1000}
+                 for x in raw if str(x[4]).strip()]
+        if len(words) >= 3:
+            return words
+    except Exception as e:
+        log.warning("[mineru] 读取文字层失败（Page %s）：%s", page_no, e)
+    # 扫描页：OCR 行框只接受「单独短标签」，整行文本无法安全拆词
+    boxes = _ocr_page_boxes(pdf, page_no)
+    words = [{"text": str(b["text"]).strip(), "x0": b["x0"], "x1": b["x1"],
+              "y": b["y"]}
+             for b in boxes if _FIGURE_LABEL_RE.fullmatch(str(b["text"]).strip())]
+    return words or None
+
+
+def _in_math_span(text: str, pos: int) -> bool:
+    return text[:pos].count("$") % 2 == 1
+
+
+def _has_figure_token(text: str) -> bool:
+    """正文里是否有「可能被图内标签重复」的短字母 token（排除选项/列表标点）。"""
+    return bool(re.search(
+        r"(?<![A-Za-z0-9\u4e00-\u9fff])[A-Za-z][A-Za-z0-9]?"
+        r"(?![A-Za-z0-9\u4e00-\u9fff])(?![.．、，,；;:：)）])", str(text or "")))
+
+
+def _token_occurrences(text: str, token: str) -> list[re.Match]:
+    """token 的独立出现（不区分后面是否列表标点/选项标记）。"""
+    pattern = re.compile(
+        r"(?<![A-Za-z0-9\u4e00-\u9fff])" + re.escape(token)
+        + r"(?![A-Za-z0-9\u4e00-\u9fff])")
+    return list(pattern.finditer(text))
+
+
+def _standalone_occurrences(text: str, token: str) -> list[re.Match]:
+    """可安全删除的独立出现：跳过选项标记（A./A））、列表标点与数学片段。"""
+    out: list[re.Match] = []
+    for m in _token_occurrences(text, token):
+        nxt = text[m.end():m.end() + 1]
+        if nxt and nxt in ".．、，,；;:：)）":
+            continue
+        if _in_math_span(text, m.start()):
+            continue
+        out.append(m)
+    return out
+
+
+def _strip_figure_labels(text: str, labels, outside_labels) -> tuple[str, int, bool]:
+    """删除图内标签在正文里的**最后一次**独立出现；返回 (新文本, 删除数, 是否未解决)。
+
+    保守规则：图外（题干）也出现过的标签词，正文里必须至少出现两次才删最后一次，
+    避免把题干里唯一一次 `a` 误删；选项标记（`A.`/`A）`）与数学片段不碰。
+    """
+    out = str(text or "")
+    removed = 0
+    unresolved = False
+    for tok in sorted(set(labels)):
+        all_occ = _token_occurrences(out, tok)
+        occ = _standalone_occurrences(out, tok)
+        if not occ:
+            unresolved = True
+            continue
+        if tok in outside_labels and len(all_occ) < 2:
+            unresolved = True
+            continue
+        m = occ[-1]
+        out = out[:m.start()] + out[m.end():]
+        removed += 1
+    if removed:
+        out = re.sub(r"[ \t]{2,}", " ", out).strip()
+    return out, removed, unresolved
+
+
+def _text_similarity(a: str, b: str) -> float:
+    """归一化（去空白/标点）后的相似度，用于校验删除是否让正文更接近图外文字。"""
+    def norm(s: str) -> str:
+        return re.sub(r"[\s\W_]+", "", str(s or ""), flags=re.UNICODE)
+    return difflib.SequenceMatcher(None, norm(a), norm(b)).ratio()
+
+
 def content_list_to_blocks(items: list[dict], *, base: Path,
                            eq_images: dict[int, str] | None = None,
                            image_prefix: str = "",
-                           footnotes: bool = True) -> tuple[list[dict], dict]:
+                           footnotes: bool = True,
+                           pdf: Path | None = None) -> tuple[list[dict], dict]:
     """MinerU content_list → blocks（含 position=Page N；跳过页眉页脚等）。
 
     image_prefix：图片路径前缀（如 `mineru`），使相对路径能对上解压目录。
     footnotes：是否保留 `page_footnote` 脚注块（默认 True；False 时与页眉/页脚/页码
     一起计入 skipped_furniture）——不需要脚注的消费方（旧行为）可关闭。
+
+    页眉/页脚图片：若某 image/chart 的 bbox 与**其它页**的 header/footer/page_number/
+    aside_text 块重合，按家具丢弃（reader 2026-10-21：CSP2020 最后一页 logo 被
+    MinerU 误判成 image）。`page_footnote` 是正文脚注，不参与该判定。
     """
     eq_images = eq_images or {}
     prefix = f"{image_prefix.strip('/')}/" if image_prefix else ""
     blocks: list[dict] = []
     stats = {"items": len(items), "skipped_furniture": 0, "footnotes": 0,
              "equations": 0, "tables": 0, "images": 0, "headings": 0, "codes": 0,
-             "charts": 0}
+             "charts": 0, "images_dropped": 0, "furniture_images": [],
+             "figure_text_removed": 0, "figure_text_overlap": 0,
+             "figure_text_overlaps": []}
+    # 先收集「家具类型块」的 bbox（跨页重复页眉/页脚的位置）
+    furniture_boxes: list[tuple[int, list[float]]] = []
+    for it in items:
+        if it.get("type") in _FURNITURE_IMAGE_TYPES:
+            bbox = _bbox_1000(it.get("bbox"))
+            if bbox and bbox[2] > bbox[0] and bbox[3] > bbox[1]:
+                furniture_boxes.append((int(it.get("page_idx") or 0) + 1, bbox))
+
+    def _drop_if_furniture_image(it: dict, page: int) -> bool:
+        bbox = _bbox_1000(it.get("bbox"))
+        if not bbox or bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
+            return False
+        pages = sorted({pg for pg, fb in furniture_boxes
+                        if pg != page and _bbox_close(bbox, fb)})
+        if not pages:
+            return False
+        stats["images_dropped"] += 1
+        stats["furniture_images"].append(
+            {"page": page, "bbox": [round(v, 1) for v in bbox], "pages": pages[:6]})
+        return True
+
+    # 图内文字被并进正文（reader 2026-10-22）：用 PDF 文字层/OCR 词坐标，
+    # 删掉与 image bbox 重叠的文本块里「图内标签」的最后一次独立出现。
+    image_boxes: dict[int, list[list[float]]] = {}
+    for it in items:
+        if it.get("type") in ("image", "chart"):
+            bbox = _bbox_1000(it.get("bbox"))
+            if bbox and bbox[2] > bbox[0] and bbox[3] > bbox[1]:
+                image_boxes.setdefault(int(it.get("page_idx") or 0) + 1, []).append(bbox)
+    text_fixes: dict[int, str] = {}
+    if image_boxes:
+        page_words: dict[int, list[dict] | None] = {}
+        for idx, it in enumerate(items):
+            if it.get("type") != "text" or it.get("text_level"):
+                continue
+            page = int(it.get("page_idx") or 0) + 1
+            tb = _bbox_1000(it.get("bbox"))
+            imgs = image_boxes.get(page) or []
+            if not tb or not imgs:
+                continue
+            hit = [ib for ib in imgs if _bbox_intersects(tb, ib)]
+            if not hit:
+                continue
+            text = str(it.get("text") or "")
+            if not _has_figure_token(text):
+                continue  # 正文没有短字母 token，谈不上图内标签重复（也避免无谓 OCR）
+            if page not in page_words:
+                page_words[page] = _page_word_boxes(pdf, page)
+            words = page_words[page]
+            if not words:
+                stats["figure_text_overlap"] += 1
+                stats["figure_text_overlaps"].append({
+                    "page": page, "text_bbox": [round(v, 1) for v in tb],
+                    "image_bboxes": [[round(v, 1) for v in ib] for ib in hit],
+                    "tokens": [], "reason": "no_word_coords"})
+                continue
+            inside = [w for w in words
+                      if any(_word_in_bbox(w, ib) for ib in hit)]
+            labels = {w["text"] for w in inside
+                      if _FIGURE_LABEL_RE.fullmatch(w["text"])}
+            present = {tok for tok in labels
+                       if _standalone_occurrences(text, tok)}
+            if not present:
+                continue
+            outside_words = [w for w in words
+                             if _word_in_bbox(w, tb)
+                             and not any(_word_in_bbox(w, ib) for ib in hit)]
+            outside = {tok for tok in present
+                       if any(tok in w["text"] for w in outside_words)}
+            new_text, removed, unresolved = _strip_figure_labels(
+                text, present, outside)
+            if removed and outside_words:
+                outside_text = " ".join(w["text"] for w in outside_words)
+                if (_text_similarity(new_text, outside_text) + 0.01
+                        < _text_similarity(text, outside_text)):
+                    new_text, removed, unresolved = text, 0, True  # 删除反而更不像图外正文 → 回退
+            if removed:
+                text_fixes[idx] = new_text
+                stats["figure_text_removed"] += removed
+            if unresolved:
+                stats["figure_text_overlap"] += 1
+                stats["figure_text_overlaps"].append({
+                    "page": page, "text_bbox": [round(v, 1) for v in tb],
+                    "image_bboxes": [[round(v, 1) for v in ib] for ib in hit],
+                    "tokens": sorted(present), "reason": "unsafe_split"})
+
     for i, it in enumerate(items):
         t = it.get("type")
         page = int(it.get("page_idx") or 0) + 1
         pos = f"Page {page}"
         if t == "text":
-            raw = it.get("text") or ""
+            raw = text_fixes.get(i, it.get("text") or "")
             text = raw.strip()
             if not text:
                 continue
@@ -1060,6 +1288,8 @@ def content_list_to_blocks(items: list[dict], *, base: Path,
             src = it.get("img_path") or ""
             if not src:
                 continue
+            if _drop_if_furniture_image(it, page):  # 与其它页页眉/页脚同位置
+                continue
             stats["charts"] += 1
             caption = " ".join(it.get("chart_caption") or [])
             blocks.append({"type": "image", "position": pos,
@@ -1067,6 +1297,8 @@ def content_list_to_blocks(items: list[dict], *, base: Path,
         elif t == "image":
             src = it.get("img_path") or ""
             if not src:
+                continue
+            if _drop_if_furniture_image(it, page):
                 continue
             stats["images"] += 1
             caption = " ".join(it.get("image_caption") or [])
@@ -1360,7 +1592,7 @@ def parse_to_blocks(client, pdf: Path, out_dir: Path, *, max_pages: int = 200,
                                      image_prefix="mineru")
     blocks, stats = content_list_to_blocks(parsed["items"], base=out_dir,
                                            eq_images=eq_images, image_prefix="mineru",
-                                           footnotes=footnotes)
+                                           footnotes=footnotes, pdf=pdf)
     # 选择题缺选项：原页 OCR 补回 / 标记不完整（reader 2026-10-21；先于缝合，bbox 用完即清）
     blocks, ostats = repair_missing_options(blocks, pdf=pdf)
     stats = {**stats, **ostats}

@@ -115,6 +115,17 @@ def audit_doc(doc: dict, *, base: Path | None = None,
     if empty_pages:
         warnings.append(f"空页: {empty_pages}")
 
+    dropped_images = (doc.get("source") or {}).get("furniture_images") or []
+    if dropped_images:
+        warnings.append("页眉/页脚图片已剔除: " + ", ".join(
+            f"Page {d.get('page')} {d.get('bbox')}" for d in dropped_images))
+
+    figure_overlaps = (doc.get("source") or {}).get("figure_text_overlaps") or []
+    if figure_overlaps:
+        warnings.append("图内文字与正文重叠未处理（figure_text_overlap）: " + ", ".join(
+            f"Page {d.get('page')} text={d.get('text_bbox')}"
+            for d in figure_overlaps))
+
     stats = doc_stats(doc)
     return {"ok": not issues, "issues": issues, "warnings": warnings,
             "empty_pages": empty_pages, "dup_ids": sorted(set(dup_ids)),

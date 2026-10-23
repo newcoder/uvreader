@@ -28,6 +28,8 @@
 | testpdf2-c3 | 202503C语言三级.docx | (可选)同一份 Word 的另一路径 |
 | clean | 一个短而干净的 5 题样例 | 排除长文档/抽取噪声的对照 |
 
+扩展测试文档候选与验收项见 [quiz-test-corpus.md](quiz-test-corpus.md)。
+
 每个输入保存:
 - `source.md`(冻结)
 - `images/`(仅记录文件清单与 hash;实验页面保留原路径)

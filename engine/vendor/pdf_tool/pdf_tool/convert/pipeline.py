@@ -226,6 +226,13 @@ def convert(pdf, *, mode: str = "auto", pages=None, blocks_path=None, client=Non
     from pdf_tool.extract import furniture as furniture_mod
 
     blocks, fstats = furniture_mod.filter_blocks(blocks, furniture_mod.scan_pdf(pdf))
+    dropped_images = list(stats.get("furniture_images") or [])
+    figure_overlaps = list(stats.get("figure_text_overlaps") or [])
+    fstats = {**fstats, "images_dropped": int(stats.get("images_dropped") or 0),
+              "furniture_images": dropped_images,
+              "figure_text_removed": int(stats.get("figure_text_removed") or 0),
+              "figure_text_overlap": int(stats.get("figure_text_overlap") or 0),
+              "figure_text_overlaps": figure_overlaps}
     stats = {**stats, "furniture": fstats, "blocks": len(blocks)}
 
     import fitz
@@ -234,6 +241,10 @@ def convert(pdf, *, mode: str = "auto", pages=None, blocks_path=None, client=Non
         page_count = _d.page_count
     source = {"path": str(pdf), "stem": pdf.stem, "mode": mode,
               "pages": page_count, **dict(source_extra or {})}
+    if dropped_images:  # 供 audit 记录被丢图片的页码/bbox（reader 2026-10-21）
+        source["furniture_images"] = dropped_images
+    if figure_overlaps:  # 无法安全切分的图内文字重叠（reader 2026-10-22）
+        source["figure_text_overlaps"] = figure_overlaps
     doc = blocks_to_doc(blocks, source=source, page_count=page_count)
     if pages:
         doc = select_pages(doc, pages)
