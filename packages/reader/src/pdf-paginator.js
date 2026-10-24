@@ -230,8 +230,14 @@ export function createPdfPaginatorClass({
       img.style.width = `${w}px`;
       img.style.height = `${h}px`;
       if (frame && frame.classList.contains("qiaomu-reader-pdf-page-surface")) {
-        frame.style.width = `${w}px`;
-        frame.style.height = `${h}px`;
+        // The surface draws a 1px border and uses border-box sizing. Size its
+        // outer box, not its content box: otherwise max-width shrinks the
+        // raster by 2px while its height stays put. That sub-pixel letterbox
+        // became several pixels of vertical drift for the PDF form overlay at
+        // reading zoom, so fields and signatures sat above their printed boxes.
+        frame.style.boxSizing = "border-box";
+        frame.style.width = `${w + 2}px`;
+        frame.style.height = `${h + 2}px`;
         const pageFig = frame.closest(".qiaomu-reader-pdf-native-page");
         if (pageFig) {
           // The surface border sits outside its content box; count it in the

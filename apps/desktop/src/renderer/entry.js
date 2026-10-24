@@ -473,6 +473,10 @@ async function boot() {
     await leaf.setViewState({ type: TOC_VIEW, state: { path: readerView?.file?.path || "" } });
     syncReaderToolButtons(readerView);
   };
+  app.qbrDesktopCloseToc = (readerView) => {
+    for (const leaf of app.workspace.getLeavesOfType(TOC_VIEW)) leaf.detach();
+    syncReaderToolButtons(readerView);
+  };
 
   bridge.onOpenBook?.((filePath) => {
     void openBook(filePath);

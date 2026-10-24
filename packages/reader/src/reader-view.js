@@ -14,9 +14,10 @@ import { pinyinPinFor, renderEnginePins, togglePinyinPin } from "./pinyin-pins.j
 import { warmWordGlosses } from "./pinyin-annotate.js";
 import { columnDragActive, installColumnDragWatch, onColumnDrag } from "./column-drag.js";
 import { pageForBlock } from "./toc-build.js";
+import { createPdfFormController } from "./pdf-form.js";
 
 export function createReaderView({
-  ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, BookSetupModal, FONTS, InfoModal, ReadSettingsModal, VIEW_TYPE, addBookFileMenu, attachEngineChrome, attachReaderContentClick, attachReaderSwipeNav, bookNoteAction, buildFindPanelFor, buildReaderPageArea, buildReaderPanels, buildReaderSettPanelBody, buildReaderTopBar, buildTocItems, buildTocPanelFor, clearAiSource, clearFoundIn, createPdfPaginator, createPdfZoomControls, currentBookPage, enrichHighlights, ensureSelectedReaderFont, exportHighlightsMenu,   flowSelectionParts, handleReaderWheel, hidePinPopup, hlColorCss, loadReaderDocument, locateHl, markFoundIn, navigateEngineToc, openEngineHighlightPopup, openEnginePinPopup, pageJump, pdfVisiblePageLabel, pdfZoom, persistCurrentReaderPosition, qiaomuReaderClearPaintedSelection, qiaomuReaderLocale, qiaomuReaderRevealWhenSettled, qiaomuReaderTheme, qiaomuReaderTranslate, raiseSelectionPopup, readerAiPanelContext, readerHud, readerIsPdf, readerPaginationMappingCollapsed, readerPdfPages, readerTimer, rememberReaderJump, renderHighlightPanel, renderReaderLoadError, backfillPdfTextLayers, refreshReaderPdfTextLayer, renderVisibleFigures, resolveHighlightAnchor, restoreAiSource, restoreEngineHistory, selectionHud, setReaderTitle, setReadingFocus, settleReader, syncNavigationPanel, syncOpenAiReaderContext, syncOpenAiSelectionContext, syncReaderAiCapability,   unwrapAllHighlights, unwrapAllPins, updateEngineLocation, wireReaderChrome, wrapBlockRange,
+  ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, BookSetupModal, FONTS, InfoModal, ReadSettingsModal, SignaturePickerModal, VIEW_TYPE, addBookFileMenu, attachEngineChrome, attachReaderContentClick, attachReaderSwipeNav, bookNoteAction, buildFindPanelFor, buildReaderPageArea, buildReaderPanels, buildReaderSettPanelBody, buildReaderTopBar, buildTocItems, buildTocPanelFor, clearAiSource, clearFoundIn, createPdfPaginator, createPdfZoomControls, currentBookPage, enrichHighlights, ensureSelectedReaderFont, exportHighlightsMenu,   flowSelectionParts, handleReaderWheel, hidePinPopup, hlColorCss, loadReaderDocument, locateHl, markFoundIn, navigateEngineToc, openEngineHighlightPopup, openEnginePinPopup, pageJump, pdfVisiblePageLabel, pdfZoom, persistCurrentReaderPosition, qiaomuReaderClearPaintedSelection, qiaomuReaderLocale, qiaomuReaderRevealWhenSettled, qiaomuReaderTheme, qiaomuReaderTranslate, raiseSelectionPopup, readerAiPanelContext, readerHud, readerIsPdf, readerPaginationMappingCollapsed, readerPdfPages, readerTimer, rememberReaderJump, renderHighlightPanel, renderReaderLoadError, backfillPdfTextLayers, refreshReaderPdfTextLayer, renderVisibleFigures, resolveHighlightAnchor, restoreAiSource, restoreEngineHistory, selectionHud, setReaderTitle, setReadingFocus, settleReader, syncNavigationPanel, syncOpenAiReaderContext, syncOpenAiSelectionContext, syncReaderAiCapability,   unwrapAllHighlights, unwrapAllPins, updateEngineLocation, wireReaderChrome, wrapBlockRange, pdfFormBridge = null,
 }) {
   return class ReaderView extends ItemView {
   constructor(leaf, plugin) {
@@ -24,11 +25,15 @@ export function createReaderView({
     this.file = null;
     this.ext = null;
     this.plugin = plugin;
+    this.pdfFormBridge = pdfFormBridge;
     this.pdfZoom = PDF_ZOOM_DEFAULT;
     this.pager = createPdfPaginator(this);
     this._loadCoordinator = createReaderLoadCoordinator();
     this.bookHtml = "";
     this.pdfDocumentContext = null;
+    this._pdfHasForm = false;
+    this._pdfFormKnown = false;
+    this._pdfFormReady = null;
     this.tocItems = [];
     this.panelOpen = null;
     this._resizeTimer = null;
@@ -168,6 +173,11 @@ export function createReaderView({
   }
   _resetBookState(file) {
     this.file = file; this.ext = file.extension;
+    this._pdfHasForm = false;
+    this._pdfFormKnown = false;
+    this._pdfFormReady = null;
+    this._pdfForm?.setFile(file);
+    this._syncPdfFormControls();
     this.locEl?.setText(""); this.pctEl?.setText("0%");
     if (this.pbarFill) this.pbarFill.style.removeProperty("width");
     this._findCorpus = null; this._clearFound();
@@ -278,6 +288,48 @@ export function createReaderView({
     // Text, scan verdict and the AI context keep filling in after the first
     // frame; `_maybeGenerateTextLayer` waits for this before starting OCR.
     this._pdfTextReady = result.whenTextReady || null;
+    this._pdfHasForm = false;
+    this._pdfFormKnown = false;
+    this._pdfForm?.setFile(this.file);
+    this._syncPdfFormControls();
+    const file = this.file;
+    const formReady = result.whenFormReady;
+    this._pdfFormReady = formReady && typeof formReady.then === "function" ? formReady : null;
+    if (!this._pdfFormReady) {
+      this._pdfFormKnown = true;
+      return;
+    }
+    void this._pdfFormReady.then((hasForm) => {
+      if (!this.file || this.file.path !== file.path) return;
+      this._pdfHasForm = Boolean(hasForm);
+      this._pdfFormKnown = true;
+      if (this._pdfHasForm) this._closeReadingChromeForForm();
+      this._syncPdfFormControls();
+    }).catch(() => {
+      if (this.file?.path === file.path) this._pdfFormKnown = true;
+    });
+  }
+  // A fillable form is a task view: no companion, outline or reading panel
+  // should compete with the page. They remain available from their buttons.
+  _closeReadingChromeForForm() {
+    this.closePanel();
+    try { this.hlDockPanel?.close?.(); } catch { /* optional dock */ }
+    try { this.plugin?.closeReadingCompanion?.(); } catch { /* optional host */ }
+    try { this.plugin?.app?.qbrDesktopCloseToc?.(this); } catch { /* optional host */ }
+  }
+  _syncPdfFormControls() {
+    const pdf = this.file?.extension === "pdf";
+    // Ordinary PDFs have no fillable AcroForm fields; keep the whole form
+    // action group out of the toolbar instead of showing a dead fill button.
+    // A signed save locks the current session until the file is reopened.
+    const form = this._pdfForm;
+    const available = Boolean(pdf && this.pdfFormBridge && this._pdfHasForm && !form?.isLocked);
+    if (this.pdfFormFillBtn) {
+      this.pdfFormFillBtn.hidden = !available;
+      this.pdfFormFillBtn.setAttribute("aria-pressed", String(Boolean(form?.isActive)));
+    }
+    if (this.pdfFormSignBtn) this.pdfFormSignBtn.hidden = !(available && form?.isActive);
+    if (this.pdfFormSaveBtn) this.pdfFormSaveBtn.hidden = !(available && form?.isActive);
   }
   // ── scanned-PDF text layer ────────────────────────────────────────────────
   // The scan opens for reading immediately; its text layer is generated page by
@@ -842,6 +894,13 @@ export function createReaderView({
       if (icon) svgIcon(btn, icon);
       if (spec.lucide) setIcon(btn, spec.lucide);
       if (label) btn.setAttribute("aria-label", qiaomuReaderTranslate(label));
+      if (spec.text) {
+        btn.createSpan({
+          cls: "qiaomu-reader-ibtn-text",
+          text: qiaomuReaderTranslate(spec.text),
+          attr: { "aria-hidden": "true" },
+        });
+      }
       if (spec.hidden) btn.hidden = true;
       if (onClick) btn.addEventListener("click", onClick);
       return btn;
@@ -901,8 +960,36 @@ export function createReaderView({
       if (this.panelOpen === "find" && this._findInput) readerHud.autoFocus(this._findInput, 60);
     });
     this.findBtn = findBtn;
+    this.pdfFormFillBtn = trayButton("pdf-form-fill", "fill-pdf-form", () => { void this._pdfForm?.toggle(); }, {
+      hidden: true,
+      cls: "qiaomu-reader-ibtn qiaomu-reader-pdf-form-toggle",
+      text: "pdf-form-fill-short",
+      attr: { type: "button", "aria-pressed": "false" },
+    });
+    this.pdfFormSignBtn = trayButton("pdf-form-sign", "add-pdf-signature", () => { void this._pdfForm?.pickSignature(); }, {
+      hidden: true,
+      cls: "qiaomu-reader-ibtn qiaomu-reader-pdf-add-signature",
+      text: "pdf-form-sign-short",
+    });
+    this.pdfFormSaveBtn = trayButton("pdf-form-save", "save-signed-copy", () => { void this._pdfForm?.save(); }, {
+      hidden: true,
+      cls: "qiaomu-reader-ibtn qiaomu-reader-pdf-save-signed",
+      text: "pdf-form-save-short",
+    });
     createPdfZoomControls(tray, this);
     buildReaderPageArea(this, root, "qiaomu-reader-area");
+    this._pdfForm = createPdfFormController({
+      view: this,
+      bridge: this.pdfFormBridge,
+      translate: qiaomuReaderTranslate,
+      notify: (message) => new Notice(String(message || "")),
+      onChange: () => this._syncPdfFormControls(),
+      openSignaturePicker: (options) => {
+        if (!SignaturePickerModal) return false;
+        new SignaturePickerModal(this.app, options).open();
+        return true;
+      },
+    });
     buildReaderPanels(this, root, {
       dismiss: () => this.closePanel(),
       buildPanelContents: () => {
@@ -1504,6 +1591,8 @@ export function createReaderView({
     clearFoundIn(this);
     this._pdfLazy?.destroy?.();
     this._pdfLazy = null;
+    this._pdfForm?.destroy?.();
+    this._pdfForm = null;
   }
 };
 }

@@ -71,6 +71,9 @@ export function createReaderChrome({
       const target = event.target;
       const img = target && typeof target.closest === "function" ? target.closest("img") : null;
       if (!img || !(img.currentSrc || img.src) || img.closest("a")) return;
+      // Signature stamps are drag handles, not document figures: clicking one
+      // must not open the reader's image lightbox.
+      if (img.closest(".qiaomu-reader-pdf-signature, [data-pdf-signature-layer]")) return;
       const rect = img.getBoundingClientRect?.() || { width: 0, height: 0 };
       if (rect.width < 72 && rect.height < 72) return;
       event.preventDefault();
@@ -347,6 +350,9 @@ export function createReaderChrome({
       }
       const img = el ? el.closest("img") : null;
       if (img && img.src) {
+        // Signature stamps are movable overlays, not book figures. Let the
+        // form controller handle their pointer gestures without a lightbox.
+        if (img.closest(".qiaomu-reader-pdf-signature, [data-pdf-signature-layer]")) return;
         ev.preventDefault();
         openBookImage(view, img, docOf(view.areaEl));
         return;

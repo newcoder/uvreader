@@ -89,6 +89,10 @@ window.qbrDesktop = {
       });
     },
   },
+  pdfForm: {
+    inspect: (payload) => ipcRenderer.invoke("qbr:pdf-form:inspect", payload),
+    save: (payload) => ipcRenderer.invoke("qbr:pdf-form:save", payload),
+  },
   mineru: {
     status: (settings) => ipcRenderer.invoke("qbr:mineru:status", settings),
     ensure: (settings) => ipcRenderer.invoke("qbr:mineru:ensure", settings),

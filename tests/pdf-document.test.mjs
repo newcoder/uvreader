@@ -1,11 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createPdfDocument } from "../packages/reader/src/pdf-document.js";
+import { createPdfDocument, pdfFieldObjectsHaveFillableForm } from "../packages/reader/src/pdf-document.js";
 
 function makeReader(win = globalThis) {
   return createPdfDocument({ setupWorker: async () => {}, win });
 }
+
+test("pdfFieldObjectsHaveFillableForm accepts editable text and checkboxes only", () => {
+  assert.equal(pdfFieldObjectsHaveFillableForm(null), false);
+  assert.equal(pdfFieldObjectsHaveFillableForm({}), false);
+  assert.equal(pdfFieldObjectsHaveFillableForm({ a: [{ type: "text", editable: true }] }), true);
+  assert.equal(pdfFieldObjectsHaveFillableForm({ allFields: { a: [{ type: "checkbox", editable: true }] } }), true);
+  assert.equal(pdfFieldObjectsHaveFillableForm({ a: [{ type: "text", editable: false }] }), false);
+  assert.equal(pdfFieldObjectsHaveFillableForm({ a: [{ type: "text", hidden: true }] }), false);
+  assert.equal(pdfFieldObjectsHaveFillableForm({ a: [{ type: "radiobutton" }] }), false);
+  assert.equal(pdfFieldObjectsHaveFillableForm({ a: [{ type: "signature" }] }), false);
+});
 
 test("pdfPageCharCount ignores whitespace and pdfPageSize normalizes the view box", () => {
   const reader = makeReader();

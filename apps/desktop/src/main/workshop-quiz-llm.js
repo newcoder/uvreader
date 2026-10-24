@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
+import { splitInlineAnswerMarkers } from "../shared/markdown-fix.js";
 import { normalizeAiConfig } from "./workshop-ai.js";
 import { buildQuizLlmPrompt, extractQuizLlmHtml, postprocessQuizLlmHtml } from "./quiz-llm-page.js";
 
@@ -52,7 +53,7 @@ export function registerQuizLlmRunner(workshop, {
     if (signal?.aborted) throw new Error("已取消");
     if (!extracted?.ok) throw new Error(String(extracted?.error || "提取失败"));
 
-    const prompt = buildQuizLlmPrompt(extracted.markdown);
+    const prompt = buildQuizLlmPrompt(splitInlineAnswerMarkers(extracted.markdown));
     const requestId = `quiz-llm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const onAbort = () => aiRuntime.abort(requestId);
     signal?.addEventListener?.("abort", onAbort, { once: true });

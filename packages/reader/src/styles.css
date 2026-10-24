@@ -32,6 +32,44 @@
 .qiaomu-reader-pdf-page-img, .qiaomu-reader-content img, .qiaomu-reader-flow img { cursor:zoom-in; }
 img.qiaomu-reader-pdf-lazy:not([data-loaded="1"]) { background:color-mix(in srgb,var(--qiaomu-reader-text,#808080) 7%,transparent); cursor:default; }
 .qiaomu-reader-pdf-text-layer.qiaomu-reader-pdf-text-placeholder { display:none; }
+/* In-reader PDF form filling and image signatures. */
+.qiaomu-reader-pdf-form-layer,.qiaomu-reader-pdf-signature-layer{position:absolute;inset:0;pointer-events:none;z-index:4;color-scheme:light}
+.qiaomu-reader-pdf-page-surface.qiaomu-reader-pdf-form-page{overflow:visible}
+.qiaomu-reader-pdf-form-input{position:absolute;box-sizing:border-box;min-width:1px;min-height:1px;padding:0 2px;border:1px solid #8fb3e8;border-radius:0;background:#c6d9f1;color:#111827;font:12px/1.2 "Noto Sans SC","Microsoft YaHei",sans-serif;outline:none;pointer-events:auto}
+.qiaomu-reader-pdf-form-input:hover{border-color:#5d8fd6;background:#d5e4f8}
+.qiaomu-reader-pdf-form-input:focus{border-color:#3f78ca;background:#dbe9fb;box-shadow:0 0 0 2px rgba(63,120,202,.2)}
+.qiaomu-reader-pdf-comb-field{position:absolute;display:flex;box-sizing:border-box;min-width:1px;min-height:1px;border:1px solid #8fb3e8;border-radius:0;background:#c6d9f1;overflow:hidden;pointer-events:auto}
+.qiaomu-reader-pdf-comb-cell{flex:1 1 0;min-width:0;height:100%;box-sizing:border-box;border:0;border-right:1px solid #8fb3e8;border-radius:0;background:transparent;color:#111827;text-align:center;padding:0;outline:none;pointer-events:auto}
+.qiaomu-reader-pdf-comb-cell:last-child{border-right:0}
+.qiaomu-reader-pdf-comb-cell:focus{background:#dbe9fb;box-shadow:inset 0 0 0 1px #3f78ca}
+.qiaomu-reader-pdf-form-checkbox{appearance:none;box-sizing:border-box;width:100%;height:100%;min-width:0;min-height:0;margin:0;padding:0;border:1px solid #6f9bd5;border-radius:0;background:#c6d9f1;vertical-align:top;transform:none}
+.qiaomu-reader-pdf-form-checkbox:checked{border-color:#3f78ca;background:#c6d9f1 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23111827' d='M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z'/%3E%3C/svg%3E") center/90% no-repeat}
+.qiaomu-reader-pdf-form-readonly{opacity:.65}
+.qiaomu-reader-pdf-signature{position:absolute;box-sizing:border-box;border:1px dashed transparent;pointer-events:auto;touch-action:none;user-select:none;cursor:grab}
+.qiaomu-reader-pdf-signature:active{cursor:grabbing}
+.qiaomu-reader-pdf-signature:hover,.qiaomu-reader-pdf-signature:focus-within{border-color:var(--qiaomu-reader-accent,#4f7cff)}
+.qiaomu-reader-pdf-signature .qiaomu-reader-pdf-signature-img{display:block;width:100%;height:100%;object-fit:contain;pointer-events:auto;cursor:grab}
+.qiaomu-reader-pdf-signature .qiaomu-reader-pdf-signature-img:active{cursor:grabbing}
+.qiaomu-reader-pdf-signature-remove{position:absolute;top:-10px;right:-10px;width:20px;height:20px;padding:0;border:1px solid var(--qiaomu-reader-accent,#4f7cff);border-radius:50%;background:#fff;color:#1f2937;font:16px/18px sans-serif;cursor:pointer;opacity:0;pointer-events:none}
+.qiaomu-reader-pdf-signature:hover .qiaomu-reader-pdf-signature-remove,.qiaomu-reader-pdf-signature:focus-within .qiaomu-reader-pdf-signature-remove{opacity:1;pointer-events:auto}
+.qiaomu-reader-pdf-signature-resize{position:absolute;right:-5px;bottom:-5px;width:10px;height:10px;border:1px solid var(--qiaomu-reader-accent,#4f7cff);background:#fff;cursor:nwse-resize;pointer-events:auto}
+.qiaomu-reader-pdf-form-signing .qiaomu-reader-pdf-page-surface{cursor:crosshair}
+.qiaomu-reader-pdf-form-signing .qiaomu-reader-pdf-form-input{cursor:crosshair}
+.qiaomu-reader-signature-modal { width:min(600px, calc(100vw - 32px)); }
+.qiaomu-reader-signature-title { margin:0 0 12px; font-size:18px; }
+.qiaomu-reader-signature-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; max-height:min(52vh,420px); overflow-y:auto; padding:2px; }
+.qiaomu-reader-signature-item { position:relative; min-width:0; }
+.qiaomu-reader-signature-choice { width:100%; height:112px; padding:8px; border:1px solid var(--background-modifier-border); border-radius:10px; background:repeating-conic-gradient(#f6f7f9 0% 25%,#fff 0% 50%) 0 0/18px 18px; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+.qiaomu-reader-signature-choice:hover,.qiaomu-reader-signature-choice:focus-visible { border-color:var(--qiaomu-reader-accent,#4f7cff); box-shadow:0 0 0 2px color-mix(in srgb,var(--qiaomu-reader-accent,#4f7cff) 18%,transparent); }
+.qiaomu-reader-signature-choice img { max-width:100%; max-height:94px; object-fit:contain; cursor:pointer; }
+.qiaomu-reader-signature-delete { position:absolute; top:5px; right:5px; width:22px; height:22px; padding:0; border:1px solid var(--background-modifier-border); border-radius:50%; background:var(--background-primary); color:var(--text-muted); font:16px/20px sans-serif; cursor:pointer; opacity:0; pointer-events:none; }
+.qiaomu-reader-signature-item:hover .qiaomu-reader-signature-delete,.qiaomu-reader-signature-item:focus-within .qiaomu-reader-signature-delete { opacity:1; pointer-events:auto; }
+.qiaomu-reader-signature-delete:hover { color:#b42318; border-color:#b42318; }
+.qiaomu-reader-signature-empty { padding:26px 12px; border:1px dashed var(--background-modifier-border); border-radius:10px; color:var(--text-muted); text-align:center; }
+.qiaomu-reader-signature-import { width:100%; margin-top:14px; }
+@media (max-width:520px) {
+  .qiaomu-reader-signature-list { grid-template-columns:1fr; }
+}
 .qiaomu-reader-pdf-page-surface.qiaomu-reader-pdf-rendering::after { content:""; position:absolute; inset:0; z-index:3; pointer-events:none; background:linear-gradient(100deg,rgba(255,255,255,0) 30%,rgba(255,255,255,.72) 48%,rgba(255,255,255,0) 66%),color-mix(in srgb,var(--qiaomu-reader-text,#808080) 9%,#fff); background-size:220% 100%; animation:qiaomu-reader-pdf-page-loading 1.05s ease-in-out infinite; }
 @keyframes qiaomu-reader-pdf-page-loading { from { background-position:100% 0; } to { background-position:-100% 0; } }
 @media (prefers-reduced-motion:reduce) { .qiaomu-reader-pdf-page-surface.qiaomu-reader-pdf-rendering::after { animation:none; } }
@@ -70,6 +108,9 @@ img.qiaomu-reader-pdf-lazy:not([data-loaded="1"]) { background:color-mix(in srgb
 .qiaomu-reader-top-find:focus { outline:2px solid color-mix(in srgb,var(--qiaomu-reader-accent,#4f7cff) 55%,transparent); outline-offset:1px; border-color:transparent; }
 @media (max-width: 700px) { .qiaomu-reader-top-find { display:none; } }
 .qiaomu-reader-ibtn { width:36px; height:36px; padding:0; display:flex; align-items:center; justify-content:center; box-sizing:border-box; border:1px solid var(--background-modifier-border); box-shadow:none; background:color-mix(in srgb,var(--text-normal) 4%,transparent); border-radius:10px; cursor:pointer; color:var(--text-muted); opacity:.82; transition:opacity .15s,background .13s,border-color .13s,transform .1s; flex-shrink:0; }
+/* The tray buttons set display:flex, which would otherwise beat the user
+   agent's [hidden] rule and leave unavailable actions visible. */
+.qiaomu-reader-ibtn[hidden] { display:none !important; }
 .qiaomu-reader-ibtn:hover { opacity:1; background:var(--background-modifier-hover); border-color:color-mix(in srgb,var(--text-muted) 35%,var(--background-modifier-border)); }
 .qiaomu-reader-ibtn:active { transform:scale(.87); }
 .qiaomu-reader-ibtn svg { width:18px; height:18px; }
@@ -115,6 +156,18 @@ img.qiaomu-reader-pdf-lazy:not([data-loaded="1"]) { background:color-mix(in srgb
 .qiaomu-reader-top, .qiaomu-reader-bot { background:#fff; border-color:#e8e8e8; color:#333; }
 .qiaomu-reader-top .qiaomu-reader-ibtn, .qiaomu-reader-bot .qiaomu-reader-ibtn, .qiaomu-reader-bot .qiaomu-reader-navbtn { width:32px; height:32px; border-color:transparent; border-radius:6px; background:transparent; color:#666; opacity:1; }
 .qiaomu-reader-top .qiaomu-reader-ibtn:hover, .qiaomu-reader-bot .qiaomu-reader-ibtn:hover, .qiaomu-reader-bot .qiaomu-reader-navbtn:hover, .qiaomu-reader-bot .qiaomu-reader-loc:hover { background:color-mix(in srgb,#333 8%,transparent); color:#333; }
+.qiaomu-reader-ibtn-text { font:500 11.5px/1 "Noto Sans SC","Microsoft YaHei",sans-serif; white-space:nowrap; }
+.qiaomu-reader-top .qiaomu-reader-ibtn.qiaomu-reader-pdf-form-toggle,
+.qiaomu-reader-top .qiaomu-reader-ibtn.qiaomu-reader-pdf-add-signature,
+.qiaomu-reader-top .qiaomu-reader-ibtn.qiaomu-reader-pdf-save-signed { width:auto; min-width:0; padding:0 9px; gap:5px; }
+@media (max-width:820px) {
+  .qiaomu-reader-top .qiaomu-reader-ibtn.qiaomu-reader-pdf-form-toggle,
+  .qiaomu-reader-top .qiaomu-reader-ibtn.qiaomu-reader-pdf-add-signature,
+  .qiaomu-reader-top .qiaomu-reader-ibtn.qiaomu-reader-pdf-save-signed { width:32px; padding:0; gap:0; }
+  .qiaomu-reader-pdf-form-toggle .qiaomu-reader-ibtn-text,
+  .qiaomu-reader-pdf-add-signature .qiaomu-reader-ibtn-text,
+  .qiaomu-reader-pdf-save-signed .qiaomu-reader-ibtn-text { display:none; }
+}
 /* Toolbar toggles (AI companion, TOC, highlights) stay pressed while their
    panel or sidebar is open — on hover too, so the state never flickers. */
 .qiaomu-reader-ibtn[aria-expanded="true"], .qiaomu-reader-ibtn-on { opacity:1; color:var(--qiaomu-reader-accent); background:color-mix(in srgb,var(--qiaomu-reader-accent) 15%,transparent); border-color:color-mix(in srgb,var(--qiaomu-reader-accent) 45%,var(--background-modifier-border)); box-shadow:inset 0 1px 2px rgb(0 0 0 / 18%); }

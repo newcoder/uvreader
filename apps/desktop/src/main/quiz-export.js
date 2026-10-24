@@ -5,7 +5,7 @@ import path from "node:path";
 
 import temml from "temml";
 import { buildSolveMessages, buildStructureMessages, normalizeSolve, parseJudgeJson, parseStructureStarts } from "../../../../packages/reader/src/quiz-judge.js";
-import { fenceProseCode, joinSplitCodeFences, stripCodeLineNumbers } from "../shared/markdown-fix.js";
+import { fenceProseCode, joinSplitCodeFences, splitInlineAnswerMarkers, stripCodeLineNumbers } from "../shared/markdown-fix.js";
 
 export async function buildQuizPaper({
   markdown = "",
@@ -20,7 +20,9 @@ export async function buildQuizPaper({
   signal = null,
   codeFormatter = null,
 } = {}) {
-  const md = stripCodeLineNumbers(joinSplitCodeFences(fenceProseCode(String(markdown || "").replace(/\r\n?/g, "\n"))));
+  const md = splitInlineAnswerMarkers(
+    stripCodeLineNumbers(joinSplitCodeFences(fenceProseCode(String(markdown || "").replace(/\r\n?/g, "\n")))),
+  );
   const lines = splitInlineQuestions(splitPageMarkers(absorbOrphanCode(md.split("\n"))));
 
 function escapeHtml(value) {
@@ -368,18 +370,18 @@ function flushParagraph() {
 // 返回 null 表示这一行不是答案/解析;否则 answer/analysis 至少一个非空。
 function sourceMeta(text) {
   const value = String(text || "").trim();
-  const answer = /^[【\[]?\s*答案\s*[】\]]?\s*[:：]?\s*([\s\S]*)$/.exec(value);
+  const answer = /^[【\[]?\s*(?:参考|标准|正确)?答案(?=\s*[】\]]|\s*[:：]|\s*$)\s*[】\]]?\s*[:：]?\s*([\s\S]*)$/.exec(value);
   if (answer) {
     let body = answer[1].trim();
     let analysis = "";
-    const parts = body.split(/[【\[]?\s*(?:解析|详解|分析)\s*[】\]]?\s*[:：]?/);
+    const parts = body.split(/[【\[]?\s*(?:答案解析|试题解析|解析|详解|分析)\s*[】\]]?\s*[:：]?/);
     if (parts.length > 1) {
       body = parts[0].trim();
       analysis = parts.slice(1).join(" ").trim();
     }
     return { marker: "answer", answer: body, analysis };
   }
-  const analysis = /^[【\[]?\s*(?:解析|详解|分析|小问[^】\]]*详解)\s*[】\]]?\s*[:：]?\s*([\s\S]*)$/.exec(value);
+  const analysis = /^[【\[]?\s*(?:答案解析|试题解析|解析|详解|分析|小问[^】\]]*详解)\s*[】\]]?\s*[:：]?\s*([\s\S]*)$/.exec(value);
   if (analysis) return { marker: "analysis", answer: "", analysis: analysis[1].trim() };
   return null;
 }

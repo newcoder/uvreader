@@ -16,6 +16,7 @@ import { createDocvortex, registerDocvortexRunners } from "./docvortex.js";
 import { extractMarkdown, registerExtractRunners } from "./extract-doc.js";
 import { clearMineruCaches, createMineruLocalService, resolveLocalBackend, resolveMineruKit } from "./mineru-local.js";
 import { createPdfCleaner, createPdfTextReader, registerTextConvertRunner } from "./pdf-text.js";
+import { createPdfFormService } from "./pdf-form.js";
 import { createFormulaChain, pdfToolScriptCommand, registerFormulaRunners, resolveMineruToken } from "./workshop-formula.js";
 import { registerBookRunners } from "./workshop-book.js";
 import { createPdfOutlineReader } from "./pdf-outline.js";
@@ -156,6 +157,25 @@ const engineService = createEngineService({
   engineRoot,
   installer: createEngineInstaller(),
   log,
+});
+const pdfForm = createPdfFormService({ engineService, log });
+ipcMain.handle("qbr:pdf-form:inspect", (_event, payload = {}) => pdfForm.inspect(payload));
+ipcMain.handle("qbr:pdf-form:save", async (_event, payload = {}) => {
+  const owner = BrowserWindow.getFocusedWindow();
+  const signed = pdfForm.hasSignatures(payload);
+  const defaultPath = pdfForm.defaultOutput(payload);
+  const options = {
+    title: signed ? "保存签署副本" : "保存填写副本",
+    defaultPath,
+    filters: [{ name: "PDF", extensions: ["pdf"] }],
+    properties: ["showOverwriteConfirmation", "createDirectory"],
+  };
+  const picked = owner
+    ? await dialog.showSaveDialog(owner, options)
+    : await dialog.showSaveDialog(options);
+  if (picked.canceled || !picked.filePath) return { ok: false, cancelled: true };
+  const output = /\.pdf$/i.test(picked.filePath) ? picked.filePath : `${picked.filePath}.pdf`;
+  return pdfForm.save({ ...payload, out: output });
 });
 // Online book downloads land in the library so they appear as regular books.
 const bookDownloads = createBookDownloads({

@@ -84,6 +84,7 @@ import { createConfirmModal } from "./confirm-modal.js";
 import { createPdfPaginatorClass } from "./pdf-paginator.js";
 import { createAiChatView } from "./ai-chat-view.js";
 import { createReadSettingsModal } from "./read-settings-modal.js";
+import { createSignaturePickerModal } from "./signature-picker-modal.js";
 import { createAiExplainModal } from "./ai-explain-modal.js";
 import { createLibraryModal } from "./library-modal.js";
 import { createTagEditor } from "./tag-editor.js";
@@ -444,6 +445,8 @@ const DEFAULT_READER_SESSION = {
   // shared the generated highlights section and could be erased by the next sync.
   manualExcerptSectionsMigrated: false,
   figuresShownByDefault: false, einkMode: false,
+  // Reusable image signatures for PDF forms; data URLs stay in local settings.
+  pdfSignatures: [],
 };
 const DEFAULT_AI = {
   aiCompanionVisible: null,
@@ -2823,7 +2826,7 @@ function markFigureUnavailable(img, surface, error) {
   console.error(`UV Reader: could not render PDF page ${pageNumber}`, error);
 }
 
-async function drawFigure(img, lazy, current = () => true) {
+async function drawFigure(img, lazy, current = () => true, reader = null) {
   const surface = img.closest(FIGURE_SURFACE_SELECTOR);
   if (surface) surface.addClass(FIGURE_RENDERING_CLASS);
   try {
@@ -2835,6 +2838,7 @@ async function drawFigure(img, lazy, current = () => true) {
       if (oldLayer) oldLayer.replaceWith(rendered.textLayer);
       else surface?.appendChild(rendered.textLayer);
     }
+    reader?._pdfForm?.mountPage?.(surface, figurePageNumber(img));
     if (typeof img.decode === "function") await img.decode().catch(() => {});
     img.setAttribute(FIGURE_LOADED_ATTR, "1");
   } catch (e) {
@@ -2861,12 +2865,28 @@ async function sweepReaderFigures(reader, lazy) {
   const candidates = [...flow.querySelectorAll(FIGURE_LAZY_SELECTOR)]
     .map((img) => ({ img, gap: gapOf(img) }))
     .sort((a, b) => a.gap - b.gap);
-  for (const { img } of candidates) {
+  // The first candidate belongs to the visible spread. Keep its snapshot gap:
+  // while the first pages paint, the flow can momentarily measure every page at
+  // the same offset, which previously made the loop believe all pages were
+  // visible and rasterised the whole document before the reader could repaint.
+  const currentGap = candidates[0]?.gap ?? 0;
+  let yieldedCurrent = false;
+  for (const { img, gap } of candidates) {
     if (!current()) return;
-    const gap = gapOf(img);
+    if (!yieldedCurrent && gap > currentGap + 0.001) {
+      yieldedCurrent = true;
+      // Let the browser present the current spread before preloading its
+      // neighbours. Without this yield a long sweep can leave the reading view
+      // blank even though the visible page image is already in the DOM.
+      await new Promise((resolve) => {
+        const win = docOf(img)?.defaultView;
+        if (win?.requestAnimationFrame) win.requestAnimationFrame(() => win.setTimeout(resolve, 0));
+        else setTimeout(resolve, 0);
+      });
+    }
     const loadState = img.getAttribute(FIGURE_LOADED_ATTR);
     if (gap <= FIGURE_LOAD_SPAN && loadState !== "1" && loadState !== "skip") {
-      await drawFigure(img, lazy, current);
+      await drawFigure(img, lazy, current, reader);
     } else if (gap > FIGURE_DROP_SPAN && loadState === "1") {
       if (img.hasAttribute("src")) img.removeAttribute("src");
       const surface = img.closest(FIGURE_SURFACE_SELECTOR);
@@ -3155,6 +3175,10 @@ const CreateFolderModal = createCreateFolderModal({
   qiaomuReaderTranslate,
   readerHud,
 });
+const SignaturePickerModal = createSignaturePickerModal({
+  Modal,
+  qiaomuReaderTranslate,
+});
 const ReadSettingsModal = createReadSettingsModal({
   Modal,
   Setting,
@@ -3395,6 +3419,7 @@ const ReaderView = createReaderView({
   FONTS,
   InfoModal,
   ReadSettingsModal,
+  SignaturePickerModal,
   VIEW_TYPE,
   addBookFileMenu,
   attachEngineChrome,
@@ -3428,6 +3453,7 @@ const ReaderView = createReaderView({
   hidePinPopup,
   openOrCreateBookNoteBeside,
   pageJump,
+  pdfFormBridge: globalThis.qbrDesktop?.pdfForm || null,
   pdfVisiblePageLabel,
   pdfZoom,
   persistCurrentReaderPosition,

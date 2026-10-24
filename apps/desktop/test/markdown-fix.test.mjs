@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { cleanChapterTitle, fenceProseCode, isProseFence, joinContinuationLines, joinSplitCodeFences, looksLikeHeadingTitle, looksLikeProseBlock, splitMarkdownChapters, stripCodeLineNumbers, unwrapProseFences } from "../src/shared/markdown-fix.js";
+import { cleanChapterTitle, fenceProseCode, isProseFence, joinContinuationLines, joinSplitCodeFences, looksLikeHeadingTitle, looksLikeProseBlock, splitInlineAnswerMarkers, splitMarkdownChapters, stripCodeLineNumbers, unwrapProseFences } from "../src/shared/markdown-fix.js";
 
 test("stripCodeLineNumbers removes PDF margin numbers only when they are sequential", () => {
   const numbered = "```\n22 memset(cnt, 0, sizeof(cnt));\n23 for (int i = 0; i < n; ++i)\n24   cnt[i] += 1;\n```\n";
@@ -262,6 +262,15 @@ test("a fragment at the top of a page stays in the text instead of becoming a ch
   assert.deepEqual(chapters.map((chapter) => chapter.title), ["第一章 绪论", "第二章 波动"]);
   assert.match(chapters[0].text, /遵从\s*的努力？/, "碎片留在正文里(接到上一行)");
   assert.ok(!chapters[0].text.includes("###"), "井号去掉,不再当标题");
+});
+
+test("splitInlineAnswerMarkers separates an analysis marker glued to the last option", () => {
+  const md = "6.如图所示，一盏艺术灯悬挂，则（ ）A. 大于 B. 小于 C. 不变 D. 无法确定【详解】AB.对艺术灯受力分析。\n\n根据矢量三角形可知，故选B。";
+  const split = splitInlineAnswerMarkers(md);
+  assert.match(split, /D\. 无法确定\n【详解】AB\./);
+  assert.doesNotMatch(split, /无法确定【详解】/);
+  assert.equal(split.replace(/\n/g, ""), md.replace(/\n/g, ""), "只插换行，不改原文");
+  assert.equal(splitInlineAnswerMarkers("```\nprintf(\"【详解】\");\n```\n"), "```\nprintf(\"【详解】\");\n```\n", "代码围栏里的标记不动");
 });
 
 test("joinContinuationLines puts an upstream continuation back into the sentence", () => {

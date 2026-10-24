@@ -582,6 +582,42 @@ test("visible PDF pages gain selectable text and offscreen pages collapse back t
   dom.window.close();
 });
 
+test("a PDF paint sweep keeps the first layout snapshot instead of rasterising the whole document", async () => {
+  const dom = new JSDOM('<main><img data-pdf-page="1"><img data-pdf-page="2"><img data-pdf-page="3"><img data-pdf-page="4"><img data-pdf-page="5"><img data-pdf-page="6"><img data-pdf-page="7"><img data-pdf-page="8"></main>');
+  dom.window.Element.prototype.addClass = function (name) { this.classList.add(name); };
+  dom.window.Element.prototype.removeClass = function (name) { this.classList.remove(name); };
+  const flow = dom.window.document.querySelector("main");
+  let collapsed = false;
+  let rendered = 0;
+  const lazy = {
+    _destroyed: false,
+    textFor: () => "",
+    async render() {
+      rendered += 1;
+      collapsed = true;
+      return { src: "data:image/png;base64,page", textLayer: null };
+    },
+  };
+  const pager = { flow, sw: 600, spread: 0, scrollMode: false };
+  const view = { pager, _pdfLazy: lazy, _closed: false };
+  const sweep = vm.runInNewContext(`${functionSource('drawFigure')}\n${functionSource('sweepReaderFigures')}\nsweepReaderFigures`, {
+    FIGURE_SURFACE_SELECTOR: '.surface', FIGURE_LAZY_SELECTOR: 'img', FIGURE_LOADED_ATTR: 'data-loaded',
+    FIGURE_RENDERING_CLASS: 'rendering',
+    FIGURE_LOAD_SPAN: 2, FIGURE_DROP_SPAN: 6,
+    figureSpreadGap: (img) => (collapsed ? 0 : Math.min(3, Math.floor((Number(img.dataset.pdfPage) - 1) / 2))),
+    figurePageNumber: img => Number(img.dataset.pdfPage),
+    markFigureUnavailable: () => assert.fail('page should remain renderable'),
+    docOf: el => el.ownerDocument,
+    setTimeout,
+    clearTimeout,
+  });
+
+  await sweep(view, lazy);
+  assert.equal(rendered, 6, "only the current and two neighbouring spreads are preloaded");
+  assert.equal(flow.querySelectorAll('img[src]').length, 6);
+  dom.window.close();
+});
+
 test("the PDF paginator rejects ebook HTML before layout or parsing", async () => {
 const paginatorFactory = paginatorSource.slice(paginatorSource.indexOf("export function createPdfPaginatorClass(")).replace("export function", "function");
 const PdfPaginator = vm.runInNewContext(`${paginatorFactory}\ncreatePdfPaginatorClass({ FONTS: {}, READER_FONTS: {}, SHORT_PAGE_GAP: 0, getLanguage: () => "zh" })`, { PDF_ZOOM_DEFAULT: 1, READER_BLOCK_SELECTOR: "p,h1", clampPdfZoom: (value) => value, comfortableLineWidth: () => 0, docOf: (el) => el.ownerDocument, ensureBundledReaderFont: async () => {}, resolveReaderFont: () => "serif", uiLanguageMetadata: () => ({ cjk: false }) });

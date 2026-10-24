@@ -104,6 +104,12 @@ export function createPlugin({
     if (this._unloading || this._openingCompanion || view._closed || !view.bookHtml || view._openingBook
       || this.app.isMobile || view.containerEl.ownerDocument.defaultView.innerWidth < 1000
       || this.settings.aiCompanionVisible === false || this.app.workspace.activeLeaf !== view.leaf) return;
+    // A fillable PDF is a task view. Wait for the AcroForm probe before opening
+    // the companion, then leave it closed when there is a form to fill.
+    if (view.file?.extension === "pdf" && view._pdfFormReady && !view._pdfFormKnown) {
+      await view._pdfFormReady.catch(() => false);
+    }
+    if (view._pdfHasForm) return;
     if (this._companionWasVisible && !this.app.workspace.rightSplit?.collapsed) return;
     this._openingCompanion = true;
     try { await this.openAiChat(readerAiPanelContext(view), { automatic: true }); }

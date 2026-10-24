@@ -57,6 +57,34 @@ export function unwrapProseFences(markdown) {
   return out.join("\n");
 }
 
+// MinerU 有时把「答案/解析」的第一行并进题干(2026 浙江 1 月物理第 6 题):
+// `6. … D. …【详解】AB. …`。这里只在围栏外、且标记前有正文时插入换行,
+// 让后面的题目解析器/AI 提示词都能把这个标记当作独立段落。
+export function splitInlineAnswerMarkers(markdown) {
+  const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
+  const out = [];
+  let inFence = false;
+  for (const line of lines) {
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence;
+      out.push(line);
+      continue;
+    }
+    if (inFence) {
+      out.push(line);
+      continue;
+    }
+    // 只拆「非空白字符 + 可选空格 + 标记」;行首标记本来就是独立段落。
+    const rebuilt = line.replace(/([^\s])\s*(?=【\s*(?:(?:参考|标准|正确)?答案|解析|详解|分析|小问[^】]*详解)\s*】)/g, "$1\n");
+    if (rebuilt === line) {
+      out.push(line);
+      continue;
+    }
+    out.push(...rebuilt.split("\n"));
+  }
+  return out.join("\n");
+}
+
 // DOCX/网页导出常把「参考程序」的每一行都当普通段落,中间还夹空行,
 // 结果代码没有围栏。这里把连续的代码样段落重新包成一块,交给后面的格式化器。
 const PROSE_CODE_START = /^\s*(?:#\s*(?:include|define|pragma)\b|using\s+namespace\b|\/\/|\/\*|(?:int|long|short|char|bool|float|double|void|unsigned|signed|const|static|struct|class|enum|typedef|template|namespace|return|if|else|for|while|do|switch|case|break|continue|goto|try|catch|throw|new|delete|public|private|protected|std::|string|vector|map|set|pair|queue|stack|deque)\b)/;

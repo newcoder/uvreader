@@ -10,6 +10,26 @@ import { pdfScanPageKind, pdfScanVerdict } from "./pdf-scan.js";
 import { throwIfReaderLoadAborted } from "./reader-load.js";
 import { pdfTextLooksUnreadable } from "./toc-build.js";
 
+// PDF.js returns field objects either as a name→fields map or wrapped in an
+// allFields object, depending on its build. Only the controls this reader can
+// actually fill count as an available form: editable text fields and check
+// boxes. Read-only fields, radio groups and signature fields do not warrant
+// showing the fill/sign/save toolbar.
+export function pdfFieldObjectsHaveFillableForm(fields) {
+  if (!fields || typeof fields !== "object") return false;
+  const groups = fields.allFields && typeof fields.allFields === "object"
+    ? Object.values(fields.allFields)
+    : Object.values(fields);
+  return groups.some((group) => {
+    const list = Array.isArray(group) ? group : [group];
+    return list.some((field) => field
+      && typeof field === "object"
+      && field.hidden !== true
+      && field.editable !== false
+      && (field.type === "text" || field.type === "checkbox"));
+  });
+}
+
 export function createPdfDocument({ setupWorker, win = globalThis }) {
   async function pdfTextLayerElement(page, textContent, ownerDocument = document) {
     if (!pdfjsLib.TextLayer || !textContent || !textContent.items?.length) return null;
@@ -233,6 +253,11 @@ export function createPdfDocument({ setupWorker, win = globalThis }) {
     try {
       const doc = await loadingTask.promise;
       throwIfReaderLoadAborted(signal);
+      // Field detection is a cheap catalog lookup and must not hold up the
+      // first page. The toolbar stays hidden until this resolves true.
+      const whenFormReady = (typeof doc.getFieldObjects === "function"
+        ? doc.getFieldObjects().then((fields) => pdfFieldObjectsHaveFillableForm(fields))
+        : Promise.resolve(false)).catch(() => false);
       const pageCount = doc.numPages;
       const pageText = new Array(pageCount).fill("");
       const sizes = await mapPdfPages(pageCount, 12, async (pageNumber) => {
@@ -282,6 +307,7 @@ export function createPdfDocument({ setupWorker, win = globalThis }) {
         outline,
         pdfDocumentContext: null,
         whenTextReady,
+        whenFormReady,
       };
     } catch (error) {
       try { await loadingTask.destroy(); } catch { /* best-effort cleanup */ }

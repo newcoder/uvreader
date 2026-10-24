@@ -183,6 +183,20 @@ A. 1 B. 3 C. 4 D. 5
   assert.doesNotMatch(cards[1], /data-value="D"[\s\S]*?【答案】/, "答案不能粘到选项 D");
 });
 
+test("an analysis marker glued to the last option is moved out of the stem", async () => {
+  const markdown = `## 一、单项选择题
+
+6. 如图所示，一盏重为 G 的艺术灯用细绳悬挂，则（ ）A. F1 大于 F2 B. F1 和 F2 都小于 G C. 撤去 AB 后位置不变 D. 撤去 CD 后位置不变【详解】AB. 对艺术灯受力分析。
+将 F1、F2 和 G 三力平移后，构成矢量三角形。故 A 错误，B 正确，故选 B。
+`;
+  const result = await buildQuizPaper({ markdown, baseDir: process.cwd() });
+  const card = /<section class="q-card"[\s\S]*?<\/section>/.exec(result.html)?.[0] || "";
+  assert.match(card, /data-answer="B"/);
+  assert.match(card, /data-analysis="[^"]*对艺术灯受力分析/);
+  assert.doesNotMatch(card, /class="q-stem"[^>]*>[^<]*【详解】/, "解析不能留在题干");
+  assert.doesNotMatch(card, /data-value="D"[\s\S]*?【详解】/, "解析不能粘到选项 D");
+});
+
 test("a plain 非选择题 section uses a short-answer box and hides source answers", async () => {
   const markdown = `## 二、非选择题
 

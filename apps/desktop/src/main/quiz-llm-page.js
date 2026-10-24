@@ -199,6 +199,66 @@ function hideGenerated(html, stats) {
   return output;
 }
 
+const ANALYSIS_MARKER_RE = /【\s*(?:(?:参考|标准|正确)?答案|解析|详解|分析|小问[^】]*详解)\s*】/;
+const SOLUTION_TAG_RE = /<(div|section)\b[^>]*\bclass\s*=\s*(?:"[^"]*\bsolution\b[^"]*"|'[^']*\bsolution\b[^']*')[^>]*>/i;
+const QUESTION_SECTION_RE = /<section\b[^>]*\bclass\s*=\s*(?:"[^"]*\bq\b[^"]*"|'[^']*\bq\b[^']*')[^>]*>[\s\S]*?<\/section>/gi;
+
+// 标记在标签外才算正文,避免把 data-analysis 属性里的标记当成未隐藏内容。
+function textMarkerIndex(html) {
+  const tagRe = /<[^>]*>/g;
+  let cursor = 0;
+  let match;
+  while ((match = tagRe.exec(html))) {
+    const text = html.slice(cursor, match.index);
+    const found = ANALYSIS_MARKER_RE.exec(text);
+    if (found) return cursor + found.index;
+    cursor = match.index + match[0].length;
+  }
+  const found = ANALYSIS_MARKER_RE.exec(html.slice(cursor));
+  return found ? cursor + found.index : -1;
+}
+
+function closingTagIndex(html, start, tagName) {
+  const re = new RegExp(`<\\/?${tagName}\\b[^>]*>`, "gi");
+  re.lastIndex = start;
+  let depth = 0;
+  let match;
+  while ((match = re.exec(html))) {
+    if (/^<\//.test(match[0])) depth -= 1;
+    else if (!/\/\s*>$/.test(match[0])) depth += 1;
+    if (depth === 0) return match.index;
+  }
+  return -1;
+}
+
+// 模型偶尔会把原文的【详解】整段留在题目里,再在答案块里写「见上文【详解】」。
+// 不改写文字,只把题干后、答案块前的解析段落移进隐藏的答案块。
+function liftInlineSolutions(html, stats) {
+  return html.replace(QUESTION_SECTION_RE, (section) => {
+    const solution = SOLUTION_TAG_RE.exec(section);
+    if (!solution) return section;
+    const before = section.slice(0, solution.index);
+    const markerAt = textMarkerIndex(before);
+    if (markerAt < 0) return section;
+    const paragraphAt = before.lastIndexOf("<p", markerAt);
+    if (paragraphAt < 0) return section;
+    const paragraphOpen = before.indexOf(">", paragraphAt);
+    if (paragraphOpen < 0 || paragraphOpen >= markerAt) return section;
+    const prefix = before.slice(paragraphOpen + 1, markerAt).replace(/<[^>]*>/g, "").trim();
+    if (prefix) return section;
+    const movable = before.slice(paragraphAt).trim();
+    if (!movable) return section;
+    const closeAt = closingTagIndex(section, solution.index, solution[1].toLowerCase());
+    if (closeAt < 0) return section;
+    const openEnd = section.indexOf(">", solution.index) + 1;
+    const inner = section.slice(openEnd, closeAt)
+      .replace(/<p\b[^>]*>\s*(?:见上文|见解析|同上|略)(?:[^<]*)<\/p>/gi, "")
+      .trimEnd();
+    stats.inlineSolutions += 1;
+    return `${before.slice(0, paragraphAt).trimEnd()}\n${section.slice(solution.index, openEnd)}${inner}\n${movable}\n${section.slice(closeAt)}`;
+  });
+}
+
 function addMissingElements(html, stats) {
   const ids = [...html.matchAll(/getElementById\(\s*['"]([^'"]+)['"]\s*\)/g)].map((match) => match[1]);
   let output = html;
@@ -224,12 +284,14 @@ export function postprocessQuizLlmHtml(html, { baseDir = "", dropImages = [] } =
     imagesDropped: 0,
     imagesMissing: 0,
     blankSymbols: 0,
+    inlineSolutions: 0,
   };
   let output = String(html || "");
   output = convertMathOutsideProtectedTags(output, stats);
   output = formatCodeBlocks(output, stats);
   output = decorateBlanks(output, stats);
   output = addMissingElements(output, stats);
+  output = liftInlineSolutions(output, stats);
   output = hideGenerated(output, stats);
   output = inlineImages(output, { baseDir, dropImages }, stats);
   return { html: output, stats };
