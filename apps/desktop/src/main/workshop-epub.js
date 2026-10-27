@@ -15,6 +15,7 @@ import { buildEpub, BOOK_STYLE_DEFAULTS, collectBookImages } from "./epub-build.
 import { createBookTranslator } from "./book-translate.js";
 import { convertChineseScript, scriptTargetLabel } from "./book-script.js";
 import { convertEpubScript } from "./epub-script.js";
+import { translateEpub } from "./epub-translate.js";
 import { appendTranslationSuffix, directionForSource, scriptOutputSuffix, splitTranslationBlocks, translationLanguagePair, translationOutputSuffix } from "../shared/book-translation.js";
 import { detectBookLanguage, detectSourceLanguage } from "../shared/language-detect.js";
 import { collectMathFromMarkdown, countRawFormulas, markdownToHtml, stripBom, textToChapters, textToHtml } from "./text-book.js";
@@ -323,6 +324,30 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     const sourceStat = fs.statSync(source);
     const workKey = crypto.createHash("sha1").update(`${source}\n${sourceStat.size}\n${sourceStat.mtimeMs}`).digest("hex").slice(0, 8);
     const workRoot = path.join(cacheRoot, "work", `${path.basename(source).replace(/[^\w.-]+/g, "_").slice(0, 40)}-${workKey}`);
+    // EPUB translation keeps the original chapter files and inline structure,
+    // just like EPUB script conversion; rebuilding would flatten poetry lines.
+    if (translationRequested && /\.epub$/i.test(source)) {
+      const result = await translateEpub({
+        source,
+        out,
+        outputPath,
+        translator,
+        mode: translationMode,
+        direction: payload?.translation?.direction || "",
+        classical: payload?.translation?.classical === true,
+        customTitle,
+        config: payload?.translation?.config || null,
+        workRoot,
+        signal,
+        report,
+        log,
+      });
+      const cached = result.stats.cachedChunks ? ` · 缓存 ${result.stats.cachedChunks} 块` : "";
+      return {
+        output: result.output,
+        detail: `EPUB · 原格式 · ${result.spineCount} 节 · ${Math.round(fs.statSync(result.output).size / 1024)} KB · ${translationMode === "translated" ? "译文" : "双语"} ${result.stats.translatedBlocks} 段 · ${result.pair.sourceLabel} → ${result.pair.targetLabel}${cached}`,
+      };
+    }
     let text = "";
     let baseDir = path.dirname(source);
     // 上游(pdf_tool)给的目录条目:有就优先用(比从 md 文本兜底解析准)。

@@ -12,7 +12,7 @@ import { appendTranslationSuffix, scriptOutputSuffix } from "../shared/book-tran
 
 const MARKUP_RE = /\.(?:xhtml|html|htm|opf|ncx|xml|svg)$/i;
 
-function decodeEntities(value) {
+export function decodeEntities(value) {
   return String(value == null ? "" : value)
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
@@ -23,14 +23,14 @@ function decodeEntities(value) {
     .replace(/&#(\d+);/g, (_match, dec) => String.fromCodePoint(Number(dec)));
 }
 
-function escapeXml(value) {
+export function escapeXml(value) {
   return String(value == null ? "" : value)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 }
 
-function textContent(value) {
+export function textContent(value) {
   return decodeEntities(String(value == null ? "" : value).replace(/<[^>]*>/g, " "));
 }
 
@@ -50,16 +50,16 @@ export function convertMarkupText(markup, convert) {
   return output;
 }
 
-function findOpfName(zip) {
+export function findOpfName(zip) {
   return Object.keys(zip.files).find((name) => name.toLowerCase().endsWith(".opf")) || "";
 }
 
-function sourceTitle(opf, fallback) {
+export function sourceTitle(opf, fallback) {
   const match = /<dc:title\b[^>]*>([\s\S]*?)<\/dc:title>/i.exec(String(opf || ""));
   return textContent(match?.[1] || "").trim() || fallback;
 }
 
-function replaceTitle(opf, title) {
+export function replaceTitle(opf, title) {
   const value = `<dc:title>${escapeXml(title)}</dc:title>`;
   if (/<dc:title\b[^>]*>[\s\S]*?<\/dc:title>/i.test(opf)) {
     return opf.replace(/<dc:title\b[^>]*>[\s\S]*?<\/dc:title>/i, value);
@@ -67,12 +67,12 @@ function replaceTitle(opf, title) {
   return opf.replace(/(<metadata\b[^>]*>)/i, `$1\n    ${value}`);
 }
 
-function replaceLanguage(opf, target) {
-  const language = target === "s" ? "zh-Hans" : "zh-Hant";
+export function replaceLanguage(opf, language) {
+  const value = language === "s" ? "zh-Hans" : language === "t" ? "zh-Hant" : String(language || "zh");
   if (/<dc:language\b[^>]*>[\s\S]*?<\/dc:language>/i.test(opf)) {
-    return opf.replace(/<dc:language\b[^>]*>[\s\S]*?<\/dc:language>/gi, `<dc:language>${language}</dc:language>`);
+    return opf.replace(/<dc:language\b[^>]*>[\s\S]*?<\/dc:language>/gi, `<dc:language>${escapeXml(value)}</dc:language>`);
   }
-  return opf.replace(/(<metadata\b[^>]*>)/i, `$1\n    <dc:language>${language}</dc:language>`);
+  return opf.replace(/(<metadata\b[^>]*>)/i, `$1\n    <dc:language>${escapeXml(value)}</dc:language>`);
 }
 
 export async function convertEpubScript({

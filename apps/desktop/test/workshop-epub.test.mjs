@@ -70,11 +70,88 @@ async function writePoemEpub(file) {
   zip.file("OEBPS/ch1.xhtml", `<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><body><p>漢詩<br/>國家</p></body></html>`);
   zip.file("OEBPS/ch2.xhtml", `<?xml version="1.0" encoding="UTF-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><body><p>學習<br/>發展</p></body></html>`);
+<html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><body><p>學習<br/>發展</p><ul><li>閱讀<br/>寫作</li></ul><table><tr><td>國家</td></tr></table></body></html>`);
   const data = await zip.generateAsync({ type: "nodebuffer" });
   fs.writeFileSync(file, data);
   return data;
 }
+
+test("direct EPUB bilingual translation keeps the original chapter files and line breaks", async () => {
+  const vault = tempDir("qbr-epub-translate-direct-");
+  const source = path.join(vault, "poems.epub");
+  const sourceBytes = await writePoemEpub(source);
+  const aiRuntime = {
+    stream: async () => ({
+      ok: true,
+      answer: JSON.stringify({ translations: [
+        { id: "c0-b1", text: "Chinese poem\ncountry" },
+        { id: "c1-b1", text: "study\ndevelopment" },
+        { id: "c1-b2", text: "reading\nwriting" },
+        { id: "c1-b3", text: "country" },
+      ] }),
+    }),
+  };
+  const { queue } = makeQueue(tempDir("qbr-epub-translate-direct-cache-"), null, { aiRuntime });
+  const base = {
+    source,
+    settings: {},
+    translation: {
+      direction: "auto",
+      mode: "stacked",
+      config: { id: "test", base: "http://local", model: "test", key: "" },
+    },
+  };
+  const task = await waitForTask(queue, queue.start({ kind: "book-build", title: "生成中英对照", payload: base }));
+  assert.equal(task.status, "done", task.error);
+  assert.match(task.detail, /原格式/);
+  assert.match(task.detail, /2 节/);
+  assert.match(task.detail, /双语 4 段/);
+  assert.match(task.output.replace(/\\/g, "/"), /poems（中英对照）\.epub$/);
+  assert.deepEqual(fs.readFileSync(source), sourceBytes, "the source EPUB is left untouched");
+
+  const zip = await JSZip.loadAsync(fs.readFileSync(task.output));
+  assert.ok(zip.file("OEBPS/ch1.xhtml"));
+  assert.ok(!zip.file("OEBPS/chapter-001.xhtml"));
+  const ch1 = await zip.file("OEBPS/ch1.xhtml").async("string");
+  assert.match(ch1, /<p[^>]*>漢詩<br\/>國家<\/p>/);
+  assert.match(ch1, /class="qbr-epub-translation"[^>]*>Chinese poem<br\/>country</);
+  assert.match(ch1, /qbr-epub-translation/);
+  const ch2 = await zip.file("OEBPS/ch2.xhtml").async("string");
+  assert.match(ch2, /<li>閱讀<br\/>寫作<div class="qbr-epub-translation"[^>]*>reading<br\/>writing<\/div><\/li>/);
+  assert.match(ch2, /<td>國家<div class="qbr-epub-translation"[^>]*>country<\/div><\/td>/);
+  assert.match(await zip.file("OEBPS/nav.xhtml").async("string"), /漢詩/);
+  assert.equal(await zip.file("OEBPS/style.css").async("string"), "p { line-height: 2; }");
+  const opf = await zip.file("OEBPS/content.opf").async("string");
+  assert.match(opf, /<dc:title>漢語詩（中英对照）<\/dc:title>/);
+  assert.match(opf, /<dc:language>zh<\/dc:language>/);
+
+  const side = await waitForTask(queue, queue.start({
+    kind: "book-build",
+    title: "生成左右对照",
+    payload: { ...base, translation: { ...base.translation, mode: "side" } },
+  }));
+  assert.equal(side.status, "done", side.error);
+  const sideZip = await JSZip.loadAsync(fs.readFileSync(side.output));
+  const sideChapter = await sideZip.file("OEBPS/ch1.xhtml").async("string");
+  assert.match(sideChapter, /class="qbr-epub-pair"/);
+  assert.match(sideChapter, /class="qbr-epub-translation"/);
+
+  const translatedOnly = await waitForTask(queue, queue.start({
+    kind: "book-build",
+    title: "生成译文电子书",
+    payload: { ...base, translation: { ...base.translation, mode: "translated" } },
+  }));
+  assert.equal(translatedOnly.status, "done", translatedOnly.error);
+  assert.match(translatedOnly.detail, /译文/);
+  assert.match(translatedOnly.output.replace(/\\/g, "/"), /poems（English）\.epub$/);
+  const translatedZip = await JSZip.loadAsync(fs.readFileSync(translatedOnly.output));
+  const translatedChapter = await translatedZip.file("OEBPS/ch1.xhtml").async("string");
+  assert.match(translatedChapter, /<p>Chinese poem<br\/>country<\/p>/);
+  assert.ok(!translatedChapter.includes("漢詩"), "the source text is replaced in translation-only mode");
+  const translatedOpf = await translatedZip.file("OEBPS/content.opf").async("string");
+  assert.match(translatedOpf, /<dc:title>漢語詩（English）<\/dc:title>/);
+  assert.match(translatedOpf, /<dc:language>en<\/dc:language>/);
+});
 
 test("the book-build runner turns a txt into a readable EPUB", async () => {
   const vault = tempDir("qbr-epub-vault-");
