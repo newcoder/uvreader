@@ -15,7 +15,7 @@ import { engineCapabilityRows, engineComponentSummary } from "../main/engine-cli
 import { decodeText } from "../shared/text-encoding.js";
 import { applyChapterRule, describeChapterRule } from "../shared/chapter-rules.js";
 import { describeIssues, scanChapterIssues, splitCleanupBlocks } from "../shared/text-issues.js";
-import { filterLibraryFiles } from "../shared/library-files.js";
+import { BOOK_BUILDER_SOURCE_EXTENSIONS, filterLibraryFiles } from "../shared/library-files.js";
 
 // 书坊的 AI 辅助复用伴读的配置读取(供应商 / 模型 / 密钥都从同一份设置与密钥库来,
 // 不新增设置项);这里只用 aiConfig,翻译与高亮定位给最小实现。
@@ -1644,7 +1644,7 @@ export function createWorkshopView(leaf, options) {
       pickSource.addEventListener("click", () => this.toggleBookSourceList());
       const pickSourceLocal = sourceRow.createEl("button", { text: "打开本地文件…" });
       pickSourceLocal.addEventListener("click", () => void this.pickLocalBookSources());
-      sourceRow.createSpan({ cls: "qbr-workshop-hint", text: "书稿列表只显示当前书库;其它文件用「打开本地文件…」" });
+      sourceRow.createSpan({ cls: "qbr-workshop-hint", text: "书稿列表只显示书库中的 EPUB / PDF / 图片;txt / Markdown / Office 等用「打开本地文件…」" });
       this._bookSourceList = sourceStep.createDiv("qbr-workshop-booklist");
       this._bookSourceList.hidden = true;
       this._bookSourceChips = sourceStep.createDiv("qbr-workshop-chips");
@@ -2516,14 +2516,11 @@ export function createWorkshopView(leaf, options) {
     }
 
     bookSourceFiles() {
-      // The ebook builder can extract these formats. FB2/MOBI/AZW3/CBZ are
-      // reader formats, not source formats for this wizard.
-      const sourceExtensions = new Set([
-        "txt", "md", "markdown",
-        ...DOCVORTEX_INPUTS,
-        ...IMAGE_INPUTS,
-      ]);
-      return this.libraryFiles([...sourceExtensions]);
+      // Only books already visible in the library. Extraction sidecars
+      // (Markdown/HTML/assets) and unrelated Office/TXT files are not library
+      // books; they belong in "打开本地文件…" instead.
+      return this.libraryFiles(BOOK_BUILDER_SOURCE_EXTENSIONS)
+        .filter((file) => !/\.uvtext\.pdf$/i.test(String(file.path || "")));
     }
 
     toggleBookSourceList() {
@@ -2539,7 +2536,7 @@ export function createWorkshopView(leaf, options) {
       list.empty();
       const sources = this.bookSourceFiles();
       if (!sources.length) {
-        list.createDiv({ cls: "qbr-workshop-hint", text: "书库里还没有可成书的文件(txt / Markdown / PDF / Office / 图片…)。" });
+        list.createDiv({ cls: "qbr-workshop-hint", text: "书库里还没有可成书的书籍(EPUB / PDF / 图片)。txt / Markdown / Office 等请用「打开本地文件…」。" });
         return;
       }
       this._bookSources ||= [];

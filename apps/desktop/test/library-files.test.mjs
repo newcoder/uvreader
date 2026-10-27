@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { filterLibraryFiles, libraryRoot } from "../src/shared/library-files.js";
+import { BOOK_BUILDER_SOURCE_EXTENSIONS, filterLibraryFiles, libraryRoot } from "../src/shared/library-files.js";
 
 const file = (path, extension = path.split(".").pop()) => ({ path, extension, basename: path.split("/").pop() });
 
@@ -33,6 +33,26 @@ test("a configured books folder wins and a non-recursive filter is gone", () => 
   );
   const rootOnly = [file("a.pdf"), file("notes/b.pdf"), file("images/c.jpg")];
   assert.deepEqual(filterLibraryFiles(rootOnly, { extensions: ["pdf"] }).map((entry) => entry.path), ["a.pdf", "notes/b.pdf"]);
+});
+
+test("the ebook source picker only offers library book formats", () => {
+  assert.deepEqual(
+    [...BOOK_BUILDER_SOURCE_EXTENSIONS],
+    ["epub", "pdf", "png", "jpg", "jpeg", "webp", "gif", "bmp"],
+  );
+  const files = [
+    file("Books/a.epub"),
+    file("Books/b.pdf"),
+    file("Books/c.png"),
+    file("Books/notes.md"),
+    file("Books/source.docx"),
+    file("Books/d.uvtext.pdf"),
+    file("Books/e.azw3"),
+  ];
+  assert.deepEqual(
+    filterLibraryFiles(files, { extensions: BOOK_BUILDER_SOURCE_EXTENSIONS }).map((entry) => entry.path),
+    ["Books/a.epub", "Books/b.pdf", "Books/c.png", "Books/d.uvtext.pdf"],
+  );
 });
 
 test("the library predicate can exclude data roots", () => {
