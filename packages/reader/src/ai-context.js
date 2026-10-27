@@ -81,18 +81,16 @@ export function createAiContext({ translate, platform, win = globalThis, locateH
 
   const DEFAULT_AI_QUICK_PROMPTS = Object.freeze([
     { id: "explain", name: "explain-it", prompt: "explain-this-passage-in-simple-easy-to-understand-language" },
-    { id: "example", name: "give-an-example", prompt: "explain-this-passage-with-one-concrete-example-from-everyday-lif" },
     { id: "summary", name: "summarize-key-points", prompt: "extract-the-key-points-of-this-passage-and-list-them-concisely" },
-    { id: "useful", name: "how-is-this-useful", prompt: "connect-this-passage-to-real-life-or-work-and-explain-what-concr" },
-    { id: "perspective", name: "see-another-angle", prompt: "consider-this-passage-from-another-position-or-perspective-add-t" },
-    { id: "quiz", name: "quiz-me", prompt: "create-2-3-questions-about-this-passage-to-test-whether-i-truly" },
+    { id: "document-tools", name: "document-tools", prompt: "文档工具", command: true },
   ]);
 
   function defaultAiQuickPrompts() {
     return DEFAULT_AI_QUICK_PROMPTS.map((item) => ({
       id: item.id,
       name: translate(item.name),
-      prompt: translate(item.prompt),
+      prompt: item.command ? item.prompt : translate(item.prompt),
+      ...(item.command ? { command: true } : {}),
     }));
   }
 
@@ -152,6 +150,16 @@ export function createAiContext({ translate, platform, win = globalThis, locateH
     if (!Array.isArray(value)) return [];
     return value.slice(0, 30).map((item) => {
       const legacyText = String(item?.text || "").slice(0, 50_000);
+      const recordBook = String(item?.bookPath || "").trim().replace(/\\/g, "/").replace(/\/+$/, "");
+      // Older records have no bookPath on task completion turns. A confirmed
+      // preview in the same conversation is the reliable local evidence that
+      // this task actually belonged to this document; use it to migrate those
+      // messages instead of discarding a legitimate completion.
+      const ownedTaskIds = new Set(
+        (Array.isArray(item?.turns) ? item.turns : [])
+          .map((turn) => String(turn?.workshopTaskId || ""))
+          .filter(Boolean),
+      );
       const mapped = Array.isArray(item?.turns) ? item.turns.slice(-40).map((turn) => ({
         role: turn?.role === "assistant" ? "assistant" : turn?.role === "tool" ? "tool" : "user",
         content: turn?.role === "tool"
@@ -172,6 +180,46 @@ export function createAiContext({ translate, platform, win = globalThis, locateH
         ...(turn?.role === "assistant" && turn.interrupted ? { interrupted: true } : {}),
         ...(turn?.role === "assistant" && typeof turn.savedNotePath === "string" && turn.savedNotePath.endsWith(".md")
           ? { savedNotePath: turn.savedNotePath.slice(0, 500) } : {}),
+        ...(turn?.role === "assistant" && turn.workshopPreview && typeof turn.workshopPreview === "object"
+          ? {
+            workshopPreview: {
+              operation: String(turn.workshopPreview.operation || "").slice(0, 120),
+              summary: String(turn.workshopPreview.summary || "").slice(0, 600),
+              source: String(turn.workshopPreview.source || "").slice(0, 300),
+              output: String(turn.workshopPreview.output || "").slice(0, 300),
+            },
+            ...(turn.workshopConfirmation && typeof turn.workshopConfirmation === "object"
+              ? {
+                workshopConfirmation: {
+                  operation: String(turn.workshopConfirmation.operation || "").slice(0, 120),
+                  title: String(turn.workshopConfirmation.title || "").slice(0, 120),
+                  label: String(turn.workshopConfirmation.label || "").slice(0, 40),
+                },
+              }
+              : {}),
+            ...(turn.workshopPreviewId ? { workshopPreviewId: String(turn.workshopPreviewId).slice(0, 120) } : {}),
+            ...(turn.workshopPreviewDone ? { workshopPreviewDone: true } : {}),
+            ...(turn.workshopTaskId ? { workshopTaskId: String(turn.workshopTaskId).slice(0, 120) } : {}),
+          }
+          : {}),
+        ...(turn?.role === "assistant" && turn.workshopPreviewDoneId
+          ? { workshopPreviewDoneId: String(turn.workshopPreviewDoneId).slice(0, 120) }
+          : {}),
+        ...(turn?.role === "assistant" && turn.taskCompletion && typeof turn.taskCompletion === "object"
+          ? {
+            taskCompletion: {
+              id: String(turn.taskCompletion.id || "").slice(0, 120),
+              status: turn.taskCompletion.status === "done" ? "done" : "failed",
+              kind: String(turn.taskCompletion.kind || "").slice(0, 80),
+              title: String(turn.taskCompletion.title || "").slice(0, 120),
+              detail: String(turn.taskCompletion.detail || "").slice(0, 300),
+              output: String(turn.taskCompletion.output || "").slice(0, 500),
+              error: String(turn.taskCompletion.error || "").slice(0, 300),
+              bookPath: String(turn.taskCompletion.bookPath || "").trim().replace(/\\/g, "/").replace(/\/+$/, "").slice(0, 500),
+              finishedAt: Number(turn.taskCompletion.finishedAt) || 0,
+            },
+          }
+          : {}),
         ...(turn?.role !== "assistant" && normalizeAiTurnContext(turn?.context)
           ? { context: normalizeAiTurnContext(turn.context) }
           : {}),
@@ -192,6 +240,18 @@ export function createAiContext({ translate, platform, win = globalThis, locateH
       const announced = new Set();
       const turns = [];
       for (const turn of mapped) {
+        // A task completion is meaningful only in the conversation for the
+        // document that started it. Older completions can be adopted when the
+        // conversation contains the confirmed preview for that task; otherwise
+        // they are discarded so they cannot follow the reader to another book.
+        if (turn.role === "assistant" && turn.taskCompletion) {
+          let taskBook = String(turn.taskCompletion.bookPath || "").trim().replace(/\\/g, "/").replace(/\/+$/, "");
+          if (!taskBook && recordBook && ownedTaskIds.has(String(turn.taskCompletion.id || ""))) {
+            taskBook = recordBook;
+            turn.taskCompletion.bookPath = recordBook;
+          }
+          if (!taskBook || !recordBook || taskBook !== recordBook) continue;
+        }
         if (turn.role === "assistant" && turn.toolCalls?.length) {
           const calls = turn.toolCalls.filter((call) => responded.has(call.id));
           if (calls.length !== turn.toolCalls.length) {
@@ -208,7 +268,7 @@ export function createAiContext({ translate, platform, win = globalThis, locateH
           if (turn.toolCallId && announced.has(turn.toolCallId)) turns.push(turn);
           continue;
         }
-        if (turn.content) turns.push(turn);
+        if (turn.content || turn.workshopPreview) turns.push(turn);
       }
       const firstUser = turns.find((turn) => turn.role === "user");
       if (!item?.contextVersion && legacyText && firstUser && !firstUser.context) {
@@ -224,6 +284,19 @@ export function createAiContext({ translate, platform, win = globalThis, locateH
         contextVersion: 1,
         updatedAt: Number(item?.updatedAt) || 0,
         turns,
+        taskCards: Array.isArray(item?.taskCards)
+          ? item.taskCards.slice(-10).map((task) => ({
+            id: String(task?.id || "").slice(0, 120),
+            status: task?.status === "done" ? "done" : "failed",
+            kind: String(task?.kind || "").slice(0, 80),
+            title: String(task?.title || "").slice(0, 120),
+            detail: String(task?.detail || "").slice(0, 300),
+            output: String(task?.output || "").slice(0, 500),
+            error: String(task?.error || "").slice(0, 300),
+            createdAt: Number(task?.createdAt) || 0,
+            finishedAt: Number(task?.finishedAt) || 0,
+          })).filter((task) => task.id)
+          : [],
       };
     }).filter((item) => item.id && item.turns.length);
   }

@@ -471,11 +471,13 @@ test("engine reopening releases the previous parser; invalid navigation cannot c
   View.prototype.open = async function () { this.book = { sections: [{}, {}], destroy: () => disposed++ }; };
   View.prototype.init = async function () {
     this.lastLocation = { cfi: "valid" };
-    this.renderer = { getContents: () => [{ index: 0, doc: dom.window.document }] };
+    this.renderer = {
+      async goTo(target) { moves++; return target; },
+      getContents: () => [{ index: 0, doc: dom.window.document }],
+    };
   };
   View.prototype.close = function () {};
   View.prototype.resolveNavigation = target => ({ index: target === "bad" ? 999 : 1 });
-  View.prototype.goTo = async function (target) { moves++; return this.resolveNavigation(target); };
   const engine = new EpubEngine(dom.window.document.querySelector("main"));
   try {
     await engine.open(new Uint8Array(), "one.epub");
@@ -487,6 +489,31 @@ test("engine reopening releases the previous parser; invalid navigation cannot c
     await assert.rejects(engine.goToFraction(NaN), /location/);
   } finally { engine.destroy(); dom.window.close(); }
   assert.equal(disposed, 2);
+});
+
+test("KF8/AZW3 asynchronous TOC targets are resolved before renderer navigation", async () => {
+  const dom = new JSDOM("<body><main></main></body>", { runScripts: "outside-only" });
+  const elements = foliateElements(root);
+  const { EpubEngine } = evaluate(dom, await bundle(elements));
+  const View = dom.window.customElements.get(JSON.parse(elements.define.__QBR_ENGINE_VIEW_TAG__));
+  const calls = [];
+  View.prototype.open = async function () { this.book = { sections: [{}], destroy() {} }; };
+  View.prototype.init = async function () {
+    this.lastLocation = { cfi: "valid" };
+    this.renderer = {
+      async goTo(target) { calls.push(target); return target; },
+      getContents: () => [{ index: 0, doc: dom.window.document }],
+    };
+  };
+  // KF8 returns a Promise here; view.goTo() would pass that Promise to the renderer.
+  View.prototype.resolveNavigation = async () => ({ index: 0, anchor: () => null });
+  const engine = new EpubEngine(dom.window.document.querySelector("main"));
+  try {
+    await engine.open(new Uint8Array(), "book.azw3");
+    await engine.goToTocItem("kindle:pos:fid:1:off:0");
+    assert.deepEqual(calls.map((target) => target.index), [0]);
+    assert.equal(typeof calls[0].anchor, "function");
+  } finally { engine.destroy(); dom.window.close(); }
 });
 
 test("ebook bookmarks capture the engine CFI without requiring a PDF flow", async () => {

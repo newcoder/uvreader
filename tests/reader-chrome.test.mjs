@@ -318,6 +318,31 @@ test("attachEngineChrome opens the viewer for large illustrations and ignores or
   assert.equal(doc.querySelector(".qiaomu-reader-lightbox"), null, "small ornaments stay inert");
 });
 
+test("the book image lightbox saves through the save bridge without closing", async () => {
+  let saved = null;
+  const { doc, chrome } = setup({
+    saveImage: async (src, options) => { saved = { src, options }; return true; },
+  });
+  const view = makeView(doc);
+  view.areaEl = view.contentEl;
+  chrome.attachEngineChrome(view, doc);
+  const illustration = doc.createElement("img");
+  illustration.setAttribute("src", "https://example.com/cover.png");
+  illustration.setAttribute("alt", "图 1");
+  illustration.getBoundingClientRect = () => ({ width: 300, height: 200 });
+  doc.body.appendChild(illustration);
+  illustration.dispatchEvent(new doc.defaultView.MouseEvent("click", { bubbles: true, cancelable: true }));
+  const layer = doc.querySelector(".qiaomu-reader-lightbox");
+  const save = [...layer.querySelectorAll(".qiaomu-reader-lightbox-btn")].find((button) => button.textContent === "save");
+  assert.ok(save, "the PDF/figure viewer offers a save action");
+  save.click();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(saved.src, "https://example.com/cover.png");
+  assert.equal(saved.options.name, "图 1");
+  assert.ok(doc.querySelector(".qiaomu-reader-lightbox"), "saving does not close the viewer");
+  layer.querySelector(".qiaomu-reader-lightbox-close").click();
+});
+
 test("wireReaderChrome connects zoom gestures and immersive chrome", () => {
   const { doc, chrome, calls } = setup();
   const view = makeView(doc, { immersive: false });

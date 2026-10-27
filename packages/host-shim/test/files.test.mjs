@@ -25,6 +25,8 @@ test("adapter reads, writes, processes and checks files", async () => {
     assert.equal(next, "one+two");
     assert.equal(await adapter.read("notes/a.md"), "one+two");
     assert.equal(await adapter.readBinary("notes/a.md").then((b) => b.byteLength), "one+two".length);
+    assert.equal(await adapter.readHead("notes/a.md", 3), "one");
+    assert.equal(await adapter.readHead("notes/a.md", 64), "one+two");
   } finally {
     env.cleanup();
   }
@@ -54,9 +56,16 @@ test("vault lists created files and reports markdown only", async () => {
     const vault = new Vault(new FileSystemAdapter({ root: env.vaultRoot }));
     await vault.create("notes/book.md", "# Note");
     await vault.create("books/sample.epub", "epub");
-    const files = vault.getFiles().map((file) => file.path).sort();
+    const first = vault.getFiles();
+    const files = first.map((file) => file.path).sort();
     assert.deepEqual(files, ["books/sample.epub", "notes/book.md"]);
-    assert.deepEqual(vault.getMarkdownFiles().map((file) => file.path), ["notes/book.md"]);
+    const second = vault.getFiles();
+    assert.notEqual(second, first);
+    assert.deepEqual(second.map((file) => file.path).sort(), files);
+    const note = first.find((file) => file.path === "notes/book.md");
+    assert.equal(note.stat.size, "# Note".length);
+    await vault.create("notes/new.md", "# New");
+    assert.deepEqual(vault.getMarkdownFiles().map((file) => file.path).sort(), ["notes/book.md", "notes/new.md"]);
   } finally {
     env.cleanup();
   }

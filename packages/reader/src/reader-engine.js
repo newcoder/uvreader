@@ -383,23 +383,57 @@ export class EpubEngine {
         const view = this.#view;
         const fail = () => new Error("Could not navigate to book location");
         if (!view) throw fail();
-        const destination = view.resolveNavigation(target);
+        // KF8/AZW3 books resolve kindle:pos:... hrefs asynchronously. Calling
+        // foliate's view.goTo() directly hands a Promise to the renderer and
+        // silently fails, so resolve first and give the renderer the object.
+        let destination = view.resolveNavigation(target);
+        if (destination?.then) destination = await destination;
         if (!Number.isInteger(destination?.index) || destination.index < 0 || destination.index >= this.#book.sections.length) throw fail();
-        const resolved = await view.goTo(target);
+        const resolved = await view.renderer.goTo(destination);
         if (this.#view !== view) throw Object.assign(new Error("Reader closed"), { name: "AbortError" });
-        // Foliate can silently ignore an invalid or locked destination.
+        // Keep foliate's back/forward history semantics after a successful jump.
+        try { view.history?.pushState?.(target); } catch { /* history is optional */ }
+        // Foliate can silently ignore an invalid or locked destination. Its
+        // renderer does not necessarily return a value on a successful jump,
+        // so the rendered section is the reliable proof of success.
         const contents = view.renderer?.getContents?.() || [];
-        if (!resolved || !contents.some(({ doc, index }) => doc && (view.isFixedLayout || index === destination.index))) throw fail();
-        return resolved;
+        if (!contents.some(({ doc, index }) => doc && (view.isFixedLayout || index === destination.index))) throw fail();
+        return resolved || destination;
     }
     async goToFraction(fraction) {
         if (!Number.isFinite(fraction)) throw new Error("Could not navigate to book location");
         return this.goTo({ fraction: Math.max(0, Math.min(1, fraction)) });
     }
-    async goToTocItem(item) { return this.goTo(item?.href ?? item); }
+    async goToTocItem(item) {
+        const target = item && typeof item === "object" ? (item.cfi || item.href) : item;
+        return this.goTo(target);
+    }
 
     currentLocation() {
         return this.#view?.lastLocation ?? null;
+    }
+
+    // Loads section documents for tools that need to inspect the whole book
+    // (for example a printed table-of-contents page). These documents are the
+    // same ones Foliate creates for search; they are not mounted in the view.
+    async sectionDocuments() {
+        const sections = this.#book?.sections ?? [];
+        const out = [];
+        for (let index = 0; index < sections.length; index += 1) {
+            const createDocument = sections[index]?.createDocument;
+            if (!createDocument) continue;
+            try {
+                out.push({
+                    index,
+                    id: sections[index]?.id ?? "",
+                    doc: await createDocument(),
+                });
+            } catch {
+                // A malformed section must not make the other sections
+                // unavailable to the TOC builder.
+            }
+        }
+        return out;
     }
 
     // CFI for a DOM range inside a rendered section document — used by the

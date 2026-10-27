@@ -81,16 +81,21 @@ export function ocrCommand(settings = {}) {
 }
 
 // MinerU writes a layout JSON somewhere under the output folder; that file is
-// what hybrid mode consumes as its text source.
-function findLayoutSource(dir) {
+// what hybrid mode consumes as its text source. MinerU versions differ in how
+// deeply they nest the result (`out/layout.json`, `out/mineru/layout.json`, or
+// `out/mineru/mineru/layout.json`), so search a few levels rather than only the
+// first one. Missing this made every scanned-book open start another expensive
+// MinerU job.
+export function findLayoutSource(dir, depth = 0) {
+  if (!dir || depth > 3) return "";
   const direct = path.join(dir, "layout.json");
   if (fs.existsSync(direct)) return direct;
   let entries = [];
   try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return ""; }
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    const candidate = path.join(dir, entry.name, "layout.json");
-    if (fs.existsSync(candidate)) return candidate;
+    const nested = findLayoutSource(path.join(dir, entry.name), depth + 1);
+    if (nested) return nested;
   }
   for (const entry of entries) {
     if (!entry.isFile() || !/_model\.json$/i.test(entry.name)) continue;

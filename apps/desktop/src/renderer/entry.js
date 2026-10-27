@@ -1,4 +1,4 @@
-import { configureHost, createApp, installDomExtensions } from "obsidian";
+import { Notice, configureHost, createApp, installDomExtensions } from "obsidian";
 import { marked } from "marked";
 
 import QiaomuBookReader from "../../../../packages/reader/src/main.js";
@@ -6,9 +6,13 @@ import { READER_THEMES, migrateReaderTheme } from "../../../../packages/reader/s
 import { setIconProvider } from "../../../../packages/reader/src/reader-icons.js";
 import { isBookFile } from "../shared/books.js";
 import { iconResolver, rasterIconMarkup } from "./icons.js";
-import { renderMathIn } from "./math.js";
+import { protectLatexDelimiters, renderMathIn, restoreLatexDelimiters } from "./math.js";
 import { isBlockedHref, sanitizeHtml } from "./sanitize.js";
 import { createHomeView, createNoteView, createSettingsView, createTocView, createWorkshopView } from "./views.js";
+import { createQuizView } from "./quiz-view.js";
+import { createQuizListView } from "./quiz-list-view.js";
+import { openWorkshopCapabilitiesModal } from "./workshop-capabilities-view.js";
+import { workshopCapabilitiesFor } from "../shared/workshop-capabilities.js";
 
 const bridge = window.qbrDesktop || { paths: {} };
 const READER_VIEW = "qiaomu-reader";
@@ -18,9 +22,13 @@ const NOTE_VIEW = "qbr-note";
 const TOC_VIEW = "qbr-toc";
 const SETTINGS_VIEW = "qbr-settings";
 const WORKSHOP_VIEW = "qbr-workshop";
+const QUIZ_VIEW = "qbr-quiz";
+const QUIZ_LIST_VIEW = "qbr-quiz-list";
 
 function renderMarkdown(markdown) {
-  return sanitizeHtml(document, marked.parse(String(markdown || "")));
+  const protectedSource = protectLatexDelimiters(markdown);
+  const html = sanitizeHtml(document, marked.parse(String(protectedSource || "")));
+  return restoreLatexDelimiters(html);
 }
 
 function setOpening(visible, name = "", hint = "正在打开…") {
@@ -225,7 +233,7 @@ async function boot() {
   async function openBook(filePath) {
     if (!filePath) return false;
     if (!isBookFile(filePath)) {
-      showError(`不支持的格式：${filePath}\n支持：epub、pdf、fb2、fbz、mobi、azw、azw3、cbz`);
+      showError(`不支持的格式：${filePath}\n支持：epub、pdf、fb2、fbz、mobi、azw、azw3、cbz、png、jpg、jpeg、webp、gif、bmp`);
       return false;
     }
     const normalized = String(filePath).replace(/\\/g, "/");
@@ -282,6 +290,40 @@ async function boot() {
     return true;
   }
 
+  function absoluteQuizPath(filePath) {
+    const path = String(filePath || "").replace(/\\/g, "/");
+    if (/^[A-Za-z]:\//.test(path) || path.startsWith("/")) return path;
+    const root = String(bridge.paths?.vaultRoot || "").replace(/\\/g, "/").replace(/\/+$/, "");
+    return root ? `${root}/${path.replace(/^\/+/, "")}` : path;
+  }
+
+  async function openQuiz(filePath) {
+    if (!filePath) return false;
+    const leaf = app.workspace.getLeaf("tab");
+    await leaf.setViewState({
+      type: QUIZ_VIEW,
+      state: { path: absoluteQuizPath(filePath) },
+      active: true,
+    });
+    await app.workspace.revealLeaf(leaf);
+    return true;
+  }
+  window.qbrOpenQuiz = (filePath) => void openQuiz(filePath);
+
+  async function openQuizList() {
+    const existing = app.workspace.getLeavesOfType(QUIZ_LIST_VIEW)[0];
+    if (existing) {
+      try { await existing.view?.render?.(true); } catch { /* keep the existing list usable */ }
+      await app.workspace.revealLeaf(existing);
+      return true;
+    }
+    const leaf = app.workspace.getLeaf("tab");
+    await leaf.setViewState({ type: QUIZ_LIST_VIEW, active: true });
+    await app.workspace.revealLeaf(leaf);
+    return true;
+  }
+  window.qbrOpenQuizList = () => openQuizList();
+
   async function pickAndOpen() {
     const filePath = await bridge.openBookDialog?.();
     if (filePath) await openBook(filePath);
@@ -301,6 +343,8 @@ async function boot() {
   app.viewFactories.set(SETTINGS_VIEW, (leaf) => createSettingsView(leaf, { plugin }));
   app.viewFactories.set(TOC_VIEW, (leaf) => createTocView(leaf, { app }));
   app.viewFactories.set(WORKSHOP_VIEW, (leaf) => createWorkshopView(leaf, { app, plugin }));
+  app.viewFactories.set(QUIZ_VIEW, (leaf) => createQuizView(leaf, { app, plugin }));
+  app.viewFactories.set(QUIZ_LIST_VIEW, (leaf) => createQuizListView(leaf, { app, plugin }));
 
   async function showOwnView(type) {
     const existing = app.workspace.getLeavesOfType(type);
@@ -312,6 +356,131 @@ async function boot() {
     await leaf.setViewState({ type });
     return leaf.view;
   }
+
+  async function openWorkshopCapability(capability) {
+    if (!capability) return false;
+    if (capability.action === "ai-prompt" && typeof plugin.primeAiPrompt === "function") {
+      return plugin.primeAiPrompt(capability.prompt || capability.title || "");
+    }
+    if (plugin.settings?.workshopEnabled === false) return false;
+    const view = await showOwnView(WORKSHOP_VIEW);
+    if (typeof view?.openCapability === "function") view.openCapability(capability);
+    else view?.selectTool?.(capability.tool || "tasks");
+    return true;
+  }
+
+  // Shared entry points for the AI sidebar and native notifications. They only
+  // navigate and preselect an outcome; starting work still happens in workshop.
+  window.qbrOpenWorkshop = async (target = "tasks", options = {}) => {
+    if (plugin.settings?.workshopEnabled === false) return false;
+    const view = await showOwnView(WORKSHOP_VIEW);
+    if (options?.taskId && typeof view?.focusTask === "function") view.focusTask(String(options.taskId));
+    else if (target && typeof target === "object") await openWorkshopCapability(target);
+    else view?.selectTool?.(String(target || "tasks"));
+    return true;
+  };
+
+  plugin.workshopCapabilities = ({ extension = "", readerView = null } = {}) => workshopCapabilitiesFor({ extension, readerView });
+  plugin.openWorkshopCapabilities = ({ extension = "", readerView = null, inAi = false } = {}) => {
+    if (!inAi && plugin.settings?.workshopEnabled === false) return;
+    openWorkshopCapabilitiesModal(app, {
+      extension,
+      readerView,
+      actionLabel: inAi ? "问 AI" : "去书坊",
+      lead: inAi
+        ? "点一下，我会直接在对话里和你确认参数；不会自动开始，也不会跳转页面。"
+        : "这些操作会用于当前文档，不会自动开始；选择后会先确认参数。",
+      onPick: (capability) => {
+        if (capability.action === "export-toc" && readerView
+          && (typeof readerView.exportNavigationCopy === "function" || typeof readerView.exportEpubWithToc === "function")) {
+          const exportAction = readerView.exportNavigationCopy || readerView.exportEpubWithToc;
+          void exportAction.call(readerView);
+        } else if (inAi) {
+          const prompt = capability.prompt || `我想${capability.title}。`;
+          void plugin.askAiPrompt?.(prompt);
+        } else {
+          void openWorkshopCapability(capability);
+        }
+      },
+    });
+  };
+  plugin.openWorkshopCapability = (capability) => openWorkshopCapability(capability);
+
+  bridge.workshop?.onOpenTask?.((taskId) => {
+    void window.qbrOpenWorkshop("tasks", { taskId });
+  });
+  const workshopStartedAt = Date.now();
+  const finishedTaskIds = new Set();
+  const announceFinishedTask = (task = {}) => {
+    const id = String(task.id || "");
+    if (id && finishedTaskIds.has(id)) return;
+    if (id) finishedTaskIds.add(id);
+    // Keep AI completions for the current app session even when the card was
+    // placed successfully. Re-rendering a sidebar rebuilds its DOM and would
+    // otherwise drop the only copy of the card.
+    if (task.origin === "assistant") {
+      plugin._aiTaskCompletions ||= [];
+      if (task.id && !plugin._aiTaskCompletions.some((item) => item.id === task.id)) {
+        plugin._aiTaskCompletions.push(task);
+        if (plugin._aiTaskCompletions.length > 10) plugin._aiTaskCompletions.splice(0, plugin._aiTaskCompletions.length - 10);
+      }
+    }
+    try {
+      for (const leaf of app.workspace.getLeavesOfType("qiaomu-book-reader-ai-chat")) {
+        const aiView = leaf?.view;
+        if (task.origin === "assistant" && typeof aiView?.showWorkshopTaskFinished === "function") {
+          aiView.showWorkshopTaskFinished(task);
+        }
+      }
+    } catch (error) {
+      console.warn("[qbr] could not place the task card in the AI conversation", error);
+    }
+    const output = String(task.output || "").replace(/\\/g, "/").split("/").filter(Boolean).pop() || "";
+    const message = task.status === "done"
+      ? `处理完成：${task.title || "任务"}${output ? `（${output}）` : ""}`
+      : `处理未完成：${task.title || "任务"}，可在任务里查看原因。`;
+    new Notice(message, 8000);
+  };
+  bridge.workshop?.onFinished?.((task = {}) => announceFinishedTask(task));
+  // Event delivery is the fast path, but a task that finishes while the
+  // renderer is rebuilding (or after a reload) must not be silent. Poll the
+  // queue as a deduplicated fallback; the 10s cadence keeps idle CPU/IO low.
+  let workshopPolling = false;
+  const pollWorkshop = async () => {
+    if (workshopPolling || !bridge.workshop?.list) return;
+    workshopPolling = true;
+    try {
+      const state = await bridge.workshop.list();
+      for (const task of state?.tasks || []) {
+        if (task.status !== "done" && task.status !== "failed") continue;
+        // Also pick up a task that finished moments before a reload, so a
+        // restart cannot turn a just-finished job into silence.
+        if (Number(task.finishedAt) < workshopStartedAt - 15 * 60_000) continue;
+        announceFinishedTask(task);
+      }
+    } catch {
+      // the next tick retries
+    } finally {
+      workshopPolling = false;
+    }
+  };
+  const flushAiTaskCompletions = () => {
+    if (!plugin._aiTaskCompletions?.length) return;
+    for (const leaf of app.workspace.getLeavesOfType("qiaomu-book-reader-ai-chat")) {
+      try { leaf?.view?._flushTaskCompletions?.(); } catch { /* view is rebuilding */ }
+    }
+  };
+  void pollWorkshop();
+  const workshopPoll = window.setInterval(() => {
+    void pollWorkshop();
+    // A mounted-but-hidden sidebar may not get a render event when it becomes
+    // visible. Re-apply queued completions on the same fallback cadence.
+    flushAiTaskCompletions();
+  }, 10000);
+  app.workspace.on("active-leaf-change", flushAiTaskCompletions);
+  app.workspace.on("layout-change", flushAiTaskCompletions);
+  window.addEventListener("focus", flushAiTaskCompletions);
+  window.addEventListener("beforeunload", () => window.clearInterval(workshopPoll), { once: true });
 
   async function showRoute(route) {
     // The AI companion is part of the reading session; any route away from the
@@ -449,7 +618,7 @@ async function boot() {
     const route = type === LIBRARY_VIEW ? "library"
       : type === SETTINGS_VIEW ? "settings"
         : type === WORKSHOP_VIEW ? "workshop"
-          : type === HOME_VIEW ? "home" : "";
+          : type === HOME_VIEW || type === QUIZ_LIST_VIEW ? "home" : "";
     for (const button of navButtons) button.classList.toggle("is-active", button.dataset.route === route);
   }
   app.workspace.on("active-leaf-change", syncChrome);

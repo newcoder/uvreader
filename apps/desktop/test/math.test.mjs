@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM } from "jsdom";
+import { marked } from "marked";
 
-import { looksLikeMath, renderMathIn } from "../src/renderer/math.js";
+import { looksLikeMath, protectLatexDelimiters, renderMathIn, restoreLatexDelimiters } from "../src/renderer/math.js";
+import { sanitizeHtml } from "../src/renderer/sanitize.js";
 
 function makeElement(html) {
   const { window } = new JSDOM(`<div id="root">${html}</div>`);
@@ -22,6 +24,20 @@ test("inline and display LaTeX become typeset math", () => {
   const display = makeElement("<p>$$|f-g|^2 = |f|^2+|g|^2-2\\mathrm{Re}(f,g) \\geq 0$$</p>");
   renderMathIn(display.element);
   assert.ok(display.element.querySelector(".katex-display math"), "a display formula is centred");
+});
+
+test("backslash LaTeX delimiters survive Markdown escaping and render", () => {
+  const dom = new JSDOM("<div id='root'></div>");
+  globalThis.document = dom.window.document;
+  globalThis.window = dom.window;
+  const markdown = "函数 \\(y=\\cos x\\)，\\(x\\in\\left[-\\dfrac{\\pi}{2},\\dfrac{\\pi}{4}\\right]\\)";
+  const protectedSource = protectLatexDelimiters(markdown);
+  const html = restoreLatexDelimiters(sanitizeHtml(dom.window.document, marked.parse(protectedSource)));
+  const element = dom.window.document.getElementById("root");
+  element.innerHTML = html;
+  renderMathIn(element);
+  assert.equal(element.querySelectorAll("math").length, 2);
+  assert.match(element.textContent, /y=cos/);
 });
 
 test("code blocks keep their dollars and plain text is untouched", () => {

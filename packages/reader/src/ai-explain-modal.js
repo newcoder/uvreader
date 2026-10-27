@@ -6,7 +6,7 @@ import { verifiedQuotes } from "./reading-workflow.js";
 
 export function createAiExplainModal({
   Component, Menu, Modal, Notice, aiExplain, aiExplainStep, aiLogFollowsTail, aiTurnsHaveAttachments, bindAiAttachmentIntake, captureAiScreenshot, bindAiSlashPrompts, bindReaderAiComposer, bookNoteLinkFor, copyToClipboard, createAiChatLog, createAiStreamingMarkdownRenderer, createNoteFromAiAnswer, jumpToAiQuote, newAiSessionKey, normalizeAiTurnContext, noteAiImageFailure, openAiAttachMenu, pickAiAttachments, prepareAiTools, prepareAiTurns, qiaomuReaderTranslate,
-  readerAiPosition, readerHud, removeAiAttachment, renderAiAttachmentList, renderAiComposerPrompts, renderAiContextQuote, renderAiToolStep, renderAiUserTurn, renderMobileAiHeader, stripAiAttachmentData,
+  readerAiPosition, readerHud, removeAiAttachment, renderAiAttachmentList, renderAiComposerPrompts, renderAiContextQuote, renderAiToolStep, renderAiWorkshopPreview, renderAiUserTurn, renderMobileAiHeader, stripAiAttachmentData,
 }) {
   // How many tool-call rounds a single question may take before the model has
   // to answer with what it already read.
@@ -251,6 +251,7 @@ export function createAiExplainModal({
     this.busy = true;
     this.abortController = new AbortController();
     this._setSending(true);
+    this._pendingWorkshopPreview = null;
     for (const button of this.log.querySelectorAll(".qiaomu-reader-ai-regenerate")) button.remove();
     if (this.empty) { this.empty.remove(); this.empty = null; }
     const attachedContext = normalizeAiTurnContext(this.pendingContext);
@@ -334,6 +335,17 @@ export function createAiExplainModal({
       this._scroll();
       return next;
     };
+    const workshopTurnFields = (pending) => pending ? {
+      ...(pending.preview ? { workshopPreview: pending.preview } : {}),
+      ...(pending.confirmation ? { workshopConfirmation: pending.confirmation } : {}),
+      ...(pending.id ? { workshopPreviewId: pending.id } : {}),
+    } : {};
+    const flushWorkshopPreview = (host = this.log) => {
+      const pending = this._pendingWorkshopPreview;
+      this._pendingWorkshopPreview = null;
+      if (!pending || typeof renderAiWorkshopPreview !== "function") return;
+      this._pendingPreviewCard = renderAiWorkshopPreview(host, pending, this) || null;
+    };
     let round = null;
     let answer = "";
     try {
@@ -372,6 +384,16 @@ export function createAiExplainModal({
           try { result = await toolSet.run(call.name, call.arguments); }
           catch (error) { result = { text: `工具执行失败：${String(error?.message || error)}`, isError: true }; }
           card.finish(result);
+          if (result?.isError !== true && (result?.preview || result?.confirmation)) {
+            this._pendingWorkshopPreview = {
+              id: call?.id || "",
+              preview: result.preview || null,
+              confirmation: result.confirmation || {
+                operation: call?.arguments?.operation,
+                label: "确认开始",
+              },
+            };
+          }
           // Pages the tool rendered travel on as image content blocks.
           this.turns.push({
             role: "tool",
@@ -395,7 +417,13 @@ export function createAiExplainModal({
       this.aiSessionKey = newAiSessionKey();
       if (round.answer.trim()) {
         await round.markdownRenderer.finish(round.answer);
-        this.turns.push({ role: "assistant", content: round.answer, interrupted: true });
+        const pendingWorkshop = this._pendingWorkshopPreview;
+        this.turns.push({
+          role: "assistant",
+          content: round.answer,
+          interrupted: true,
+          ...workshopTurnFields(pendingWorkshop),
+        });
         this._finishAttachments(userTurn);
         this._consumePendingContext(attachedContext);
         round.bubble.removeClass("qiaomu-reader-ai-msg-streaming");
@@ -405,6 +433,7 @@ export function createAiExplainModal({
         else round.reasoningBox.remove();
         round.group.createDiv({ cls: "qiaomu-reader-ai-interrupted", text: qiaomuReaderTranslate("reply-interrupted-generated-content-has-been-kept") });
         this._actions(round.group, round.answer, { question: text, context: attachedContext, turn: userTurn });
+        flushWorkshopPreview(round.group);
         if (this.activeMarkdownRenderer === round.markdownRenderer) this.activeMarkdownRenderer = null;
         this.busy = false;
         this.abortController = null;
@@ -452,6 +481,7 @@ export function createAiExplainModal({
                   : why === "emptyanswer" ? qiaomuReaderTranslate("the-model-returned-reasoning-but-no-final-answer-try-again")
                   : why === "http" ? qiaomuReaderTranslate("the-service-answered-with-error-0", e.qiaomuReaderStatus)
                     : qiaomuReaderTranslate("could-not-reach-the-service-it-looks-like-there-is-no-internet-c"));
+      flushWorkshopPreview(round.group);
       if (why !== "cancelled") {
         const retryRow = round.group.createDiv("qiaomu-reader-ai-acts qiaomu-reader-ai-error-actions");
         const retry = retryRow.createEl("button", { cls: "qiaomu-reader-ai-act" });
@@ -474,7 +504,12 @@ export function createAiExplainModal({
       this._setSending(false);
       return false;
     }
-    this.turns.push({ role: "assistant", content: answer });
+    const pendingWorkshop = this._pendingWorkshopPreview;
+    this.turns.push({
+      role: "assistant",
+      content: answer,
+      ...workshopTurnFields(pendingWorkshop),
+    });
     this._finishAttachments(userTurn);
     this._consumePendingContext(attachedContext);
     this.answer = answer;
@@ -491,6 +526,7 @@ export function createAiExplainModal({
     await round.markdownRenderer.finish(answer);
     if (this.activeMarkdownRenderer === round.markdownRenderer) this.activeMarkdownRenderer = null;
     this._actions(round.group, answer, { question: text, context: attachedContext });
+    flushWorkshopPreview(round.group);
     if (followTail && !this._readingEarlier) this._scroll();
     this.busy = false;
     this.abortController = null;

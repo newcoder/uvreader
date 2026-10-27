@@ -68,10 +68,17 @@ test("aiSetupMessage maps every setup reason to a translation key", () => {
   assert.equal(ctx.aiSetupMessage({ reason: "" }), "choose-an-ai-service-and-complete-the-connection-test-then-selec");
 });
 
+test("the default quick prompts are the three common actions", () => {
+  const prompts = makeContext().defaultAiQuickPrompts();
+  assert.deepEqual(prompts.map((item) => item.name), ["explain-it", "summarize-key-points", "document-tools"]);
+  assert.equal(prompts[2].prompt, "文档工具");
+  assert.equal(prompts[2].command, true);
+});
+
 test("quick prompts translate the default set without sharing state", () => {
   const ctx = makeContext();
   const prompts = ctx.aiQuickPrompts();
-  assert.equal(prompts.length, 6);
+  assert.equal(prompts.length, 3);
   assert.equal(prompts[0].name, "explain-it");
   assert.equal(prompts[0].prompt, "explain-this-passage-in-simple-easy-to-understand-language");
   prompts[0].name = "mutated";

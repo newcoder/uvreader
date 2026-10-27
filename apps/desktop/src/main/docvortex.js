@@ -3,15 +3,18 @@
 // PATH 上的 docvortex → 配置的 python -m docvortex。
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 import { cleanedPdfFor, createPdfCleaner } from "./pdf-text.js";
+import { docvortexPython, imageToPdf, imagesToPdf } from "./image-pdf.js";
 import { restoreDocxLists } from "./docx-numbering.js";
 import { escapeHtml, mathScript, stripMathDelimiters } from "./formula-html.js";
 import { rewriteHtmlMath } from "./html-math.js";
 import { markdownToHtml, textToHtml } from "./text-book.js";
 import { removeFile, uniqueFile } from "./paths.js";
 import { DOCVORTEX_FORMATS, docvortexFormatExt, textSourceKind } from "../shared/workshop-formats.js";
+import { extractionKind } from "../shared/extract-formats.js";
 import { decodeText } from "../shared/text-encoding.js";
 import { convertPath } from "../shared/workshop-names.js";
 
@@ -190,7 +193,7 @@ export function createDocvortex({ spawnImpl = spawn, timeoutMs = 10 * 60_000, pr
   return { probe, convert, run };
 }
 
-export function registerDocvortexRunners(workshop, { docvortex, vaultRoot = "", cacheRoot = "", cleaner = createPdfCleaner(), log = (...args) => console.log(...args) } = {}) {
+export function registerDocvortexRunners(workshop, { docvortex, vaultRoot = "", cacheRoot = "", cleaner = createPdfCleaner(), log = (...args) => console.log(...args), spawnImpl = spawn } = {}) {
   const absolute = (raw) => {
     const value = String(raw || "");
     return path.isAbsolute(value) ? value : path.join(vaultRoot, value);
@@ -213,18 +216,45 @@ export function registerDocvortexRunners(workshop, { docvortex, vaultRoot = "", 
     const out = uniqueFile(payload?.out
       ? absolute(payload.out)
       : absolute(convertPath(payload?.source, docvortexFormatExt(format))));
-    // 这条链路不经过 pdf_tool,PDF 的页眉页脚 / 页码 / 水印由我们先擦掉
-    // (经过 pdf_tool 的链路由 pdf_tool 侧负责)。
-    const input = await cleanedPdfFor(source, { cleaner, settings, cacheRoot, signal, log });
+    const imageInput = extractionKind(source) === "image";
+    // 图片转 PDF 直接保留像素/页面,不经过 DocVortex 的文档重排。
+    if (imageInput && format === "pdf") {
+      report({ label: "图片转 PDF" });
+      const made = await imagesToPdf([source], out, { python: docvortexPython(settings), signal, log, spawnImpl });
+      if (signal.aborted) throw new Error("任务已取消");
+      if (!made.ok) throw new Error(`图片转 PDF 失败：${made.error}（需要 Pillow：pip install pillow）`);
+      return { output: out, detail: `PDF · ${path.basename(out)}` };
+    }
+    let tempPdf = "";
+    let input = "";
+    if (imageInput) {
+      // DocVortex converts documents, not standalone images: wrap the image
+      // into a temporary single-page PDF and let its OCR read that.
+      report({ label: "图片转 PDF" });
+      tempPdf = path.join(os.tmpdir(), `uvreader-image-${Date.now().toString(36)}.pdf`);
+      const made = await imageToPdf(source, tempPdf, { python: docvortexPython(settings), signal, log, spawnImpl });
+      if (!made.ok) throw new Error(`图片转 PDF 失败：${made.error}（需要 Pillow：pip install pillow）`);
+      input = tempPdf;
+    } else {
+      // 这条链路不经过 pdf_tool,PDF 的页眉页脚 / 页码 / 水印由我们先擦掉
+      // (经过 pdf_tool 的链路由 pdf_tool 侧负责)。
+      input = await cleanedPdfFor(source, { cleaner, settings, cacheRoot, signal, log });
+    }
     const kind = textSourceKind(input);
     // Markdown / 纯文本 DocVortex 收不了(见 textSourceHtml):先渲染成 HTML 再转换。
-    const label = kind === "markdown" ? "Markdown 渲染成 HTML" : kind === "text" ? "纯文本渲染成 HTML" : `转换为 ${format}`;
+    const label = imageInput ? `转换为 ${format}` : kind === "markdown" ? "Markdown 渲染成 HTML" : kind === "text" ? "纯文本渲染成 HTML" : `转换为 ${format}`;
     report({ label });
     log("workshop convert", source, "→", out);
     let bridge = "";
     try {
       if (kind) bridge = writeTextSourceBridge(input, { cacheRoot, log });
-      const result = await docvortex.convert(settings, { source: bridge || input, format, out, signal });
+      const result = await docvortex.convert(settings, {
+        source: bridge || input,
+        format,
+        out,
+        signal,
+        parseMode: imageInput ? "ocr" : "",
+      });
       if (signal.aborted) throw new Error("任务已取消");
       if (!result.ok) throw new Error(String(result.error || "转换失败"));
       // 文本源 → docx:DocVortex 的列表是「字面编号 + 缩进」的普通段落,产物里换成
@@ -235,6 +265,9 @@ export function registerDocvortexRunners(workshop, { docvortex, vaultRoot = "", 
       }
       if (format === "html") rewriteHtmlMath(out, { log });
     } finally {
+      if (tempPdf) {
+        try { removeFile(tempPdf); } catch { /* 临时文件,忽略 */ }
+      }
       removeTextSourceBridge(bridge, { log });
     }
     return { output: out, detail: `${format} · ${path.basename(out)}` };

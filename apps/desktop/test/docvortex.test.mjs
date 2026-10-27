@@ -360,6 +360,39 @@ test("the convert runner cleans PDF furniture before DocVortex sees the file", a
   assert.equal(calls[1].source, path.join(dir, "讲义.docx"), "非 PDF 原样交给 DocVortex");
 });
 
+test("the convert runner wraps an image in a temporary PDF before DocVortex OCR", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-docvortex-image-"));
+  const source = path.join(dir, "试卷.png");
+  fs.writeFileSync(source, "png");
+  const calls = [];
+  const { spawnImpl } = fakeSpawn((call, child) => {
+    const out = call.args[call.args.length - 1];
+    fs.writeFileSync(out, "%PDF-1.4 image");
+    child.emit("close", 0);
+  });
+  const queue = createWorkshopQueue({ file: path.join(dir, "tasks.json"), onState: () => {}, log: { warn() {} } });
+  registerDocvortexRunners(queue, {
+    docvortex: {
+      probe: async () => ({ ok: true }),
+      convert: async (_settings, request) => {
+        calls.push({ ...request, existed: fs.existsSync(request.source) });
+        return { ok: true, out: request.out };
+      },
+    },
+    vaultRoot: dir,
+    spawnImpl,
+    log: () => {},
+  });
+  const id = queue.start({ kind: "docvortex-convert", title: "文档互转", payload: { source: "试卷.png", format: "markdown", settings: {} } });
+  await sleep(40);
+  const task = await waitForTask(queue, id);
+  assert.equal(task.status, "done", task.error);
+  assert.equal(calls[0].parseMode, "ocr");
+  assert.match(path.basename(calls[0].source), /^uvreader-image-.*\.pdf$/);
+  assert.equal(calls[0].existed, true, "the temporary PDF exists while DocVortex reads it");
+  assert.equal(fs.existsSync(calls[0].source), false, "the temporary PDF is removed afterwards");
+});
+
 test("the probe runner fails the task when docvortex is missing", async () => {
   const { queue } = fakeRunner({
     probe: async () => ({ ok: false, detail: "未找到 docvortex(可 pip install docvortex 或填写路径)" }),

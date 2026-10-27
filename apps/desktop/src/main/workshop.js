@@ -7,6 +7,20 @@ import path from "node:path";
 export const WORKSHOP_HISTORY_LIMIT = 20;
 
 const TERMINAL = new Set(["done", "failed", "cancelled"]);
+const SILENT_KINDS = new Set([
+  "probe",
+  "docvortex-probe",
+  "formula-probe",
+  "calibre-probe",
+  "extract-probe",
+  "engine-install",
+  "engine-component",
+]);
+
+export function shouldNotifyWorkshopTask(kind) {
+  const value = String(kind || "");
+  return Boolean(value) && !SILENT_KINDS.has(value) && !value.endsWith("-probe");
+}
 
 class CancelledError extends Error {
   constructor() {
@@ -16,7 +30,7 @@ class CancelledError extends Error {
   }
 }
 
-export function createWorkshopQueue({ file = "", onState = () => {}, log = console } = {}) {
+export function createWorkshopQueue({ file = "", onState = () => {}, onFinished = () => {}, log = console } = {}) {
   const tasks = []; // newest first
   const byId = new Map();
   const queue = []; // ids waiting to run
@@ -30,7 +44,9 @@ export function createWorkshopQueue({ file = "", onState = () => {}, log = conso
       kind: task.kind,
       title: task.title,
       detail: task.detail,
+      bookPath: task.bookPath,
       status: task.status,
+      origin: task.origin || "user",
       done: task.done,
       total: task.total,
       label: task.label,
@@ -64,8 +80,11 @@ export function createWorkshopQueue({ file = "", onState = () => {}, log = conso
     }
   }
 
-  function emit() {
-    persist();
+  function emit({ save = true } = {}) {
+    // Progress can fire once per PDF page. Only terminal changes belong in the
+    // history file, so saving on every report() would block the main process
+    // with repeated synchronous writes for no benefit.
+    if (save) persist();
     try {
       onState(snapshot());
     } catch (error) {
@@ -82,6 +101,8 @@ export function createWorkshopQueue({ file = "", onState = () => {}, log = conso
         tasks.push({
           ...entry,
           detail: String(entry.detail || ""),
+          bookPath: String(entry.bookPath || ""),
+          origin: entry.origin === "assistant" ? "assistant" : "user",
           label: String(entry.label || ""),
           output: String(entry.output || ""),
           error: String(entry.error || ""),
@@ -117,8 +138,13 @@ export function createWorkshopQueue({ file = "", onState = () => {}, log = conso
       kind,
       title: String(request.title || kind),
       detail: String(request.detail || ""),
+      // The document this task belongs to. Completion messages use it to stay
+      // in that document's AI conversation instead of every open chat.
+      bookPath: String(request.bookPath || ""),
       payload: request.payload ?? null,
       status: "queued",
+      origin: request.origin === "assistant" ? "assistant" : "user",
+      notify: request.notify === false ? false : request.notify === true ? true : shouldNotifyWorkshopTask(kind),
       done: 0,
       total: 0,
       label: "",
@@ -147,6 +173,7 @@ export function createWorkshopQueue({ file = "", onState = () => {}, log = conso
       task.status = "running";
       task.startedAt = Date.now();
       emit();
+      let lastReportAt = 0;
       try {
         const result = await runners.get(task.kind)({
           payload: task.payload,
@@ -155,7 +182,13 @@ export function createWorkshopQueue({ file = "", onState = () => {}, log = conso
             if (typeof progress.done === "number") task.done = progress.done;
             if (typeof progress.total === "number") task.total = progress.total;
             if (progress.label) task.label = String(progress.label);
-            emit();
+            // A page-level runner can report hundreds of times. Coalesce those
+            // UI updates; the final emit in finally always reflects the latest
+            // values.
+            const now = Date.now();
+            if (now - lastReportAt < 100) return;
+            lastReportAt = now;
+            emit({ save: false });
           },
         });
         if (task.controller.signal.aborted) throw new CancelledError();
@@ -172,6 +205,13 @@ export function createWorkshopQueue({ file = "", onState = () => {}, log = conso
         task.finishedAt = Date.now();
         running = null;
         emit();
+        if (task.notify && (task.status === "done" || task.status === "failed")) {
+          try {
+            onFinished(publicTask(task));
+          } catch (error) {
+            log.warn?.("workshop finish listener failed", error);
+          }
+        }
       }
     }
   }
@@ -196,7 +236,7 @@ export function createWorkshopQueue({ file = "", onState = () => {}, log = conso
   function retry(id) {
     const task = byId.get(String(id || ""));
     if (!task || !TERMINAL.has(task.status)) return "";
-    return start({ kind: task.kind, title: task.title, detail: task.detail, payload: task.payload });
+    return start({ kind: task.kind, title: task.title, detail: task.detail, bookPath: task.bookPath, payload: task.payload, notify: task.notify, origin: task.origin });
   }
 
   function clearHistory() {

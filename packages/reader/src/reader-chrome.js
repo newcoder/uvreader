@@ -38,6 +38,7 @@ export function createReaderChrome({
   qiaomuReaderFontLabel,
   ensureBundledReaderFont,
   attachImageToAi = null,
+  saveImage = null,
 }) {
   function attachEngineChrome(view, doc) {
     doc.addEventListener("pointerdown", (event) => {
@@ -661,6 +662,13 @@ export function createReaderChrome({
     const label = button("100%", translate("zoom-actual"), () => options.zoomActual());
     const input = button("＋", translate("zoom-in"), () => options.zoomBy(1));
     const fit = button(translate("zoom-to-fit"), null, () => options.zoomFit());
+    let save = null;
+    if (typeof options.onSave === "function") {
+      save = button(translate("save"), null, () => {
+        save.disabled = true;
+        void Promise.resolve(options.onSave()).finally(() => { save.disabled = false; });
+      });
+    }
     let attach = null;
     if (typeof options.onAttach === "function") {
       attach = button(translate("attach-to-ai"), null, () => {
@@ -672,7 +680,7 @@ export function createReaderChrome({
       });
       attach.addClass("qiaomu-reader-lightbox-attach");
     }
-    return { bar, out, label, input, fit, attach };
+    return { bar, out, label, input, fit, save, attach };
   }
 
   // One entry point for book images: resolve the source, show the viewer and
@@ -686,6 +694,9 @@ export function createReaderChrome({
       doc: doc || docOf(view?.contentEl),
       name: alt || translate("illustration"),
       onAttach: typeof attachImageToAi === "function" ? () => attachImageToAi(view, img) : null,
+      onSave: typeof saveImage === "function"
+        ? () => saveImage(src, { name: alt || translate("illustration"), doc: doc || docOf(view?.contentEl), image: img })
+        : null,
     });
   }
 
@@ -750,6 +761,7 @@ export function createReaderChrome({
       zoomBy: (dir) => { state.touched = true; zoomBy(dir); },
       zoomActual: () => { state.touched = true; zoomActual(); },
       zoomFit: () => { state.touched = true; fitToWindow(); },
+      onSave: options.onSave,
       onAttach: options.onAttach,
       dismiss,
     });

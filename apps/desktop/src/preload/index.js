@@ -108,6 +108,9 @@ window.qbrDesktop = {
     calibre: (settings) => ipcRenderer.invoke("qbr:probe:calibre", settings),
     engine: (settings) => ipcRenderer.invoke("qbr:probe:engine", settings),
   },
+  calibre: {
+    convert: (payload) => ipcRenderer.invoke("qbr:calibre:convert", payload),
+  },
   // 书坊引擎自己的配置(单一来源在引擎):应用只做 UI。
   engine: {
     config: (settings) => ipcRenderer.invoke("qbr:engine:config", settings),
@@ -132,6 +135,20 @@ window.qbrDesktop = {
       ipcRenderer.on("qbr:workshop:state", listener);
       return () => ipcRenderer.removeListener("qbr:workshop:state", listener);
     },
+    onOpenTask: (callback) => {
+      const listener = (_event, taskId) => callback(String(taskId || ""));
+      ipcRenderer.on("qbr:workshop:open-task", listener);
+      return () => ipcRenderer.removeListener("qbr:workshop:open-task", listener);
+    },
+    onFinished: (callback) => {
+      const listener = (_event, task) => callback(task);
+      ipcRenderer.on("qbr:workshop:finished", listener);
+      return () => ipcRenderer.removeListener("qbr:workshop:finished", listener);
+    },
+  },
+  quiz: {
+    prepare: (html) => ipcRenderer.invoke("qbr:quiz:prepare", html),
+    discard: (target) => ipcRenderer.invoke("qbr:quiz:discard", target),
   },
   ai: {
     stream: (payload, onEvent) => {
@@ -149,5 +166,8 @@ window.qbrDesktop = {
     pickFiles: () => ipcRenderer.invoke("qbr:ai:pick-files"),
     readFile: (target) => ipcRenderer.invoke("qbr:ai:read-file", target),
     captureRegion: (rect) => ipcRenderer.invoke("qbr:ai:capture-region", rect),
+  },
+  image: {
+    save: (payload) => ipcRenderer.invoke("qbr:image:save", payload),
   },
 };

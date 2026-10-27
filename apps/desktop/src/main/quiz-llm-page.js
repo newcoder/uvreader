@@ -7,6 +7,7 @@ import path from "node:path";
 import temml from "temml";
 
 import { QUIZ_LLM_PROMPT } from "../../../../packages/reader/src/quiz-llm-prompt.js";
+import { extractQuizManifest, quizLayoutStyle, quizManifestGuardScript, quizManifestScript, validateQuizManifest } from "../../../../packages/reader/src/quiz-manifest.js";
 
 const IMAGE_MIME = {
   png: "image/png",
@@ -187,9 +188,13 @@ function hideGenerated(html, stats) {
     var blocks = Array.prototype.slice.call(document.querySelectorAll('[data-source="generated"]'));
     var covers = document.querySelectorAll('style[data-llm-generated-hidden]');
     function reveal(){ Array.prototype.forEach.call(covers, function(cover){ cover.remove(); }); blocks.forEach(function(b){ b.hidden=false; b.style.display=''; }); }
+    function hide(){ Array.prototype.forEach.call(covers, function(cover){ cover.remove(); }); blocks.forEach(function(b){ b.hidden=true; b.style.display='none'; }); }
     document.addEventListener('click', function(event){
       var button = event.target && event.target.closest ? event.target.closest('button') : null;
-      if (button && /交卷|提交/.test(button.textContent || '')) setTimeout(reveal, 0);
+      if (!button) return;
+      var text = button.textContent || '';
+      if (/交卷|提交/.test(text)) setTimeout(reveal, 0);
+      if (/重新答题|重置|重做/.test(text)) setTimeout(hide, 0);
     }, true);
   })();</script>`;
   output = output.replace(/<\/head>/i, `${style}</head>`);
@@ -259,6 +264,50 @@ function liftInlineSolutions(html, stats) {
   });
 }
 
+function enhanceQuizUi(html) {
+  if (/data-quiz-ui-enhance/i.test(html)) return html;
+  const script = `<script data-quiz-ui-enhance>(function(){
+    function buttonFrom(target){ return target && target.closest ? target.closest('button,[role="button"]') : null; }
+    function findReset(){
+      var buttons = document.querySelectorAll('button,[role="button"]');
+      for (var i=0;i<buttons.length;i++) {
+        if (/重新答题|重新作答|重置|重做/.test(buttons[i].textContent || '')) return buttons[i];
+      }
+      return null;
+    }
+    var reset = findReset();
+    if (!reset) {
+      var header = document.querySelector('header,.topbar,.top-bar,.toolbar,.quiz-header');
+      if (header) {
+        reset = document.createElement('button');
+        reset.type = 'button';
+        reset.className = 'quiz-reset-fallback';
+        reset.textContent = '重新答题';
+        reset.style.cssText = 'margin-left:8px;border:1px solid currentColor;border-radius:999px;background:transparent;color:inherit;padding:4px 12px;font:inherit;cursor:pointer';
+        reset.addEventListener('click', function(){ location.reload(); });
+        header.appendChild(reset);
+      }
+    }
+    function moveResult(){
+      var result = document.querySelector('#result,.result,.result-summary,.score-summary,.score-card');
+      var nav = document.querySelector('aside,.answer-card,.question-nav,.question-navigation,#answer-card');
+      if (!result || !nav || nav.contains(result)) return;
+      var heading = nav.querySelector('h1,h2,h3,h4');
+      nav.insertBefore(result, heading || nav.firstChild);
+    }
+    document.addEventListener('click', function(event){
+      var button = buttonFrom(event.target);
+      if (!button) return;
+      if (/交卷|提交/.test(button.textContent || '')) {
+        setTimeout(moveResult, 50);
+        setTimeout(moveResult, 300);
+      }
+    }, true);
+  })();</script>`;
+  const output = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${script}</body>`) : `${html}${script}`;
+  return output;
+}
+
 function addMissingElements(html, stats) {
   const ids = [...html.matchAll(/getElementById\(\s*['"]([^'"]+)['"]\s*\)/g)].map((match) => match[1]);
   let output = html;
@@ -287,12 +336,39 @@ export function postprocessQuizLlmHtml(html, { baseDir = "", dropImages = [] } =
     inlineSolutions: 0,
   };
   let output = String(html || "");
+  const manifest = extractQuizManifest(output);
   output = convertMathOutsideProtectedTags(output, stats);
   output = formatCodeBlocks(output, stats);
   output = decorateBlanks(output, stats);
   output = addMissingElements(output, stats);
   output = liftInlineSolutions(output, stats);
   output = hideGenerated(output, stats);
+  output = enhanceQuizUi(output);
   output = inlineImages(output, { baseDir, dropImages }, stats);
+  // Keep the manifest byte-for-byte semantic after the HTML transforms above;
+  // formatCodeBlocks/inlineImages must not rewrite JSON stored in the page.
+  if (manifest) {
+    const withoutManifest = output.replace(
+      /<script\b[^>]*\bid\s*=\s*(["'])quiz-manifest\1[^>]*>[\s\S]*?<\/script\s*>/gi,
+      "",
+    );
+    output = /<\/head>/i.test(withoutManifest)
+      ? withoutManifest.replace(/<\/head>/i, `${quizManifestScript(manifest)}</head>`)
+      : `${quizManifestScript(manifest)}${withoutManifest}`;
+  }
+  const validation = manifest
+    ? validateQuizManifest(manifest, { html: output, checkHtml: true, allowMissingAnswers: true })
+    : { ok: false, errors: ["quiz-manifest is missing"] };
+  stats.manifest = Boolean(manifest);
+  stats.manifestErrors = validation.errors;
+  stats.manifestWarnings = validation.warnings || [];
+  if (!/data-qbr-quiz-layout/i.test(output)) {
+    const layout = quizLayoutStyle();
+    output = /<\/head>/i.test(output) ? output.replace(/<\/head>/i, `${layout}</head>`) : `${layout}${output}`;
+  }
+  if (manifest) {
+    const guard = quizManifestGuardScript();
+    output = /<\/body>/i.test(output) ? output.replace(/<\/body>/i, `${guard}</body>`) : `${output}${guard}`;
+  }
   return { html: output, stats };
 }

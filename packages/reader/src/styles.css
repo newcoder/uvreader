@@ -128,6 +128,10 @@ img.qiaomu-reader-pdf-lazy:not([data-loaded="1"]) { background:color-mix(in srgb
    the shadow host carrying it must be stretched across the reading area. */
 .qiaomu-reader-engine-host { flex:1; min-width:0; min-height:0; position:relative; overflow:hidden; background:var(--qiaomu-reader-bg,#faf8f3); }
 .qiaomu-reader-engine-host > * { display:block; width:100%; height:100%; margin:0; border:0; padding:0; }
+/* A standalone image is not paginated: its page covers the whole reading area
+   and the image-zoom controller positions the bitmap inside it. */
+.qiaomu-reader-image-page { position:absolute; inset:0; overflow:hidden; background:var(--qiaomu-reader-bg,#faf8f3); touch-action:none; }
+.qiaomu-reader-image-page > img { display:block; }
 .qiaomu-reader-marea { margin:0; border:none; border-radius:0; box-shadow:none; background:transparent; }
 .qiaomu-reader-clip { position:relative; overflow:hidden; flex-shrink:0; }
 .qiaomu-reader-flow { overflow:hidden; }
@@ -464,7 +468,7 @@ button.qiaomu-reader-py-chip:focus-visible { outline:2px solid color-mix(in srgb
 
 /* ── Confirm dialog and the saved-highlights list ────────────────────────── */
 .qiaomu-reader-confirm-modal .qiaomu-reader-confirm-title { font-size:1.05em; font-weight:700; margin-bottom:8px; }
-.qiaomu-reader-confirm-modal .qiaomu-reader-confirm-body { opacity:.85; line-height:1.5; margin-bottom:18px; }
+.qiaomu-reader-confirm-modal .qiaomu-reader-confirm-body { opacity:.85; line-height:1.5; margin-bottom:18px; white-space:pre-line; }
 .qiaomu-reader-confirm-modal .qiaomu-reader-confirm-btns { display:flex; justify-content:flex-end; gap:10px; }
 .qiaomu-reader-confirm-modal .qiaomu-reader-confirm-yes { background:var(--interactive-accent); color:var(--text-on-accent); font-weight:600; }
 .qiaomu-reader-confirm-modal .qiaomu-reader-confirm-no { background:var(--background-modifier-border); }
@@ -1146,6 +1150,27 @@ html.qbr-split-dragging .qiaomu-reader-relayouting .qiaomu-reader-area { filter:
 .qiaomu-reader-ai-empty-icon svg { width: 28px; height: 28px; }
 .qiaomu-reader-ai-empty-title { font-weight: 600; color: var(--text-normal); }
 .qiaomu-reader-ai-empty-sub { font-size: var(--font-ui-smaller); color: var(--text-muted); max-width: 280px; line-height: 1.5; }
+.qiaomu-reader-ai-workshop { align-self: stretch; width: 100%; max-width: 340px; margin-top: var(--size-4-3); text-align: left; }
+.qiaomu-reader-ai-workshop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.qiaomu-reader-ai-workshop-title { font-size: var(--font-ui-small); font-weight: 600; color: var(--text-normal); }
+.qiaomu-reader-ai-workshop-all { padding: 2px 0; border: 0; background: transparent; color: var(--text-accent); font: inherit; font-size: var(--font-ui-smaller); cursor: pointer; }
+.qiaomu-reader-ai-workshop-intro { margin: 4px 0 0; color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.qiaomu-reader-ai-doc-list { display: flex; flex-direction: column; gap: 5px; margin-top: 7px; }
+.qiaomu-reader-ai-doc-row { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 6px 8px; border: 1px solid var(--background-modifier-border); border-radius: 6px; background: var(--background-primary); color: var(--text-normal); font: inherit; font-size: var(--font-ui-smaller); text-align: left; cursor: pointer; }
+.qiaomu-reader-ai-doc-row:hover, .qiaomu-reader-ai-doc-row:focus-visible { border-color: color-mix(in srgb, var(--interactive-accent) 48%, var(--background-modifier-border)); background: var(--background-modifier-hover); }
+.qiaomu-reader-ai-doc-row:disabled { opacity: .48; cursor: default; }
+.qiaomu-reader-ai-doc-number { flex: 0 0 auto; min-width: 18px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.qiaomu-reader-ai-doc-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qiaomu-reader-ai-doc-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.qiaomu-reader-ai-doc-action { flex: 0 0 auto; }
+.qiaomu-reader-ai-workshop-hint { margin: 4px 0 8px; color: var(--text-faint); font-size: var(--font-ui-smaller); line-height: 1.45; }
+.qiaomu-reader-ai-workshop-list { display: flex; flex-direction: column; gap: 7px; }
+.qiaomu-reader-ai-workshop-card { display: flex; flex-direction: column; gap: 3px; padding: 9px 10px; border: 1px solid var(--background-modifier-border); border-radius: 8px; background: var(--background-secondary); }
+.qiaomu-reader-ai-workshop-card-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: var(--font-ui-small); font-weight: 600; }
+.qiaomu-reader-ai-workshop-badge { padding: 1px 6px; border-radius: 999px; color: var(--color-green,#15803d); background: color-mix(in srgb,var(--color-green,#15803d) 13%,transparent); font-size: 10px; font-weight: 500; }
+.qiaomu-reader-ai-workshop-card-summary { color: var(--text-muted); font-size: var(--font-ui-smaller); line-height: 1.45; }
+.qiaomu-reader-ai-workshop-open { align-self: flex-start; margin-top: 2px; padding: 2px 8px; border: 1px solid var(--background-modifier-border); border-radius: 5px; background: transparent; color: var(--text-accent); font: inherit; font-size: var(--font-ui-smaller); cursor: pointer; }
+.qiaomu-reader-ai-workshop-open:hover { border-color: var(--text-accent); background: color-mix(in srgb,var(--text-accent) 8%,transparent); }
 
 /* ── AI assistant: composer, quick prompts, slash menu ───────────────────── */
 .qiaomu-reader-ai-composer { position:relative; flex:0 0 auto; display:flex; flex-direction:column; gap:var(--size-2-2); padding:7px; border:1px solid color-mix(in srgb,var(--text-muted) 24%,var(--background-modifier-border)); border-radius:var(--radius-l); background:var(--background-primary); box-shadow:0 1px 3px rgba(0,0,0,.04); transition:border-color 150ms cubic-bezier(0.23,1,0.32,1),box-shadow 150ms cubic-bezier(0.23,1,0.32,1); }
@@ -1242,8 +1267,49 @@ html.qbr-split-dragging .qiaomu-reader-relayouting .qiaomu-reader-area { filter:
 .qiaomu-reader-ai-tool-body { border-top: 1px solid var(--background-modifier-border); background: var(--background-primary); }
 .qiaomu-reader-ai-tool-body > summary { padding: 5px 9px; font-size: var(--font-ui-smaller); color: var(--text-muted); cursor: pointer; }
 .qiaomu-reader-ai-tool-text { margin: 0; padding: 7px 9px 9px; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: var(--font-ui-smaller); color: var(--text-muted); background: transparent; }
+.qiaomu-reader-ai-tool-confirm { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 0 9px 9px; }
+.qiaomu-reader-ai-tool-confirm-button { padding: 4px 12px; border: 1px solid var(--interactive-accent); border-radius: 6px; background: var(--interactive-accent); color: var(--text-on-accent); font: inherit; font-size: var(--font-ui-smaller); font-weight: 600; cursor: pointer; }
+.qiaomu-reader-ai-tool-confirm-button:hover { filter: brightness(1.06); }
+.qiaomu-reader-ai-tool-confirm-button:disabled { opacity: .6; cursor: default; filter: none; }
+.qiaomu-reader-ai-tool-confirm-error { flex: 1 1 100%; color: var(--text-error, #d33); font-size: var(--font-ui-smaller); }
 .qiaomu-reader-ai-tool-images { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 9px 9px; }
 .qiaomu-reader-ai-tool-image { max-width: min(240px, 100%); max-height: 170px; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-s); cursor: zoom-in; }
+/* The decision point for a prepared task: always at the end of the reply, so
+   the explanation above and the confirmation below read in the same order. */
+.qiaomu-reader-ai-preview { margin: 10px 0 4px; border: 1px solid color-mix(in srgb, var(--interactive-accent) 42%, var(--background-modifier-border)); border-radius: var(--radius-m); background: color-mix(in srgb, var(--interactive-accent) 6%, var(--background-primary)); overflow: hidden; }
+.qiaomu-reader-ai-preview-head { display: flex; align-items: center; gap: 7px; padding: 8px 11px; border-bottom: 1px solid color-mix(in srgb, var(--interactive-accent) 22%, var(--background-modifier-border)); color: var(--text-normal); font-weight: 600; font-size: var(--font-ui-smaller); }
+.qiaomu-reader-ai-preview-icon { display: flex; align-items: center; color: var(--interactive-accent); }
+.qiaomu-reader-ai-preview-icon svg { width: 15px; height: 15px; fill: none; stroke: currentColor; }
+.qiaomu-reader-ai-preview-body { padding: 9px 11px 0; }
+.qiaomu-reader-ai-preview-summary { color: var(--text-muted); font-size: var(--font-ui-smaller); line-height: 1.45; }
+.qiaomu-reader-ai-preview-facts { display: grid; gap: 5px; padding: 8px 11px 0; }
+.qiaomu-reader-ai-preview-fact { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 8px; align-items: start; font-size: var(--font-ui-smaller); line-height: 1.45; }
+.qiaomu-reader-ai-preview-label { color: var(--text-faint); }
+.qiaomu-reader-ai-preview-value { color: var(--text-normal); overflow-wrap: anywhere; }
+.qiaomu-reader-ai-preview-note { padding: 8px 11px 0; color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.qiaomu-reader-ai-preview-actions { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; padding: 9px 11px 11px; }
+.qiaomu-reader-ai-preview-confirm { padding: 5px 14px; border: 1px solid var(--interactive-accent); border-radius: 6px; background: var(--interactive-accent); color: var(--text-on-accent); font: inherit; font-size: var(--font-ui-smaller); font-weight: 600; cursor: pointer; }
+.qiaomu-reader-ai-preview-confirm:hover { filter: brightness(1.06); }
+.qiaomu-reader-ai-preview-confirm:disabled { opacity: .6; cursor: default; filter: none; }
+.qiaomu-reader-ai-preview-hint, .qiaomu-reader-ai-preview-done { color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.qiaomu-reader-ai-preview.is-done { border-color: color-mix(in srgb, var(--color-green, #15803d) 55%, var(--background-modifier-border)); background: color-mix(in srgb, var(--color-green, #15803d) 6%, var(--background-primary)); }
+.qiaomu-reader-ai-preview-error { padding: 0 11px 10px; color: var(--text-error, #d33); font-size: var(--font-ui-smaller); }
+/* A finished task is part of the reading conversation, not a transient toast. */
+.qiaomu-reader-ai-task-card { margin: 10px 0 8px; border: 1px solid color-mix(in srgb, var(--color-green, #15803d) 45%, var(--background-modifier-border)); border-radius: var(--radius-m); background: color-mix(in srgb, var(--color-green, #15803d) 6%, var(--background-primary)); overflow: hidden; }
+.qiaomu-reader-ai-task-card.is-failed { border-color: color-mix(in srgb, var(--text-error, #d33) 45%, var(--background-modifier-border)); background: color-mix(in srgb, var(--text-error, #d33) 5%, var(--background-primary)); }
+.qiaomu-reader-ai-task-head { display: flex; align-items: center; gap: 7px; padding: 8px 11px; color: var(--text-normal); font-weight: 600; font-size: var(--font-ui-smaller); }
+.qiaomu-reader-ai-task-icon { display: flex; align-items: center; color: var(--color-green, #15803d); }
+.qiaomu-reader-ai-task-icon svg { width: 15px; height: 15px; fill: none; stroke: currentColor; }
+.qiaomu-reader-ai-task-card.is-failed .qiaomu-reader-ai-task-icon { color: var(--text-error, #d33); }
+.qiaomu-reader-ai-task-body { padding: 0 11px 4px; }
+.qiaomu-reader-ai-task-name { color: var(--text-normal); font-size: var(--font-ui-smaller); }
+.qiaomu-reader-ai-task-output { margin-top: 3px; color: var(--text-normal); font-size: var(--font-ui-smaller); overflow-wrap: anywhere; }
+.qiaomu-reader-ai-task-error { margin-top: 3px; color: var(--text-error, #d33); font-size: var(--font-ui-smaller); }
+.qiaomu-reader-ai-task-actions { display: flex; gap: 8px; flex-wrap: wrap; padding: 6px 11px 11px; }
+.qiaomu-reader-ai-task-action { padding: 4px 11px; border: 1px solid var(--background-modifier-border); border-radius: 6px; background: var(--background-primary); color: var(--text-normal); font: inherit; font-size: var(--font-ui-smaller); cursor: pointer; }
+.qiaomu-reader-ai-task-action:hover { background: var(--background-modifier-hover); }
+.qiaomu-reader-ai-task-action.is-primary { border-color: var(--interactive-accent); background: var(--interactive-accent); color: var(--text-on-accent); font-weight: 600; }
+.qiaomu-reader-ai-task-action.is-primary:hover { filter: brightness(1.06); }
 
 /* Where the question was asked: a quiet chip that goes back to that spot. */
 .qiaomu-reader-ai-location { display:flex; justify-content:flex-end; padding:0 0 4px; }
@@ -1271,6 +1337,9 @@ html.qbr-split-dragging .qiaomu-reader-relayouting .qiaomu-reader-area { filter:
 .qiaomu-reader-image-preview-figure img { max-width:min(92vw,1200px); max-height:78vh; object-fit:contain; border-radius:var(--radius-m); background:var(--background-primary); box-shadow:0 20px 60px rgba(0,0,0,.45); }
 .qiaomu-reader-image-preview-meta { display:flex; align-items:center; gap:10px; color:#f2f2f2; font-size:var(--font-ui-smaller); }
 .qiaomu-reader-image-preview-hint { color:rgba(255,255,255,.72); font-size:var(--font-ui-smaller); }
+.qiaomu-reader-image-preview-save { height:30px; padding:0 14px; border:0; border-radius:999px; background:rgba(255,255,255,.18); color:#fff; font-size:var(--font-ui-smaller); font-family:inherit; cursor:pointer; }
+.qiaomu-reader-image-preview-save:hover { background:rgba(255,255,255,.28); }
+.qiaomu-reader-image-preview-save:disabled { opacity:.5; cursor:default; }
 
 /* Drag-box screenshot overlay over the reading area. */
 .qiaomu-reader-shot { position:absolute; inset:0; z-index:60; cursor:crosshair; touch-action:none; opacity:0; transition:opacity .12s ease; }
@@ -1324,7 +1393,7 @@ html.qbr-split-dragging .qiaomu-reader-relayouting .qiaomu-reader-area { filter:
 .qiaomu-reader-ai-msg-ai blockquote { margin:.7em 0; padding:.55em .7em; border:1px solid var(--background-modifier-border); border-radius:var(--radius-s); background:color-mix(in srgb,var(--background-primary) 64%,transparent); color:var(--text-muted); }
 .qiaomu-reader-ai-msg-ai blockquote > :first-child { margin-top:0; }
 .qiaomu-reader-ai-msg-ai blockquote > :last-child { margin-bottom:0; }
-.qiaomu-reader-ai-msg-ai code, .qiaomu-reader-ai-msg-ai kbd { border:1px solid var(--background-modifier-border); border-radius:4px; background:var(--code-background); color:var(--code-normal); font-family:var(--font-monospace); font-size:.9em; }
+.qiaomu-reader-ai-msg-ai code, .qiaomu-reader-ai-msg-ai kbd { border:1px solid color-mix(in srgb,var(--interactive-accent) 28%,var(--background-modifier-border)); border-radius:4px; background:color-mix(in srgb,var(--interactive-accent) 9%,var(--background-primary)); color:var(--text-normal); font-family:var(--font-monospace); font-size:.9em; }
 .qiaomu-reader-ai-msg-ai :not(pre) > code, .qiaomu-reader-ai-msg-ai kbd { padding:.08em .3em; }
 .qiaomu-reader-ai-msg-ai pre { max-width:100%; margin:.7em 0; padding:.7em .8em; overflow:auto; overscroll-behavior-x:contain; border:1px solid var(--background-modifier-border); border-radius:var(--radius-s); background:var(--code-background); tab-size:2; }
 .qiaomu-reader-ai-msg-ai pre code { padding:0; border:0; background:transparent; }

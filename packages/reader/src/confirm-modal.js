@@ -35,6 +35,9 @@ export function createConfirmModal({
   }
   onClose() {
     this.contentEl.empty();
+    // The window X / Escape must resolve a waiting caller too; otherwise a
+    // tool call would stay pending after the reader dismissed the dialog.
+    if (!this._done) this.opts.onDismiss && this.opts.onDismiss();
   }
 };
 }

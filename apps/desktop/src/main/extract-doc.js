@@ -14,6 +14,7 @@ import { tocKey, tocLevel } from "../shared/printed-toc.js";
 import { blocksFromDoc, blocksToMarkdown, cleanFootnoteText } from "./formula-html.js";
 import { rewriteHtmlMath } from "./html-math.js";
 import { buildTextDoc, createPdfTextReader, writeTextProducts } from "./pdf-text.js";
+import { docvortexPython, imageToPdf, imagesToPdf } from "./image-pdf.js";
 import { removeTextSourceBridge, writeTextSourceBridge } from "./docvortex.js";
 import { removeFile, removeTree } from "./paths.js";
 import { mergeBlocksWithTextLayer } from "./text-merge.js";
@@ -22,6 +23,7 @@ import { resolveLocalBackend } from "./mineru-local.js";
 import { pdfToolArgs, pdfToolScriptCommand, resolveMineruLocalUrl } from "./workshop-formula.js";
 
 export { EXTRACT_MODES, IMAGE_INPUTS, extractionKind };
+export { docvortexPython, imageToPdf, imagesToPdf } from "./image-pdf.js";
 export { splitMarkdownChapters, stripCodeLineNumbers, unwrapProseFences, joinSplitCodeFences } from "../shared/markdown-fix.js";
 
 function replaceAll(text, from, to) {
@@ -327,55 +329,7 @@ export function runExtractCommand(command, args, { cwd, env, signal, timeoutMs =
   });
 }
 
-// 图片 → 单页 PDF:DocVortex 的 convert 只收文档(PDF),图片先经 Pillow 合成 PDF 再走它的 OCR。
-export const IMAGE_TO_PDF_SCRIPT = `import sys
-from PIL import Image
-im = Image.open(sys.argv[1])
-if im.mode != "RGB":
-    im = im.convert("RGB")
-im.save(sys.argv[2], "PDF")
-`;
-
-// 跑 DocVortex 的 Python(Pillow 随 DocVortex 一起装)。
-export function docvortexPython(settings = {}) {
-  return String(settings.docvortexPython || settings.ocrPython || "").trim() || "python";
-}
-
-export function imageToPdf(source, outPath, { python = "python", signal, log = () => {}, spawnImpl = spawn } = {}) {
-  return runExtractCommand(python, ["-c", IMAGE_TO_PDF_SCRIPT, source, outPath], {
-    signal,
-    log,
-    timeoutMs: 60_000,
-    spawnImpl,
-  });
-}
-
-// 多张图片 → 一个 PDF(格式转换的「图片 → PDF」预设):每张图一页,尺寸按 150dpi 换算
-// (不重采样,只影响页面物理尺寸,3000px 的扫描页≈10 英寸)。
-export const IMAGES_TO_PDF_SCRIPT = `import sys
-from PIL import Image
-out = sys.argv[1]
-pages = []
-for path in sys.argv[2:]:
-    im = Image.open(path)
-    if im.mode != "RGB":
-        im = im.convert("RGB")
-    im.info["dpi"] = (150, 150)
-    pages.append(im)
-if not pages:
-    raise SystemExit("no images to pack")
-pages[0].save(out, "PDF", save_all=True, append_images=pages[1:], dpi=(150, 150), resolution=150.0)
-`;
-
-export function imagesToPdf(images, outPath, { python = "python", signal, log = () => {}, spawnImpl = spawn } = {}) {
-  return runExtractCommand(python, ["-c", IMAGES_TO_PDF_SCRIPT, outPath, ...images.map((file) => String(file))], {
-    signal,
-    log,
-    timeoutMs: 120_000,
-    spawnImpl,
-  });
-}
-
+// 图片 → 单页 PDF、多图 → PDF 的实现移到 image-pdf.js，供格式转换与内容提取共用。
 // 提取产物的复用标记(MinerU 慢且计费):源文件 + 模式 + 模型一致才复用。
 // 文本型再多比一个产物版本:提取器行为变了(如新增图的裁剪)就别复用旧产物。
 const EXTRACT_VERSION = 2;

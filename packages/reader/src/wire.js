@@ -8,9 +8,12 @@ import { HL_COLOR_SWATCHES } from "./highlight-colors.js";
  */
 import { AbstractInputSuggest, Component, FuzzySuggestModal, ItemView, MarkdownView, MarkdownRenderer, Menu, Modal, Notice, Platform, Plugin, PluginSettingTab, Scope, SecretComponent, Setting, TFile, TFolder, normalizePath, requestUrl, setIcon } from "obsidian";
 import { ENGINE_EXTENSIONS } from "./reader-engine.js";
+import { IMAGE_BOOK_EXTENSIONS } from "./image-book.js";
 // One place decides which extensions the reader opens: the rendering engine
-// handles everything here except PDF, which keeps its dedicated pdf.js path.
-const BOOK_EXTENSIONS = new Set([...ENGINE_EXTENSIONS, "pdf"]);
+// handles everything here except PDF, which keeps its dedicated pdf.js path,
+// and standalone images, which get the reader's direct image page.
+const BOOK_EXTENSIONS = new Set([...ENGINE_EXTENSIONS, ...IMAGE_BOOK_EXTENSIONS, "pdf"]);
+const IMAGE_SOURCE_FORMATS = new Set(["png", "jpg", "jpeg", "webp", "gif", "bmp", "tiff", "jp2"]);
 // Obsidian's Electron can lag the latest Chromium proposal set. The regular
 // pdf.js 6 build calls Map#getOrInsertComputed, which is not available there and
 // makes every page render fail. The supported legacy browser build includes the
@@ -93,11 +96,14 @@ import { buildTocItems, chapterForBlock, pageForBlock, pdfSearchPages, readerSea
 import { createLibraryData, freeBookPath, groupLibChips, IMPORT_MIME_EXT, mergeBookTags, pickLibraryFolder } from "./library-data.js";
 import { createPdfDocument } from "./pdf-document.js";
 import { createAiContext } from "./ai-context.js";
+import { saveImageFromSource } from "./image-save.js";
+import { docvortexTaskSettings, formulaTaskSettings, taskAiConfig } from "./workshop-settings.js";
 import { createReaderChrome } from "./reader-chrome.js";
 import { createAiRender } from "./ai-render.js";
 import { createPiTransport } from "./ai-pi.js";
 import { bookResultRelevant, buildBookFinderMessages, parseBookFinderReply } from "./book-finder.js";
 import { applyTocOffset, buildTocExtractionMessages, inferTocOffset, mergeTocEntries, parseTocExtractionReply, parseTocText, tocCandidates, validateTocEntries } from "./pdf-toc.js";
+import { buildEpubToc, normalizeTocText } from "./epub-toc.js";
 import { createNotePaths } from "./note-paths.js";
 import { createBookNotes } from "./book-notes.js";
 
@@ -278,6 +284,25 @@ const readerTimer = createReaderTimer({
   window,
 });
 
+async function saveImageToFile(src, options = {}) {
+  if (!src) return false;
+  try {
+    const result = await saveImageFromSource(src, {
+      ...options,
+      bridge: window.qbrDesktop?.image,
+    });
+    if (result?.ok) {
+      new Notice(qiaomuReaderTranslate("image-saved-to-0", result.path), 7000);
+      return true;
+    }
+    if (!result?.cancelled) new Notice(`保存图片失败：${result?.error || ""}`, 8000);
+    return false;
+  } catch (error) {
+    new Notice(`保存图片失败：${String(error?.message || error)}`, 8000);
+    return false;
+  }
+}
+
 const {
   attachEngineChrome,
   handleReaderWheel,
@@ -326,6 +351,7 @@ const {
   qiaomuReaderFontLabel,
   ensureBundledReaderFont,
   attachImageToAi: (view, img) => attachImageToAi(view, img),
+  saveImage: saveImageToFile,
 });
 
 
@@ -355,6 +381,7 @@ const {
   renderAiContextQuote,
   renderAiAttachmentList,
   renderAiToolStep,
+  renderAiWorkshopPreview,
   openAiAttachMenu,
   bindReaderAiComposer,
   ReaderNameModal,
@@ -392,6 +419,7 @@ const {
     const data = await readAiAttachmentBytes(owner.plugin, attachment.file);
     return data ? `data:${attachment.mimeType || "image/png"};base64,${data}` : (attachment.thumb || "");
   },
+  saveImage: saveImageToFile,
 });
 // Settings defaults are assembled from concern-grouped fragments below. The
 // fragments are spread in the original key order, so the resulting object keeps
@@ -1514,17 +1542,314 @@ function tocAnchors(outline, entries) {
   return anchors;
 }
 
+// Generated TOCs are stored beside the reading data with the same stamp the
+// PDF path uses. Engine entries use a CFI (or href when the printed page
+// already links to a chapter) instead of a page number.
+function readerFileStamp(file) {
+  const stat = file?.stat || {};
+  return Number.isFinite(stat.mtime) || Number.isFinite(stat.size) ? `${stat.mtime || 0}:${stat.size || 0}` : "";
+}
+
+function mergeEngineTocItems(existing, generated) {
+  const out = [];
+  const seen = new Set();
+  const push = (item) => {
+    const label = String(item?.label || item?.title || "").trim();
+    if (!label) return;
+    const key = normalizeTocText(label);
+    if (key && seen.has(key)) return;
+    if (key) seen.add(key);
+    out.push({
+      label,
+      level: Math.max(1, Number(item?.level) || 1),
+      cfi: String(item?.cfi || ""),
+      href: String(item?.href || ""),
+      sectionId: item?.sectionId == null ? "" : String(item.sectionId),
+      anchorPath: Array.isArray(item?.anchorPath) ? item.anchorPath.map(Number) : null,
+      anchorText: String(item?.anchorText || ""),
+      anchorId: String(item?.anchorId || ""),
+    });
+  };
+  for (const item of Array.isArray(generated) ? generated : []) push(item);
+  for (const item of Array.isArray(existing) ? existing : []) push(item);
+  return out;
+}
+
+async function scanEpubToc(view) {
+  if (!view?.engine?.sectionDocuments) return null;
+  const sections = await view.engine.sectionDocuments();
+  const report = buildEpubToc(sections, {
+    cfiFromRange: (index, range) => view.engine.cfiFromRange(index, range),
+  });
+  view._epubTocScan = report;
+  return report;
+}
+
 function aiToolState(view, plugin, options = {}) {
   const pager = view?.pager;
   const engine = view?.engine;
   const format = String(view?.file?.extension || "").toLowerCase();
+  const generatedTocFormat = format === "epub" || format === "azw3";
   const total = Number(pager?.total) || 0;
   const tocItems = view?.tocItems || [];
+  const chat = options.chat || null;
+  const plans = chat ? (chat._workshopPlans ||= new Map()) : new Map();
+  const userTurns = () => (chat?.turns || []).filter((turn) => turn.role === "user").length;
   const blockPage = (index) => {
     try { return pageForBlock(pager.flow, index); } catch { return null; }
   };
   const blockTexts = () => {
     try { return [...pager._blocks()].map((el) => String(el.textContent || "")); } catch { return []; }
+  };
+  // These outcomes are safe to submit from the AI after an explicit in-app
+  // confirmation. The catalogue still lists the rest, but opening their panel
+  // is the right first step until their parameter sets are validated here.
+  const STARTABLE_WORKSHOP = new Set([
+    "make-searchable",
+    "searchable-copy",
+    "exam-answer-page",
+    "extract-text",
+    "questions-and-answers",
+    "convert-word",
+    "convert-markdown",
+    "convert-pdf",
+    "convert-kindle",
+    "make-ebook",
+  ]);
+  const docvortexSettings = () => docvortexTaskSettings(plugin?.settings || {});
+  const formulaSettings = () => formulaTaskSettings(plugin?.settings || {});
+  const workshopOutputPath = (sourcePath, extension) => {
+    const normalized = String(sourcePath || "").replace(/\\/g, "/");
+    const slash = normalized.lastIndexOf("/");
+    const dir = slash >= 0 ? normalized.slice(0, slash + 1) : "";
+    const name = normalized.slice(slash + 1) || "book";
+    const base = name.includes(".") ? name.slice(0, name.lastIndexOf(".")) : name;
+    const exists = (candidate) => Boolean(plugin.app?.vault?.getAbstractFileByPath?.(candidate));
+    let out = `${dir}${base}.${extension}`;
+    for (let index = 1; exists(out); index += 1) out = `${dir}${base} (${index}).${extension}`;
+    return out;
+  };
+  const getWorkshopOptions = () => {
+    if (typeof plugin?.workshopCapabilities !== "function") return [];
+    return (plugin.workshopCapabilities({ extension: format, readerView: view }) || [])
+      .filter((capability) => !capability.hidden)
+      .map((capability) => ({
+        ...capability,
+        startable: STARTABLE_WORKSHOP.has(capability.id),
+      }));
+  };
+  const buildWorkshopPlan = (title) => {
+    if (!view?.file?.path) return { ok: false, error: "请先打开一个文档。" };
+    const options = getWorkshopOptions();
+    const capability = options.find((item) => item.title === title || item.id === title)
+      || options.find((item) => item.title.includes(title) || title.includes(item.title));
+    if (!capability) return { ok: false, error: "没有找到这个文档能力。" };
+    if (!capability.startable) {
+      return { ok: false, error: "这个能力需要更多设置，那里可以选择文件和参数。" };
+    }
+    if (Array.isArray(capability.formats) && !capability.formats.includes(format)) {
+      return { ok: false, error: "这个操作目前不适用于当前文档格式。" };
+    }
+    if (capability.id === "exam-answer-page") {
+      if (!Array.isArray(capability.formats) || !capability.formats.includes(format)) {
+        return { ok: false, error: "这个操作目前不适用于当前文档格式。" };
+      }
+      const config = taskAiConfig(aiConfig(plugin));
+      if (!config?.id || !config.base || !config.model || (config.needsKey && !config.key)) {
+        return { ok: false, error: "制作 AI 答题页需要先配置 AI 模型。" };
+      }
+      const out = workshopOutputPath(view.file.path, "AI答题页.html");
+      return {
+        ok: true,
+        id: capability.id,
+        title: "制作 AI 答题页",
+        summary: capability.summary,
+        sourceLabel: view.file.basename,
+        outputLabel: out.split("/").pop() || "AI答题页",
+        kind: "quiz-llm-export",
+        detail: view.file.basename,
+        payload: {
+          // Mirror the workshop's answer-page payload: the narrowed extraction
+          // settings (not the whole plugin settings object) keep cached text
+          // layers identical between the two entry points.
+          settings: formulaSettings(),
+          config,
+          source: view.file.path,
+          out,
+        },
+      };
+    }
+    if (capability.id === "make-searchable" || capability.id === "searchable-copy") {
+      if (typeof plugin.ocrConfigured === "function" && !plugin.ocrConfigured()) {
+        return { ok: false, error: "这个文档要支持全文搜索，还需要先完成一次图片文字识别设置。" };
+      }
+      if (capability.id === "make-searchable" && view._ocrJob) {
+        return { ok: false, error: "这个文档的全文搜索已经在准备中，稍等一下；需要独立副本时可以选择另存一份。" };
+      }
+      const exportCopy = capability.id === "searchable-copy";
+      return {
+        ok: true,
+        id: capability.id,
+        title: exportCopy ? "另存一份可搜索副本" : "让文档支持全文搜索",
+        summary: capability.summary,
+        sourceLabel: view.file.basename,
+        outputLabel: exportCopy ? "原文件旁的可搜索副本" : "当前阅读（不生成新文件）",
+        kind: exportCopy ? "ocr-export" : "ocr-cache",
+        detail: view.file.basename,
+        payload: { settings: plugin.settings, source: view.file.path },
+      };
+    }
+    if (capability.id === "extract-text" || capability.id === "questions-and-answers") {
+      const questions = capability.id === "questions-and-answers";
+      const kind = questions ? "questions-extract" : format === "pdf" ? "extract-pdf" : "extract-docvortex";
+      return {
+        ok: true,
+        id: capability.id,
+        title: questions ? "整理文档里的题目和答案" : "导出可编辑文本",
+        summary: capability.summary,
+        sourceLabel: view.file.basename,
+        outputLabel: questions ? "原文件旁的题库" : "原文件旁的可编辑文本",
+        kind,
+        detail: view.file.basename,
+        payload: {
+          settings: formulaSettings(),
+          source: view.file.path,
+          mode: "auto",
+          refresh: false,
+        },
+      };
+    }
+    if (capability.id === "make-ebook") {
+      const out = workshopOutputPath(view.file.path, "epub");
+      return {
+        ok: true,
+        id: capability.id,
+        title: "制作电子书",
+        summary: capability.summary,
+        sourceLabel: view.file.basename,
+        outputLabel: out.split("/").pop() || "电子书.epub",
+        kind: "book-build",
+        detail: view.file.basename,
+        payload: {
+          settings: formulaSettings(),
+          source: view.file.path,
+          out,
+          title: view.file.basename,
+          author: "",
+          styles: {},
+          cover: { mode: "none" },
+          dropPrintedToc: true,
+          refresh: false,
+        },
+      };
+    }
+    const conversion = {
+      "convert-word": { format: "docx", label: "Word" },
+      "convert-markdown": { format: "markdown", label: "Markdown" },
+      "convert-pdf": { format: "pdf", label: "PDF" },
+    }[capability.id];
+    if (conversion) {
+      const out = workshopOutputPath(view.file.path, conversion.format === "markdown" ? "md" : conversion.format);
+      if (IMAGE_SOURCE_FORMATS.has(format) && conversion.format === "pdf") {
+        return {
+          ok: true,
+          id: capability.id,
+          title: "图片转 PDF",
+          summary: capability.summary,
+          sourceLabel: view.file.basename,
+          outputLabel: out.split("/").pop() || "PDF 文件",
+          kind: "images-pdf",
+          detail: view.file.basename,
+          payload: {
+            images: [view.file.path],
+            settings: formulaSettings(),
+            out,
+          },
+        };
+      }
+      return {
+        ok: true,
+        id: capability.id,
+        title: `把文档转成 ${conversion.label}`,
+        summary: capability.summary,
+        sourceLabel: view.file.basename,
+        outputLabel: out.split("/").pop() || `${conversion.label} 文件`,
+        kind: "docvortex-convert",
+        detail: view.file.basename,
+        payload: {
+          settings: docvortexSettings(),
+          source: view.file.path,
+          format: conversion.format,
+          out,
+        },
+      };
+    }
+    if (capability.id === "convert-kindle") {
+      if (format !== "epub") return { ok: false, error: "这个操作目前需要 EPUB 文件。" };
+      const out = workshopOutputPath(view.file.path, "azw3");
+      return {
+        ok: true,
+        id: capability.id,
+        title: "把文档转换成 Kindle 格式",
+        summary: capability.summary,
+        sourceLabel: view.file.basename,
+        outputLabel: out.split("/").pop() || "Kindle 文件",
+        kind: "ebook-convert",
+        detail: view.file.basename,
+        payload: {
+          settings: { calibrePath: String(plugin?.settings?.calibrePath || "") },
+          source: view.file.path,
+          format: "azw3",
+          out,
+        },
+      };
+    }
+    return { ok: false, error: "这个操作需要更多设置。" };
+  };
+  const prepareWorkshopTask = (title) => {
+    const plan = buildWorkshopPlan(title);
+    if (!plan?.ok) return plan;
+    plan.preparedAt = Date.now();
+    plan.preparedUserTurns = userTurns();
+    plan.sourcePath = view.file.path;
+    plan.operation = title;
+    plans.set(plan.id, plan);
+    if (chat) chat._confirmWorkshopTask = (operation) => startWorkshopTask(operation, { byUser: true });
+    return plan;
+  };
+  const startWorkshopTask = async (title, { byUser = false } = {}) => {
+    const plan = plans.get(title)
+      || Array.from(plans.values()).find((item) => item.title === title || item.id === title || item.operation === title);
+    if (!plan) return { ok: false, error: "请先准备任务，并等读者确认后再开始。" };
+    if (Date.now() - plan.preparedAt > 10 * 60_000) {
+      plans.delete(plan.id);
+      return { ok: false, error: "之前的准备已经过期，请重新准备。" };
+    }
+    if (!byUser && userTurns() <= plan.preparedUserTurns) {
+      return { ok: false, error: "请先让读者确认准备内容，再开始任务。" };
+    }
+    if (view.file.path !== plan.sourcePath) {
+      plans.delete(plan.id);
+      return { ok: false, error: "当前打开的书已经变化，请重新准备。" };
+    }
+    const bridge = typeof window !== "undefined" ? window.qbrDesktop?.workshop : null;
+    if (typeof bridge?.start !== "function") return { ok: false, error: "当前环境不能开始文档处理。" };
+    try {
+      const taskId = await bridge.start({
+        kind: plan.kind,
+        title: plan.title,
+        detail: plan.detail,
+        bookPath: plan.sourcePath,
+        payload: plan.payload,
+        notify: true,
+        origin: "assistant",
+      });
+      if (!taskId) return { ok: false, error: "任务没有进入队列。" };
+      plans.delete(plan.id);
+      return { ok: true, taskId, title: plan.title };
+    } catch (error) {
+      return { ok: false, error: String(error?.message || error) };
+    }
   };
   return {
     format,
@@ -1599,6 +1924,10 @@ function aiToolState(view, plugin, options = {}) {
       text: String(hl.text || "").slice(0, 200),
       comment: String(hl.comment || "").slice(0, 200),
     })),
+    hasWorkshop: typeof plugin?.workshopCapabilities === "function",
+    workshopOptions: typeof plugin?.workshopCapabilities === "function" ? getWorkshopOptions : null,
+    prepareWorkshopTask: typeof plugin?.workshopCapabilities === "function" ? prepareWorkshopTask : null,
+    startWorkshopTask: typeof plugin?.workshopCapabilities === "function" ? startWorkshopTask : null,
     // Online book search/download run in the main process; both stay null
     // without the desktop bridge so the tools stay hidden/refusing cleanly.
     searchBooks: plugin && typeof plugin.searchOnlineBooks === "function"
@@ -1620,9 +1949,9 @@ function aiToolState(view, plugin, options = {}) {
       }
       : null,
     // ── generated table of contents ─────────────────────────────────────────
-    // PDF only: scan the derived text layer for TOC pages, let the model turn
-    // them into entries (deterministic parser as fallback), verify against the
-    // outline and store a draft; toc_apply swaps the outline and rebuilds the
+    // PDF scans its derived text layer and uses printed page numbers; EPUB
+    // reads the printed contents page from section documents and matches titles
+    // to CFIs. Both store a draft; toc_apply swaps the outline and rebuilds the
     // TOC panel, toc_apply({undo:true}) restores it.
     tocScan: format === "pdf" && view?._pdfLazy
       ? () => {
@@ -1639,7 +1968,22 @@ function aiToolState(view, plugin, options = {}) {
         }
         return lines.join("\n");
       }
-      : null,
+      : generatedTocFormat && view?.engine
+        ? async () => {
+          const report = await scanEpubToc(view);
+          if (!report) return "当前环境无法读取这本书的章节。";
+          const embedded = view._engineTocItems?.() || [];
+          if (!report.entries?.length) {
+            return `已有大纲 ${embedded.length} 条；没有在正文前部找到可用的印刷目录页。`;
+          }
+          return [
+            `${format.toUpperCase()} 已有大纲 ${embedded.length} 条；找到印刷目录页（第 ${report.sectionIndex + 1} 节）。`,
+            `目录条目 ${report.entries.length} 条，正文定位 ${report.entries.filter((item) => item.cfi || item.href).length} 条，未匹配 ${report.skipped} 条。`,
+            "本书不需要页码，生成时按标题匹配正文位置并写入 CFI。",
+            "可以直接生成目录草稿，不需要询问目录页码。",
+          ].join("\n");
+        }
+        : null,
     tocBuild: format === "pdf" && view?._pdfLazy
       ? async ({ pages: pagesArg = "", offset: offsetArg = null, mode = "merge" } = {}) => {
         const total = pdfPageCount(view);
@@ -1731,7 +2075,38 @@ function aiToolState(view, plugin, options = {}) {
         lines.push("确认生成吗？也可修正：目录页=…、偏移=…、改成替换/合并。");
         return { preview: lines.join("\n") };
       }
-      : null,
+      : generatedTocFormat && view?.engine
+        ? async ({ mode = "merge" } = {}) => {
+          const report = view._epubTocScan || await scanEpubToc(view);
+          if (!report?.entries?.length) {
+            return { preview: "没有在书前部找到可用的印刷目录页；当前没有生成草稿。" };
+          }
+          const existing = view._engineTocItems?.() || [];
+          const generated = report.entries.map((item) => ({
+            label: item.title,
+            level: item.level || 1,
+            cfi: item.cfi || "",
+            href: item.cfi ? "" : (item.href || ""),
+            sectionId: item.sectionId == null ? "" : item.sectionId,
+            anchorPath: Array.isArray(item.anchorPath) ? item.anchorPath : null,
+            anchorText: item.anchorText || "",
+            anchorId: item.anchorId || "",
+          }));
+          const merged = mode === "replace" ? generated : mergeEngineTocItems(existing, generated);
+          view._epubTocDraft = { entries: merged, mode, created: Date.now() };
+          const lines = [
+            `印刷目录页：第 ${report.sectionIndex + 1} 节；提取 ${report.entries.length} 条；正文定位 ${generated.length} 条；未匹配 ${report.skipped} 条。`,
+            `${mode === "replace" ? "替换" : "合并"}后 ${merged.length} 条。`,
+            "使用 CFI 定位，不使用印刷页码。",
+            "前几条：",
+            ...merged.slice(0, 3).map((item) => `- ${item.label}`),
+          ];
+          if (merged.length > 3) lines.push("最后几条：", ...merged.slice(-3).map((item) => `- ${item.label}`));
+          if (report.skipped) lines.push(`注意：有 ${report.skipped} 条目录没有找到对应的正文标题。`);
+          lines.push("确认生成吗？可以改成替换模式；确认后应用目录。");
+          return { preview: lines.join("\n") };
+        }
+        : null,
     tocApply: format === "pdf" && view?._pdfLazy
       ? ({ undo = false } = {}) => {
         const refresh = () => {
@@ -1775,7 +2150,52 @@ function aiToolState(view, plugin, options = {}) {
         refresh();
         return { summary: `已应用生成的目录：${view._pdfOutline.length} 条，目录面板已更新并保存到书目录（撤销可恢复原大纲）。` };
       }
-      : null,
+      : generatedTocFormat && view?.engine
+        ? ({ undo = false } = {}) => {
+          const refresh = () => {
+            view.buildTocPanel?.();
+            try { syncNavigationPanel(view, "toc"); } catch { /* panel may be closed */ }
+          };
+          if (undo) {
+            const original = view._tocOriginalItems || view._engineTocItems?.() || [];
+            view.tocItems = original;
+            view._tocOriginalItems = null;
+            view._epubTocDraft = null;
+            void plugin.clearGeneratedToc?.(view.file.path);
+            refresh();
+            return { summary: "已撤销生成的目录，恢复原有大纲。" };
+          }
+          const draft = view._epubTocDraft;
+          if (!draft?.entries?.length) return { summary: "还没有目录草稿：先生成目录并确认，再应用。" };
+          if (!view._tocOriginalItems) view._tocOriginalItems = view._engineTocItems?.() || [];
+          view.tocItems = draft.entries.map((item) => ({
+            label: String(item.label || item.title || ""),
+            level: Math.max(1, Number(item.level) || 1),
+            cfi: String(item.cfi || ""),
+            href: String(item.href || ""),
+            sectionId: item.sectionId == null ? "" : String(item.sectionId),
+            anchorPath: Array.isArray(item.anchorPath) ? item.anchorPath.map(Number) : null,
+            anchorText: String(item.anchorText || ""),
+            anchorId: String(item.anchorId || ""),
+          })).filter((item) => item.label);
+          view._epubTocDraft = null;
+          void plugin.saveGeneratedToc?.(view.file.path, {
+            stamp: readerFileStamp(view.file),
+            entries: view.tocItems.map((item) => ({
+              title: item.label,
+              level: item.level,
+              cfi: item.cfi,
+              href: item.href,
+              sectionId: item.sectionId,
+              anchorPath: item.anchorPath,
+              anchorText: item.anchorText,
+              anchorId: item.anchorId,
+            })),
+          });
+          refresh();
+          return { summary: `已应用生成的目录：${view.tocItems.length} 条，已保存到书目录（撤销可恢复原大纲）。` };
+        }
+        : null,
   };
 }
 
@@ -1801,7 +2221,7 @@ async function prepareAiTools(chat) {
     try { imageCapability = { state: (await detectAiCapability(plugin, "image")).state, source: "probe", at: Date.now() }; }
     catch { imageCapability = { state: "unknown", source: "probe", at: Date.now() }; }
   }
-  return createAiTools({ state: aiToolState(view, plugin, { canSeeImages: imageCapability.state === "yes" }) });
+  return createAiTools({ state: aiToolState(view, plugin, { canSeeImages: imageCapability.state === "yes", chat }) });
 }
 
 // Whether any user turn carries an attachment; a text-only send then skips the
@@ -2035,6 +2455,10 @@ function readerViewForChat(chat) {
 // The current page (PDF) or the visible reading area (other formats).
 function currentPageRegion(view) {
   if (!view?.areaEl) return null;
+  if (typeof view.aiPageRegion === "function") {
+    const region = view.aiPageRegion();
+    if (region) return region;
+  }
   if (readerIsPdf(view)) {
     const page = view.pager?.currentPdfPageElement?.();
     if (page) return visibleRegion(page, view.areaEl);
@@ -2251,6 +2675,7 @@ const AiExplainModal = createAiExplainModal({
   renderAiComposerPrompts,
   renderAiContextQuote,
   renderAiToolStep,
+  renderAiWorkshopPreview,
   renderAiUserTurn,
   renderMobileAiHeader,
   stripAiAttachmentData: stripAttachmentData,
@@ -3307,9 +3732,9 @@ const WhatsNewModal = createWhatsNewModal({
   OnboardingModal,
   qiaomuReaderTranslate,
 });
-async function navigateEngineToc(reader, href) {
+async function navigateEngineToc(reader, target) {
   const engine = reader.engine;
-  try { await engine.goToTocItem(href); }
+  try { await engine.goToTocItem(target); }
   catch (error) {
     if (reader.engine !== engine || reader._closed) return;
     console.warn("UV Reader: could not navigate to chapter", error);
@@ -3376,6 +3801,18 @@ async function persistCurrentReaderPosition(reader) {
 }
 async function loadReaderDocument(file, app, settings, onProgress, options = {}) {
   throwIfReaderLoadAborted(options.signal);
+  if (IMAGE_BOOK_EXTENSIONS.includes(file.extension)) {
+    const bytes = await app.vault.readBinary(file);
+    throwIfReaderLoadAborted(options.signal);
+    return {
+      image: true,
+      bytes,
+      name: file.name,
+      html: "",
+      lazy: null,
+      outline: null,
+    };
+  }
   if (ENGINE_EXTENSIONS.includes(file.extension)) {
     // Format is sniffed from the bytes by the library itself.
     const bytes = await app.vault.readBinary(file);
@@ -3522,6 +3959,7 @@ const AiChatView = createAiChatView({
   openAiAttachMenu,
   openPluginAiSettings,
   pickAiAttachments,
+  prepareAiTools,
   qiaomuReaderTranslate,
   readerAiPanelContext,
   readerDefaultAiContext,
@@ -3531,6 +3969,7 @@ const AiChatView = createAiChatView({
   renderAiHeadMeta,
   renderAiMarkdown,
   renderAiUserTurn,
+  renderAiWorkshopPreview,
   stripAiAttachmentData: stripAttachmentData,
   testAndEnableAi,
 });
@@ -3538,6 +3977,20 @@ const AiChatView = createAiChatView({
 for (const method of ["_setSending", "_buildEmpty", "_scroll", "_consumePendingContext", "_actions", "_send", "_renderAttachments", "_finishAttachments"]) {
   AiChatView.prototype[method] = AiExplainModal.prototype[method];
 }
+const baseAiChatSend = AiChatView.prototype._send;
+AiChatView.prototype._send = function send(text) {
+  const command = String(text || "").trim().replace(/[。.!！?？]+$/u, "");
+  if (command === "文档工具" && typeof this._showDocumentTools === "function") {
+    return this._showDocumentTools();
+  }
+  if (/^\d{1,2}[.、)）]?$/u.test(command) && this._documentTools
+    && typeof this._useDocumentToolNumber === "function") {
+    const handled = this._useDocumentToolNumber(command);
+    if (handled !== false) return handled;
+    if (this.busy) return false;
+  }
+  return baseAiChatSend.call(this, text);
+};
 const LibraryModal = createLibraryModal({
   Menu,
   Modal,

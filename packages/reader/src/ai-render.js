@@ -5,7 +5,6 @@
 // Host classes (Modal, Menu, MarkdownRenderer, Component) and late-bound
 // factories (AiChatView, ConfirmModal, ReadSettingsModal) are injected.
 
-import { isNonChineseSource } from "./ai-source-language.js";
 import { svgIcon } from "./reader-icons.js";
 import { bytesLabel, normalizeAiAttachments } from "./ai-attachments.js";
 import { bindAiComposer } from "./ai-composer.js";
@@ -32,6 +31,7 @@ export function createAiRender({
   openReadSettings,
   openPluginAiSettings,
   attachmentSrc,
+  saveImage = null,
 }) {
   function readerPageContext(view) {
     if (view?.engine && view.file) {
@@ -315,15 +315,10 @@ export function createAiRender({
   };
 
   function contextualAiQuickPrompts(chat) {
-    const items = aiQuickPrompts();
-    const text = chat.contextMode === "none" ? "" : chat.pendingContext?.text || chat.text || "";
-    if (!isNonChineseSource(text)) return items;
-    const translation = {
-      id: "translate-zh",
-      name: translate("translate-source-to-chinese"),
-      prompt: translate("translate-source-to-chinese-prompt"),
-    };
-    return [...items.slice(0, 3), translation, ...items.slice(3)];
+    // 文档工具 belongs to the reading companion. The study companion (quiz
+    // answer page) has no document shortcuts to discover, so keep its composer
+    // focused on the answer at hand.
+    return aiQuickPrompts().filter((item) => !(item.id === "document-tools" && chat?._isQuizContext?.()));
   }
 
   function renderAiComposerPrompts(host, chat) {
@@ -337,6 +332,7 @@ export function createAiRender({
     const visibleCount = items.some((item) => item.id === "translate-zh") ? 4 : 3;
     row.setAttribute("aria-label", translate("quick-prompts-2"));
     const addPrompt = (item) => {
+      if (item.command && typeof chat._showDocumentTools !== "function") return;
       const button = row.createEl("button", { cls: "qiaomu-reader-ai-composer-prompt", text: item.name });
       button.type = "button";
       button.addEventListener("click", () => {
@@ -483,6 +479,27 @@ export function createAiRender({
     meta.createSpan({ text: attachment.name || "" });
     if (attachment.bytes) meta.createSpan({ text: bytesLabel(attachment.bytes) });
     figure.createDiv({ cls: "qiaomu-reader-image-preview-hint", text: translate("tap-the-image-to-zoom-background-or-to-close") });
+    let saveButton = null;
+    if (typeof saveImage === "function") {
+      saveButton = figure.createEl("button", {
+        cls: "qiaomu-reader-image-preview-save",
+        text: translate("save"),
+        attr: { type: "button" },
+      });
+      saveButton.disabled = true;
+      saveButton.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const src = image.currentSrc || image.src;
+        if (!src) return;
+        saveButton.disabled = true;
+        try {
+          await saveImage(src, { name: attachment.name || "图片", doc, image });
+        } finally {
+          saveButton.disabled = false;
+        }
+      });
+    }
     const close = () => closeAiImagePreview(owner);
     const onKey = (event) => {
       if (event.key !== "Escape") return;
@@ -498,6 +515,7 @@ export function createAiRender({
       const src = inline || (typeof attachmentSrc === "function" ? await attachmentSrc(attachment, owner) : "") || attachment.thumb || "";
       if (src) image.setAttribute("src", src);
     } catch { /* the thumbnail is still shown, or nothing */ }
+    if (saveButton) saveButton.disabled = !(image.currentSrc || image.src);
   }
 
   // Attachment chips: thumbnails for images, a name/size row for text files.
@@ -557,6 +575,8 @@ export function createAiRender({
     if (name === "get_reading_position") return "bookmark";
     if (name === "search_books_online") return "globe";
     if (name === "download_book") return "download";
+    if (name === "get_workshop_options" || name === "prepare_workshop_task") return "layout-grid";
+    if (name === "start_workshop_task") return "play";
     if (name === "toc_scan" || name === "toc_build" || name === "toc_apply") return "list";
     return "search";
   }
@@ -604,8 +624,138 @@ export function createAiRender({
             }
           }
         }
+        const confirmation = result?.confirmation
+          || (call?.name === "prepare_workshop_task" && result?.isError !== true
+            ? { operation: call?.arguments?.operation, label: "确认开始" }
+            : null);
+        // A prepared task gets a dedicated preview card at the end of the
+        // assistant reply (see renderAiWorkshopPreview), where it follows the
+        // explanation instead of hiding above it in this tool step.
+        const hasPreview = Boolean(result?.preview);
+        if (!hasPreview && confirmation?.operation && owner
+          && (typeof owner._confirmWorkshopTask === "function" || typeof owner._send === "function")) {
+          body.open = true;
+          const row = card.createDiv("qiaomu-reader-ai-tool-confirm");
+          const button = row.createEl("button", {
+            cls: "qiaomu-reader-ai-tool-confirm-button",
+            text: confirmation.label || "确认开始",
+            attr: { type: "button" },
+          });
+          button.addEventListener("click", async () => {
+            if (button.disabled) return;
+            button.disabled = true;
+            const error = row.querySelector(".qiaomu-reader-ai-tool-confirm-error");
+            error?.remove();
+            let outcome = null;
+            try {
+              outcome = typeof owner._confirmWorkshopTask === "function"
+                ? await owner._confirmWorkshopTask(confirmation.operation)
+                : await owner._send("确认");
+            } catch (failure) {
+              outcome = { ok: false, error: String(failure?.message || failure) };
+            }
+            if (outcome?.ok) {
+              button.setText("已提交");
+              button.disabled = true;
+              status.setText(translate("tool-done"));
+              card.addClass("is-done");
+              return;
+            }
+            button.disabled = false;
+            const line = row.createDiv({ cls: "qiaomu-reader-ai-tool-confirm-error", text: outcome?.error || "没有开始任务。" });
+            line.setAttribute("role", "alert");
+          });
+        }
       },
     };
+  }
+
+  // The visible decision point for a prepared document task. It belongs at the
+  // end of the reply, after the model's explanation, so "confirm below" points
+  // at something the reader can actually see.
+  function renderAiWorkshopPreview(log, pending, owner = null) {
+    const preview = pending?.preview || {};
+    const confirmation = pending?.confirmation || {};
+    const operation = String(preview.operation || confirmation.title || "").trim();
+    const done = pending?.done === true;
+    const card = log.createDiv("qiaomu-reader-ai-preview");
+    card.setAttribute("role", "group");
+    card.setAttribute("aria-label", "确认任务");
+    const head = card.createDiv("qiaomu-reader-ai-preview-head");
+    svgIcon(head.createSpan("qiaomu-reader-ai-preview-icon"), "layout-grid");
+    head.createSpan({ cls: "qiaomu-reader-ai-preview-title", text: "确认任务" });
+    const body = card.createDiv("qiaomu-reader-ai-preview-body");
+    if (preview.summary) body.createDiv({ cls: "qiaomu-reader-ai-preview-summary", text: preview.summary });
+    const facts = card.createDiv("qiaomu-reader-ai-preview-facts");
+    const fact = (label, value) => {
+      if (!value) return;
+      const row = facts.createDiv("qiaomu-reader-ai-preview-fact");
+      row.createSpan({ cls: "qiaomu-reader-ai-preview-label", text: label });
+      row.createSpan({ cls: "qiaomu-reader-ai-preview-value", text: String(value) });
+    };
+    fact("操作", operation);
+    fact("来源", preview.source);
+    fact("结果", preview.output);
+    card.createDiv({
+      cls: "qiaomu-reader-ai-preview-note",
+      text: "还没有开始，也不会修改原文件。确认后开始处理。",
+    });
+    const actions = card.createDiv("qiaomu-reader-ai-preview-actions");
+    if (done) {
+      card.addClass("is-done");
+      const button = actions.createEl("button", {
+        cls: "qiaomu-reader-ai-preview-confirm",
+        text: "已提交",
+        attr: { type: "button", disabled: "true" },
+      });
+      button.disabled = true;
+      actions.createSpan({ cls: "qiaomu-reader-ai-preview-done", text: "任务已提交，可在任务列表查看进度。" });
+      return card;
+    }
+    const button = actions.createEl("button", {
+      cls: "qiaomu-reader-ai-preview-confirm",
+      text: confirmation.label || "确认开始",
+      attr: { type: "button" },
+    });
+    const hint = actions.createSpan({ cls: "qiaomu-reader-ai-preview-hint", text: "选择后提交到任务列表，可继续阅读。" });
+    const confirm = typeof owner?._confirmStoredWorkshopTask === "function"
+      ? (value) => owner._confirmStoredWorkshopTask(value)
+      : typeof owner?._confirmWorkshopTask === "function"
+        ? (value) => owner._confirmWorkshopTask(value)
+        : typeof owner?._send === "function"
+          ? () => owner._send("确认")
+          : null;
+    if (!confirm) {
+      button.disabled = true;
+      return card;
+    }
+    button.addEventListener("click", async () => {
+      if (button.disabled) return;
+      button.disabled = true;
+      hint.remove();
+      const oldError = card.querySelector(".qiaomu-reader-ai-preview-error");
+      oldError?.remove();
+      let outcome = null;
+      try {
+        outcome = await confirm(confirmation.operation || operation);
+      } catch (failure) {
+        outcome = { ok: false, error: String(failure?.message || failure) };
+      }
+      if (outcome?.ok) {
+        owner._markWorkshopPreviewDone?.(pending?.id || "", outcome?.taskId || "");
+        button.setText("已提交");
+        card.addClass("is-done");
+        actions.createSpan({ cls: "qiaomu-reader-ai-preview-done", text: "可以在任务列表查看进度；完成后会通知你。" });
+        return;
+      }
+      button.disabled = false;
+      const line = card.createDiv({
+        cls: "qiaomu-reader-ai-preview-error",
+        text: outcome?.error || "没有开始任务。",
+      });
+      line.setAttribute("role", "alert");
+    });
+    return card;
   }
 
   function toolStepTitle(call, translateFn) {
@@ -620,6 +770,7 @@ export function createAiRender({
     if (name === "search_book" && args.query) return `${translateFn(key)}：${String(args.query).slice(0, 20)}`;
     if (name === "search_books_online" && args.query) return `${translateFn(key)}：${String(args.query).slice(0, 20)}`;
     if (name === "download_book" && args.title) return `${translateFn(key)}：${String(args.title).slice(0, 20)}`;
+    if (name === "prepare_workshop_task" && args.operation) return `${translateFn(key)}：${String(args.operation).slice(0, 20)}`;
     return translateFn(key);
   }
 
@@ -727,6 +878,7 @@ export function createAiRender({
     renderAiContextQuote,
     renderAiAttachmentList,
     renderAiToolStep,
+    renderAiWorkshopPreview,
     openAiAttachMenu,
     closeAiAttachMenu,
     openAiImagePreview,

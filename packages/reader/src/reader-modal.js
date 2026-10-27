@@ -2,6 +2,8 @@
 // reader helpers, so the module runs outside Obsidian; pure helpers are
 // imported directly.
 import { EpubEngine } from "./reader-engine.js";
+import { createImageZoom } from "./image-zoom.js";
+import { imageMimeType, isImageBookFile } from "./image-book.js";
 import { PDF_ZOOM_DEFAULT } from "./pdf-zoom.js";
 import { READER_BLOCK_SELECTOR } from "./pdf-page-mode.js";
 import { captureReadingAnchor, queueReadingLayout, restoreReadingAnchor } from "./reader-experience.js";
@@ -173,6 +175,7 @@ export function createReaderModal({
     // Mobile keeps one compact overflow: every item is reader-specific, and the
     // title retains enough room to identify the current book.
     buildReaderMoreButton(tray, this, (list, add) => {
+      if (isImageBookFile(this.file)) add("fit-width", "maximize", () => this._imageZoom?.fitWidth?.());
       add("the-book-note", "file-text", () => openOrCreateBookNoteBeside(this.plugin, this.file));
       add("highlights", "comment", () => this._togglePanel("highlights"));
       add("reset-timer", "rotate-ccw", () => readerTimer.reset(this));
@@ -204,6 +207,36 @@ export function createReaderModal({
   async _applyContentStyle() {
     await this._repaginate();
   }
+  async exportNavigationCopy() {
+    if (this._exportingNavigationCopy) return;
+    const extension = String(this.file?.extension || "").toLowerCase();
+    if (!this.file || (extension !== "epub" && extension !== "azw3")) {
+      new Notice("只有 EPUB 或 AZW3 可以导出带导航的副本");
+      return;
+    }
+    const entries = (this.tocItems || []).filter((entry) => entry
+      && (entry.sectionId || entry.href || entry.cfi));
+    if (!entries.length) {
+      new Notice("先生成并应用目录，再导出副本");
+      return;
+    }
+    this._exportingNavigationCopy = true;
+    try {
+      if (extension === "azw3") {
+        new Notice("正在通过 Calibre 生成带导航的 AZW3，可能需要几十秒…", 5000);
+      }
+      const output = await this.plugin.exportNavigationCopy(this.file.path, entries);
+      new Notice(`已另存带导航副本：${output.name}`, 8000);
+    } catch (error) {
+      new Notice(`导出带导航副本失败：${String(error?.message || error)}`, 10000);
+    } finally {
+      this._exportingNavigationCopy = false;
+    }
+  }
+  // Kept for older document-tool callers and tests.
+  async exportEpubWithToc() {
+    return this.exportNavigationCopy();
+  }
   async _repaginate() {
     if (!this.bookHtml || this._openingBook || this._closed || !this.areaEl || !this.areaEl.clientWidth) return;
     if (this.engine) {
@@ -211,6 +244,7 @@ export function createReaderModal({
       this.engine.setExtraCss(this._engineAppearanceCss());
       return;
     }
+    if (this._imageZoom) return;
     return queueReadingLayout(this, (anchor) => this._repaginateAnchored(anchor));
   }
   async _repaginateAnchored(anchor) {
@@ -232,6 +266,8 @@ export function createReaderModal({
     const loadToken = this._loadCoordinator.begin();
     this._openingBook = loadToken;
     this._layoutAgain = false;
+    this._epubTocScan = null;
+    this._epubTocDraft = null;
     if (this._layoutPromise) await this._layoutPromise.catch(() => {});
     if (!this._loadCoordinator.isCurrent(loadToken)) return;
     readerHud.hideVeil(this);
@@ -281,6 +317,25 @@ export function createReaderModal({
     return waitForReaderFrame(win).then(() => waitForReaderFrame(win));
   }
   async _openLoadedDocument(result, loadToken) {
+    if (result.image) {
+      // The image page owns the whole reading area; no paginator or foliate
+      // document is created for it.
+      this.bookHtml = "image";
+      this.pdfDocumentContext = null;
+      this._pdfLazy = null;
+      this._pdfOutline = null;
+      this.tocItems = [];
+      this._buildTocPanel();
+      await this.plugin.ensureReadingFolder(this.file.path);
+      await this.plugin.refreshProgress(this.file.path);
+      if (!this._loadCoordinator.isCurrent(loadToken)) return false;
+      this._mountImage(result);
+      this.pager.total = 1;
+      this.pager.spread = 0;
+      this._updateUI(0, 1);
+      qiaomuReaderRevealWhenSettled(this);
+      return true;
+    }
     if (result.engine) {
       // Engine formats render through foliate-js on mobile as well; the
       // paginated pipeline is bypassed entirely.
@@ -294,7 +349,7 @@ export function createReaderModal({
       const savedEngine = this.plugin.getProgress(this.file.path);
       await this._mountEngine(result, savedEngine, loadToken);
       if (!this._loadCoordinator.isCurrent(loadToken)) return false;
-      this.tocItems = this._engineTocItems();
+      this.tocItems = await this._engineTocItemsWithGenerated(this.file);
       this._buildTocPanel();
       await this.plugin.refreshHighlights(this.file.path);
       if (!this._loadCoordinator.isCurrent(loadToken)) return false;
@@ -409,6 +464,7 @@ export function createReaderModal({
   }
   _nav(dir) {
     if (!this.bookHtml) return;
+    if (this._imageZoom) return;
     if (this.engine) {
       const engineNow = Date.now();
       if (this._lastNavTs && engineNow - this._lastNavTs < 90) return;
@@ -484,6 +540,57 @@ export function createReaderModal({
     };
     walk(this.engine ? this.engine.toc() : [], 0);
     return out;
+  }
+  async _engineTocItemsWithGenerated(file) {
+    const embedded = this._engineTocItems();
+    this._tocOriginalItems = embedded;
+    const stat = file?.stat || {};
+    const stamp = Number.isFinite(stat.mtime) || Number.isFinite(stat.size) ? `${stat.mtime || 0}:${stat.size || 0}` : "";
+    const generated = await Promise.resolve(this.plugin.loadGeneratedToc?.(file.path, stamp)).catch(() => null);
+    const entries = Array.isArray(generated?.entries) ? generated.entries : [];
+    const rows = entries
+      .filter((item) => item && (item.cfi || item.href) && (item.title || item.label))
+      .map((item) => ({
+        label: String(item.title || item.label).slice(0, 120),
+        level: Math.max(1, Number(item.level) || 1),
+        cfi: String(item.cfi || ""),
+        href: item.cfi ? "" : String(item.href || ""),
+        sectionId: item.sectionId == null ? "" : String(item.sectionId),
+        anchorPath: Array.isArray(item.anchorPath) ? item.anchorPath.map(Number) : null,
+        anchorText: String(item.anchorText || ""),
+        anchorId: String(item.anchorId || ""),
+      }));
+    return rows.length ? rows : embedded;
+  }
+  _mountImage(result) {
+    this.areaEl.empty();
+    const page = this.areaEl.createDiv("qiaomu-reader-image-page");
+    const image = page.createEl("img", {
+      attr: {
+        alt: this.file?.basename || this.file?.name || "",
+        draggable: "false",
+        decoding: "async",
+      },
+    });
+    const url = URL.createObjectURL(new Blob([result.bytes], { type: imageMimeType(this.file.extension) }));
+    this._imageUrl = url;
+    image.src = url;
+    this._imageZoom?.destroy?.();
+    this._imageZoom = createImageZoom({
+      image,
+      doc: this.areaEl.ownerDocument,
+      host: page,
+      eventTarget: page,
+      rootStyle: false,
+    });
+  }
+  _releaseImage() {
+    this._imageZoom?.destroy?.();
+    this._imageZoom = null;
+    if (this._imageUrl) {
+      try { URL.revokeObjectURL(this._imageUrl); } catch { /* already gone */ }
+      this._imageUrl = null;
+    }
   }
   _engineAppearanceCss() {
     const s = this.plugin.settings;
@@ -637,8 +744,8 @@ export function createReaderModal({
     this._tocRender = buildTocPanelFor(this, this.tocPan, {
       close: () => this._closePanel(),
       jump: (item) => {
-        if (this.engine && item && typeof item === "object" && item.href) {
-          void navigateEngineToc(this, item.href);
+        if (this.engine && item && typeof item === "object" && (item.href || item.cfi)) {
+          void navigateEngineToc(this, item.cfi ? item : item.href);
           return;
         }
         this._jumpToBlock(item && typeof item === "object" ? item.block : item);
@@ -840,6 +947,7 @@ export function createReaderModal({
     await persistCurrentReaderPosition(this); readerTimer.stop(this);
     window.clearTimeout(this._engineSelTimer);
     this.engine?.destroy(); this.engine = null; this._engineLocation = null;
+    this._releaseImage();
     if (this.plugin._openReaderModal === this) { this.plugin._openReaderModal = null; }
     clearFoundIn(this); this._removeSelectionListener();
     this._detachReaderObservers(); this.contentEl.empty();

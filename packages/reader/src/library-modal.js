@@ -14,6 +14,7 @@ import { svgIcon } from "./reader-icons.js";
 export function createLibraryModal({
   Menu, Modal, Notice, TFile, BOOK_EXTENSIONS, IMPORT_MIME_EXT, addBookFileMenu, bookNoteLinkFor, bookStatusOf, bookTagsOf, buildLibChips, deleteBookFromVault, filterLibBooks, freeBookPath, groupLibChips, mergeBookTags, openOrCreateBookNoteBeside, pickLibraryFolder, qiaomuReaderLibTheme, qiaomuReaderLocale, qiaomuReaderPath, qiaomuReaderTranslate, readerHud, resolveBookNote, setupWorker,
 }) {
+  const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif", "bmp"]);
   return class LibraryModal extends Modal {
   constructor(app, plugin) {
     super(app);
@@ -214,9 +215,15 @@ export function createLibraryModal({
     }
     this._libMode = online ? "online" : "vault";
     if (!online) this._libSelected = nodeId;
-    this.plugin.settings.libNavMode = online ? "online" : "vault";
+    const nextMode = online ? "online" : "vault";
+    const nextCategory = online ? this.plugin.settings.libCategory : nodeId;
+    const modeChanged = this.plugin.settings.libNavMode !== nextMode
+      || (!online && this.plugin.settings.libCategory !== nextCategory);
+    this.plugin.settings.libNavMode = nextMode;
     if (!online) this.plugin.settings.libCategory = nodeId;
-    void this.plugin._saveLocalData();
+    // Opening an already-selected node must not rewrite the whole settings
+    // snapshot (including every AI conversation) on every library render.
+    if (modeChanged) void this.plugin._saveLocalData();
     deps.contentEl.toggleClass("qiaomu-reader-lib-online", online);
     deps.contentEl.removeClass("qiaomu-reader-lib-nav-open");
     if (deps.onlineGrid) deps.onlineGrid.hidden = !online;
@@ -678,7 +685,11 @@ export function createLibraryModal({
     return usable;
   }
   _targetDir() {
-    return qiaomuReaderPath(pickLibraryFolder(this.app.vault.getFiles(), this.plugin.settings.booksFolder || "", BOOK_EXTENSIONS));
+    return qiaomuReaderPath(pickLibraryFolder(
+      this.app.vault.getFiles().filter((f) => this.plugin.isLibraryBook?.(f) !== false),
+      this.plugin.settings.booksFolder || "",
+      BOOK_EXTENSIONS,
+    ));
   }
   _freeBookPath(dir, name) {
     return qiaomuReaderPath(freeBookPath(dir, name, (candidate) => this.app.vault.getAbstractFileByPath(candidate)));
@@ -897,7 +908,9 @@ export function createLibraryModal({
       try {
         const url = bookFile.extension === "pdf"
           ? await this.makePdfThumb(bookFile)
-          : await this.makeEngineThumb(bookFile);
+          : IMAGE_EXTENSIONS.has(bookFile.extension)
+            ? await this.makeImageThumb(bookFile)
+            : await this.makeEngineThumb(bookFile);
         if (!url) { return; }
         this.plugin.thumbCache[bookFile.path] = url; this._thumbDirty = true;
         await this.showImg(coverEl, placeholder, url);
@@ -993,6 +1006,27 @@ export function createLibraryModal({
       await loadingTask.destroy();
     }
   }
+  async makeImageThumb(imageFile) {
+    const bytes = await this.app.vault.readBinary(imageFile);
+    const type = imageFile.extension === "jpg" || imageFile.extension === "jpeg"
+      ? "image/jpeg"
+      : `image/${imageFile.extension}`;
+    const bitmap = await window.createImageBitmap(new Blob([bytes], { type }));
+    try {
+      const max = 520;
+      const scale = Math.min(1, max / Math.max(1, bitmap.width, bitmap.height));
+      const canvas = docOf(this.contentEl).createElement("canvas");
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL("image/jpeg", 0.85);
+    } finally {
+      bitmap.close?.();
+    }
+  }
   _pdfCoverScale(page) {
     const unit = page.getViewport({ scale: 1 });
     return Math.min(2.5, Math.max(1, 520 / (unit.width || 400)));
@@ -1020,9 +1054,11 @@ export function createLibraryModal({
 
   onClose() {
     this._libraryRender = null;
-    // Flush any covers generated this session before the library closes.
+    // Flush any covers generated this session before the library closes. The
+    // thumbnails live in their own cache file; saveAll() would write settings
+    // and lose the just-generated covers.
     window.clearTimeout(this._thumbSaveT);
-    if (this._thumbDirty) { this._thumbDirty = false; this.plugin.saveAll(); }
+    if (this._thumbDirty) { this._thumbDirty = false; void this.plugin._saveThumbCache?.(); }
     this.contentEl.empty();
   }
 };

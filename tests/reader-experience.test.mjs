@@ -244,7 +244,14 @@ test("opening AI and activating its right dock preserve focus without restoring 
   const aiLeaf = { getRoot: () => workspace.rightSplit, view: new AiChatView() };
   workspace.getLeavesOfType = () => [aiLeaf];
   workspace.revealLeaf = (leaf) => { workspace.rightSplit.collapsed = false; onActiveLeaf(leaf); };
-  const openMethod = pluginSource.slice(pluginSource.indexOf("  async openAiChat("), pluginSource.indexOf("  async openLibrary("));
+  const openMethod = pluginSource.slice(
+    pluginSource.indexOf("  async openAiChat("),
+    Math.min(
+      ...["  async primeAiPrompt(", "  async openLibrary("]
+        .map((needle) => pluginSource.indexOf(needle))
+        .filter((index) => index > pluginSource.indexOf("  async openAiChat(")),
+    ),
+  );
   const plugin = vm.runInNewContext(`({${openMethod}})`, {
     AI_CHAT_VIEW_TYPE: "ai-chat", AiChatView,
     setReadingFocus() { throw new Error("Opening AI must not exit focus"); }

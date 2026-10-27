@@ -3,6 +3,8 @@
 // Obsidian; pure helpers are imported directly.
 import { EpubEngine } from "./reader-engine.js";
 import { PDF_ZOOM_DEFAULT, pdfZoomShortcut } from "./pdf-zoom.js";
+import { createImageZoom } from "./image-zoom.js";
+import { imageMimeType, isImageBookFile } from "./image-book.js";
 import { READER_BLOCK_SELECTOR } from "./pdf-page-mode.js";
 import { captureReadingAnchor, queueReadingLayout, restoreReadingAnchor } from "./reader-experience.js";
 import { createReaderLoadCoordinator, isReaderLoadAbort, waitForReaderFrame } from "./reader-load.js";
@@ -97,6 +99,7 @@ export function createReaderView({
   _onAreaResized() {
     if (!this.bookHtml || this._openingBook || this._closed || this.containerEl.offsetParent === null) return;
     if (this.engine) { this._setRelayout(false); return; }
+    if (this._imageZoom) { this._setRelayout(false); return; }
     const width = this.areaEl.clientWidth;
     if (!width || this._resizeAlreadySettled(width)) return;
     // A divider drag changes the width frame by frame. Hold the reflow (and
@@ -173,6 +176,11 @@ export function createReaderView({
   }
   _resetBookState(file) {
     this.file = file; this.ext = file.extension;
+    this._releaseImage();
+    if (this.fitBtn) {
+      this.fitBtn.setAttribute("aria-label", qiaomuReaderTranslate("fit-page"));
+      this.fitBtn.setAttribute("aria-pressed", String(this.plugin.settings.fitPage === true));
+    }
     this._pdfHasForm = false;
     this._pdfFormKnown = false;
     this._pdfFormReady = null;
@@ -182,7 +190,8 @@ export function createReaderView({
     if (this.pbarFill) this.pbarFill.style.removeProperty("width");
     this._findCorpus = null; this._clearFound();
     this.buildFindPanel(); this.bookHtml = "";
-    this.pdfDocumentContext = null; this.tocItems = [];
+    this.pdfDocumentContext = null; this.tocItems = []; this._tocOriginalItems = null;
+    this._epubTocScan = null; this._epubTocDraft = null;
     this._disposePdfLazy();
     this.pager = createPdfPaginator(this); this._pdfOutline = null;
     this.pdfZoom = PDF_ZOOM_DEFAULT;
@@ -197,10 +206,19 @@ export function createReaderView({
     const lazy = this._pdfLazy;
     if (lazy?.destroy) lazy.destroy(); this._pdfLazy = null;
   }
+  _releaseImage() {
+    this._imageZoom?.destroy?.();
+    this._imageZoom = null;
+    if (this._imageUrl) {
+      try { URL.revokeObjectURL(this._imageUrl); } catch { /* already gone */ }
+      this._imageUrl = null;
+    }
+  }
   _releaseEngine() {
     this._selectionMenu?.hide();
     this._hideHlPopup();
     window.clearTimeout(this._engineSelTimer);
+    this._releaseImage();
     this.engine?.destroy?.();
     this.engine = null;
     this._engineLocation = null;
@@ -229,7 +247,23 @@ export function createReaderView({
     if (!this._loadCoordinator.isCurrent(loadToken)) return;
     result = await loadReaderDocument(file, this.app, this.plugin.settings, reportProgress, { signal: loadToken.signal, sourceFile });
     if (!this._loadCoordinator.isCurrent(loadToken)) { result.lazy?.destroy?.(); return; }
-    if (result.engine) {
+    if (result.image) {
+      // A standalone image gets the whole reading area. It is not a book
+      // document, so the paginator and foliate are deliberately bypassed.
+      this.bookHtml = "image";
+      this.pdfDocumentContext = null;
+      this._pdfLazy = null;
+      this._pdfOutline = null;
+      await this.plugin.ensureReadingFolder(file.path);
+      await this.plugin.refreshProgress(file.path);
+      if (!this._loadCoordinator.isCurrent(loadToken)) return;
+      this._mountImage(result, file);
+      this.tocItems = [];
+      this.buildTocPanel();
+      this.pager.total = 1;
+      this.pager.spread = 0;
+      this.updateUI(0, 1);
+    } else if (result.engine) {
       // Engine formats render through foliate-js; the custom pagination
       // pipeline is not involved at all.
       this.bookHtml = "engine";
@@ -242,7 +276,7 @@ export function createReaderView({
       const savedEngine = this.plugin.getProgress(file.path);
       await this._mountEngine(result, file, savedEngine, loadToken);
       if (!this._loadCoordinator.isCurrent(loadToken)) return;
-      this.tocItems = this._engineTocItems();
+      this.tocItems = await this._engineTocItemsWithGenerated(file);
       this.buildTocPanel();
       await this.plugin.refreshHighlights(file.path);
       if (!this._loadCoordinator.isCurrent(loadToken)) return;
@@ -254,7 +288,7 @@ export function createReaderView({
       // while its stamp still matches the file it was built from.
       const stat = file?.stat || {};
       const stamp = Number.isFinite(stat.mtime) || Number.isFinite(stat.size) ? `${stat.mtime || 0}:${stat.size || 0}` : "";
-      const generated = await this.plugin.loadGeneratedToc?.(file.path, stamp).catch(() => null);
+      const generated = await Promise.resolve(this.plugin.loadGeneratedToc?.(file.path, stamp)).catch(() => null);
       if (!this._loadCoordinator.isCurrent(loadToken)) return;
       const outline = generated?.entries?.length
         ? generated.entries.flatMap((item) => {
@@ -574,6 +608,10 @@ export function createReaderView({
     // multi-character selection is instant.
     try { warmWordGlosses(); } catch (e) { console.warn("UV Reader: could not preload the word glossary", e); }
     syncReaderAiCapability(this);
+    if (isImageBookFile(file)) {
+      this.fitBtn?.setAttribute("aria-label", qiaomuReaderTranslate("fit-width"));
+      this._imageZoom?.fitWidth?.();
+    }
     this.buildSettPanel(); this._maybePromptBookNote(file);
     // The docked list must follow the book that just opened.
     this.buildHlPanel();
@@ -583,6 +621,29 @@ export function createReaderView({
     readerTimer.updateGoalBar(this); readerTimer.updateButton(this); syncOpenAiReaderContext(this);
     // Remembered "fit page" also applies when a PDF is opened again.
     if (readerIsPdf(this) && this.plugin.settings.fitPage === true) this._applyFitPage();
+  }
+  _mountImage(result, file) {
+    this.areaEl.empty();
+    const page = this.areaEl.createDiv("qiaomu-reader-image-page");
+    const image = page.createEl("img", {
+      attr: {
+        alt: file.basename || file.name || "",
+        draggable: "false",
+        decoding: "async",
+      },
+    });
+    const url = URL.createObjectURL(new Blob([result.bytes], { type: imageMimeType(file.extension) }));
+    this._imageUrl = url;
+    image.src = url;
+    this._imageZoom = createImageZoom({
+      image,
+      doc: this.areaEl.ownerDocument,
+      host: page,
+      eventTarget: page,
+      rootStyle: false,
+      onChange: ({ fit }) => this.fitBtn?.setAttribute("aria-pressed", String(fit)),
+    });
+    this.fitBtn?.setAttribute("aria-label", qiaomuReaderTranslate("fit-width"));
   }
   async _mountEngine(result, file, saved, loadToken) {
     // foliate-js renders into its own element; the surrounding chrome (panels,
@@ -649,6 +710,27 @@ export function createReaderView({
     };
     walk(this.engine ? this.engine.toc() : [], 0);
     return out;
+  }
+  async _engineTocItemsWithGenerated(file) {
+    const embedded = this._engineTocItems();
+    this._tocOriginalItems = embedded;
+    const stat = file?.stat || {};
+    const stamp = Number.isFinite(stat.mtime) || Number.isFinite(stat.size) ? `${stat.mtime || 0}:${stat.size || 0}` : "";
+    const generated = await Promise.resolve(this.plugin.loadGeneratedToc?.(file.path, stamp)).catch(() => null);
+    const entries = Array.isArray(generated?.entries) ? generated.entries : [];
+    const rows = entries
+      .filter((item) => item && (item.cfi || item.href) && (item.title || item.label))
+      .map((item) => ({
+        label: String(item.title || item.label).slice(0, 120),
+        level: Math.max(1, Number(item.level) || 1),
+        cfi: String(item.cfi || ""),
+        href: item.cfi ? "" : String(item.href || ""),
+        sectionId: item.sectionId == null ? "" : String(item.sectionId),
+        anchorPath: Array.isArray(item.anchorPath) ? item.anchorPath.map(Number) : null,
+        anchorText: String(item.anchorText || ""),
+        anchorId: String(item.anchorId || ""),
+      }));
+    return rows.length ? rows : embedded;
   }
   // Selections inside engine sections arrive from the iframe documents the
   // mount hook is watching; anchor them by CFI and raise the same popup.
@@ -844,6 +926,7 @@ export function createReaderView({
   async repaginate() {
     if (!this.bookHtml || this._openingBook || this._closed) return;
     if (this.engine) { this.applyVars(); this._setRelayout(false); return; }
+    if (this._imageZoom) return;
     if (!readerIsPdf(this)) return;
     if (!this.areaEl.clientWidth || this.containerEl.offsetParent === null) return;
     return queueReadingLayout(this, (anchor) => this._repaginateAnchored(anchor));
@@ -911,6 +994,10 @@ export function createReaderView({
       void this._toggleAiCompanion();
     }, { lucide: "sparkles" });
     this.fitBtn = trayButton(null, "fit-page", () => {
+      if (this._imageZoom) {
+        this._imageZoom.fitWidth();
+        return;
+      }
       this.plugin.settings.fitPage = this.plugin.settings.fitPage !== true;
       void this.plugin.saveAll();
       this._applyFitPage();
@@ -1072,6 +1159,10 @@ export function createReaderView({
     const fit = this.plugin.settings.fitPage === true;
     this.contentEl?.toggleClass("qiaomu-reader-fit-page", fit);
     this.fitBtn?.setAttribute("aria-pressed", String(fit));
+    if (this._imageZoom) {
+      this._imageZoom.fitWidth();
+      return;
+    }
     if (readerIsPdf(this)) {
       if (!this.bookHtml) return;
       const apply = () => {
@@ -1092,6 +1183,7 @@ export function createReaderView({
   nav(dir) {
     if (!this.bookHtml)
       return;
+    if (this._imageZoom) return;
     if (this.engine) {
       const engineNow = Date.now();
       if (this._lastNavTs && engineNow - this._lastNavTs < 90) return;
@@ -1113,7 +1205,7 @@ export function createReaderView({
     this._navNow(dir);
   }
   _navNow(dir) {
-    if (!this.bookHtml) return;
+    if (!this.bookHtml || this._imageZoom) return;
     this._hideHlPopup();
     const [cur, total] = dir === "next" ? this.pager.next() : this.pager.prev();
     this.updateUI(cur, total);
@@ -1238,8 +1330,8 @@ export function createReaderView({
     this._tocRender = buildTocPanelFor(this, this.tocPan, {
       close: () => this.closePanel(),
       jump: (item) => {
-        if (this.engine && item && typeof item === "object" && item.href) {
-          void navigateEngineToc(this, item.href);
+        if (this.engine && item && typeof item === "object" && (item.href || item.cfi)) {
+          void navigateEngineToc(this, item.cfi ? item : item.href);
           return;
         }
         this._jumpToBlock(item && typeof item === "object" ? item.block : item);
@@ -1322,6 +1414,36 @@ export function createReaderView({
       this.tocBtn.toggleClass("qiaomu-reader-ibtn-on", tocOpen);
       this.tocBtn.setAttribute("aria-expanded", String(tocOpen));
     }
+  }
+  async exportNavigationCopy() {
+    if (this._exportingNavigationCopy) return;
+    const extension = String(this.file?.extension || "").toLowerCase();
+    if (!this.file || (extension !== "epub" && extension !== "azw3")) {
+      new Notice("只有 EPUB 或 AZW3 可以导出带导航的副本");
+      return;
+    }
+    const entries = (this.tocItems || []).filter((entry) => entry
+      && (entry.sectionId || entry.href || entry.cfi));
+    if (!entries.length) {
+      new Notice("先生成并应用目录，再导出副本");
+      return;
+    }
+    this._exportingNavigationCopy = true;
+    try {
+      if (extension === "azw3") {
+        new Notice("正在通过 Calibre 生成带导航的 AZW3，可能需要几十秒…", 5000);
+      }
+      const output = await this.plugin.exportNavigationCopy(this.file.path, entries);
+      new Notice(`已另存带导航副本：${output.name}`, 8000);
+    } catch (error) {
+      new Notice(`导出带导航副本失败：${String(error?.message || error)}`, 10000);
+    } finally {
+      this._exportingNavigationCopy = false;
+    }
+  }
+  // Kept for older document-tool callers and tests.
+  async exportEpubWithToc() {
+    return this.exportNavigationCopy();
   }
   async reloadView() {
     if (!this.bookHtml || !this.file) {

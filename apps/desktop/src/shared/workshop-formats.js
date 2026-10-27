@@ -42,12 +42,12 @@ export function docvortexFormatExt(target) {
   return found ? found.ext : String(target || "out").replace(/^\./, "");
 }
 
-// 格式转换面板的目标格式:DocVortex 的文档格式 + reader 自己的「答题页」。
-// 答题页不是 DocVortex 格式,选中时走 quiz-export。
+// 格式转换面板的目标格式:DocVortex 的文档格式 + reader 的 AI 答题页。
+// 答题页统一走 AI 版本,旧版确定性答题页的生成入口已移除。
 export const CONVERT_FORMATS = Object.freeze([
   ...DOCVORTEX_FORMATS,
-  { id: "quiz", label: "答题页(交互 HTML)", ext: "quiz.html" },
-  { id: "quiz-ai", label: "AI 答题页(实验)", ext: "AI答题页.html" },
+  // 答题页统一走 AI 版本；旧版确定性答题页仍保留 runner，供历史任务重试。
+  { id: "quiz-ai", label: "AI 答题页", ext: "AI答题页.html" },
 ]);
 
 // 电子书产物统一归「电子书制作」:互转目标 + 图片打包目标。

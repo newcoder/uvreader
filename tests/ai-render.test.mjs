@@ -86,14 +86,10 @@ test("renderAiUserTurn prints the context card above the question", () => {
   assert.equal(bubble.querySelector(".qiaomu-reader-ai-msg-text").textContent, "what?");
 });
 
-test("contextualAiQuickPrompts inserts a translation entry for non-Chinese sources", () => {
+test("contextualAiQuickPrompts keeps the configured common prompts", () => {
   const { render } = setup();
-  const base = render.contextualAiQuickPrompts({ text: "阅读是与作者的对话。" });
-  assert.deepEqual(base.map((item) => item.id), ["explain"]);
-  const translated = render.contextualAiQuickPrompts({ pendingContext: { text: "Reading is a conversation with the author." } });
-  assert.equal(translated[0].id, "explain");
-  assert.equal(translated[1].id, "translate-zh");
-  assert.equal(translated[1].prompt, "translate-source-to-chinese-prompt");
+  assert.deepEqual(render.contextualAiQuickPrompts({ text: "阅读是与作者的对话。" }).map((item) => item.id), ["explain"]);
+  assert.deepEqual(render.contextualAiQuickPrompts({ pendingContext: { text: "Reading is a conversation." } }).map((item) => item.id), ["explain"]);
   assert.equal(render.contextualAiQuickPrompts({ contextMode: "none", text: "Reading is a conversation." }).length, 1);
 });
 
@@ -178,6 +174,32 @@ test("reader context helpers expose page, document and capability state", () => 
   assert.equal(aiBtn.getAttribute("aria-label"), "ai-reading");
 });
 
+test("an AI image preview saves the full image through the save bridge", async () => {
+  let saved = null;
+  const { doc, render } = setup({
+    saveImage: async (src, options) => { saved = { src, options }; return true; },
+  });
+  const owner = { contentEl: doc.body };
+  render.openAiImagePreview(owner, {
+    id: "att-save",
+    kind: "image",
+    name: "figure.png",
+    mimeType: "image/png",
+    bytes: 3,
+    data: "AAAA",
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const overlay = doc.body.querySelector(".qiaomu-reader-image-preview");
+  const save = overlay.querySelector(".qiaomu-reader-image-preview-save");
+  assert.ok(save, "the preview offers a save action");
+  assert.equal(save.disabled, false);
+  save.click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(saved.src, "data:image/png;base64,AAAA");
+  assert.equal(saved.options.name, "figure.png");
+  assert.ok(doc.body.querySelector(".qiaomu-reader-image-preview"), "saving does not close the preview");
+});
+
 test("double-clicking a thumbnail opens the real image and Esc closes it", async () => {
   const { doc, window, render } = setup({
     attachmentSrc: async (attachment) => `data:${attachment.mimeType};base64,${attachment.data || "STORED"}`,
@@ -206,6 +228,73 @@ test("double-clicking a thumbnail opens the real image and Esc closes it", async
   assert.ok(doc.body.querySelector(".qiaomu-reader-image-preview"));
   doc.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   assert.equal(doc.body.querySelector(".qiaomu-reader-image-preview"), null, "Esc closes it");
+});
+
+test("a prepared task ends the reply with a visible preview and one-click confirm button", async () => {
+  const { doc, render } = setup();
+  const log = doc.querySelector("main");
+  const calls = [];
+  const owner = {
+    async _confirmWorkshopTask(operation) {
+      calls.push(operation);
+      return { ok: true, title: "AI 答题页" };
+    },
+  };
+  const card = render.renderAiWorkshopPreview(log, {
+    preview: {
+      operation: "制作 AI 答题页",
+      summary: "用 AI 识别题目和选项，生成可作答、交卷后自动判分的页面。",
+      source: "2026江苏",
+      output: "2026江苏.AI答题页.html",
+    },
+    confirmation: { operation: "把文档做成答题页", label: "确认开始" },
+  }, owner);
+  assert.match(card.textContent, /确认任务/);
+  assert.match(card.textContent, /2026江苏/);
+  assert.match(card.textContent, /2026江苏\.AI答题页\.html/);
+  const button = card.querySelector(".qiaomu-reader-ai-preview-confirm");
+  assert.ok(button, "the preview must offer a direct confirmation button");
+  assert.equal(button.textContent, "确认开始");
+  button.click();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(calls, ["把文档做成答题页"]);
+  assert.equal(button.textContent, "已提交");
+  assert.equal(button.disabled, true);
+  assert.match(card.textContent, /可以在任务列表查看进度/);
+});
+
+test("a submitted task keeps its card visible as a read-only confirmation", () => {
+  const { doc, render } = setup();
+  const log = doc.querySelector("main");
+  let started = 0;
+  const card = render.renderAiWorkshopPreview(log, {
+    preview: {
+      operation: "制作 AI 答题页",
+      source: "2026江苏",
+      output: "2026江苏.AI答题页.html",
+    },
+    confirmation: { operation: "把文档做成答题页" },
+    done: true,
+  }, { _confirmWorkshopTask: async () => { started += 1; return { ok: true }; } });
+  const button = card.querySelector(".qiaomu-reader-ai-preview-confirm");
+  assert.equal(button.textContent, "已提交");
+  assert.equal(button.disabled, true);
+  assert.match(card.textContent, /任务已提交/);
+  assert.equal(started, 0);
+});
+
+test("a prepared task does not duplicate its confirm button inside the tool step", () => {
+  const { doc, render } = setup();
+  const log = doc.querySelector("main");
+  const owner = { _confirmWorkshopTask: async () => ({ ok: true }) };
+  const step = render.renderAiToolStep(log, { name: "prepare_workshop_task", arguments: { operation: "把文档做成答题页" } }, owner);
+  step.finish({
+    text: "准备开始：AI 答题页",
+    confirmation: { operation: "把文档做成答题页", label: "确认开始" },
+    preview: { operation: "制作 AI 答题页", source: "2026江苏", output: "2026江苏.AI答题页.html" },
+  });
+  assert.equal(step.card.querySelector(".qiaomu-reader-ai-tool-confirm-button"), null);
 });
 
 test("a tool step shows a fitting icon, its title, status and result", () => {

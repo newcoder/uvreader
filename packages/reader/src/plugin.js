@@ -2,6 +2,8 @@
 // reader helpers, so the module runs outside Obsidian; pure helpers are
 // imported directly.
 import { ENGINE_EXTENSIONS } from "./reader-engine.js";
+import { IMAGE_BOOK_EXTENSIONS } from "./image-book.js";
+import { buildNavigationEpub, buildNavigationEpubFromTitles } from "./epub-export.js";
 import { STARTER_BOOKS } from "./starter-book-data.js";
 import { addMissingQuoteLinks, highlightBacklink, jumpToEngineHighlight } from "./highlight-navigation.js";
 import { normalizeBookSources } from "./book-sources.js";
@@ -211,6 +213,13 @@ export function createPlugin({
     // another plugin has claimed the extension.
     try { this.registerExtensions(["pdf"], VIEW_TYPE); }
     catch (e) { console.warn("UV Reader: could not register .pdf; use the file menu to open it in UV Reader", e); }
+    // Images are single-page reading documents. On hosts where the native
+    // image viewer wins the extension, the library and file menu still open
+    // them through the reader.
+    for (const ext of IMAGE_BOOK_EXTENSIONS) {
+      try { this.registerExtensions([ext], VIEW_TYPE); }
+      catch (e) { console.warn(`UV Reader: could not register .${ext}; use the file menu to open it in UV Reader`, e); }
+    }
   }
   _addRibbonEntry() {
     const libraryLabel = `UV Reader — ${qiaomuReaderTranslate("library")}`;
@@ -295,7 +304,8 @@ export function createPlugin({
   }
   _registerPdfFileMenu() {
     const onFileMenu = (menu, file) => {
-      if (!(file instanceof TFile) || file.extension !== "pdf") return;
+      if (!(file instanceof TFile)) return;
+      if (file.extension !== "pdf" && !IMAGE_BOOK_EXTENSIONS.includes(file.extension)) return;
       menu.addItem((item) => item.setTitle(qiaomuReaderTranslate("open-in-book-reader")).setIcon("book-open").onClick(() => this.openFile(file)));
     };
     this.registerEvent(this.app.workspace.on("file-menu", onFileMenu));
@@ -439,6 +449,41 @@ export function createPlugin({
     this._companionWasVisible = true;
     await this._rememberCompanion(true);
     if (options.automatic && context?.readerView?.leaf) this.app.workspace.setActiveLeaf(context.readerView.leaf, { focus: false });
+  }
+
+  // Prefill a reader-facing AI request without sending it. Capability discovery
+  // uses this for actions that belong to the existing AI tools (for example the
+  // PDF navigation builder) instead of forcing the reader to know the prompt.
+  async primeAiPrompt(text = "") {
+    const prompt = String(text || "").trim();
+    if (!prompt) return false;
+    await this.openAiChat();
+    const view = this.app.workspace.getLeavesOfType(AI_CHAT_VIEW_TYPE)[0]?.view;
+    if (!view?.inputEl) {
+      new Notice(qiaomuReaderTranslate("set-up-ai-assistance"));
+      return false;
+    }
+    if (String(view.inputEl.value || "").trim()) {
+      new Notice("请先发送或清空当前输入，再使用这个能力。");
+      view.inputEl.focus?.();
+      return false;
+    }
+    view.inputEl.value = prompt;
+    view.inputEl.dispatchEvent(new Event("input", { bubbles: true }));
+    view.inputEl.focus?.();
+    return true;
+  }
+  async askAiPrompt(text = "") {
+    const prompt = String(text || "").trim();
+    if (!prompt) return false;
+    await this.openAiChat();
+    const view = this.app.workspace.getLeavesOfType(AI_CHAT_VIEW_TYPE)[0]?.view;
+    if (!view?.inputEl) {
+      new Notice(qiaomuReaderTranslate("set-up-ai-assistance"));
+      return false;
+    }
+    if (view.busy) return false;
+    return view._send?.(prompt);
   }
   async openLibrary(inNewWindow = false) {
     // The library is where the reading session ends for the desktop reader's
@@ -665,20 +710,30 @@ export function createPlugin({
   // wherever book.json records one; without it the session stays plain OCR.
   async ocrTextSourceFor(bookPath) {
     if (this.settings.ocrHybrid !== true || !bookPath) return "";
+    const fileExists = async (rel) => {
+      if (!rel) return false;
+      const file = this.app.vault.getAbstractFileByPath(rel);
+      if (!file) return false;
+      try {
+        const stat = await this.app.vault.adapter.stat(rel);
+        return Boolean(stat) && (stat.type ? stat.type === "file" : stat.isFile?.() !== false);
+      } catch {
+        return false;
+      }
+    };
     try {
       const meta = await this._readingStore().readBookMeta(bookPath);
       const recorded = String(meta?.derived?.textSource || "");
-      if (recorded) {
-        const file = this.app.vault.getAbstractFileByPath(recorded);
-        if (file) return this._vaultAbsolute(recorded);
-      }
+      // The vault index can still hold a path whose file was removed by an
+      // interrupted cleanup; ask the adapter rather than trusting the cache.
+      if (recorded && await fileExists(recorded)) return this._vaultAbsolute(recorded);
       const { folder } = await this._readingStore().ensureBook(bookPath, this._bookMeta(bookPath));
       // Manual drop-ins first, then whatever a previous MinerU run produced
       // (the sidecar writes <out>/mineru/layout.json under derived/mineru/).
       const dir = `${this._readingRoot()}/${folder}/derived`;
       for (const name of ["text-source.json", "layout.json", "mineru/layout.json", "mineru/mineru/layout.json"]) {
         const rel = `${dir}/${name}`;
-        if (this.app.vault.getAbstractFileByPath(rel)) return this._vaultAbsolute(rel);
+        if (await fileExists(rel)) return this._vaultAbsolute(rel);
       }
     } catch (error) {
       console.warn("UV Reader: could not resolve the OCR text source", error);
@@ -728,6 +783,89 @@ export function createPlugin({
       const adapter = this.app.vault.adapter;
       if (rel && adapter?.remove && (await adapter.exists(rel))) await adapter.remove(rel);
     } catch { /* undo is best-effort */ }
+  }
+  calibreBridge() {
+    return typeof window !== "undefined" ? window.qbrDesktop?.calibre || null : null;
+  }
+  async exportNavigationCopy(bookPath, entries = []) {
+    const file = this.app.vault.getAbstractFileByPath(String(bookPath || ""));
+    const extension = String(file?.extension || "").toLowerCase();
+    if (extension === "epub") return this.exportEpubWithToc(bookPath, entries);
+    if (extension === "azw3") return this.exportAzw3WithToc(bookPath, entries);
+    throw new Error("只有 EPUB 或 AZW3 可以导出带导航的副本");
+  }
+  // Another reader can only see a TOC embedded in the EPUB. Keep the original
+  // file untouched and write a new copy beside it.
+  async exportEpubWithToc(bookPath, entries = []) {
+    const file = this.app.vault.getAbstractFileByPath(String(bookPath || ""));
+    if (!file || String(file.extension || "").toLowerCase() !== "epub") {
+      throw new Error("只有 EPUB 可以导出带导航的副本");
+    }
+    const usable = (Array.isArray(entries) ? entries : [])
+      .filter((entry) => entry && (entry.label || entry.title) && (entry.sectionId || entry.href));
+    if (!usable.length) throw new Error("先生成并应用目录，再导出副本");
+    const source = await this.app.vault.readBinary(file);
+    const bytes = await buildNavigationEpub(source, usable);
+    const dir = String(file.path || "").split("/").slice(0, -1).join("/");
+    const target = qiaomuReaderPath(freeBookPath(
+      dir,
+      `${file.basename || "book"}（带导航）.epub`,
+      (candidate) => Boolean(this.app.vault.getAbstractFileByPath(candidate)),
+    ));
+    await this.app.vault.createBinary(target, bytes);
+    return { path: target, name: target.split("/").pop() || target, bytes: bytes.length };
+  }
+  // AZW3 is a KF8 container, not an EPUB ZIP. Calibre makes a clean EPUB
+  // intermediate; the generated titles are located in that copy and the
+  // portable nav/NCX is written before converting it back to AZW3.
+  async exportAzw3WithToc(bookPath, entries = []) {
+    const file = this.app.vault.getAbstractFileByPath(String(bookPath || ""));
+    if (!file || String(file.extension || "").toLowerCase() !== "azw3") {
+      throw new Error("只有 AZW3 可以导出带导航的 AZW3 副本");
+    }
+    const usable = (Array.isArray(entries) ? entries : [])
+      .filter((entry) => entry && (entry.label || entry.title));
+    if (!usable.length) throw new Error("先生成并应用 AZW3 目录，再导出副本");
+    const bridge = this.calibreBridge();
+    if (!bridge?.convert) throw new Error("导出 AZW3 需要桌面版和 Calibre");
+    const dataRoot = String(window.qbrDesktop?.paths?.dataRoot || "").replace(/\\/g, "/").replace(/\/+$/, "");
+    if (!dataRoot) throw new Error("找不到临时目录；请在桌面应用中使用此功能");
+    const stamp = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const tempDir = `${dataRoot}/toc-export/${stamp}`;
+    const sourceEpub = `${tempDir}/source.epub`;
+    const navEpub = `${tempDir}/navigation.epub`;
+    const targetAzw3 = `${tempDir}/navigation.azw3`;
+    const cleanup = async () => {
+      try { await this.app.vault.adapter.remove(tempDir); } catch { /* temp only */ }
+    };
+    try {
+      const converted = await bridge.convert({
+        source: this._bookAbsolute(file.path),
+        out: sourceEpub,
+        settings: this.settings,
+      });
+      if (!converted?.ok) throw new Error(String(converted?.error || "AZW3 转 EPUB 失败"));
+      const sourceBytes = await this.app.vault.adapter.readBinary(sourceEpub);
+      const navBytes = await buildNavigationEpubFromTitles(sourceBytes, usable);
+      await this.app.vault.adapter.writeBinary(navEpub, navBytes);
+      const final = await bridge.convert({
+        source: navEpub,
+        out: targetAzw3,
+        settings: this.settings,
+      });
+      if (!final?.ok) throw new Error(String(final?.error || "EPUB 转 AZW3 失败"));
+      const bytes = await this.app.vault.adapter.readBinary(targetAzw3);
+      const dir = String(file.path || "").split("/").slice(0, -1).join("/");
+      const target = qiaomuReaderPath(freeBookPath(
+        dir,
+        `${file.basename || "book"}（带导航）.azw3`,
+        (candidate) => Boolean(this.app.vault.getAbstractFileByPath(candidate)),
+      ));
+      await this.app.vault.createBinary(target, bytes);
+      return { path: target, name: target.split("/").pop() || target, bytes: bytes.byteLength };
+    } finally {
+      await cleanup();
+    }
   }
   // ── OCR text layer completion marker ──────────────────────────────────────
   // derived/ocr-done.json (same mtime:size stamp): once the layer is fully
@@ -804,10 +942,16 @@ export function createPlugin({
   isLibraryBook(file) {
     const path = String(file?.path || "");
     if (!path) return false;
+    const normalized = path.replace(/\\/g, "/");
+    // Extracted formulas/figures and generated assets are stored beside books
+    // and under library/images. They are image files, but they are not books.
+    if (IMAGE_BOOK_EXTENSIONS.includes(String(file?.extension || "").toLowerCase())) {
+      const parts = normalized.split("/");
+      if (parts[0] === "images" || parts.some((part) => part.endsWith(".assets"))) return false;
+    }
     const hidden = [this._readingRoot(), this._dataFolder?.(), this.manifest?.dir]
       .filter(Boolean)
       .map((root) => String(root).replace(/\\/g, "/").replace(/\/+$/, ""));
-    const normalized = path.replace(/\\/g, "/");
     return !hidden.some((root) => normalized === root || normalized.startsWith(`${root}/`));
   }
   // After a successful MinerU run only the layout JSON is kept; the uploaded
@@ -819,19 +963,29 @@ export function createPlugin({
       const adapter = this.app.vault.adapter;
       // A directory is kept when it (or a descendant) holds the layout JSON;
       // everything else goes. The uploaded copy and figure crops are not read.
+      // The desktop adapter returns Node fs.Stats (isDirectory()), while the
+      // Obsidian adapter returns entries with a string type; accept both.
+      const isFolder = (stat) => stat?.type === "folder"
+        || (typeof stat?.isDirectory === "function" && stat.isDirectory());
       const walk = async (dir) => {
-        const names = await adapter.list(dir).catch(() => []);
+        const names = await adapter.list(dir);
+        if (!Array.isArray(names)) throw new Error(`could not list ${dir}`);
         let kept = 0;
-        for (const name of Array.isArray(names) ? names : []) {
+        for (const name of names) {
           const full = `${dir}/${name}`;
-          const stat = await adapter.stat(full).catch(() => null);
-          if (stat?.type === "folder") { kept += await walk(full); continue; }
+          const stat = await adapter.stat(full);
+          if (!stat) continue;
+          if (isFolder(stat)) { kept += await walk(full); continue; }
           if (/layout\.json$/i.test(name)) { kept += 1; continue; }
           await adapter.remove(full).catch(() => {});
         }
         if (!kept) await adapter.remove(dir).catch(() => {});
         return kept;
       };
+      // Do not prune when the output directory does not exist (or cannot be
+      // inspected): a transient list error must never delete the text source.
+      const stat = await adapter.stat(base).catch(() => null);
+      if (!stat) return;
       await walk(base);
     } catch (error) {
       console.warn("UV Reader: could not prune the MinerU output", error);
@@ -864,7 +1018,9 @@ export function createPlugin({
       await this._readingStore().updateBookMeta(bookPath, {
         derived: { textSource: rel, textSourceAt: Date.now() },
       });
-      void this.pruneOcrDerived(bookPath);
+      // Finish cleanup before reporting the job, so a session opening right
+      // after the build cannot race a directory removal.
+      await this.pruneOcrDerived(bookPath);
     }
     return result;
   }
@@ -1528,6 +1684,7 @@ export function createPlugin({
     return this.app.vault.getFiles().filter(
       (f) => BOOK_EXTENSIONS.has(f.extension)
         && (prefix === "" || f.path.startsWith(prefix))
+        && this.isLibraryBook(f)
     );
   }
   lastReadBookFile() {
@@ -1611,7 +1768,11 @@ export function createPlugin({
     if (known[sourceKey] && this.app.vault.getAbstractFileByPath(known[sourceKey])) return known[sourceKey];
     const bytes = await this.app.vault.adapter.readBinary(raw);
     const name = raw.split(/[\\/]/).pop() || "book";
-    const dir = pickLibraryFolder(this.app.vault.getFiles(), this.settings.booksFolder || "", BOOK_EXTENSIONS);
+    const dir = pickLibraryFolder(
+      this.app.vault.getFiles().filter((file) => this.isLibraryBook(file)),
+      this.settings.booksFolder || "",
+      BOOK_EXTENSIONS,
+    );
     if (dir && !this.app.vault.getAbstractFileByPath(dir)) {
       await this.app.vault.createFolder(dir).catch(() => {});
     }

@@ -18,13 +18,14 @@ function setup(state = {}) {
 test("the schemas stay minimal and are advertised as-is", () => {
   assert.deepEqual(AI_TOOL_DEFINITIONS.map((tool) => tool.name), [
     "get_reading_position", "get_book_outline", "read_page_image", "read_pages", "search_book", "list_highlights",
-    "search_books_online", "download_book", "toc_scan", "toc_build", "toc_apply",
+    "get_workshop_options", "prepare_workshop_task", "start_workshop_task", "search_books_online", "download_book", "toc_scan", "toc_build", "toc_apply",
   ]);
   const { definitions } = setup();
   assert.deepEqual(definitions, AI_TOOL_DEFINITIONS
     .filter((tool) => tool.name !== "read_page_image")
+    .filter((tool) => !["get_workshop_options", "prepare_workshop_task", "start_workshop_task"].includes(tool.name))
     .map(({ name, description, parameters }) => ({ name, description, parameters })),
-    "without vision the image tool is not advertised");
+    "without vision or the desktop workshop the unavailable tools are not advertised");
   assert.equal(definitions.every((tool) => tool.parameters.type === "object"), true);
 });
 
@@ -242,4 +243,86 @@ test("results are truncated, unknown tools and failures are errors", async () =>
   const failure = await failing.run("get_reading_position", {});
   assert.equal(failure.isError, true);
   assert.match(failure.text, /工具执行失败：boom/);
+});
+
+test("workshop options stay outcome-first and never leak implementation names", async () => {
+  const tools = createAiTools({
+    state: {
+      hasWorkshop: true,
+      format: "pdf",
+      workshopOptions: () => [
+        {
+          id: "exam-answer-page",
+          title: "把文档做成可作答的答题页",
+          summary: "识别题目和选项，生成可作答的页面。",
+          cue: "手里有 PDF 试卷时",
+          recommended: true,
+          startable: true,
+        },
+        {
+          id: "convert-markdown",
+          title: "把文档转成 Markdown",
+          summary: "导出成可编辑文本。",
+          recommended: true,
+          startable: true,
+        },
+      ],
+    },
+  });
+  const options = await tools.run("get_workshop_options", {});
+  assert.match(options.text, /把文档做成可作答的答题页/);
+  assert.match(options.text, /把文档转成 Markdown/);
+  assert.match(options.text, /可以直接开始/);
+  assert.doesNotMatch(options.text, /DocVortex|OCR|文字层|payload/i);
+  assert.equal(tools.definitions.some((tool) => tool.name === "get_workshop_options"), true);
+});
+
+test("preparing a workshop task returns a preview without starting work", async () => {
+  let started = 0;
+  const tools = createAiTools({
+    state: {
+      hasWorkshop: true,
+      prepareWorkshopTask: () => ({
+        ok: true,
+        title: "制作可作答的答题页",
+        summary: "识别题目并生成答题页。",
+        sourceLabel: "paper.pdf",
+        outputLabel: "原文件旁的新答题页",
+      }),
+      startWorkshopTask: async () => {
+        started += 1;
+        return { ok: true };
+      },
+    },
+  });
+  const prepared = await tools.run("prepare_workshop_task", { operation: "把文档做成可作答的答题页" });
+  assert.match(prepared.text, /准备开始/);
+  assert.match(prepared.text, /还没有开始/);
+  assert.equal(prepared.confirmation.operation, "把文档做成可作答的答题页");
+  assert.equal(prepared.confirmation.label, "确认开始");
+  assert.deepEqual(prepared.preview, {
+    operation: "制作可作答的答题页",
+    summary: "识别题目并生成答题页。",
+    source: "paper.pdf",
+    output: "原文件旁的新答题页",
+  });
+  assert.equal(started, 0);
+});
+
+
+test("starting a prepared workshop task submits only the current operation", async () => {
+  const started = [];
+  const tools = createAiTools({
+    state: {
+      hasWorkshop: true,
+      startWorkshopTask: async (operation) => {
+        started.push(operation);
+        return { ok: true, taskId: "w1", title: "制作可作答的答题页" };
+      },
+    },
+  });
+  const submitted = await tools.run("start_workshop_task", { operation: "把文档做成可作答的答题页" });
+  assert.match(submitted.text, /已提交/);
+  assert.deepEqual(started, ["把文档做成可作答的答题页"]);
+  assert.match(submitted.text, /任务列表/);
 });

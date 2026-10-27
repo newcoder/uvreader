@@ -117,21 +117,11 @@ test("quick prompts send immediately, preserve existing drafts, and remain visib
     menu.entries[0].click();
     assert.equal(calls.at(-1), items[3].prompt);
     chat.pendingContext = { text: "Reading is a conversation with the author." };
-    const translatedRow = render(host, chat);
+    const refreshedRow = render(host, chat);
     assert.equal(row.isConnected, false, "refresh replaces the old prompt row in place");
     assert.equal(host.querySelectorAll(".qiaomu-reader-ai-composer-prompts").length, 1);
-    assert.equal(chat.quickPromptButtons.length, 5);
-    assert.equal(chat.quickPromptButtons[3].textContent, "translate-source-to-chinese");
-    chat.quickPromptButtons[3].click();
-    assert.equal(calls.at(-1), "translate-source-to-chinese-prompt");
-    chat.pendingContext = { text: "阅读是与作者的对话。" };
-    render(host, chat);
-    assert.equal(translatedRow.isConnected, false);
     assert.equal(chat.quickPromptButtons.length, 4);
-    chat.pendingContext = { text: "Reading is a conversation." };
-    chat.contextMode = "none";
-    render(host, chat);
-    assert.equal(chat.quickPromptButtons.length, 4, "detached source does not offer translation");
+    assert.equal(refreshedRow.isConnected, true);
   }
   items.length = 0;
   const host = dom().document.querySelector("main");
@@ -228,6 +218,49 @@ function chatHarness(explain, overrides = {}) {
   chat.log = createLog(window.document.querySelector("main"), chat);
   return { chat, window };
 }
+
+test("a prepared workshop task renders its preview after the final answer", async () => {
+  const steps = [
+    {
+      answer: "我先准备。",
+      toolCalls: [{ id: "call-1", name: "prepare_workshop_task", arguments: { operation: "把文档做成答题页" } }],
+    },
+    { answer: "预览已生成，请确认。", toolCalls: [] },
+  ];
+  let pending = null;
+  const { chat } = chatHarness(async () => "", {
+    aiExplainStep: async () => steps.shift(),
+    prepareAiTools: async () => ({
+      definitions: [],
+      async run() {
+        return {
+          text: "准备开始：制作 AI 答题页",
+          blocks: [{ type: "text", text: "准备开始：制作 AI 答题页" }],
+          images: [],
+          confirmation: { operation: "把文档做成答题页", label: "确认开始" },
+          preview: {
+            operation: "制作 AI 答题页",
+            summary: "识别题目并生成答题页。",
+            source: "2026江苏",
+            output: "2026江苏.AI答题页.html",
+          },
+        };
+      },
+    }),
+    renderAiWorkshopPreview: (log, value) => {
+      pending = value;
+      return log.createDiv({ cls: "preview-test", text: `预览：${value.preview.output}` });
+    },
+  });
+  assert.equal(await chat._send("把这份试卷做成答题页"), true);
+  assert.equal(pending.preview.output, "2026江苏.AI答题页.html");
+  assert.equal(pending.confirmation.operation, "把文档做成答题页");
+  const text = chat.log.textContent;
+  assert.ok(text.indexOf("预览已生成") >= 0);
+  assert.ok(text.indexOf("预览已生成") < text.indexOf("预览：2026江苏.AI答题页.html"),
+    "the confirmable preview must come after the model's explanation");
+  assert.ok(chat.log.querySelector(".preview-test"));
+});
 
 test("mobile AI header owns a safe close control that closes once", () => {
   const window = dom();
@@ -441,7 +474,7 @@ function sidebarHarness() {
   const chatPortNames = chatViewFactory.slice(chatViewFactory.indexOf("{") + 1, chatViewFactory.indexOf("})")).split(",").map((name) => name.trim()).filter(Boolean);
   const chatPorts = `{ ${chatPortNames.map((name) => `${name}: typeof ${name} === "undefined" ? undefined : ${name}`).join(", ")} }`;
   const context = {
-    window, ItemView: class {}, TFile: File, qiaomuReaderTranslate: (s) => s, Notice: class {},
+    window, ItemView: class {}, TFile: File, qiaomuReaderTranslate: (s) => s, Notice: class {}, svgIcon() {},
     normalizeAiTurnContext: (value) => value?.text ? { kind: value.kind, text: value.text } : null,
     normalizeAiAttachments: (value) => (Array.isArray(value) ? value : []),
     stripAttachmentData: (value) => value || [],
@@ -453,6 +486,11 @@ function sidebarHarness() {
     clearAiSource() {}, readerHud: { autoFocus() {} }, shouldFollowContext,
     bookNoteLinkFor: () => "", aiTurnsHaveDocumentContext: (turns) => turns.some((turn) => turn.context?.kind === "document"),
     readerDefaultAiContext: () => ({ kind: "page", text: "当前页" }),
+    renderAiUserTurn: (log, turn) => log.createDiv({ cls: "qiaomu-reader-ai-msg-me", text: turn.content }),
+    renderAiMarkdown: async (_owner, element, text) => element.setText(text),
+    renderAiWorkshopPreview: (log, pending) => log.createDiv({ cls: "preview-test", text: `预览：${pending.preview.output}` }),
+    renderAiHeadMeta: () => {},
+    setIcon: () => {},
   };
   const { Chat, normalizeHistory } = vm.runInNewContext(`${normalize}\n${chatViewFactory}\n({ Chat: createAiChatView(${chatPorts}), normalizeHistory: normalizeAiChatHistory })`, context);
   const texts = new Map();
@@ -468,6 +506,209 @@ function sidebarHarness() {
   chat._renderUnavailable = () => chat.contentEl.empty();
   return { chat, files, normalizeHistory };
 }
+
+test("a stored conversation keeps its workshop preview", () => {
+  const { chat, normalizeHistory } = sidebarHarness();
+  const preview = {
+    operation: "制作 AI 答题页",
+    summary: "识别题目并生成答题页。",
+    source: "2026江苏",
+    output: "2026江苏.AI答题页.html",
+  };
+  chat.turns = [
+    { role: "user", content: "把这份试卷做成答题页" },
+    {
+      role: "assistant",
+      content: "预览已生成。",
+      workshopPreview: preview,
+      workshopConfirmation: { operation: "把文档做成答题页", label: "确认开始" },
+      workshopPreviewId: "call-1",
+    },
+  ];
+  chat._actions = () => {};
+  chat.log = chat.contentEl;
+  chat._renderStoredTurns();
+  const card = chat.log.querySelector(".preview-test");
+  assert.ok(card, "a restored reply must keep its preview card");
+  assert.match(card.textContent, /2026江苏\.AI答题页\.html/);
+  const stored = normalizeHistory([{
+    id: "session-1",
+    title: "会话",
+    bookPath: "a.epub",
+    contextVersion: 1,
+    turns: chat.turns,
+  }])[0];
+  assert.equal(stored.turns[1].workshopPreview.operation, "制作 AI 答题页");
+  assert.equal(stored.turns[1].workshopPreview.output, "2026江苏.AI答题页.html");
+  assert.equal(stored.turns[1].workshopPreviewId, "call-1");
+  chat._markWorkshopPreviewDone("call-1", "task-1");
+  assert.equal(chat.turns[1].workshopPreviewDone, true);
+  assert.equal(chat.turns[1].workshopTaskId, "task-1");
+});
+
+test("an older stored reply without preview metadata still gets a confirm card", () => {
+  const { chat } = sidebarHarness();
+  chat.turns = [
+    { role: "user", content: "把这份试卷做成答题页" },
+    {
+      role: "assistant",
+      content: "我先准备一下。",
+      toolCalls: [{ id: "call-old", name: "prepare_workshop_task", arguments: { operation: "把文档做成答题页" } }],
+    },
+    {
+      role: "tool",
+      toolCallId: "call-old",
+      content: "准备开始：制作 AI 答题页\n用 AI 识别题目并生成答题页。\n来源：2026江苏\n结果：2026江苏.AI答题页.html\n还没有开始，也不会修改原文件。",
+    },
+    { role: "assistant", content: "如果确认没问题，点击确认按钮。" },
+  ];
+  chat._actions = () => {};
+  chat.log = chat.contentEl;
+  chat._renderStoredTurns();
+  const card = chat.log.querySelector(".preview-test");
+  assert.ok(card, "a historical prepare result should still be confirmable");
+  assert.match(card.textContent, /2026江苏\.AI答题页\.html/);
+});
+
+test("a finished AI task appears as a normal conversation message", () => {
+  const { chat, files } = sidebarHarness();
+  chat.bookFile = files.get("a.epub");
+  chat.log = chat.contentEl;
+  chat._scroll = () => {};
+  assert.equal(chat.showWorkshopTaskFinished({
+    id: "task-1",
+    status: "done",
+    origin: "assistant",
+    kind: "quiz-llm-export",
+    title: "AI 答题页",
+    bookPath: "a.epub",
+    detail: "AI 生成 · 0 MathML · 21 图片内联",
+    output: "C:/Users/me/Downloads/2026江苏.AI答题页.html",
+  }), true);
+  const message = chat.log.querySelector(".qiaomu-reader-ai-msg-ai .qiaomu-reader-ai-msg-text");
+  assert.ok(message);
+  assert.match(message.textContent, /任务完成/);
+  assert.match(message.textContent, /C:\/Users\/me\/Downloads\/2026江苏\.AI答题页\.html/);
+  assert.match(message.textContent, /书坊 → 任务/);
+  assert.equal(chat.showWorkshopTaskFinished({ id: "task-1", status: "done", bookPath: "a.epub" }), true);
+  assert.equal(chat.turns.filter((turn) => turn.taskCompletion?.id === "task-1").length, 1);
+});
+
+test("a completion never appears in another document's conversation", () => {
+  const { chat, files } = sidebarHarness();
+  chat.bookFile = files.get("b.epub");
+  chat.log = chat.contentEl;
+  chat._scroll = () => {};
+  const task = {
+    id: "task-other-book",
+    status: "done",
+    origin: "assistant",
+    kind: "docvortex-convert",
+    title: "把文档转成 Word",
+    bookPath: "a.epub",
+    output: "C:/Users/me/Downloads/a.docx",
+  };
+  assert.equal(chat.showWorkshopTaskFinished(task), false);
+  assert.equal(chat.turns.length, 0);
+  assert.equal(chat.log.querySelector(".qiaomu-reader-ai-msg-text"), null);
+  // An older task without a document identity is equally unsafe to place.
+  assert.equal(chat.showWorkshopTaskFinished({ ...task, id: "task-legacy", bookPath: "" }), false);
+  assert.equal(chat.turns.length, 0);
+  chat.bookFile = files.get("a.epub");
+  assert.equal(chat.showWorkshopTaskFinished(task), true);
+  assert.match(chat.log.textContent, /a\.docx/);
+});
+
+test("a completion recorded while detached renders when the sidebar returns", () => {
+  const { chat, files } = sidebarHarness();
+  chat.bookFile = files.get("a.epub");
+  const detached = chat.contentEl.ownerDocument.createElement("div");
+  chat.log = detached;
+  chat._scroll = () => {};
+  const task = {
+    id: "task-detached",
+    status: "done",
+    origin: "assistant",
+    kind: "quiz-llm-export",
+    title: "AI 答题页",
+    bookPath: "a.epub",
+    output: "C:/Users/me/Downloads/detached.AI答题页.html",
+  };
+  assert.equal(chat.showWorkshopTaskFinished(task), false);
+  assert.equal(chat.turns.filter((turn) => turn.taskCompletion?.id === task.id).length, 1);
+  chat.log = chat.contentEl;
+  assert.equal(chat.showWorkshopTaskFinished(task), true);
+  assert.equal(chat.log.querySelectorAll(".qiaomu-reader-ai-msg-text").length, 1);
+  assert.equal(chat.turns.filter((turn) => turn.taskCompletion?.id === task.id).length, 1);
+});
+
+test("a completion that arrived while the sidebar was closed appears when it opens", () => {
+  const { chat, files } = sidebarHarness();
+  chat.bookFile = files.get("a.epub");
+  chat.plugin._aiTaskCompletions = [{
+    id: "task-queued",
+    status: "done",
+    origin: "assistant",
+    kind: "quiz-llm-export",
+    title: "AI 答题页",
+    bookPath: "a.epub",
+    output: "C:/Users/me/Downloads/queued.AI答题页.html",
+  }];
+  chat.log = chat.contentEl;
+  chat._scroll = () => {};
+  chat._flushTaskCompletions();
+  assert.equal(chat.plugin._aiTaskCompletions.length, 1, "completion stays available for the next render");
+  assert.equal(chat.turns.filter((turn) => turn.taskCompletion?.id === "task-queued").length, 1);
+  assert.match(chat.log.textContent, /queued\.AI答题页\.html/);
+  chat._flushTaskCompletions();
+  assert.equal(chat.turns.filter((turn) => turn.taskCompletion?.id === "task-queued").length, 1, "the same view does not duplicate messages");
+});
+
+test("completion messages are stored with the conversation", async () => {
+  const { chat, files, normalizeHistory } = sidebarHarness();
+  chat.bookFile = files.get("a.epub");
+  chat.turns = [{ role: "user", content: "做成答题页" }, { role: "assistant", content: "已提交" }];
+  chat.log = chat.contentEl;
+  chat._scroll = () => {};
+  const output = "C:/Users/me/Downloads/queued.AI答题页.html";
+  chat.showWorkshopTaskFinished({
+    id: "task-persisted",
+    status: "done",
+    origin: "assistant",
+    kind: "quiz-llm-export",
+    title: "AI 答题页",
+    bookPath: "a.epub",
+    detail: "a.epub",
+    output,
+  });
+  await chat._persistSession();
+  const stored = normalizeHistory(chat.plugin.settings.aiChatHistory)[0];
+  const completion = stored.turns.find((turn) => turn.taskCompletion?.id === "task-persisted");
+  assert.ok(completion);
+  assert.equal(completion.taskCompletion.output, output);
+  assert.equal(completion.taskCompletion.bookPath, "a.epub");
+  assert.match(completion.content, /文件：C:\/Users\/me\/Downloads\/queued\.AI答题页\.html/);
+});
+
+test("stored history drops completions from another document or without an owner", () => {
+  const { normalizeHistory } = sidebarHarness();
+  const stored = normalizeHistory([{
+    id: "session-books",
+    title: "会话",
+    bookPath: "a.epub",
+    contextVersion: 1,
+    turns: [
+      { role: "user", content: "问题" },
+      { role: "assistant", content: "另一个文档的完成消息", taskCompletion: { id: "task-b", bookPath: "b.epub" } },
+      { role: "assistant", content: "旧版没有文档信息的完成消息", taskCompletion: { id: "task-old" } },
+      { role: "assistant", content: "旧预览", workshopPreview: { operation: "转换" }, workshopTaskId: "task-old-owned" },
+      { role: "assistant", content: "旧版但可确认属于本文档的完成消息", taskCompletion: { id: "task-old-owned" } },
+      { role: "assistant", content: "本文档的完成消息", taskCompletion: { id: "task-a", bookPath: "a.epub" } },
+    ],
+  }])[0];
+  assert.equal(JSON.stringify(stored.turns.map((turn) => turn.taskCompletion?.id || turn.content)), JSON.stringify(["问题", "旧预览", "task-old-owned", "task-a"]));
+  assert.equal(stored.turns[2].taskCompletion.bookPath, "a.epub");
+});
 
 test("switching books isolates drafts, including returning to stored history", async () => {
   const { chat, files } = sidebarHarness();
@@ -680,6 +921,171 @@ test("mobile modal renders a real answer without Component methods and unloads r
   chat.onClose();
   assert.equal(children.size, 0);
   win.close(); window.close();
+});
+
+test("the study companion hides the empty settings entry", () => {
+  const { chat } = sidebarHarness();
+  chat.readerView = { getViewType: () => "qbr-quiz" };
+  chat.contentEl.empty();
+  chat._renderHead(chat.contentEl);
+  assert.equal(chat.contentEl.querySelector('[aria-label="ai-quiz-settings"]'), null);
+  assert.ok(chat.contentEl.querySelector('[aria-label="close"]'));
+
+  chat.readerView = { getViewType: () => "qiaomu-reader" };
+  chat.contentEl.empty();
+  chat._renderHead(chat.contentEl);
+  assert.ok(chat.contentEl.querySelector('[aria-label="ai-reading-settings"]'));
+});
+
+test("the export-toc document tool runs the reader action without sending an AI turn", () => {
+  const start = chatViewSource.indexOf("  _runDocumentTool(item) {");
+  const end = chatViewSource.indexOf("\n  }", start) + 4;
+  let exported = 0, sent = 0;
+  const notices = [];
+  const run = vm.runInNewContext(`({${chatViewSource.slice(start, end)}})._runDocumentTool`, {
+    Notice: class { constructor(message) { notices.push(String(message || "")); } },
+  });
+  const chat = {
+    busy: false,
+    readerView: { exportEpubWithToc: () => { exported += 1; } },
+    _send: () => { sent += 1; },
+  };
+  assert.equal(run.call(chat, { capability: { action: "export-toc" } }), true);
+  assert.equal(exported, 1);
+  assert.equal(sent, 0);
+  assert.deepEqual(notices, []);
+});
+
+test("the study companion keeps document tools out of its quick prompts", () => {
+  const start = aiRenderSource.indexOf("function contextualAiQuickPrompts(");
+  const end = aiRenderSource.indexOf("function renderAiComposerPrompts(");
+  const source = aiRenderSource.slice(start, end);
+  const items = [
+    { id: "explain", name: "解释一下", prompt: "解释" },
+    { id: "document-tools", name: "文档工具", prompt: "文档工具", command: true },
+  ];
+  const { contextualAiQuickPrompts } = vm.runInNewContext(`${source}\n({contextualAiQuickPrompts})`, {
+    aiQuickPrompts: () => items,
+  });
+  assert.equal(JSON.stringify(contextualAiQuickPrompts({ _isQuizContext: () => true }).map((item) => item.id)), JSON.stringify(["explain"]));
+  assert.equal(JSON.stringify(contextualAiQuickPrompts({ _isQuizContext: () => false }).map((item) => item.id)), JSON.stringify(["explain", "document-tools"]));
+});
+
+test("the shared AI sidebar names reading and quiz contexts separately", () => {
+  const { chat } = sidebarHarness();
+  chat.readerView = { getViewType: () => "qiaomu-reader" };
+  assert.equal(chat.getDisplayText(), "ai-reading");
+  chat.readerView = { getViewType: () => "qbr-quiz" };
+  assert.equal(chat.getDisplayText(), "ai-quiz");
+  const tab = { text: "", setText(value) { this.text = value; } };
+  chat.leaf = { tabHeaderInnerTitleEl: tab };
+  chat._syncViewTitle();
+  assert.equal(tab.text, "ai-quiz");
+});
+
+test("document shortcuts send directly from the AI conversation", () => {
+  const { chat } = sidebarHarness();
+  const sent = [];
+  chat._send = (text) => { sent.push(text); return true; };
+  chat.bookFile = { extension: "pdf" };
+  chat.plugin.workshopCapabilities = () => [{
+    id: "convert-word",
+    title: "把文档转成 Word",
+    summary: "生成一份 Word 文档。",
+    prompt: "我想把这个文档转成 Word。",
+    recommended: true,
+    primary: true,
+  }];
+  const host = chat.contentEl;
+  chat._renderWorkshopDiscovery(host);
+  const buttons = [...host.querySelectorAll(".qiaomu-reader-ai-doc-row")];
+  assert.equal(buttons.length, 1);
+  assert.match(buttons[0].textContent, /^1\.\s*把文档转成 Word$/);
+  assert.doesNotMatch(host.textContent, /书坊还能做什么|和 AI 说|适合当前书/);
+  buttons[0].click();
+  assert.deepEqual(sent, ["我想把这个文档转成 Word。"]);
+});
+
+test("More expands every document action inline without a modal", () => {
+  const { chat } = sidebarHarness();
+  const sent = [];
+  let openedModal = 0;
+  chat._send = (text) => { sent.push(text); return true; };
+  chat._scroll = () => {};
+  chat.busy = false;
+  chat.bookFile = { extension: "pdf" };
+  chat.plugin.workshopCapabilities = () => [
+    {
+      id: "extract-text",
+      title: "把文档正文导出成可编辑文本",
+      prompt: "导出正文",
+      recommended: true,
+      primary: true,
+      hidden: false,
+    },
+    {
+      id: "make-ebook",
+      title: "制作电子书",
+      prompt: "制作电子书",
+      recommended: true,
+      primary: false,
+      hidden: false,
+    },
+    {
+      id: "questions-and-answers",
+      title: "整理文档里的题目和答案",
+      prompt: "整理题目",
+      recommended: true,
+      primary: false,
+      hidden: false,
+    },
+  ];
+  chat.plugin.openWorkshopCapabilities = () => { openedModal += 1; };
+  chat.log = chat.contentEl;
+  chat._showDocumentTools();
+  const rows = () => [...chat.contentEl.querySelectorAll(".qiaomu-reader-ai-doc-row")];
+  assert.equal(rows().length, 1);
+  const more = chat.contentEl.querySelector(".qiaomu-reader-ai-workshop-all");
+  assert.equal(more?.textContent, "更多...");
+  more.click();
+  assert.equal(rows().length, 3);
+  assert.match(chat.contentEl.textContent, /制作电子书/);
+  assert.equal(chat._documentTools.items.length, 3);
+  assert.equal(openedModal, 0, "more expands inline instead of opening the modal");
+  chat._useDocumentToolNumber("2");
+  assert.deepEqual(sent, ["制作电子书"]);
+  more.click();
+  assert.equal(rows().length, 1);
+  assert.equal(more.textContent, "更多...");
+});
+
+test("the 文档工具 command renders the current document shortcuts", () => {
+  const { chat } = sidebarHarness();
+  const sent = [];
+  chat._send = (text) => { sent.push(text); return true; };
+  chat._scroll = () => {};
+  chat.busy = false;
+  chat.bookFile = { extension: "pdf" };
+  chat.plugin.workshopCapabilities = () => [{
+    id: "convert-word",
+    title: "把文档转成 Word",
+    summary: "生成一份 Word 文档。",
+    prompt: "我想把这个文档转成 Word。",
+    recommended: true,
+    primary: true,
+  }];
+  chat.log = chat.contentEl;
+  assert.equal(chat._showDocumentTools(), true);
+  assert.match(chat.contentEl.textContent, /文档工具/);
+  assert.match(chat.contentEl.textContent, /我能对文档做什么/);
+  assert.match(chat.contentEl.textContent, /输入编号/);
+  const action = chat.contentEl.querySelector(".qiaomu-reader-ai-doc-row");
+  assert.match(action?.textContent, /^1\.\s*把文档转成 Word$/);
+  action.click();
+  assert.deepEqual(sent, ["我想把这个文档转成 Word。"]);
+  assert.equal(chat._useDocumentToolNumber("1"), true);
+  assert.deepEqual(sent, ["我想把这个文档转成 Word。", "我想把这个文档转成 Word。"]);
+  assert.equal(chat._useDocumentToolNumber("9"), false);
 });
 
 

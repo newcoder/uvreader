@@ -2,6 +2,7 @@ import { ItemView, Notice, setIcon } from "obsidian";
 
 import { iconResolver } from "./icons.js";
 import { CONVERT_FORMATS, DOCVORTEX_INPUTS, EBOOK_TARGETS, IMAGE_BOOK_TARGETS, docvortexFormatExt } from "../shared/workshop-formats.js";
+import { BOOK_EXTENSIONS } from "../shared/books.js";
 import { BOOK_STYLE_DEFAULTS, COVER_PALETTES } from "../shared/book-styles.js";
 import { chapterStats, mergeChapters, moveChapter, removeChapter, renameChapter, splitChapter } from "../shared/book-chapters.js";
 import { splitTextChapters } from "../main/text-book.js";
@@ -9,6 +10,7 @@ import { EXTRACT_MODES, IMAGE_INPUTS, extractionKind } from "../shared/extract-f
 import { splitMarkdownChapters, unwrapProseFences } from "../shared/markdown-fix.js";
 import { convertPath, uvtextPath } from "../shared/workshop-names.js";
 import { createAiContext } from "../../../../packages/reader/src/ai-context.js";
+import { docvortexTaskSettings, formulaTaskSettings, taskAiConfig } from "../../../../packages/reader/src/workshop-settings.js";
 import { engineCapabilityRows, engineComponentSummary } from "../main/engine-client.js";
 import { decodeText } from "../shared/text-encoding.js";
 import { applyChapterRule, describeChapterRule } from "../shared/chapter-rules.js";
@@ -23,8 +25,6 @@ const aiContext = createAiContext({
   win: typeof window === "undefined" ? undefined : window,
   locateHl: () => null,
 });
-
-const BOOK_EXTENSIONS = ["epub", "fb2", "fbz", "mobi", "azw", "azw3", "cbz", "pdf"];
 
 function percentOf(plugin, path) {
   const entry = plugin.progress?.[path];
@@ -97,6 +97,8 @@ export function createHomeView(leaf, options) {
       open.addEventListener("click", () => void onOpenFileDialog());
       const projects = actions.createEl("button", { text: "阅读项目" });
       projects.addEventListener("click", () => plugin.openReadingProjects?.({ mode: "manage" }));
+      const quizPages = actions.createEl("button", { text: "答题页" });
+      quizPages.addEventListener("click", () => void window.qbrOpenQuizList?.());
 
       const recent = Object.entries(plugin.progress || {})
         .filter(([, entry]) => entry && (entry.lastRead || entry.percent))
@@ -244,8 +246,8 @@ export function createNoteView(leaf, options) {
 
 function jumpToTocItem(reader, item) {
   if (!reader || !item) return;
-  if (reader.engine && item.href) {
-    void reader.engine.goToTocItem(item.href);
+  if (reader.engine && (item.href || item.cfi)) {
+    void reader.engine.goToTocItem(item.cfi ? item : item.href);
     return;
   }
   if (typeof reader._jumpToBlock === "function") reader._jumpToBlock(item.block ?? item);
@@ -1076,6 +1078,32 @@ export function createWorkshopView(leaf, options) {
       this.syncTools();
     }
 
+    openCapability(capability = {}) {
+      const tool = String(capability.tool || "tasks");
+      this.selectTool(tool);
+      if (tool === "ocr") {
+        const mode = this._ocrModeInputs?.[capability.ocrMode];
+        if (mode) mode.checked = true;
+      }
+      if (tool === "convert") {
+        const requested = String(capability.convertFormat || "");
+        const format = requested === "quiz" ? "quiz-ai" : requested;
+        if (format) {
+          if (this._convertFormat) {
+            this._convertFormat.value = format;
+          } else {
+            this._pendingConvertFormat = format;
+          }
+        }
+      }
+    }
+
+    focusTask(id) {
+      this._focusTaskId = String(id || "");
+      this.selectTool("tasks");
+      if (bridge?.list) void bridge.list().then((state) => this.renderTasks(state)).catch(() => {});
+    }
+
     toggleRail() {
       this._collapsed = !this._collapsed;
       localStorage.setItem("qbr-workshop-rail", this._collapsed ? "collapsed" : "open");
@@ -1101,6 +1129,14 @@ export function createWorkshopView(leaf, options) {
       const toggle = head.createEl("button", { cls: "qbr-workshop-toggle", attr: { type: "button", "aria-label": "收起工具栏" } });
       toggle.insertAdjacentHTML("afterbegin", iconResolver("navigator"));
       toggle.addEventListener("click", () => this.toggleRail());
+      if (typeof plugin?.openWorkshopCapabilities === "function") {
+        const capabilities = head.createEl("button", {
+          cls: "qbr-workshop-toggle qbr-workshop-capabilities-open",
+          text: "能做什么",
+          attr: { type: "button" },
+        });
+        capabilities.addEventListener("click", () => plugin.openWorkshopCapabilities({ inAi: true }));
+      }
       head.createDiv({ cls: "qbr-workshop-lead", text: "文档处理 · 格式转换 · 电子书制作;产物默认回到书库。" });
 
       const body = root.createDiv("qbr-workshop-body");
@@ -1531,6 +1567,24 @@ export function createWorkshopView(leaf, options) {
     async renderExtractPreview(task) {
       const host = this._extractPreview;
       if (!host) return;
+      if (this._extractPreviewHost !== host) {
+        this._extractPreviewHost = host;
+        this._extractPreviewKey = "";
+        this._extractPreviewPromise = null;
+      }
+      const key = task?.status === "done" && task.output
+        ? `${task.id || ""}|${task.output}|${task.detail || ""}`
+        : "";
+      // Task progress events can arrive many times; reading the whole extracted
+      // Markdown on every event is unnecessary. Reuse the preview for the same
+      // task until its output changes.
+      if (key && this._extractPreviewKey === key && this._extractPreviewPromise) return this._extractPreviewPromise;
+      this._extractPreviewKey = key;
+      this._extractPreviewPromise = this._renderExtractPreviewNow(host, task);
+      return this._extractPreviewPromise;
+    }
+
+    async _renderExtractPreviewNow(host, task) {
       host.empty();
       if (!task || task.status !== "done" || !task.output) {
         host.hidden = true;
@@ -1982,19 +2036,8 @@ export function createWorkshopView(leaf, options) {
     // ── LLM 辅助(W2-1):AI 元数据推断 / AI 封面文案 ──────────────────────
     // 伴读那份配置(供应商 / 模型 / 密钥);没配好返回 null,由调用方给可操作提示。
     aiReadyConfig() {
-      const cfg = aiContext.aiConfig(plugin);
-      if (!cfg?.provider || !cfg.base || !cfg.model || (cfg.needsKey && !cfg.key)) return null;
-      return {
-        id: cfg.id,
-        name: cfg.provider?.label || cfg.id,
-        base: cfg.base,
-        model: cfg.model,
-        thinking: cfg.thinking === true,
-        supportsThinking: cfg.provider?.supportsThinking === true,
-        compat: cfg.provider?.compat || null,
-        key: cfg.key || "",
-        needsKey: cfg.needsKey === true,
-      };
+      const config = taskAiConfig(aiContext.aiConfig(plugin));
+      return config?.base && config?.model && (!config.needsKey || config.key) ? config : null;
     }
 
     // 读书稿正文:按编码解码(GB18030 的中文 TXT 很常见,一律 UTF-8 读会整本乱码)。
@@ -2554,6 +2597,14 @@ export function createWorkshopView(leaf, options) {
       for (const format of CONVERT_FORMATS) {
         this._convertFormat.createEl("option", { attr: { value: format.id }, text: format.label });
       }
+      const savedFormat = localStorage.getItem("qbr-workshop-convert-format");
+      const effectiveFormat = savedFormat === "quiz" ? "quiz-ai" : savedFormat;
+      if (CONVERT_FORMATS.some((format) => format.id === effectiveFormat)) this._convertFormat.value = String(effectiveFormat);
+      if (this._pendingConvertFormat && CONVERT_FORMATS.some((format) => format.id === this._pendingConvertFormat)) {
+        this._convertFormat.value = String(this._pendingConvertFormat);
+        this._pendingConvertFormat = "";
+      }
+      this._convertFormat.addEventListener("change", () => this.rememberConvertFormat());
       optionCard.createDiv({ cls: "qbr-workshop-hint", text: "输出与源文件同目录,用目标扩展名;同名自动加序号。" });
       optionCard.createDiv({ cls: "qbr-workshop-hint", text: "AI 答题页(实验)需要先在「设置 → AI 助读」配置模型;生成约 1–3 分钟,图片会内联进 HTML。" });
       const parseRow = optionCard.createDiv("qbr-workshop-row");
@@ -2662,11 +2713,7 @@ export function createWorkshopView(leaf, options) {
     }
 
     docvortexSettings() {
-      const settings = plugin?.settings || {};
-      return {
-        docvortexPath: String(settings.docvortexPath || ""),
-        docvortexPython: String(settings.docvortexPython || settings.ocrPython || ""),
-      };
+      return docvortexTaskSettings(plugin?.settings || {});
     }
 
     probeDocvortex() {
@@ -2681,21 +2728,7 @@ export function createWorkshopView(leaf, options) {
     }
 
     formulaSettings() {
-      const settings = plugin?.settings || {};
-      return {
-        ...this.docvortexSettings(),
-        ocrSidecarDir: String(settings.ocrSidecarDir || ""),
-        ocrSidecarExe: String(settings.ocrSidecarExe || ""),
-        ocrPython: String(settings.ocrPython || ""),
-        mineruToken: String(settings.mineruToken || ""),
-        mineruModel: String(settings.mineruModel || ""),
-        mineruLocalUrl: String(settings.mineruLocalUrl || ""),
-        mineruLocalExe: String(settings.mineruLocalExe || ""),
-        mineruLocalAutoStart: settings.mineruLocalAutoStart !== false,
-        // 书坊引擎(可独立部署的本地 HTTP 服务):配了地址就优先走引擎,失败回退本机。
-        engineUrl: String(settings.engineUrl || ""),
-        engineToken: String(settings.engineToken || ""),
-      };
+      return formulaTaskSettings(plugin?.settings || {});
     }
 
     // 凭据 / 本地服务地址只在 MinerU 相关模式露出(渐进披露)。
@@ -2708,11 +2741,20 @@ export function createWorkshopView(leaf, options) {
       if (this._convertLocalTools) this._convertLocalTools.hidden = !mineru;
     }
 
+    rememberConvertFormat() {
+      const format = String(this._convertFormat?.value || "");
+      if (!format) return;
+      try { localStorage.setItem("qbr-workshop-convert-format", format); } catch { /* storage may be unavailable */ }
+    }
+
     // 预设不同,后续操作不同:图片 → PDF 只需选图片;文档互转才用目标格式 / 解析方式 / MinerU。
     // 「EPUB → Markdown」是文档互转的快捷方式:目标格式预选 md(仍可改,改了就是普通互转)。
     syncConvertPreset() {
       const img = this._convertPreset === "img";
-      if (this._convertPreset === "epub-md" && this._convertFormat) this._convertFormat.value = "markdown";
+      if (this._convertPreset === "epub-md" && this._convertFormat) {
+        this._convertFormat.value = "markdown";
+        this.rememberConvertFormat();
+      }
       if (this._convertFormatRow) this._convertFormatRow.hidden = img;
       if (this._convertParseRow) this._convertParseRow.hidden = img;
       for (const hint of this._convertHints || []) hint.hidden = img;
@@ -2824,12 +2866,11 @@ export function createWorkshopView(leaf, options) {
       const formula = this.formulaSettings();
       const parseMode = String(this._convertParse?.value || "local");
       for (const rel of files) {
-        if (format === "quiz" || format === "quiz-ai") {
-          const ai = format === "quiz-ai";
-          const out = convertPath(rel, ai ? "AI答题页.html" : "答题页.html", (candidate) => Boolean(app?.vault?.getAbstractFileByPath?.(candidate)));
+        if (format === "quiz-ai") {
+          const out = convertPath(rel, "AI答题页.html", (candidate) => Boolean(app?.vault?.getAbstractFileByPath?.(candidate)));
           void bridge.start({
-            kind: ai ? "quiz-llm-export" : "quiz-export",
-            title: ai ? "AI 答题页" : "答题页",
+            kind: "quiz-llm-export",
+            title: "AI 答题页",
             detail: rel,
             payload: { settings: formula, source: rel, out, config: this.aiReadyConfig() },
           }).catch((error) => new Notice(String(error?.message || error)));
@@ -2878,18 +2919,35 @@ export function createWorkshopView(leaf, options) {
     }
 
     // 任务状态由主进程推送:徽标、任务面板与底部任务条一起刷新。
-    renderTasks(state) {
+    renderTasks(state, options = {}) {
       const tasks = Array.isArray(state?.tasks) ? state.tasks : [];
       this._lastState = state;
+      // The one-second ticker only needs to move the elapsed clock. Rebuilding
+      // twenty task rows (and re-reading the extract preview) every second made
+      // the workshop steal main-thread time from reading.
+      if (options.tick === true) {
+        const visible = tasks.filter((task) => task.kind !== "quiz-export");
+        const running = visible.filter((task) => task.status === "running");
+        const queued = visible.filter((task) => task.status === "queued");
+        this.syncTicker(Boolean(running.length || queued.length));
+        this._updateTaskBar(running, queued);
+        return;
+      }
       this.adoptBookBuildOutputs(tasks);
       this.captureAiSuggestions(tasks);
-      const running = tasks.filter((task) => task.status === "running");
-      const queued = tasks.filter((task) => task.status === "queued");
+      const visibleTasks = tasks.filter((task) => task.kind !== "quiz-export");
+      const running = visibleTasks.filter((task) => task.status === "running");
+      const queued = visibleTasks.filter((task) => task.status === "queued");
       if (this._taskBadge) this._taskBadge.setText(running.length ? `${running.length} 运行中` : "");
       if (this._taskList) {
         this._taskList.empty();
-        if (!tasks.length) this._taskList.createDiv({ cls: "qbr-workshop-soon", text: "还没有任务。" });
-        for (const task of tasks.slice(0, 20)) this.renderTaskRow(this._taskList, task);
+        if (!visibleTasks.length) this._taskList.createDiv({ cls: "qbr-workshop-soon", text: "还没有任务。" });
+        for (const task of visibleTasks.slice(0, 20)) this.renderTaskRow(this._taskList, task);
+        if (this._focusTaskId) {
+          const target = Array.from(this._taskList.querySelectorAll(".qbr-workshop-task"))
+            .find((row) => row.dataset.taskId === this._focusTaskId);
+          if (target) requestAnimationFrame(() => target.scrollIntoView?.({ block: "center" }));
+        }
       }
       if (this._ocrRecent) {
         this._ocrRecent.empty();
@@ -2962,6 +3020,10 @@ export function createWorkshopView(leaf, options) {
         }
       }
       this.syncTicker(Boolean(running.length || queued.length));
+      this._updateTaskBar(running, queued);
+    }
+
+    _updateTaskBar(running, queued) {
       if (!this._taskBar) return;
       const active = running[0] || queued[0] || null;
       this._taskBar.hidden = !active;
@@ -2983,10 +3045,11 @@ export function createWorkshopView(leaf, options) {
         : `排队中 · 共 ${running.length + queued.length} 个任务`);
     }
 
-    // 运行中的任务每秒刷新一次:秒表与滑动条动起来。
+    // 运行中的任务每秒刷新一次:秒表与滑动条动起来。只更新底部状态条,
+    // 不重建任务列表。
     syncTicker(active) {
       if (active) {
-        if (!this._tick) this._tick = window.setInterval(() => this.renderTasks(this._lastState || { tasks: [] }), 1000);
+        if (!this._tick) this._tick = window.setInterval(() => this.renderTasks(this._lastState || { tasks: [] }, { tick: true }), 1000);
       } else if (this._tick) {
         window.clearInterval(this._tick);
         this._tick = null;
@@ -2995,8 +3058,11 @@ export function createWorkshopView(leaf, options) {
 
     renderTaskRow(host, task) {
       const row = host.createDiv("qbr-workshop-task");
+      row.dataset.taskId = String(task.id || "");
+      if (this._focusTaskId && String(task.id || "") === this._focusTaskId) row.addClass("is-focused");
       row.createSpan({ cls: "qbr-workshop-task-kind", text: WORKSHOP_KIND_LABELS[task.kind] || task.kind });
       const name = row.createDiv("qbr-workshop-task-name");
+      if (task.origin === "assistant") name.createSpan({ cls: "qbr-workshop-task-origin", text: "AI 提交" });
       name.createEl("b", { text: task.title || task.kind });
       if (task.detail) name.createSpan({ cls: "qbr-workshop-task-detail", text: ` · ${task.detail}` });
       const total = Number(task.total) || 0;
@@ -3018,10 +3084,15 @@ export function createWorkshopView(leaf, options) {
       if (task.status === "done" && /[\\/]/.test(String(task.output || ""))) {
         const libraryOutput = this._bookLibraryOutputs?.get(task.id) || "";
         const target = libraryOutput || String(task.output || "");
-        const open = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "打开产物" });
+        const isQuizPage = (task.kind === "quiz-llm-export" || task.kind === "quiz-export") && /\.html?$/i.test(target);
+        const open = actions.createEl("button", {
+          cls: "qbr-workshop-task-btn",
+          text: isQuizPage ? "打开答题页" : "打开产物",
+        });
         open.addEventListener("click", () => {
           const isBook = /\.(epub|pdf|fb2|fbz|mobi|azw|azw3|cbz)$/i.test(target);
-          if (isBook && window.qbrDesktop?.openBookPath) void window.qbrDesktop.openBookPath(target);
+          if (isQuizPage && window.qbrOpenQuiz) void window.qbrOpenQuiz(target);
+          else if (isBook && window.qbrDesktop?.openBookPath) void window.qbrDesktop.openBookPath(target);
           else void window.qbrDesktop?.openPath?.(target);
         });
         const reveal = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "在文件夹中显示" });

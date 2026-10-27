@@ -578,7 +578,7 @@ test("desktop AI chat keeps per-book threads and structured document or selectio
   assert.match(historySource, /class AiChatHistoryModal extends Modal/);
   assert.match(chatViewSource, /createEl\("textarea", \{ cls: "qiaomu-reader-ai-input" \}\)/);
   assert.match(chatViewSource, /this\.inputController = bindReaderAiComposer\(this, input, send, footer\)/);
-  assert.match(aiRenderSource, /items\.slice\(0, 3\)/);
+  assert.match(aiRenderSource, /function contextualAiQuickPrompts\(chat\) \{[\s\S]*?_isQuizContext/);
   assert.match(chatViewSource, /new AiChatHistoryModal\(this\.app, this\)\.open\(\)/);
   assert.match(chatViewSource, /normalizeAiChatHistory\(this\.plugin\.settings\.aiChatHistory\)/);
   assert.match(aiRenderSource, /function readerPageContext\(view\)/);

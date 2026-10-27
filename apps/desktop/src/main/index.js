@@ -1,4 +1,4 @@
-import { BrowserWindow, Menu, app, dialog, ipcMain, nativeImage, safeStorage, shell } from "electron";
+import { BrowserWindow, Menu, Notification, app, dialog, ipcMain, nativeImage, safeStorage, shell } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -25,7 +25,6 @@ import { registerAiRunners } from "./workshop-ai.js";
 import { createPdfOcr, OCR_PROBE_TIMEOUT, resolveOcrOutput } from "./pdf-ocr.js";
 import { registerOcrRunners } from "./workshop-ocr.js";
 import { registerQuestionRunners } from "./workshop-questions.js";
-import { registerQuizRunners } from "./workshop-quiz.js";
 import { registerQuizLlmRunner } from "./workshop-quiz-llm.js";
 import { createTextLayerReader } from "./text-layer.js";
 import { createWorkshopQueue } from "./workshop.js";
@@ -36,6 +35,7 @@ const aiRuntime = createAiRuntime();
 const engineClient = createEngineClient();
 
 if (process.env.QBR_USER_DATA) app.setPath("userData", process.env.QBR_USER_DATA);
+if (process.platform === "win32") app.setAppUserModelId("com.uvreader.app");
 const userData = app.getPath("userData");
 // Main-process logs (the [qbr-books] search/download lines) also land in
 // userData/qbr.log so a slow or stuck search can be inspected after the fact;
@@ -74,6 +74,7 @@ const workshop = createWorkshopQueue({
   onState: (state) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("qbr:workshop:state", state);
   },
+  onFinished: (task) => notifyWorkshopTask(task),
 });
 workshop.register("probe", async ({ payload, report, signal }) => {
   report({ total: 2, label: "检测 OCR 程序" });
@@ -125,15 +126,6 @@ registerQuestionRunners(workshop, {
   vaultRoot,
   cacheRoot: bookCacheRoot,
 });
-registerQuizRunners(workshop, {
-  extractMarkdown,
-  docvortex,
-  textLayer: createTextLayerReader({ engine: engineClient }),
-  engine: engineClient,
-  vaultRoot,
-  cacheRoot: bookCacheRoot,
-  aiRuntime,
-});
 registerQuizLlmRunner(workshop, {
   extractMarkdown,
   docvortex,
@@ -142,6 +134,7 @@ registerQuizLlmRunner(workshop, {
   vaultRoot,
   cacheRoot: bookCacheRoot,
   aiRuntime,
+  log: (...args) => log("[quiz-llm]", ...args),
 });
 // LLM 辅助(W2-1):AI 元数据推断 / AI 封面文案 / AI 分章建议 / AI 清理 —— 复用伴读的 AI 运行时与凭据。
 registerAiRunners(workshop, { aiRuntime, vaultRoot, cacheRoot: bookCacheRoot });
@@ -212,6 +205,39 @@ fs.mkdirSync(vaultRoot, { recursive: true });
 let mainWindow = null;
 let launchFile = "";
 let smokeTimer = null;
+
+function notifyWorkshopTask(task = {}) {
+  try {
+    if (Notification.isSupported?.() === false) {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("qbr:workshop:finished", task);
+      return;
+    }
+    const done = task.status === "done";
+    const title = done ? "处理完成" : "处理失败";
+    const output = String(task.output || "").replace(/\\/g, "/").split("/").filter(Boolean).pop() || "";
+    const body = done
+      ? `${task.title || "任务"}已完成${output ? `：${output}` : ""}。点击查看任务。`
+      : `${task.title || "任务"}没有处理成功。点击查看原因。`;
+    // Always tell the renderer, even when the window is unfocused: the AI
+    // conversation may be the only place the reader expects the result. A
+    // native notification is added below when the window is in the background.
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("qbr:workshop:finished", task);
+      if (mainWindow.isFocused()) return;
+    }
+    const notice = new Notification({ title, body });
+    notice.on("click", () => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+      mainWindow.webContents.send("qbr:workshop:open-task", String(task.id || ""));
+    });
+    notice.show();
+  } catch (error) {
+    console.warn("[qbr] workshop notification failed", error);
+  }
+}
 
 function bookFromArgv(argv) {
   return (argv || []).find((arg) => isBookFile(arg) && fs.existsSync(arg)) || "";
@@ -311,6 +337,74 @@ async function captureRegion(rect) {
     };
   } catch (error) {
     return { ok: false, reason: "capture", message: String(error?.message || error) };
+  }
+}
+
+// Save an image preview to a user-chosen path. The renderer sends the source
+// bytes (base64); the native save dialog supplies both the path and the format
+// by filename/extension. PNG and JPEG are supported for both screenshots and
+// illustrations extracted from PDFs.
+const IMAGE_SAVE_MAX_BYTES = 64 * 1024 * 1024;
+const IMAGE_SAVE_EXTENSIONS = Object.freeze({
+  png: "png",
+  jpg: "jpg",
+  jpeg: "jpeg",
+});
+
+function imageSaveDefaultExtension(mimeType = "") {
+  const mime = String(mimeType || "").toLowerCase();
+  if (mime === "image/jpeg" || mime === "image/jpg") return "jpg";
+  return "png";
+}
+
+function imageSaveBaseName(name = "") {
+  return String(name || "图片")
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
+    .replace(/\.[^.]+$/, "")
+    .trim()
+    .slice(0, 120) || "图片";
+}
+
+async function saveImageAs(payload = {}) {
+  try {
+    const raw = String(payload.data || "").replace(/^data:[^,]+,/, "");
+    const bytes = Buffer.from(raw, "base64");
+    if (!bytes.length) return { ok: false, error: "图片数据为空" };
+    if (bytes.length > IMAGE_SAVE_MAX_BYTES) return { ok: false, error: "图片太大，无法保存" };
+    const mimeType = String(payload.mimeType || "image/png").toLowerCase();
+    const fallbackExt = imageSaveDefaultExtension(mimeType);
+    const base = imageSaveBaseName(payload.name);
+    const defaultPath = path.join(app.getPath("pictures") || app.getPath("downloads"), `${base}.${fallbackExt}`);
+    const options = {
+      title: "保存图片",
+      defaultPath,
+      properties: ["showOverwriteConfirmation", "createDirectory"],
+      filters: [
+        { name: "PNG 图片", extensions: ["png"] },
+        { name: "JPEG 图片", extensions: ["jpg", "jpeg"] },
+      ],
+    };
+    const result = mainWindow ? await dialog.showSaveDialog(mainWindow, options) : await dialog.showSaveDialog(options);
+    if (result.canceled || !result.filePath) return { ok: false, cancelled: true };
+    let target = result.filePath;
+    let ext = path.extname(target).slice(1).toLowerCase();
+    if (!ext) {
+      ext = fallbackExt;
+      target += `.${ext}`;
+    }
+    if (!IMAGE_SAVE_EXTENSIONS[ext]) return { ok: false, error: "图片格式只支持 PNG 或 JPG" };
+    const image = nativeImage.createFromBuffer(bytes);
+    if (!image || image.isEmpty()) return { ok: false, error: "无法读取这张图片" };
+    // Keep the source bytes when the requested container already matches;
+    // otherwise re-encode through Chromium's image decoder.
+    const sourceMatches = (ext === "png" && mimeType === "image/png")
+      || ((ext === "jpg" || ext === "jpeg") && (mimeType === "image/jpeg" || mimeType === "image/jpg"));
+    let output = sourceMatches ? bytes : (ext === "png" ? image.toPNG() : image.toJPEG(92));
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, output);
+    return { ok: true, path: target };
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
   }
 }
 
@@ -493,6 +587,13 @@ ipcMain.handle("qbr:mineru:path", (_event, settings = {}) => ({ path: resolveMin
 ipcMain.handle("qbr:probe:ocr", (_event, settings = {}) => pdfOcr.probe(settings || {}, OCR_PROBE_TIMEOUT));
 ipcMain.handle("qbr:probe:docvortex", (_event, settings = {}) => docvortex.probe(settings || {}));
 ipcMain.handle("qbr:probe:calibre", (_event, settings = {}) => calibre.probe(settings || {}));
+// Used by the portable TOC export for the AZW3 -> EPUB -> AZW3 pipeline.
+ipcMain.handle("qbr:calibre:convert", async (_event, payload = {}) => {
+  const source = String(payload?.source || "");
+  const out = String(payload?.out || "");
+  if (!source || !out) return { ok: false, error: "缺少转换路径" };
+  return calibre.convert(payload?.settings || {}, { source, out });
+});
 // 书坊引擎(本地 HTTP 服务):应用只做探测,能力清单由引擎的 /v1/health 上报。
 ipcMain.handle("qbr:probe:engine", async (_event, settings = {}) => {
   const value = settings || {};
@@ -605,6 +706,38 @@ ipcMain.handle("qbr:ai:test", (_event, config) => aiRuntime.test(config || {}));
 ipcMain.handle("qbr:ai:probe", (_event, payload) => aiRuntime.probe(payload || {}));
 ipcMain.handle("qbr:ai:pick-files", () => pickAiAttachments());
 ipcMain.handle("qbr:ai:read-file", (_event, target) => readAiAttachment(target));
+
+// Quiz HTML needs its own file document: srcdoc/blob inherit the app CSP and
+// would block the generated page's inline runtime. Keep the temporary copy in
+// the OS temp directory, not in the user's library.
+const quizTempFiles = new Set();
+ipcMain.handle("qbr:quiz:prepare", (_event, html) => {
+  if (typeof html !== "string" || html.length > 20_000_000) {
+    return { ok: false, error: "答题页内容无效或过大" };
+  }
+  const file = path.join(
+    app.getPath("temp"),
+    `uvreader-quiz-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.html`,
+  );
+  try {
+    fs.writeFileSync(file, html, "utf8");
+    quizTempFiles.add(file);
+    return { ok: true, path: file, url: pathToFileURL(file).href };
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  }
+});
+ipcMain.handle("qbr:quiz:discard", (_event, target) => {
+  const file = path.resolve(String(target || ""));
+  if (!quizTempFiles.has(file)) return { ok: false };
+  quizTempFiles.delete(file);
+  try {
+    fs.rmSync(file, { force: true });
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  }
+});
 ipcMain.handle("qbr:open-book-path", (_event, target) => {
   const filePath = String(target || "");
   if (!filePath) return false;
@@ -612,6 +745,7 @@ ipcMain.handle("qbr:open-book-path", (_event, target) => {
   return true;
 });
 ipcMain.handle("qbr:ai:capture-region", (_event, rect) => captureRegion(rect));
+ipcMain.handle("qbr:image:save", (_event, payload) => saveImageAs(payload || {}));
 ipcMain.on("qbr:secret-sync", (event, id) => {
   const store = readSecrets();
   event.returnValue = id && store[id] ? decryptSecret(store[id]) : null;

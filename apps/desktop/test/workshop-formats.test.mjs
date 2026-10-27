@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { DOCVORTEX_FORMATS, DOCVORTEX_INPUTS, EBOOK_TARGETS, TEXT_SOURCE_EXTENSIONS, WORKSHOP_PICK_EXTENSIONS, docvortexFormatExt, ebookTargetExt, textSourceKind } from "../src/shared/workshop-formats.js";
+import { CONVERT_FORMATS, DOCVORTEX_FORMATS, DOCVORTEX_INPUTS, EBOOK_TARGETS, TEXT_SOURCE_EXTENSIONS, WORKSHOP_PICK_EXTENSIONS, docvortexFormatExt, ebookTargetExt, textSourceKind } from "../src/shared/workshop-formats.js";
 import { extractionKind } from "../src/shared/extract-formats.js";
 
 test("the pick dialog offers Office/ODF/OFD/text/image documents", () => {
@@ -19,6 +19,12 @@ test("format conversion keeps document targets only", () => {
   assert.equal(docvortexFormatExt("markdown"), "md");
   assert.equal(docvortexFormatExt("structured_content"), "structured_content", "unknown ids fall back to the raw value");
   assert.ok(DOCVORTEX_INPUTS.includes("ofd") && DOCVORTEX_INPUTS.includes("epub"), "books can still be conversion inputs");
+});
+
+test("answer pages default to the AI page and keep no deterministic duplicate", () => {
+  const answer = CONVERT_FORMATS.filter((format) => format.id === "quiz" || format.id === "quiz-ai");
+  assert.deepEqual(answer.map((format) => format.id), ["quiz-ai"]);
+  assert.equal(answer[0].ext, "AI答题页.html");
 });
 
 test("textSourceKind spots Markdown and plain text, and nothing else", () => {

@@ -11,6 +11,32 @@ const MATH_PATTERN = /\$\$([\s\S]{1,2000}?)\$\$|\\\[([\s\S]{1,2000}?)\\\]|\\\(([
 const CJK = /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/;
 const LATEX = /\\[a-zA-Z]+|[\^_{}=<>+\-*/]/;
 
+// marked treats a backslash before ( or [ as a Markdown escape and removes it,
+// which destroys LaTeX delimiters such as \(x\) before the math pass sees them.
+// Protect them with private-use sentinels, then restore them in the HTML text.
+const MATH_DELIMITER_TOKENS = [
+  ["\\(", "\uE000"],
+  ["\\)", "\uE001"],
+  ["\\[", "\uE002"],
+  ["\\]", "\uE003"],
+];
+
+export function protectLatexDelimiters(markdown) {
+  let value = String(markdown ?? "");
+  for (const [delimiter, token] of MATH_DELIMITER_TOKENS) {
+    value = value.split(delimiter).join(token);
+  }
+  return value;
+}
+
+export function restoreLatexDelimiters(html) {
+  let value = String(html ?? "");
+  for (const [delimiter, token] of MATH_DELIMITER_TOKENS) {
+    value = value.split(token).join(delimiter);
+  }
+  return value;
+}
+
 export function looksLikeMath(tex) {
   const value = String(tex ?? "").trim();
   if (!value || value.length > 300 || value.includes("$")) return false;

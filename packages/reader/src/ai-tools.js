@@ -67,6 +67,31 @@ export const AI_TOOL_DEFINITIONS = Object.freeze([
     },
   },
   {
+    name: "get_workshop_options",
+    description: "查看当前这个文档可以用应用完成哪些文档操作，以及哪些选项适合当前文档。只读，不会开始任务。回答“还能做什么”“能不能转成……”“能不能做答题页”前先调用。",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "prepare_workshop_task",
+    description: "根据读者在对话里选好的文档操作，检查当前文档和参数并返回确认信息；不会开始任务，也不会打开任何页面。确认信息下方会出现「确认开始」按钮，请让读者点击按钮，不要要求读者输入确认。回复读者时说“参数已准备好”，不要使用“预览”这个词。",
+    parameters: {
+      type: "object",
+      properties: { operation: { type: "string", description: "get_workshop_options 返回的能力名称。" } },
+      required: ["operation"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "start_workshop_task",
+    description: "只有读者点击「确认开始」后才调用，提交后台任务。不要把准备和提交放在同一轮；提交后不要跳转任何页面。",
+    parameters: {
+      type: "object",
+      properties: { operation: { type: "string", description: "刚刚准备过的能力名称。" } },
+      required: ["operation"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "search_books_online",
     description: "在已启用的书籍来源（Project Gutenberg、Standard Ebooks、Internet Archive、Open Library、Z-Library 等）中搜索可下载的书。返回标题、作者、来源、格式和大小；要下载时把结果里的完整标题交给 download_book。",
     parameters: {
@@ -94,26 +119,25 @@ export const AI_TOOL_DEFINITIONS = Object.freeze([
   },
   {
     name: "toc_scan",
-    description: "只读检查当前 PDF 的目录情况（已有大纲条目数等），用于回答“目录为什么不能跳转/不完整”。制作目录时不要读取正文页、不要发送无关截图、不要调用 get_book_outline，直接询问读者目录页与偏移。",
+    description: "只读检查当前 PDF/EPUB/AZW3 的目录情况（已有大纲条目数、前置目录页等），用于回答“目录为什么不能跳转/不完整”。PDF 制作目录时不要读取正文页、不要发送无关截图；EPUB/AZW3 会自动匹配标题，不需要询问页码。",
     parameters: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "toc_build",
-    description: "根据读者给出的目录页生成/更新本书的导航目录草稿（不会立即生效）。调用前必须先问读者：目录页是哪几页、印刷页码到 PDF 页码的偏移（不知道可留空由我推断）；拿到回答后再调用。只发送这几页，绝不读取正文页。生成后把预览复述给读者并等待确认，切勿自行调用 toc_apply。",
+    description: "根据读者给出的目录页生成/更新本书的导航目录草稿（不会立即生效）。PDF 调用前必须先问读者目录页是哪几页；EPUB/AZW3 会直接读取正文前部的印刷目录并用标题匹配 CFI，不需要页码。只处理目录页，绝不读取无关正文。生成后把预览复述给读者并等待确认，切勿自行调用 toc_apply。",
     parameters: {
       type: "object",
       properties: {
-        pages: { type: "string", description: "读者确认的目录页，如 \"6\" 或 \"6-7\"；必填。" },
-        offset: { type: "number", description: "印刷页码到 PDF 页码的偏移；读者不知道时留空，由标题搜索推断。" },
+        pages: { type: "string", description: "PDF 读者确认的目录页，如 \"6\" 或 \"6-7\"；EPUB 可省略。" },
+        offset: { type: "number", description: "PDF 印刷页码到 PDF 页码的偏移；读者不知道时留空，由标题搜索推断。EPUB 忽略。" },
         mode: { type: "string", enum: ["merge", "replace"], description: "merge 保留原有条目并补充，replace 整体替换。" },
       },
-      required: ["pages"],
       additionalProperties: false,
     },
   },
   {
     name: "toc_apply",
-    description: "把 toc_build 的草稿正式应用为导航目录；仅在读者明确确认后调用。args.undo=true 时撤销生成结果、恢复原有目录。",
+    description: "把 toc_build 的草稿正式应用为 PDF/EPUB/AZW3 导航目录；仅在读者明确确认后调用。args.undo=true 时撤销生成结果、恢复原有目录。",
     parameters: {
       type: "object",
       properties: { undo: { type: "boolean", description: "撤销上一次应用的生成目录。" } },
@@ -159,7 +183,7 @@ export function createAiTools({ state = {}, maxChars = AI_TOOL_LIMITS.resultChar
     },
     get_book_outline() {
       const outline = (state.outline?.() || []).slice(0, AI_TOOL_LIMITS.outline);
-      if (!outline.length) return "这本书没有可用的目录。";
+      if (!outline.length) return "这个文档没有可用的目录。";
       return outline.map((item, index) => `${index + 1}. ${item.label}${item.page ? `（第 ${item.page} 页）` : ""}`).join("\n");
     },
     async read_pages(args = {}) {
@@ -224,6 +248,50 @@ export function createAiTools({ state = {}, maxChars = AI_TOOL_LIMITS.resultChar
         return `${index + 1}. ${where}${item.text}${comment}`;
       }).join("\n");
     },
+    get_workshop_options() {
+      if (typeof state.workshopOptions !== "function") return "当前环境没有可用的文档处理能力。";
+      const options = state.workshopOptions() || [];
+      if (!options.length) return "当前这个文档暂时没有可以执行的文档操作。";
+      const lines = [`当前文档：${String(state.format || "未知格式").toUpperCase()}`];
+      for (const item of options) {
+        const fit = item.recommended ? "（适合当前文档）" : "";
+        const start = item.startable ? "；可以直接开始" : "；需要在对话里继续确认";
+        lines.push(`- ${item.title}${fit}：${item.summary}${item.cue ? `；适合：${item.cue}` : ""}${start}`);
+      }
+      return lines.join("\n");
+    },
+    async prepare_workshop_task(args = {}) {
+      const title = String(args.operation || args.title || "").trim();
+      if (!title) return "请提供要准备的能力名称。";
+      if (typeof state.prepareWorkshopTask !== "function") return "当前环境不能准备文档处理。";
+      const plan = await state.prepareWorkshopTask(title);
+      if (!plan?.ok) return String(plan?.error || "当前这个文档不支持这个操作。");
+      return {
+        text: [
+          `准备开始：${plan.title}`,
+          plan.summary,
+          `来源：${plan.sourceLabel}`,
+          `结果：${plan.outputLabel}`,
+          "还没有开始，也不会修改原文件。",
+          "确认后点击下方「确认开始」即可提交。",
+        ].filter(Boolean).join("\n"),
+        confirmation: { operation: title, title: plan.title, label: "确认开始" },
+        preview: {
+          operation: plan.title,
+          summary: plan.summary,
+          source: plan.sourceLabel,
+          output: plan.outputLabel,
+        },
+      };
+    },
+    async start_workshop_task(args = {}) {
+      const title = String(args.operation || args.title || "").trim();
+      if (!title) return "请提供要开始的能力名称。";
+      if (typeof state.startWorkshopTask !== "function") return "当前环境不能开始文档处理。";
+      const started = await state.startWorkshopTask(title);
+      if (!started?.ok) return `没有开始任务：${started?.error || "请先完成准备并确认。"}`;
+      return `已提交「${started.title || title}」。可以在任务列表里查看进度；完成后会通知你。`;
+    },
     async search_books_online(args = {}) {
       const query = String(args.query ?? "").trim();
       if (!query) return "请提供书名或作者。";
@@ -259,12 +327,12 @@ export function createAiTools({ state = {}, maxChars = AI_TOOL_LIMITS.resultChar
       if (outcome?.ok) return `已下载并加入书库：${outcome.name || result.title}（来源：${result.sourceName || result.source}）。可以告诉读者在书库页打开。`;
       return `下载「${title}」失败：${outcome?.error || "未知原因"}。`;
     },
-    toc_scan() {
-      if (typeof state.tocScan !== "function") return "当前环境不支持目录扫描（需要在 PDF 阅读视图里）。";
-      return state.tocScan() || "没有扫描结果。";
+    async toc_scan() {
+      if (typeof state.tocScan !== "function") return "当前环境不支持目录扫描（需要在 PDF、EPUB 或 AZW3 阅读视图里）。";
+      return await state.tocScan() || "没有扫描结果。";
     },
     async toc_build(args = {}) {
-      if (typeof state.tocBuild !== "function") return "当前环境不支持生成目录（需要在 PDF 阅读视图里）。";
+      if (typeof state.tocBuild !== "function") return "当前环境不支持生成目录（需要在 PDF、EPUB 或 AZW3 阅读视图里）。";
       const report = await state.tocBuild({
         pages: String(args.pages ?? ""),
         offset: args.offset,
@@ -273,7 +341,7 @@ export function createAiTools({ state = {}, maxChars = AI_TOOL_LIMITS.resultChar
       return report?.preview || "没有生成目录草稿。";
     },
     toc_apply(args = {}) {
-      if (typeof state.tocApply !== "function") return "当前环境不支持应用目录（需要在 PDF 阅读视图里）。";
+      if (typeof state.tocApply !== "function") return "当前环境不支持应用目录（需要在 PDF、EPUB 或 AZW3 阅读视图里）。";
       return state.tocApply({ undo: args.undo === true })?.summary || "没有可应用的目录草稿。";
     },
   };
@@ -282,6 +350,7 @@ export function createAiTools({ state = {}, maxChars = AI_TOOL_LIMITS.resultChar
     // The image tool is only offered when the model can actually see images.
     definitions: AI_TOOL_DEFINITIONS
       .filter((tool) => tool.name !== "read_page_image" || state.canSeeImages === true)
+      .filter((tool) => !["get_workshop_options", "prepare_workshop_task", "start_workshop_task"].includes(tool.name) || state.hasWorkshop === true)
       .map(({ name, description, parameters }) => ({ name, description, parameters })),
     async run(name, args) {
       const handler = handlers[String(name || "")];
@@ -296,7 +365,14 @@ export function createAiTools({ state = {}, maxChars = AI_TOOL_LIMITS.resultChar
         const images = (value.images || []).filter((image) => image?.data && image?.mimeType);
         const blocks = [{ type: "text", text }];
         for (const image of images) blocks.push({ type: "image", data: image.data, mimeType: image.mimeType });
-        return { text, blocks, images, isError: value.isError === true };
+        return {
+          text,
+          blocks,
+          images,
+          isError: value.isError === true,
+          confirmation: value.confirmation || null,
+          preview: value.preview || null,
+        };
       } catch (error) {
         const text = `工具执行失败：${String(error?.message || error)}`;
         return { text, blocks: [{ type: "text", text }], isError: true };

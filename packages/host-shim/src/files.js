@@ -76,6 +76,21 @@ export class FileSystemAdapter {
     return toArrayBuffer(await requireFs().promises.readFile(this.resolve(file)));
   }
 
+  // Quiz list scans read only the manifest prefix of self-contained HTML pages.
+  // The bound also protects against accidentally loading a whole image-heavy
+  // page just to find a script tag.
+  async readHead(file, bytes = 64 * 1024) {
+    const limit = Math.max(0, Math.min(Number(bytes) || 0, 8 * 1024 * 1024));
+    const handle = await requireFs().promises.open(this.resolve(file), "r");
+    try {
+      const buffer = Buffer.alloc(limit);
+      const { bytesRead } = await handle.read(buffer, 0, limit, 0);
+      return buffer.toString("utf8", 0, bytesRead);
+    } finally {
+      await handle.close();
+    }
+  }
+
   async write(file, data) {
     const target = this.resolve(file);
     await requireFs().promises.mkdir(requirePath().dirname(target), { recursive: true });
@@ -140,6 +155,11 @@ export class Vault extends Events {
     super();
     this.adapter = adapter;
     this._files = new Map();
+    // A library render asks for the same inventory several times (tree, grid,
+    // note lookups, cover checks). Keep one walk for the current synchronous
+    // rendering turn; a microtask clears it before the next turn so external
+    // file changes are still picked up.
+    this._filesCache = null;
   }
 
   getName() {
@@ -243,6 +263,7 @@ export class Vault extends Events {
   }
 
   getFiles() {
+    if (this._filesCache) return this._filesCache.slice();
     const root = this.adapter.root;
     if (!root) return [];
     const fs = requireFs();
@@ -264,16 +285,40 @@ export class Vault extends Events {
           const relative = normalizePath(path.relative(root, full));
           if (relative.startsWith("..")) continue;
           const file = this._file(relative);
-          try {
-            const stat = fs.statSync(full);
-            file.stat = { ctime: stat.ctimeMs, mtime: stat.mtimeMs, size: stat.size };
-          } catch {}
+          // The vault holds thousands of generated images/assets; stat'ing all
+          // of them on every inventory walk dominated library startup. Only
+          // the handful of files that actually read `stat` pay for it. The
+          // getter is refreshed on the next getFiles turn.
+          let stat = null;
+          Object.defineProperty(file, "stat", {
+            configurable: true,
+            enumerable: true,
+            get() {
+              if (!stat) {
+                try {
+                  const raw = fs.statSync(full);
+                  stat = { ctime: raw.ctimeMs, mtime: raw.mtimeMs, size: raw.size };
+                } catch {
+                  stat = { ctime: 0, mtime: 0, size: 0 };
+                }
+              }
+              return stat;
+            },
+            set(value) {
+              stat = value;
+            },
+          });
           out.push(file);
         }
       }
     };
     walk(root, 0);
-    return out;
+    this._filesCache = out;
+    const cached = out;
+    queueMicrotask(() => {
+      if (this._filesCache === cached) this._filesCache = null;
+    });
+    return out.slice();
   }
 
   getMarkdownFiles() {

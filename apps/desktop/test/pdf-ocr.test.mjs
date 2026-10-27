@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createPdfOcr, ocrCommand, resolveOcrOutput } from "../src/main/pdf-ocr.js";
+import { createPdfOcr, findLayoutSource, ocrCommand, resolveOcrOutput } from "../src/main/pdf-ocr.js";
 
 // A fake sidecar process: the test reroutes the configured command to Node so
 // the real line protocol is exercised without Python.
@@ -117,6 +117,21 @@ function fakeSource() {
   fs.writeFileSync(file, "%PDF-1.4 scan\n");
   return file;
 }
+
+test("MinerU layout files are found at the nesting depths real outputs use", () => {
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-ocr-layout-"));
+  assert.equal(findLayoutSource(out), "");
+
+  const shallow = path.join(out, "layout.json");
+  fs.writeFileSync(shallow, "{}");
+  assert.equal(findLayoutSource(out), shallow);
+  fs.rmSync(shallow);
+
+  const nested = path.join(out, "mineru", "mineru", "layout.json");
+  fs.mkdirSync(path.dirname(nested), { recursive: true });
+  fs.writeFileSync(nested, JSON.stringify({ pdf_info: [] }));
+  assert.equal(findLayoutSource(out), nested);
+});
 
 test("ocrCommand resolves an exe, a pdf_tool checkout, or reports what is missing", () => {
   assert.match(ocrCommand({}).error, /pdf_tool/);

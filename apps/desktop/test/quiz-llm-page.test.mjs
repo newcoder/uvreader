@@ -12,6 +12,8 @@ const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR
 
 test("the bundled prompt stays in sync with the prompt document", () => {
   assert.equal(QUIZ_LLM_PROMPT, fs.readFileSync(new URL("../../../docs/quiz-llm-prompt.txt", import.meta.url), "utf8"));
+  assert.match(QUIZ_LLM_PROMPT, /重新答题/);
+  assert.match(QUIZ_LLM_PROMPT, /答题卡\/导航栏的上部/);
 });
 
 test("the LLM page postprocessor converts formulas, formats code and inlines images", () => {
@@ -35,6 +37,10 @@ int x;
   assert.match(result.html, /data-llm-generated-hidden/);
   assert.match(result.html, /cover\.remove\(\)/);
   assert.match(result.html, /id="resultSummary"/);
+  assert.match(result.html, /data-quiz-ui-enhance/);
+  assert.match(result.html, /重新答题/);
+  assert.match(result.html, /function hide\(\)/);
+  assert.match(result.html, /data-qbr-quiz-layout/);
   assert.ok(result.stats.math >= 1);
   assert.equal(result.stats.imagesInlined, 1);
   assert.equal(result.stats.generatedHidden, 1);
@@ -92,7 +98,7 @@ test("the quiz-llm runner puts an inline analysis marker on its own prompt line"
           prompt = messages[0].content;
           return {
             ok: true,
-            answer: "<!doctype html><html><body><main id=\"paper\"><h1>测试试卷</h1><p>题目 6 的说明文字，必须完整保留。</p><p>这是一段用于验证页面完整性的正文，包含足够的文字来模拟真实的模型输出。</p><p>再补一段足够长的内容，确保它超过应用端的最小完整性阈值，模拟真实模型返回的完整页面。这段文字只用于测试，不包含任何实际题目或答案。</p></main></body></html>",
+            answer: "<!doctype html><html><head><script type=\"application/json\" id=\"quiz-manifest\">{\"schema\":\"uvreader.quiz-page/v1\",\"paperId\":\"p1\",\"title\":\"测试试卷\",\"questions\":[{\"id\":\"q6\",\"number\":\"6\",\"type\":\"choice\",\"stemHtml\":\"题目\",\"options\":[{\"key\":\"A\",\"html\":\"1\"},{\"key\":\"B\",\"html\":\"2\"}],\"answer\":\"B\",\"analysisHtml\":\"解析\"}]}</script></head><body><main id=\"paper\" data-quiz-id=\"q6\"><h1>测试试卷</h1><p>题目 6 的说明文字，必须完整保留。</p><p>这是一段用于验证页面完整性的正文，包含足够的文字来模拟真实的模型输出。</p><p>再补一段足够长的内容，确保它超过应用端的最小完整性阈值，模拟真实模型返回的完整页面。这段文字只用于测试，不包含任何实际题目或答案。</p></main></body></html>",
           };
         },
         abort: () => {},
@@ -107,6 +113,33 @@ test("the quiz-llm runner puts an inline analysis marker on its own prompt line"
   });
   assert.match(prompt, /D\. 4\n【详解】AB\. 受力分析/);
   assert.doesNotMatch(prompt, /D\. 4【详解】/);
+});
+
+test("the quiz-llm runner keeps a page whose objective answer is missing", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-quiz-llm-missing-answer-"));
+  const runners = new Map();
+  registerQuizLlmRunner(
+    { register: (kind, runner) => runners.set(kind, runner) },
+    {
+      vaultRoot: dir,
+      extractMarkdown: async () => ({ ok: true, markdown: "1. 题目", path: path.join(dir, "paper.md") }),
+      aiRuntime: {
+        stream: async () => ({
+          ok: true,
+          answer: "<!doctype html><html><head><script type=\"application/json\" id=\"quiz-manifest\">{\"schema\":\"uvreader.quiz-page/v1\",\"paperId\":\"p1\",\"title\":\"测试试卷\",\"questions\":[{\"id\":\"q1\",\"number\":\"1\",\"type\":\"choice\",\"stemHtml\":\"题目\",\"options\":[{\"key\":\"A\",\"html\":\"1\"},{\"key\":\"B\",\"html\":\"2\"}],\"answer\":\"\",\"analysisHtml\":\"解析\"}]}</script></head><body><main id=\"paper\" data-quiz-id=\"q1\"><h1>测试试卷</h1><div data-quiz-stem>题目</div><p>这是一段用于验证页面完整性的正文，确保它超过应用端的最小完整性阈值，模拟真实模型返回的完整页面。</p><button data-quiz-id=\"q1\" data-value=\"A\"><span class=\"opt-text\">1</span></button><button data-quiz-id=\"q1\" data-value=\"B\"><span class=\"opt-text\">2</span></button></main></body></html>",
+        }),
+        abort: () => {},
+      },
+    },
+  );
+  fs.writeFileSync(path.join(dir, "paper.pdf"), "x");
+  const result = await runners.get("quiz-llm-export")({
+    payload: { source: "paper.pdf", out: "paper.AI.html", config: { id: "p", base: "http://x", model: "m" } },
+    report: () => {},
+    signal: new AbortController().signal,
+  });
+  assert.ok(fs.existsSync(result.output));
+  assert.match(result.detail, /1 题未提供答案/);
 });
 
 test("the quiz-llm runner writes a self-contained page", async () => {
@@ -125,7 +158,7 @@ test("the quiz-llm runner writes a self-contained page", async () => {
       aiRuntime: {
         stream: async () => ({
           ok: true,
-          answer: "<!doctype html><html><body><main id=\"paper\"><h1>测试试卷</h1><p>题目 $x^2$ 的说明文字，必须完整保留。</p><p>这是一段用于验证页面完整性的正文。</p><p>再补一段足够长的内容，确保它超过应用端的最小完整性阈值，模拟真实模型返回的完整页面。</p><img src=\"pic.png\"></main></body></html>",
+          answer: "<!doctype html><html><head><script type=\"application/json\" id=\"quiz-manifest\">{\"schema\":\"uvreader.quiz-page/v1\",\"paperId\":\"p1\",\"title\":\"测试试卷\",\"questions\":[{\"id\":\"q1\",\"number\":\"1\",\"type\":\"choice\",\"stemHtml\":\"题目\",\"options\":[{\"key\":\"A\",\"html\":\"1\"},{\"key\":\"B\",\"html\":\"2\"}],\"answer\":\"B\",\"analysisHtml\":\"解析\"}]}</script></head><body><main id=\"paper\" data-quiz-id=\"q1\"><h1>测试试卷</h1><p>题目 $x^2$ 的说明文字，必须完整保留。</p><p>这是一段用于验证页面完整性的正文。</p><p>再补一段足够长的内容，确保它超过应用端的最小完整性阈值，模拟真实模型返回的完整页面。</p><img src=\"pic.png\"></main></body></html>",
         }),
         abort: () => {},
       },
@@ -141,4 +174,40 @@ test("the quiz-llm runner writes a self-contained page", async () => {
   const html = fs.readFileSync(result.output, "utf8");
   assert.match(html, /<math/);
   assert.match(html, /data:image\/png;base64,/);
+});
+
+test("an incomplete AI page is retried once automatically", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-quiz-llm-retry-"));
+  const runners = new Map();
+  const reports = [];
+  const logs = [];
+  let calls = 0;
+  const complete = "<!doctype html><html><head><script type=\"application/json\" id=\"quiz-manifest\">{\"schema\":\"uvreader.quiz-page/v1\",\"paperId\":\"p1\",\"title\":\"测试试卷\",\"questions\":[{\"id\":\"q1\",\"number\":\"1\",\"type\":\"choice\",\"stemHtml\":\"题目\",\"options\":[{\"key\":\"A\",\"html\":\"1\"},{\"key\":\"B\",\"html\":\"2\"}],\"answer\":\"B\",\"analysisHtml\":\"解析\"}]}</script></head><body><main id=\"paper\" data-quiz-id=\"q1\"><h1>测试试卷</h1><p>这是一段用于验证页面完整性的正文，确保它超过应用端的最小完整性阈值。</p><p>再补一段足够长的内容，模拟真实模型返回的完整页面。</p></main></body></html>";
+  registerQuizLlmRunner(
+    { register: (kind, runner) => runners.set(kind, runner) },
+    {
+      vaultRoot: dir,
+      log: (...args) => logs.push(args.join(" ")),
+      extractMarkdown: async () => ({ ok: true, markdown: "1. 题目", path: path.join(dir, "paper.md") }),
+      aiRuntime: {
+        stream: async () => {
+          calls += 1;
+          return calls === 1
+            ? { ok: true, answer: "<!doctype html><html><body><main>被截断", stopReason: "length" }
+            : { ok: true, answer: complete, stopReason: "stop" };
+        },
+        abort: () => {},
+      },
+    },
+  );
+  fs.writeFileSync(path.join(dir, "paper.pdf"), "x");
+  const result = await runners.get("quiz-llm-export")({
+    payload: { source: "paper.pdf", out: "paper.AI.html", config: { id: "p", base: "http://x", model: "m" } },
+    report: (row) => reports.push(row),
+    signal: new AbortController().signal,
+  });
+  assert.equal(calls, 2, "the runner retries once after an incomplete page");
+  assert.ok(fs.existsSync(result.output));
+  assert.match(reports.map((row) => row.label).join(" "), /自动重试/);
+  assert.ok(logs.some((line) => /incomplete page/.test(line)));
 });

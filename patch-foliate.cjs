@@ -77,4 +77,21 @@ if (fs.existsSync(epubPath)) {
     patched += 1;
   }
 }
+// A one-image CBZ (including the in-memory wrapper used for standalone image
+// files) should use the whole reading area. Foliate's default comic-book
+// rendition pairs sections into a spread, which leaves the image in the right
+// half of the page for a single entry.
+const comicPath = path.join(__dirname, "node_modules", "foliate-js", "comic-book.js");
+const comicFrom = "    book.rendition = { layout: 'pre-paginated' }";
+const comicTo = "    book.rendition = { layout: 'pre-paginated', ...(files.length === 1 ? { spread: 'none' } : {}) }";
+if (fs.existsSync(comicPath)) {
+  const text = fs.readFileSync(comicPath, "utf8");
+  if (text.includes(comicFrom)) {
+    fs.writeFileSync(comicPath, text.split(comicFrom).join(comicTo));
+    patched += 1;
+  } else if (text.includes(comicTo)) {
+    patched += 1;
+  }
+}
+
 console.log(`foliate-js hardened in ${patched} file(s)`);

@@ -4,13 +4,22 @@
 
 **简体中文** · [English](#english) · [许可证](LICENSE) · [免责声明](DISCLAIMER.md) · [问题反馈](https://github.com/newcoder/uvreader/issues)
 
-UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支持 EPUB、PDF、FB2/FBZ、MOBI/AZW/AZW3、CBZ，内置高亮、批注、阅读笔记和可选的 AI 助读。书籍、进度和笔记默认都在本机；日常阅读不需要账号，也不需要联网。
+UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支持 EPUB、PDF、FB2/FBZ、MOBI/AZW/AZW3、CBZ 和单张图片（PNG/JPG/WebP/GIF/BMP），内置高亮、批注、阅读笔记和可选的 AI 助读。书籍、进度和笔记默认都在本机；日常阅读不需要账号，也不需要联网。
 
-> **当前版本**：`0.7.57`。Windows / macOS 安装包见 [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.57)。
+> **当前版本**：`0.7.58`。Windows / macOS 安装包见 [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.58)。
 >
 > **来源**：fork 自 Obsidian 插件 [qiaomu-reader](https://github.com/joeseesun/qiaomu-reader)，现在作为独立桌面应用维护；Obsidian 插件形态不再作为主线。
 >
 > **原则**：做好、做快、轻量、扩展（Do it well, do it fast, keep it lean, scale it.）
+
+## 近期开发（2026-10）
+
+> 以下改进已进入当前代码；正式安装包版本仍以 [Releases](https://github.com/newcoder/uvreader/releases) 为准。
+
+- **印刷目录 → 可跳转导航**：EPUB / AZW3 可以从书前印刷目录页提取条目并匹配正文，生成结果支持预览、应用和撤销。EPUB 可以直接另存一份带 EPUB 3 `nav` 和 `NCX` 的副本；AZW3 会通过 Calibre 转换成带导航的 AZW3 副本，原书保持不变，方便其它阅读器识别目录。
+- **答题页中心**：「悦空间 → 答题页」集中查看答题页，显示题目数、来源、作答状态、得分和草稿；支持已作答 / 未作答筛选，点击直接作答。交卷后仍可继续使用 AI 伴学。
+- **单张图片阅读**：PNG / JPG / WebP / GIF / BMP 可以直接作为一本书打开，整页显示，支持适配宽度、滚轮缩放和拖拽平移。
+- **装载性能**：书库改为按需读取文件元数据，并在同一轮渲染中复用文件清单；答题页列表只读取 manifest 前缀并缓存结果。大书库和大量答题页的打开、刷新明显更快。
 
 [功能总览](#功能总览) · [下载与安装](#下载与安装) · [常见问题](#常见问题) · [从源码运行](#从源码运行)
 
@@ -18,10 +27,11 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 
 ### 阅读
 
-- **格式**：EPUB、PDF、FB2、FBZ、MOBI、AZW、AZW3、CBZ；支持系统文件关联，双击书籍直接打开。
+- **格式**：EPUB、PDF、FB2、FBZ、MOBI、AZW、AZW3、CBZ，以及 PNG/JPG/WebP/GIF/BMP 图片；支持系统文件关联，双击书籍直接打开。
+- **单图阅读**：图片作为整页阅读，支持适配宽度、滚轮缩放和鼠标 / 触控拖拽平移。
 - **阅读模式**：分页 / 滚动；单栏 / 双栏；鼠标滚轮、触控板、方向键、按钮和滑动翻页；页码跳转、章节跳转、阅读位置自动恢复。
 - **版面**：适配页宽 / 页高、PDF 原始页面渲染与缩放、页间距、页边距、对齐方式；不同设备可以保存不同阅读设置。
-- **目录**：PDF 大纲、印刷目录、正文标题等多来源目录；层级导航、当前章节定位、目录搜索。
+- **目录**：PDF 大纲、书前印刷目录页、正文标题等多来源目录；层级导航、当前章节定位、目录搜索。EPUB / AZW3 可从印刷目录生成并应用可跳转导航，并另存带 `nav` / `NCX` 的导航副本；AZW3 导出需要 Calibre 可用。
 - **搜索**：全书搜索、结果定位、命中高亮。
 - **外观**：多套阅读主题、字体、字号、行距、段距、对齐和栏数设置；内置阅读字体，也支持导入字体。
 - **PDF**：原页渲染、文本层、可搜索 PDF；扫描页可以通过文字层 / OCR 变成可搜索、可划线的文本。
@@ -42,12 +52,18 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 
 ### 书库
 
-- 本地导入 EPUB / PDF / MOBI / AZW3 / FB2 / CBZ 等文件，支持拖拽、批量导入和文件关联。
+- 本地导入 EPUB / PDF / MOBI / AZW3 / FB2 / CBZ 和 PNG/JPG/WebP/GIF/BMP 图片，支持拖拽、批量导入和文件关联。
 - 封面、书名、作者、语言、标签、简介等元数据编辑；可以选封面、自动取封面或生成模板封面。
 - 最近阅读、阅读进度、阅读中/未读状态、书库筛选和搜索。
 - **网络搜书**：按书名检索可配置的第三方书源（如 Project Gutenberg、Standard Ebooks），查看可用版本并下载到书库；使用下载内容时请遵守来源授权和[免责声明](DISCLAIMER.md)。
 - 所有书籍、进度、标注和笔记都保存在本地应用数据目录，不依赖云书库。
 - 制作完成的电子书自动入库；从阅读器返回书库会刷新列表，不再显示旧内容。
+
+### 答题页
+
+- **答题页列表**：「悦空间 → 答题页」集中查看生成的答题页，显示题目数、来源文件、作答状态、最近得分和草稿；支持全部 / 已作答 / 未作答筛选和直接打开。
+- **独立答题页**：每份答题页是自包含 HTML，作答记录和草稿保存在本机；交卷后可以查看分数，并继续用 AI 伴学针对当前题或整卷提问。
+- **AI 生成**：从 PDF、图片等文档生成可交互答题页的流程在「书坊」；生成后可以直接在 UV Reader 打开。
 
 ### 书坊（Workshop）
 
@@ -85,9 +101,9 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 
 #### 答题页
 
-- **答题页（交互 HTML）**：把转换后的 Markdown 试卷生成自包含 HTML；客观题本地判分，主观题显示参考答案自评，答案/解析初始隐藏。
-- **AI 答题页（实验）**：用提示词让 AI 从 Markdown 直接生成整页答题页，支持答案解析、导航配色、MathML 公式、代码格式化和圆圈数字占位符；生成后用本地后处理内联图片、校正公式/代码。
-- 两者都保留在格式转换中；AI 答题页需要先在「设置 → AI 助读」配置模型。
+- **AI 答题页**：用提示词让 AI 从 Markdown 生成整页答题页，支持答案解析、导航配色、MathML 公式、代码格式化和圆圈数字占位符；生成后用本地后处理内联图片、校正公式/代码。格式转换默认生成 AI 答题页，并可在 UV Reader 内直接打开作答。
+- **AI 伴学**：交卷后可针对当前题或整卷继续提问；与普通阅读里的「AI 伴读」共用同一套 AI 设置。
+- AI 答题页需要先在「设置 → AI 助读」配置模型。
 
 #### 任务与外部组件
 
@@ -112,7 +128,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 
 ## 下载与安装
 
-- 安装包：[GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.57)。
+- 安装包：[GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.58)。
 - Windows：`UV-Reader-<版本>-setup.exe` 安装版，或 `UV-Reader-<版本>-portable.exe` 免安装版。
 - macOS：按 Releases 页面提供的 `UV-Reader-<版本>-<架构>.dmg` 安装。
 - 首次启动不需要账号；AI、OCR 和文档转换组件都是可选的，不配置也能正常阅读和做笔记。
@@ -223,26 +239,36 @@ GPL-3.0-only。第三方组件、字体和示例书声明见 [NOTICE.md](NOTICE.
 
 # English
 
-UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, PDF, FB2/FBZ, MOBI/AZW/AZW3 and CBZ. Reading, highlighting, notes, library management and optional AI assistance live in one local-first app; Obsidian is no longer required.
+UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, PDF, FB2/FBZ, MOBI/AZW/AZW3, CBZ and standalone images (PNG/JPG/WebP/GIF/BMP). Reading, highlighting, notes, library management and optional AI assistance live in one local-first app; Obsidian is no longer required.
 
 **Principles:** do it well, do it fast, keep it lean, scale it.
 
 [Features](#features) · [Download](#download) · [FAQ](#faq) · [Build](#build)
 
-**Status:** `0.7.57`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.57). Read the [Disclaimer](DISCLAIMER.md) before use.
+**Status:** `0.7.58`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.58). Read the [Disclaimer](DISCLAIMER.md) before use.
+
+## Recent updates (Oct 2026)
+
+> These changes are in the current codebase; installers still follow the [Releases](https://github.com/newcoder/uvreader/releases) page.
+
+- **Printed contents → navigation:** EPUB and AZW3 can build clickable TOC entries from the book's printed contents page, with preview, apply and undo. EPUB can save a new copy with EPUB 3 `nav` and `NCX`; AZW3 is converted through Calibre into a new AZW3 copy with navigation. The original stays untouched.
+- **Answer-page hub:** Reading Space → Answer pages lists generated pages with question count, source, answered state, scores and drafts, with answered/unanswered filters and direct opening. The AI study companion remains available after submission.
+- **Standalone images:** PNG/JPG/WebP/GIF/BMP files open as a full-page reader with fit-width, wheel zoom and drag-to-pan.
+- **Faster loading:** the library reads file metadata on demand and reuses one inventory per render; the answer-page list reads only the manifest prefix and caches results.
 
 ## Features
 
-- **Reading:** paged or scrolling mode, single/two columns, wheel/keyboard/swipe paging, page and chapter jumps, fit width/height, PDF original-page rendering and zoom, multiple themes and fonts, per-device reading settings, location bookmarks, reading statistics and daily goals.
+- **Reading:** paged or scrolling mode, single/two columns, wheel/keyboard/swipe paging, page and chapter jumps, fit width/height, PDF original-page rendering and zoom, standalone PNG/JPG/WebP/GIF/BMP images with fit-width, wheel zoom and drag pan, multiple themes and fonts, per-device reading settings, location bookmarks, reading statistics and daily goals. Printed contents pages in EPUB/AZW3 can be turned into clickable navigation and saved as a portable copy with nav/NCX; AZW3 export requires Calibre.
 - **Annotations and notes:** multi-colour highlights, inline comments, cross-page selection, pinyin annotations pinned to the text, selection translation (copy it or save it to the reading note), word hints, AI explain/ask, bookmarks; one Markdown reading note per book with chapter-grouped excerpts and links back to the source; book notes and highlight export. Deleting a book also removes its highlights, pinyin pins, bookmarks, drafts and conversations; reading notes are kept.
 - **Library:** local import, covers and metadata editing, tags, recent books, progress, search and file associations; generated ebooks are added automatically, and returning to the library refreshes the list. Configurable online book search can query sources such as Project Gutenberg and Standard Ebooks, preview available versions and download them into the library; verify the source's rights before using downloaded content (see the [Disclaimer](DISCLAIMER.md)).
-- **Workshop:** OCR/text layers for scanned PDFs; DocVortex format conversion (Office/ODF/PDF/EPUB/HTML/OFD/Markdown/text → Markdown/HTML/LaTeX/DOCX/PDF, EPUB → Markdown, images → PDF); content extraction to Markdown/HTML/JSON/assets (extracted HTML renders LaTeX as offline MathML); question-bank extraction; EPUB creation from PDF/Office/text/Markdown/images with chapters, metadata, covers and TOC; AZW3/MOBI via Calibre; image → CBZ/EPUB; deterministic and experimental AI answer pages.
+- **Answer pages:** a Reading Space list of standalone interactive HTML papers with question count, source, answered state, scores and drafts; open directly, filter by answered state, and continue with the AI study companion after submission.
+- **Workshop:** OCR/text layers for scanned PDFs; DocVortex format conversion (Office/ODF/PDF/EPUB/HTML/OFD/Markdown/text → Markdown/HTML/LaTeX/DOCX/PDF, EPUB → Markdown, images → PDF); content extraction to Markdown/HTML/JSON/assets (extracted HTML renders LaTeX as offline MathML); question-bank extraction; EPUB creation from PDF/Office/text/Markdown/images with chapters, metadata, covers and TOC; AZW3/MOBI via Calibre; image → CBZ/EPUB; AI answer-page generation with direct in-app answering.
 - **AI (optional):** OpenAI-compatible cloud providers or local endpoints (Ollama, llama.cpp, LM Studio); AI companion conversations remember the book location with a clickable chip back to the passage and support full-page or region screenshots; explanations, summaries, translation, custom prompts; AI metadata/cover copy/chapter suggestions/cleanup; AI answer-page generation. All local reading, annotation and conversion features work without AI.
 - **Local-first:** no account, no mandatory cloud library; keys use OS credential storage; network is used only for explicitly enabled AI, translation, or cloud OCR.
 
 ## Download
 
-Installers are available on [GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.57). Windows builds include `UV-Reader-<version>-setup.exe` and `UV-Reader-<version>-portable.exe`; macOS builds provide `UV-Reader-<version>-<arch>.dmg`. No account is required on first launch, and AI, OCR and document-conversion components are optional.
+Installers are available on [GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.58). Windows builds include `UV-Reader-<version>-setup.exe` and `UV-Reader-<version>-portable.exe`; macOS builds provide `UV-Reader-<version>-<arch>.dmg`. No account is required on first launch, and AI, OCR and document-conversion components are optional.
 
 ## FAQ
 

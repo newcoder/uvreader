@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createWorkshopQueue, WORKSHOP_HISTORY_LIMIT } from "../src/main/workshop.js";
+import { createWorkshopQueue, shouldNotifyWorkshopTask, WORKSHOP_HISTORY_LIMIT } from "../src/main/workshop.js";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -20,11 +20,16 @@ async function waitForDone(queue, ids, { timeoutMs = 5000 } = {}) {
   }
 }
 
-function makeQueue(runners = {}) {
+function makeQueue(runners = {}, { onFinished = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-workshop-"));
   const file = path.join(dir, "workshop-tasks.json");
   const states = [];
-  const queue = createWorkshopQueue({ file, onState: (state) => states.push(state), log: { warn() {} } });
+  const queue = createWorkshopQueue({
+    file,
+    onState: (state) => states.push(state),
+    onFinished: onFinished ? (task) => onFinished(task) : undefined,
+    log: { warn() {} },
+  });
   for (const [kind, runner] of Object.entries(runners)) queue.register(kind, runner);
   return { queue, file, states, dir };
 }
@@ -150,8 +155,40 @@ test("history is persisted, reloaded and capped", async () => {
   assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")).tasks, []);
 });
 
+test("task history keeps the document it belongs to, including retries", async () => {
+  const { queue, file } = makeQueue({ quick: async () => ({ output: "x" }) });
+  const id = queue.start({ kind: "quick", title: "转换", bookPath: "Books/a.pdf", origin: "assistant" });
+  await waitForDone(queue, [id]);
+  const finished = queue.snapshot().tasks.find((task) => task.id === id);
+  assert.equal(finished.bookPath, "Books/a.pdf");
+  const saved = JSON.parse(fs.readFileSync(file, "utf8")).tasks.find((task) => task.id === id);
+  assert.equal(saved.bookPath, "Books/a.pdf");
+  const retried = queue.retry(id);
+  await waitForDone(queue, [retried]);
+  assert.equal(queue.snapshot().tasks.find((task) => task.id === retried).bookPath, "Books/a.pdf");
+});
+
 test("an unknown kind is rejected before anything runs", () => {
   const { queue } = makeQueue({});
   assert.throws(() => queue.start({ kind: "nope", title: "x" }), /未知的书坊任务类型/);
   assert.equal(queue.snapshot().tasks.length, 0);
+});
+
+test("finished work notifies once and probes stay silent", async () => {
+  const finished = [];
+  const { queue } = makeQueue({
+    "ocr-export": async () => ({ output: "book_text.pdf" }),
+    "extract-probe": async () => ({ output: "ok" }),
+  }, { onFinished: (task) => finished.push(task) });
+  const work = queue.start({ kind: "ocr-export", title: "扫描件转可搜索 PDF", origin: "assistant" });
+  const probe = queue.start({ kind: "extract-probe", title: "自检" });
+  await waitForDone(queue, [work, probe]);
+  assert.equal(finished.length, 1);
+  assert.equal(finished[0].id, work);
+  assert.equal(finished[0].status, "done");
+  assert.equal(finished[0].origin, "assistant");
+  assert.equal(shouldNotifyWorkshopTask("ocr-export"), true);
+  assert.equal(shouldNotifyWorkshopTask("docvortex-convert"), true);
+  assert.equal(shouldNotifyWorkshopTask("extract-probe"), false);
+  assert.equal(shouldNotifyWorkshopTask("engine-install"), false);
 });
