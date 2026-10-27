@@ -15,7 +15,7 @@ import {
   translationOutputSuffix,
 } from "../src/shared/book-translation.js";
 import { createBookTranslator, translationCacheKey } from "../src/main/book-translate.js";
-import { detectSourceLanguage } from "../src/shared/language-detect.js";
+import { detectBookLanguage, detectSourceLanguage } from "../src/shared/language-detect.js";
 
 test("translation directions and response parsing", () => {
   assert.equal(normalizeBookTranslationDirection("en-zh"), "en-zh");
@@ -92,6 +92,17 @@ test("source language detection distinguishes modern Chinese, English, German an
   assert.equal(detectSourceLanguage("Der Bibliothekar ist nicht da und wir müssen auf die Straße gehen.").language, "de");
   // Classical Chinese is a manual style choice, not a separate detected language.
   assert.equal(detectSourceLanguage("学而时习之，不亦说乎？有朋自远方来，不亦乐乎？").language, "zh");
+});
+
+test("book-level language detection outvotes a large English license chapter", () => {
+  const license = "The Project Gutenberg eBook of this ebook is for the use of anyone anywhere in the United States and most other parts of the world at no cost and with almost no restrictions whatsoever. You may copy it, give it away or re-use it under the terms of the Project Gutenberg License included with this ebook or online at www.gutenberg.org.";
+  const chapters = [
+    { title: "Project Gutenberg License", text: license },
+    { title: "第一章", text: "道可道，非常道。名可名，非常名。" },
+    { title: "第二章", text: "天下皆知美之为美，斯恶已；皆知善之为善，斯不善已。" },
+    { title: "第三章", text: "不尚贤，使民不争；不贵难得之货，使民不为盗。" },
+  ];
+  assert.equal(detectBookLanguage(chapters).language, "zh");
 });
 
 test("translation prompt asks for stable IDs and target language", () => {

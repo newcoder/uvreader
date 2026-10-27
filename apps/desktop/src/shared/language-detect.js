@@ -53,3 +53,41 @@ export function detectSourceLanguage(text, { maxChars = 50000 } = {}) {
   if (latin >= 0.35) return latinLanguage(sample);
   return { language: "unknown", confidence: 0 };
 }
+
+// Detect a book by voting on its chapters. A single large English license or
+// front-matter chapter (common in Project Gutenberg EPUBs) can outweigh the
+// actual Chinese body when the whole sample is counted by characters.
+export function detectBookLanguage(chapters, { maxChars = 50000, chapterChars = 12000 } = {}) {
+  const list = Array.isArray(chapters) ? chapters : [];
+  const votes = { zh: 0, en: 0, de: 0 };
+  let voted = 0;
+  for (const chapter of list) {
+    const sample = `${chapter?.title || ""}\n${chapter?.text || ""}`.slice(0, chapterChars);
+    const detected = detectSourceLanguage(sample, { maxChars: chapterChars });
+    if (!Object.hasOwn(votes, detected.language)) continue;
+    votes[detected.language] += 1;
+    voted += 1;
+  }
+  if (!voted) {
+    const sample = list
+      .map((chapter) => `${chapter?.title || ""}\n${chapter?.text || ""}`)
+      .join("\n")
+      .slice(0, maxChars);
+    return detectSourceLanguage(sample, { maxChars });
+  }
+  const ranked = Object.entries(votes).sort((left, right) => right[1] - left[1]);
+  // A tie is ambiguous; fall back to the whole sample rather than picking an
+  // arbitrary language.
+  if (ranked[0][1] === ranked[1][1]) {
+    const sample = list
+      .map((chapter) => `${chapter?.title || ""}\n${chapter?.text || ""}`)
+      .join("\n")
+      .slice(0, maxChars);
+    return detectSourceLanguage(sample, { maxChars });
+  }
+  return {
+    language: ranked[0][0],
+    confidence: Math.min(0.99, 0.5 + ranked[0][1] / Math.max(1, voted) * 0.5),
+    votes,
+  };
+}

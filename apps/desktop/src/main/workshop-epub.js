@@ -15,7 +15,7 @@ import { buildEpub, BOOK_STYLE_DEFAULTS, collectBookImages } from "./epub-build.
 import { createBookTranslator } from "./book-translate.js";
 import { convertChineseScript, scriptTargetLabel } from "./book-script.js";
 import { appendTranslationSuffix, directionForSource, scriptOutputSuffix, splitTranslationBlocks, translationLanguagePair, translationOutputSuffix } from "../shared/book-translation.js";
-import { detectSourceLanguage } from "../shared/language-detect.js";
+import { detectBookLanguage, detectSourceLanguage } from "../shared/language-detect.js";
 import { collectMathFromMarkdown, countRawFormulas, markdownToHtml, stripBom, textToChapters, textToHtml } from "./text-book.js";
 import { decodeText } from "../shared/text-encoding.js";
 import { extractMarkdown, extractionKind, splitMarkdownChapters } from "./extract-doc.js";
@@ -481,13 +481,22 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
           .map((chapter) => `${chapter.title}\n${chapter.text || ""}`)
           .join("\n")
           .slice(0, 50_000);
-        const detected = detectSourceLanguage(sample);
-        if (classical && detected.language !== "zh") {
-          throw new Error(`已勾选文言文，但自动识别原文为 ${detected.language || "未知"}；请取消勾选或检查书稿`);
-        }
-        directionId = directionForSource({ language: detected.language, classical });
-        if (!directionId) {
-          throw new Error(`无法自动识别可翻译的原文语言（识别为 ${detected.language || "未知"}）；目前支持中文、英文、德文`);
+        // Vote across chapters so a large English license/front-matter page
+        // cannot make a Chinese body look English.
+        const detected = detectBookLanguage(bookChapters);
+        if (classical) {
+          // 文言文 is an explicit user choice. A detected English/German
+          // chapter may just be Project Gutenberg license text, so trust the
+          // checkbox as long as the manuscript actually contains Han text.
+          if (!/\p{Script=Han}/u.test(sample) || detected.language === "ja" || detected.language === "ko") {
+            throw new Error("已勾选文言文，但没有识别到中文正文；请检查书稿或取消勾选");
+          }
+          directionId = "wenyan-zh";
+        } else {
+          directionId = directionForSource({ language: detected.language, classical: false });
+          if (!directionId) {
+            throw new Error(`无法自动识别可翻译的原文语言（识别为 ${detected.language || "未知"}）；目前支持中文、英文、德文`);
+          }
         }
         log("book translate source detected", detected.language, detected.confidence);
       } else if (classical && directionId !== "wenyan-zh") {

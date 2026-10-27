@@ -169,6 +169,26 @@ test("the book-build runner creates stacked and side-by-side bilingual chapters"
   assert.match(classical.detail, /文言文 → 现代中文/);
   assert.match(classical.output.replace(/\\/g, "/"), /bilingual（文白对照）.*\.epub$/);
   assert.match(JSON.stringify(aiRequests.at(-1).messages), /目标语言：现代中文/);
+
+  const classicalWithLicense = await waitForTask(queue, queue.start({
+    kind: "book-build",
+    title: "文言文与英文版权页",
+    payload: {
+      ...base,
+      chapters: [{
+        title: "道德经",
+        text: [
+          "The Project Gutenberg eBook of this ebook is for the use of anyone anywhere at no cost.",
+          "",
+          "道可道，非常道。名可名，非常名。",
+        ].join("\n"),
+      }],
+      translation: { ...base.translation, direction: "auto", mode: "stacked", classical: true },
+    },
+  }));
+  assert.equal(classicalWithLicense.status, "done", classicalWithLicense.error);
+  assert.match(classicalWithLicense.detail, /文言文 → 现代中文/);
+  assert.match(JSON.stringify(aiRequests.at(-1).messages), /目标语言：现代中文/);
 });
 
 test("the book-build runner converts Chinese script without AI or bilingual pairs", async () => {
