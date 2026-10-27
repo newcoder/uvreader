@@ -14,6 +14,7 @@ import path from "node:path";
 import { buildEpub, BOOK_STYLE_DEFAULTS, collectBookImages } from "./epub-build.js";
 import { createBookTranslator } from "./book-translate.js";
 import { convertChineseScript, scriptTargetLabel } from "./book-script.js";
+import { convertEpubScript } from "./epub-script.js";
 import { appendTranslationSuffix, directionForSource, scriptOutputSuffix, splitTranslationBlocks, translationLanguagePair, translationOutputSuffix } from "../shared/book-translation.js";
 import { detectBookLanguage, detectSourceLanguage } from "../shared/language-detect.js";
 import { collectMathFromMarkdown, countRawFormulas, markdownToHtml, stripBom, textToChapters, textToHtml } from "./text-book.js";
@@ -285,6 +286,32 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       (candidate) => fs.existsSync(absolute(candidate)),
       appendTranslationSuffix(base, suffix),
     ));
+
+    // EPUB script conversion is a transparent copy: keep the original
+    // chapter files, CSS, images and line breaks, and convert only text nodes.
+    // The regular extract → Markdown → rebuild path flattens poetry lines.
+    if (scriptRequested && /\.epub$/i.test(source)) {
+      const directTarget = payload?.translation?.script === "s" ? "s" : "t";
+      const nameSuffix = scriptOutputSuffix(directTarget);
+      if (!out) out = outputPath(nameSuffix, convertChineseScript(sourceBase, directTarget));
+      if (path.resolve(out) === path.resolve(source)) {
+        throw new Error("输出路径不能覆盖原 EPUB，请换一个文件名");
+      }
+      report({ label: "读取 EPUB" });
+      const converted = await convertEpubScript({
+        source,
+        out,
+        target: directTarget,
+        title: customTitle,
+        report,
+        signal,
+      });
+      report({ label: `简繁转换 · ${scriptTargetLabel(directTarget)}` });
+      return {
+        output: out,
+        detail: `EPUB · 原格式 · ${converted.spineCount} 节 · ${converted.files} 个文件 · ${Math.round(fs.statSync(out).size / 1024)} KB · 简繁 ${scriptTargetLabel(directTarget)}`,
+      };
+    }
 
     report({ label: "读取内容" });
     const isText = Boolean(sourceKind);

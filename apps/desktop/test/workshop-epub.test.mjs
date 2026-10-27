@@ -38,6 +38,44 @@ function makeQueue(cacheRoot, _subsetter, extra = {}) {
   return { queue, dir };
 }
 
+async function writePoemEpub(file) {
+  const zip = new JSZip();
+  zip.file("mimetype", "application/epub+zip", { compression: "STORE" });
+  zip.file("META-INF/container.xml", `<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>`);
+  zip.file("OEBPS/content.opf", `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="book-id">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="book-id">urn:test:poems</dc:identifier>
+    <dc:title>漢語詩</dc:title>
+    <dc:language>zh</dc:language>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="css" href="style.css" media-type="text/css"/>
+    <item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="ch2" href="ch2.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine><itemref idref="ch1"/><itemref idref="ch2"/></spine>
+</package>`);
+  zip.file("OEBPS/nav.xhtml", `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="zh">
+<body><nav epub:type="toc"><ol>
+  <li><a href="ch1.xhtml">漢詩</a></li>
+  <li><a href="ch2.xhtml">學習</a></li>
+</ol></nav></body></html>`);
+  zip.file("OEBPS/style.css", "p { line-height: 2; }");
+  zip.file("OEBPS/ch1.xhtml", `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><body><p>漢詩<br/>國家</p></body></html>`);
+  zip.file("OEBPS/ch2.xhtml", `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><body><p>學習<br/>發展</p></body></html>`);
+  const data = await zip.generateAsync({ type: "nodebuffer" });
+  fs.writeFileSync(file, data);
+  return data;
+}
+
 test("the book-build runner turns a txt into a readable EPUB", async () => {
   const vault = tempDir("qbr-epub-vault-");
   const source = path.join(vault, "我的小说.txt");
@@ -232,6 +270,38 @@ test("the book-build runner converts Chinese script without AI or bilingual pair
   assert.match(opf, /<dc:language>zh-Hant<\/dc:language>/);
   assert.match(opf, /<dc:creator>魯迅<\/dc:creator>/);
   assert.match(opf, /<dc:title>script（繁體）<\/dc:title>/);
+});
+
+test("direct EPUB script conversion keeps the original chapter files and line breaks", async () => {
+  const vault = tempDir("qbr-epub-script-direct-");
+  const source = path.join(vault, "poems.epub");
+  const sourceBytes = await writePoemEpub(source);
+  const { queue } = makeQueue(tempDir("qbr-epub-script-direct-cache-"), null);
+  const task = await waitForTask(queue, queue.start({
+    kind: "book-build",
+    title: "生成简繁转换电子书",
+    payload: {
+      source,
+      settings: {},
+      translation: { mode: "script", script: "s" },
+    },
+  }));
+  assert.equal(task.status, "done", task.error);
+  assert.match(task.detail, /原格式/);
+  assert.match(task.detail, /2 节/);
+  assert.match(task.output.replace(/\\/g, "/"), /poems（简体）\.epub$/);
+  assert.deepEqual(fs.readFileSync(source), sourceBytes, "the source EPUB is left untouched");
+
+  const zip = await JSZip.loadAsync(fs.readFileSync(task.output));
+  assert.ok(zip.file("OEBPS/ch1.xhtml"));
+  assert.ok(zip.file("OEBPS/ch2.xhtml"));
+  assert.ok(!zip.file("OEBPS/chapter-001.xhtml"), "the original chapter files are preserved");
+  assert.equal(await zip.file("OEBPS/style.css").async("string"), "p { line-height: 2; }");
+  assert.match(await zip.file("OEBPS/ch1.xhtml").async("string"), /汉诗<br\/>国家/);
+  assert.match(await zip.file("OEBPS/nav.xhtml").async("string"), /汉诗/);
+  const opf = await zip.file("OEBPS/content.opf").async("string");
+  assert.match(opf, /<dc:title>汉语诗（简体）<\/dc:title>/);
+  assert.match(opf, /<dc:language>zh-Hans<\/dc:language>/);
 });
 
 test("the book-build runner honours chapters edited in the panel", async () => {

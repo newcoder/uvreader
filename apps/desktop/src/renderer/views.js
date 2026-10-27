@@ -2048,7 +2048,7 @@ export function createWorkshopView(leaf, options) {
         this._bookTranslateHint.setText(mode === "none"
           ? "不翻译时保留原始书稿；需要双语文档或简繁转换时再开启。"
           : script
-            ? "直接转换文字，不生成原文/译文对照；不需要 AI。仅支持中文书稿，代码、表格、图片和公式保留原样。"
+            ? "EPUB 会保留原排版、目录、图片和换行，只转换文字，不应用本次封面/排版设置；其它格式按文本重建，代码、表格、图片和公式保留原样。不需要 AI，也不生成原文/译文对照，仅支持中文书稿。"
             : mode === "translated"
               ? "自动识别原文语言：中文→English，English/Deutsch→中文；勾选文言文则生成现代中文。代码、表格、图片和公式保留原样。需要先在「设置 → AI 助读」配置模型。"
               : "自动识别原文语言：中文→English，English/Deutsch→中文；勾选文言文则生成文白对照。左右对照在窄屏或部分阅读器会自动回退为上下。需要先在「设置 → AI 助读」配置模型。");
