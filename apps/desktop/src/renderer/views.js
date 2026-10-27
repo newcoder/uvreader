@@ -1679,11 +1679,50 @@ export function createWorkshopView(leaf, options) {
       aiCleanRow.createSpan({ cls: "qbr-workshop-hint", text: "本地体检,不调用 AI" });
       this._bookAiClean = chapterStep.createDiv("qbr-workshop-ai-suggest qbr-workshop-ai-clean");
 
-      // ③ 书名与封面
-      const metaStep = this.bookStep(controls, "3", "书名与封面", "写进扉页、目录与封面");
+      // ③ 翻译与转换：AI 段落翻译或本机简繁转换，复用书坊任务队列。
+      const translationStep = this.bookStep(controls, "3", "翻译与转换", "中英 / 英中 / 文白 / 简繁");
+      const translationModeRow = translationStep.createDiv("qbr-workshop-row");
+      translationModeRow.createSpan({ cls: "qbr-workshop-hint", text: "处理方式" });
+      this._bookTranslateMode = translationModeRow.createEl("select", { cls: "qbr-workshop-select" });
+      for (const [value, label] of [
+        ["none", "不翻译"],
+        ["translated", "仅译文"],
+        ["stacked", "上下对照"],
+        ["side", "左右对照"],
+        ["script", "简繁转换"],
+      ]) {
+        this._bookTranslateMode.createEl("option", { attr: { value }, text: label });
+      }
+      const scriptRow = translationStep.createDiv("qbr-workshop-row");
+      scriptRow.createSpan({ cls: "qbr-workshop-hint", text: "转换为" });
+      this._bookScriptTarget = scriptRow.createEl("select", { cls: "qbr-workshop-select" });
+      for (const [value, label] of [["t", "繁體"], ["s", "简体"]]) {
+        this._bookScriptTarget.createEl("option", { attr: { value }, text: label });
+      }
+      this._bookScriptRow = scriptRow;
+      const languageRow = translationStep.createDiv("qbr-workshop-row");
+      languageRow.createSpan({ cls: "qbr-workshop-hint", text: "原文语言" });
+      languageRow.createSpan({ cls: "qbr-workshop-hint", text: "自动识别：中文 / English / Deutsch" });
+      const classicalRow = translationStep.createDiv("qbr-workshop-row qbr-workshop-book");
+      this._bookTranslateClassical = classicalRow.createEl("input", { attr: { type: "checkbox" } });
+      classicalRow.createSpan({ text: "原文为文言文（仅中文原文，生成文白对照）" });
+      this._bookTranslateHint = translationStep.createDiv("qbr-workshop-hint");
+      this._bookTranslateMode.addEventListener("change", () => {
+        this.syncBookTranslationMode();
+        this.onBookStyleChange();
+      });
+      this._bookTranslateClassical.addEventListener("change", () => {
+        this.syncBookTranslationMode();
+        this.onBookStyleChange();
+      });
+      this._bookScriptTarget.addEventListener("change", () => this.onBookStyleChange());
+      this.syncBookTranslationMode();
+
+      // ④ 书名与封面
+      const metaStep = this.bookStep(controls, "4", "书名与封面", "写进扉页、目录与封面");
       const metaRow = metaStep.createDiv("qbr-workshop-row");
       metaRow.createSpan({ cls: "qbr-workshop-hint", text: "书名" });
-      this._bookTitle = metaRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空用文件名" } });
+      this._bookTitle = metaRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空用原书名并加语言后缀" } });
       metaRow.createSpan({ cls: "qbr-workshop-hint", text: "作者" });
       this._bookAuthor = metaRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "可选" } });
 
@@ -1719,10 +1758,10 @@ export function createWorkshopView(leaf, options) {
       this._bookCoverMode.addEventListener("change", () => { this.syncBookCoverRow(); this.onBookStyleChange(); });
       this.syncBookCoverRow();
 
-      // ④ 排版样式:只留书里一定看得见的三项。字号 / 行距 / 边距 / 对齐 / 主题都由
+      // ⑤ 排版样式:只留书里一定看得见的三项。字号 / 行距 / 边距 / 对齐 / 主题都由
       // 阅读器自己的阅读设置决定(UV Reader 用 !important 覆盖,见 reader-appearance.js),
       // 摆在这里只会是「按了没反应」的控件;书里仍会写入一份默认基线供其他阅读器使用。
-      const styleStep = this.bookStep(controls, "4", "排版样式", "首行缩进 / 段间距 / 标题对齐");
+      const styleStep = this.bookStep(controls, "5", "排版样式", "首行缩进 / 段间距 / 标题对齐");
       this._bookControls = {};
       this.bookSlider(styleStep, "首行缩进", "indent", { min: 0, max: 4, step: 0.5, suffix: "em" });
       this.bookSlider(styleStep, "段间距", "spacing", { min: 0, max: 2, step: 0.25, suffix: "em" });
@@ -1985,7 +2024,35 @@ export function createWorkshopView(leaf, options) {
       state.coverPalette = String(this._bookCoverPalette?.value || "warm");
       state.coverImage = String(this._bookCoverImage || "");
       state.subtitle = String(this._bookSubtitle?.value || "");
+      state.translationMode = String(this._bookTranslateMode?.value || "none");
+      state.translationClassical = Boolean(this._bookTranslateClassical?.checked);
+      state.translationScript = String(this._bookScriptTarget?.value || "t");
       return state;
+    }
+
+    bookTranslationState() {
+      return {
+        mode: String(this._bookTranslateMode?.value || "none"),
+        classical: Boolean(this._bookTranslateClassical?.checked),
+        script: String(this._bookScriptTarget?.value || "t"),
+      };
+    }
+
+    syncBookTranslationMode() {
+      const mode = String(this._bookTranslateMode?.value || "none");
+      const disabled = mode === "none";
+      const script = mode === "script";
+      if (this._bookTranslateClassical) this._bookTranslateClassical.disabled = disabled || script;
+      if (this._bookScriptRow) this._bookScriptRow.hidden = !script;
+      if (this._bookTranslateHint) {
+        this._bookTranslateHint.setText(mode === "none"
+          ? "不翻译时保留原始书稿；需要双语文档或简繁转换时再开启。"
+          : script
+            ? "直接转换文字，不生成原文/译文对照；不需要 AI。仅支持中文书稿，代码、表格、图片和公式保留原样。"
+            : mode === "translated"
+              ? "自动识别原文语言：中文→English，English/Deutsch→中文；勾选文言文则生成现代中文。代码、表格、图片和公式保留原样。需要先在「设置 → AI 助读」配置模型。"
+              : "自动识别原文语言：中文→English，English/Deutsch→中文；勾选文言文则生成文白对照。左右对照在窄屏或部分阅读器会自动回退为上下。需要先在「设置 → AI 助读」配置模型。");
+      }
     }
 
     syncBookCoverRow() {
@@ -2022,7 +2089,11 @@ export function createWorkshopView(leaf, options) {
       if (saved.coverPalette) this._bookCoverPalette.value = String(saved.coverPalette);
       if (typeof saved.coverImage === "string") this._bookCoverImage = saved.coverImage;
       if (typeof saved.subtitle === "string") this._bookSubtitle.value = saved.subtitle;
+      if (saved.translationMode) this._bookTranslateMode.value = String(saved.translationMode);
+      if (this._bookTranslateClassical) this._bookTranslateClassical.checked = saved.translationClassical === true;
+      if (saved.translationScript) this._bookScriptTarget.value = String(saved.translationScript);
       this.syncBookCoverRow();
+      this.syncBookTranslationMode();
       void this.renderBookChapters();
     }
 
@@ -2445,7 +2516,14 @@ export function createWorkshopView(leaf, options) {
     }
 
     bookSourceFiles() {
-      return this.libraryFiles(BOOK_EXTENSIONS);
+      // The ebook builder can extract these formats. FB2/MOBI/AZW3/CBZ are
+      // reader formats, not source formats for this wizard.
+      const sourceExtensions = new Set([
+        "txt", "md", "markdown",
+        ...DOCVORTEX_INPUTS,
+        ...IMAGE_INPUTS,
+      ]);
+      return this.libraryFiles([...sourceExtensions]);
     }
 
     toggleBookSourceList() {
@@ -2529,10 +2607,17 @@ export function createWorkshopView(leaf, options) {
         return;
       }
       const state = this.bookStyleState();
+      const translation = this.bookTranslationState();
+      const scriptMode = translation.mode === "script";
+      const translationConfig = translation.mode === "none" || scriptMode ? null : this.aiReadyConfig();
+      if (translation.mode !== "none" && !scriptMode && !translationConfig) {
+        new Notice("翻译需要先配置 AI：设置 → AI 助读");
+        return;
+      }
       void bridge.start({
         kind: "book-build",
-        title: "生成电子书",
-        detail: rel,
+        title: translation.mode === "none" ? "生成电子书" : scriptMode ? "生成简繁转换电子书" : translation.mode === "translated" ? "生成译文电子书" : "生成双语电子书",
+        detail: `${rel}${translation.mode === "none" ? "" : scriptMode ? " · 简繁转换" : translation.mode === "translated" ? " · 仅译文" : ` · ${translation.mode === "side" ? "左右" : "上下"}对照`}`,
         payload: {
           settings: this.formulaSettings(),
           source: rel,
@@ -2542,6 +2627,7 @@ export function createWorkshopView(leaf, options) {
             indent: state.indent,
             spacing: state.spacing,
             headingAlign: state.headingAlign,
+            translationLayout: translation.mode === "side" ? "side" : "stacked",
           },
           cover: {
             mode: state.coverMode,
@@ -2552,6 +2638,15 @@ export function createWorkshopView(leaf, options) {
           chapters: (this._bookChapters || []).length
             ? (this._bookChapters || []).map((chapter) => ({ title: chapter.title, text: chapter.text }))
             : undefined,
+          translation: translation.mode === "none" ? null : {
+            mode: translation.mode,
+            // The source language is detected from the extracted text; only
+            // 文言文/白话 is a manual choice. Script conversion needs no AI.
+            classical: translation.classical,
+            script: translation.script,
+            config: translationConfig,
+            bookTitle: state.title,
+          },
           // 书里那几页印刷目录(与电子书导航重复):默认去掉,面板里可关。
           dropPrintedToc: this._bookDropToc ? Boolean(this._bookDropToc.checked) : true,
           // 忽略缓存重新提取(上游更新过提取行为时用)。

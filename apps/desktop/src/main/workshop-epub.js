@@ -12,6 +12,10 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 
 import { buildEpub, BOOK_STYLE_DEFAULTS, collectBookImages } from "./epub-build.js";
+import { createBookTranslator } from "./book-translate.js";
+import { convertChineseScript, scriptTargetLabel } from "./book-script.js";
+import { appendTranslationSuffix, directionForSource, scriptOutputSuffix, splitTranslationBlocks, translationLanguagePair, translationOutputSuffix } from "../shared/book-translation.js";
+import { detectSourceLanguage } from "../shared/language-detect.js";
 import { collectMathFromMarkdown, countRawFormulas, markdownToHtml, stripBom, textToChapters, textToHtml } from "./text-book.js";
 import { decodeText } from "../shared/text-encoding.js";
 import { extractMarkdown, extractionKind, splitMarkdownChapters } from "./extract-doc.js";
@@ -38,6 +42,57 @@ export function normalizeMathMap(map) {
     if (key && !normalized.has(key)) normalized.set(key, mathml);
   }
   return normalized;
+}
+
+function attr(value) {
+  return String(value == null ? "" : value).replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[char]));
+}
+
+// Renders one translated chapter as alternating source/translation blocks.
+// Non-translatable blocks (headings, code, images, tables, formulas) stay in
+// the source exactly once, so the generated EPUB cannot lose them.
+export function bilingualChapterHtml(chapter = {}, translated = {}, {
+  mode = "stacked",
+  sourceLang = "zh",
+  targetLang = "en",
+  renderMath = null,
+} = {}) {
+  const blocks = Array.isArray(translated.blocks) ? translated.blocks : [];
+  const sourceHtml = (block) => (block.markdown
+    ? markdownToHtml(block.source, { renderMath })
+    : textToHtml(block.source));
+  const translationHtml = (block) => (block.markdown
+    ? markdownToHtml(block.translation, { renderMath })
+    : textToHtml(block.translation));
+  if (mode === "translated") {
+    const onlyTranslation = blocks.map((block) => {
+      if (block.translatable && block.translation) return translationHtml(block);
+      // Code, tables and figures cannot be translated safely. Keep those
+      // source blocks instead of silently deleting them from the translated
+      // edition.
+      return sourceHtml(block);
+    }).join("\n");
+    return {
+      title: String(chapter.title || ""),
+      text: String(chapter.text || ""),
+      html: onlyTranslation,
+    };
+  }
+  const translatedTitle = translated.translatedTitle
+    ? `<p class="qbr-title-translation" lang="${attr(targetLang)}" xml:lang="${attr(targetLang)}">${textToHtml(translated.translatedTitle)}</p>`
+    : "";
+  const html = blocks.map((block) => {
+    const original = sourceHtml(block);
+    if (!block.translatable || !block.translation) return original;
+    return `<div class="qbr-pair"><div class="qbr-source" lang="${attr(sourceLang)}" xml:lang="${attr(sourceLang)}">${original}</div><div class="qbr-translation" lang="${attr(targetLang)}" xml:lang="${attr(targetLang)}">${translationHtml(block)}</div></div>`;
+  }).join("\n");
+  return {
+    title: String(chapter.title || ""),
+    text: String(chapter.text || ""),
+    html: `${translatedTitle}${translatedTitle ? "\n" : ""}${html}`,
+  };
 }
 
 // 章节的「正文量」:去掉页锚点注释、图片、Markdown 标记后的字数。
@@ -189,7 +244,8 @@ export async function resolveCover({ payload = {}, title = "", author = "", mark
   return { data: rendered.data, mediaType: rendered.mediaType || "image/jpeg", fileName: "cover.jpg" };
 }
 
-export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", coverRenderer = null, readImage = null, docvortex = null, mathRenderer = createMathRenderer(), textLayer = createTextLayerReader(), outlineReader = null, engine = null, spawnImpl = spawn, log = (...args) => console.log(...args) } = {}) {
+export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", coverRenderer = null, readImage = null, docvortex = null, mathRenderer = createMathRenderer(), textLayer = createTextLayerReader(), outlineReader = null, engine = null, aiRuntime = null, spawnImpl = spawn, log = (...args) => console.log(...args) } = {}) {
+  const translator = aiRuntime ? createBookTranslator({ aiRuntime, log }) : null;
   const absolute = (raw) => {
     const value = String(raw || "");
     return path.isAbsolute(value) ? value : path.join(vaultRoot, value);
@@ -214,10 +270,21 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     const sourceKind = textSourceKind(source);
     const markdown = sourceKind === "markdown";
     const styles = { ...BOOK_STYLE_DEFAULTS, ...(payload?.styles || {}) };
-    const title = String(payload?.title || "").trim() || path.basename(source).replace(/\.[^.]+$/, "");
-    const out = payload?.out
-      ? absolute(payload.out)
-      : absolute(convertPath(payload?.source, "epub", (candidate) => fs.existsSync(absolute(candidate))));
+    const translationMode = String(payload?.translation?.mode || "none");
+    const translationRequested = translationMode === "stacked" || translationMode === "side" || translationMode === "translated";
+    const scriptRequested = translationMode === "script";
+    const sourceBase = path.basename(source).replace(/\.[^.]+$/, "");
+    const customTitle = String(payload?.title || "").trim();
+    // The final language suffix can only be added after the translated source
+    // language has been detected (Chinese/English/German/文白).
+    let title = customTitle || sourceBase;
+    let out = payload?.out ? absolute(payload.out) : "";
+    const outputPath = (suffix, base = sourceBase) => absolute(convertPath(
+      payload?.source,
+      "epub",
+      (candidate) => fs.existsSync(absolute(candidate)),
+      appendTranslationSuffix(base, suffix),
+    ));
 
     report({ label: "读取内容" });
     const isText = Boolean(sourceKind);
@@ -400,11 +467,141 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       log("book build nav from headings", navItems.length, "条", outlineAnchors.length ? `(另用大纲顶层 ${outlineAnchors.length} 条当锚点)` : "");
     }
 
-    const chaptersWithHtml = bookChapters.map((chapter) => ({
-      title: chapter.title,
-      text: chapter.text,
-      html: chapter.markdown ? markdownToHtml(chapter.text, { renderMath }) : textToHtml(chapter.text),
-    }));
+    let translationPair = null;
+    let translatedBook = null;
+    let scriptBook = null;
+    let scriptTarget = "";
+    if (translationRequested) {
+      if (!translator) throw new Error("翻译需要桌面 AI 运行时");
+      const manualDirection = String(payload?.translation?.direction || "").trim();
+      let directionId = manualDirection && manualDirection !== "auto" ? manualDirection : "";
+      const classical = payload?.translation?.classical === true;
+      if (!directionId) {
+        const sample = bookChapters
+          .map((chapter) => `${chapter.title}\n${chapter.text || ""}`)
+          .join("\n")
+          .slice(0, 50_000);
+        const detected = detectSourceLanguage(sample);
+        if (classical && detected.language !== "zh") {
+          throw new Error(`已勾选文言文，但自动识别原文为 ${detected.language || "未知"}；请取消勾选或检查书稿`);
+        }
+        directionId = directionForSource({ language: detected.language, classical });
+        if (!directionId) {
+          throw new Error(`无法自动识别可翻译的原文语言（识别为 ${detected.language || "未知"}）；目前支持中文、英文、德文`);
+        }
+        log("book translate source detected", detected.language, detected.confidence);
+      } else if (classical && directionId !== "wenyan-zh") {
+        throw new Error("勾选了文言文，但翻译方向不是文白对照");
+      }
+      translationPair = translationLanguagePair(directionId);
+      const nameSuffix = translationOutputSuffix({ mode: translationMode, direction: directionId });
+      title = customTitle || appendTranslationSuffix(sourceBase, nameSuffix);
+      if (!out) out = outputPath(nameSuffix);
+      report({ label: `翻译正文 · ${translationPair.sourceLabel} → ${translationPair.targetLabel}` });
+      translatedBook = await translator.translateBook({
+        chapters: bookChapters,
+        translation: {
+          ...(payload.translation || {}),
+          // Pass the detected/manual direction explicitly; the original
+          // payload may say "auto", which the translator would otherwise
+          // treat as the zh→en default.
+          direction: directionId,
+          bookTitle: customTitle || sourceBase,
+        },
+        workRoot,
+        signal,
+        report,
+      });
+      if (signal.aborted) throw new Error("任务已取消");
+      styles.translationLayout = translationMode === "side" ? "side" : "stacked";
+      if (translationMode === "translated" && navItems) {
+        const titleForChapter = (file) => {
+          const match = /chapter-(\d+)\.xhtml$/i.exec(String(file || ""));
+          if (!match) return "";
+          return translatedBook.chapters[Number(match[1]) - 1]?.translatedTitle || "";
+        };
+        navItems = navItems.map((item) => ({ ...item, title: titleForChapter(item.file) || item.title }));
+      }
+    } else if (scriptRequested) {
+      scriptTarget = payload?.translation?.script === "s" ? "s" : "t";
+      const sample = bookChapters
+        .map((chapter) => `${chapter.title}\n${chapter.text || ""}`)
+        .join("\n")
+        .slice(0, 50_000);
+      const detected = detectSourceLanguage(sample);
+      // Short Chinese titles can fall below the detector's minimum sample
+      // size, so require Han characters as the baseline and only reject a
+      // confidently detected Japanese/Korean source.
+      const hasHan = /\p{Script=Han}/u.test(sample);
+      if (!hasHan || detected.language === "ja" || detected.language === "ko") {
+        throw new Error(`简繁转换只支持中文书稿，当前识别为 ${detected.language || "未知"}`);
+      }
+      const nameSuffix = scriptOutputSuffix(scriptTarget);
+      const titleBase = convertChineseScript(customTitle || sourceBase, scriptTarget);
+      title = customTitle ? titleBase : appendTranslationSuffix(titleBase, nameSuffix);
+      if (!out) out = outputPath(nameSuffix, convertChineseScript(sourceBase, scriptTarget));
+      scriptBook = bookChapters.map((chapter, index) => ({
+        title: convertChineseScript(chapter.title, scriptTarget),
+        blocks: splitTranslationBlocks(chapter.text, {
+          markdown: chapter.markdown,
+          chapterIndex: index,
+        }).map((block) => {
+          // Deterministic conversion can rewrite Markdown table cells too;
+          // the table syntax itself is untouched.
+          const convertible = block.translatable || /^\s*\|/.test(block.source);
+          return {
+            ...block,
+            translatable: convertible,
+            translation: convertible ? convertChineseScript(block.source, scriptTarget) : "",
+          };
+        }),
+      }));
+      if (navItems) {
+        navItems = navItems.map((item) => {
+          const match = /chapter-(\d+)\.xhtml$/i.exec(String(item.file || ""));
+          const index = match ? Number(match[1]) - 1 : -1;
+          return { ...item, title: scriptBook[index]?.title || item.title };
+        });
+      }
+      report({ label: `简繁转换 · ${scriptTargetLabel(scriptTarget)}` });
+    } else if (!out) {
+      out = outputPath("");
+    }
+    const chaptersWithHtml = translatedBook
+      ? translatedBook.chapters.map((translated, index) => {
+        const sourceChapter = bookChapters[index];
+        const output = bilingualChapterHtml(sourceChapter, translated, {
+          mode: translationMode,
+          sourceLang: translationPair.source,
+          targetLang: translationPair.target,
+          renderMath,
+        });
+        return {
+          ...output,
+          // A translation-only edition uses the translated chapter title for
+          // both the visible heading and the navigation. Bilingual editions
+          // keep the source title so the two texts stay recognizable.
+          title: translationMode === "translated"
+            ? (translated.translatedTitle || sourceChapter.title)
+            : sourceChapter.title,
+        };
+      })
+      : scriptBook
+        ? scriptBook.map((converted, index) => {
+          const sourceChapter = bookChapters[index];
+          const output = bilingualChapterHtml(sourceChapter, converted, {
+            mode: "translated",
+            sourceLang: "zh",
+            targetLang: scriptTarget === "s" ? "zh-Hans" : "zh-Hant",
+            renderMath,
+          });
+          return { ...output, title: converted.title || sourceChapter.title };
+        })
+        : bookChapters.map((chapter) => ({
+          title: chapter.title,
+          text: chapter.text,
+          html: chapter.markdown ? markdownToHtml(chapter.text, { renderMath }) : textToHtml(chapter.text),
+        }));
     const { chapters, images } = collectBookImages(chaptersWithHtml, { baseDir, log });
     if (signal.aborted) throw new Error("任务已取消");
     // 自报「有没有公式漏渲染」:成书后还剩多少原始 LaTeX,不用等用户翻书才发现。
@@ -417,10 +614,21 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     if (signal.aborted) throw new Error("任务已取消");
 
     report({ label: "准备封面" });
+    const author = String(payload?.author || "").trim();
+    const outputAuthor = scriptBook ? convertChineseScript(author, scriptTarget) : author;
+    const coverPayload = scriptBook
+      ? {
+        ...payload,
+        cover: {
+          ...(payload?.cover || {}),
+          subtitle: convertChineseScript(payload?.cover?.subtitle || "", scriptTarget),
+        },
+      }
+      : payload;
     const cover = await resolveCover({
-      payload,
+      payload: coverPayload,
       title,
-      author: String(payload?.author || "").trim(),
+      author: outputAuthor,
       markdownText: text || rawChapters.map((chapter) => chapter.text).join("\n"),
       sourceDir: baseDir,
       cacheDir: path.join(cacheRoot, "library"),
@@ -431,11 +639,21 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     if (signal.aborted) throw new Error("任务已取消");
 
     report({ label: "生成 EPUB" });
+    const translatedDetail = translatedBook
+      ? ` · ${translationMode === "translated" ? "译文" : "双语"} ${translatedBook.stats.translatedBlocks} 段 · ${translationPair.sourceLabel} → ${translationPair.targetLabel}${translatedBook.stats.cachedChunks ? ` · 缓存 ${translatedBook.stats.cachedChunks} 块` : ""}`
+      : "";
+    const scriptDetail = scriptBook
+      ? ` · 简繁 ${scriptTargetLabel(scriptTarget)} ${scriptBook.reduce((sum, chapter) => sum + chapter.blocks.filter((block) => block.translatable).length, 0)} 段`
+      : "";
     const result = await buildEpub({
       book: {
         title,
-        author: String(payload?.author || "").trim(),
-        language: String(payload?.language || "zh"),
+        author: outputAuthor,
+        language: scriptBook
+          ? (scriptTarget === "s" ? "zh-Hans" : "zh-Hant")
+          : translationPair
+            ? (translationMode === "translated" ? translationPair.target : translationPair.source)
+            : String(payload?.language || "zh"),
         identifier: String(payload?.identifier || `urn:qbr:${Date.now().toString(36)}`),
         modified: new Date().toISOString().replace(/\.\d+Z$/, "Z"),
       },
@@ -446,13 +664,15 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       cover,
       // 印刷目录匹配出来的导航(为空时 buildEpub 按章节标题生成,与旧行为一致)。
       nav: navItems,
-      colophon: String(payload?.colophon || "由 UV Reader 书坊生成"),
+      colophon: scriptBook
+        ? convertChineseScript(String(payload?.colophon || "由 UV Reader 书坊生成"), scriptTarget)
+        : String(payload?.colophon || "由 UV Reader 书坊生成"),
     }, out);
     if (signal.aborted) throw new Error("任务已取消");
     const formulaCount = mathMap ? [...mathMap.values()].filter(Boolean).length : 0;
     return {
       output: out,
-      detail: `EPUB · ${result.chapters} 章 · ${Math.round(result.bytes / 1024)} KB${fonts.length ? ` · ${fonts.length} 款字体` : ""}${images.length ? ` · ${images.length} 图` : ""}${formulaCount ? ` · ${formulaCount} 公式` : ""}${tocStrip.dropped ? ` · 去印刷目录 ${tocStrip.dropped} 章` : ""}${navItems ? ` · 目录${navSource === "outline" ? "来自 PDF 大纲" : navSource === "upstream" ? "来自上游" : navSource === "printed" ? "来自印刷目录" : "来自正文标题"} ${navItems.length} 条${navDropped ? `(丢弃 ${navDropped})` : ""}` : ""}${normalized.dropped ? ` · 去重复页眉 ${normalized.dropped} 章` : ""}${unrendered ? ` · 未渲染 ${unrendered}` : ""}`,
+      detail: `EPUB · ${result.chapters} 章 · ${Math.round(result.bytes / 1024)} KB${fonts.length ? ` · ${fonts.length} 款字体` : ""}${images.length ? ` · ${images.length} 图` : ""}${formulaCount ? ` · ${formulaCount} 公式` : ""}${translatedDetail}${scriptDetail}${tocStrip.dropped ? ` · 去印刷目录 ${tocStrip.dropped} 章` : ""}${navItems ? ` · 目录${navSource === "outline" ? "来自 PDF 大纲" : navSource === "upstream" ? "来自上游" : navSource === "printed" ? "来自印刷目录" : "来自正文标题"} ${navItems.length} 条${navDropped ? `(丢弃 ${navDropped})` : ""}` : ""}${normalized.dropped ? ` · 去重复页眉 ${normalized.dropped} 章` : ""}${unrendered ? ` · 未渲染 ${unrendered}` : ""}`,
     };
   });
 }

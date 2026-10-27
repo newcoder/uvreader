@@ -32,6 +32,14 @@ test("renderBookCss emits a single-column reflow stylesheet", () => {
   assert.ok(!/@font-face/.test(renderBookCss({})), "字体不再嵌入:样式里没有 @font-face");
 });
 
+test("side-by-side translation CSS is opt-in and keeps a stacked fallback", () => {
+  const css = renderBookCss({ translationLayout: "side" });
+  assert.match(css, /\.qbr-book-side \.qbr-pair/);
+  assert.match(css, /grid-template-columns/);
+  assert.match(css, /@media \(max-width: 740px\)/);
+  assert.equal(normalizeBookStyles({ translationLayout: "nope" }).translationLayout, "stacked");
+});
+
 test("buildNcx numbers the reading order", () => {
   const ncx = buildNcx([{ title: "一", file: "chapter-001.xhtml" }, { title: "二", file: "chapter-002.xhtml" }], { title: "书", identifier: "urn:x" });
   assert.match(ncx, /navPoint id="navPoint-1" playOrder="1"[\s\S]*<text>一<\/text>/);
@@ -95,6 +103,19 @@ test("buildEpub ignores font payloads (fonts are no longer embedded)", async () 
   assert.equal(Object.keys(zip.files).filter((name) => name.startsWith("OEBPS/fonts/")).length, 0);
 });
 
+test("buildEpub applies the side-by-side body class only when requested", async () => {
+  const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "qbr-epub-side-")), "side.epub");
+  await buildEpub({
+    book: { title: "双语", language: "zh" },
+    styles: { translationLayout: "side" },
+    chapters: [chapter("第一章", '<div class="qbr-pair"><div class="qbr-source"><p>原文</p></div><div class="qbr-translation"><p>Translation</p></div></div>')],
+  }, out);
+  const zip = await JSZip.loadAsync(fs.readFileSync(out));
+  const xhtml = await zip.file("OEBPS/chapter-001.xhtml").async("string");
+  assert.match(xhtml, /<body class="qbr-book-side">/);
+  assert.match(xhtml, /class="qbr-pair"/);
+});
+
 test("buildEpub refuses empty chapters", async () => {
   await assert.rejects(buildEpub({ book: { title: "空" }, chapters: [] }, ""), /没有章节可写/);
 });
@@ -114,6 +135,7 @@ test("the chapter title is written into the body, not just the nav", async () =>
   assert.match(nav, /集合论的一种公理化 ①/);
   const second = await zip.file("OEBPS/chapter-002.xhtml").async("string");
   assert.match(second, /<h1 class="chapter-title">第 2 章<\/h1>/, "没有标题的章节用「第 N 章」占位(与导航一致)");
+  assert.equal((first.match(/qbr-book-side/g) || []).length, 0, "stacked books keep the default body");
 });
 
 test("buildNav nests levels the way readers parse them (li > ol)", () => {

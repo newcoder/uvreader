@@ -15,6 +15,7 @@ export const BOOK_STYLE_DEFAULTS = Object.freeze({
   headingFont: "",
   latinFont: "",
   codeFont: "'JetBrains Mono', 'SFMono-Regular', Consolas, monospace",
+  translationLayout: "stacked",
 });
 
 // 模板封面配色(与内文主题分开)。
@@ -33,6 +34,7 @@ export function normalizeBookStyles(styles = {}) {  const merged = { ...BOOK_STY
   merged.spacing = Math.min(2, Math.max(0, Number(merged.spacing) || 0));
   merged.align = merged.align === "left" ? "left" : "justify";
   merged.headingAlign = merged.headingAlign === "center" ? "center" : "left";
+  merged.translationLayout = merged.translationLayout === "side" ? "side" : "stacked";
   return merged;
 }
 
@@ -71,5 +73,25 @@ hr { border: 0; border-top: 1px solid rgba(128,128,128,.4); margin: 1.6em 0; }
 a { color: inherit; text-decoration: underline; }
 table { border-collapse: collapse; margin: 1em 0; font-size: .95em; }
 th, td { border: 1px solid rgba(128,128,128,.35); padding: .3em .6em; }
+/* Bilingual books: source and translation stay in separate blocks so every
+   reader can render them. Side-by-side is progressive enhancement (grid);
+   unsupported/narrow readers automatically keep the stacked layout. */
+.qbr-title-translation { margin: .25em 0 .9em; opacity: .82; font-size: .92em; }
+.qbr-pair { margin: 1.05em 0; }
+.qbr-pair .qbr-source, .qbr-pair .qbr-translation { min-width: 0; }
+.qbr-pair .qbr-translation { border-left: 2px solid currentColor; padding-left: .9em; opacity: .86; }
+.qbr-pair .qbr-source > :first-child, .qbr-pair .qbr-translation > :first-child { margin-top: 0; }
+.qbr-pair .qbr-source > :last-child, .qbr-pair .qbr-translation > :last-child { margin-bottom: 0; }
+.qbr-book-side .qbr-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1.3em;
+  align-items: start;
+}
+.qbr-book-side .qbr-pair .qbr-translation { border-left: 1px solid rgba(128,128,128,.45); }
+@media (max-width: 740px) {
+  .qbr-book-side .qbr-pair { display: block; }
+  .qbr-book-side .qbr-pair .qbr-translation { margin-top: .75em; border-left: 0; padding-left: 0; }
+}
 `;
 }

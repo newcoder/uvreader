@@ -1,7 +1,7 @@
 {
   "name": "qiaomu-reader-desktop",
   "private": true,
-  "version": "0.7.58",
+  "version": "0.7.59",
   "description": "Standalone Electron shell for UV Reader (纽扣).",
   "author": "newcoder",
   "main": "dist/main.cjs",
@@ -28,6 +28,6 @@
   "dependencies": {
     "@earendil-works/pi-ai": "0.85.1",
     "marked": "^18.0.13",
-    "nodemailer": "^10.1.0"
+    "opencc-js": "^1.4.2"
   }
 }

@@ -63,6 +63,157 @@ test("the book-build runner turns a txt into a readable EPUB", async () => {
   assert.match(task.detail, /EPUB · 2 章/);
 });
 
+test("the book-build runner creates stacked and side-by-side bilingual chapters", async () => {
+  const vault = tempDir("qbr-epub-bilingual-");
+  const source = path.join(vault, "bilingual.txt");
+  fs.writeFileSync(source, "unused", "utf8");
+  const aiRequests = [];
+  const aiRuntime = {
+    stream: async (request) => {
+      aiRequests.push(request);
+      return {
+        ok: true,
+        answer: JSON.stringify({ translations: [
+          { id: "c0-title", text: "第一章" },
+          { id: "c0-b1", text: "你好。" },
+          { id: "c0-b2", text: "世界。" },
+        ] }),
+      };
+    },
+  };
+  const { queue } = makeQueue(tempDir("qbr-epub-bilingual-cache-"), null, { aiRuntime });
+  const base = {
+    source,
+    settings: {},
+    chapters: [{ title: "Chapter One", text: "Hello.\n\nWorld." }],
+    translation: {
+      direction: "en-zh",
+      mode: "stacked",
+      config: { id: "test", base: "http://local", model: "test", key: "" },
+    },
+  };
+  const first = await waitForTask(queue, queue.start({ kind: "book-build", title: "生成双语电子书", payload: base }));
+  assert.equal(first.status, "done", first.error);
+  assert.match(first.output.replace(/\\/g, "/"), /bilingual（中英对照）\.epub$/);
+  const firstZip = await JSZip.loadAsync(fs.readFileSync(first.output));
+  const firstChapter = await firstZip.file("OEBPS/chapter-001.xhtml").async("string");
+  assert.match(firstChapter, /class="qbr-pair"/);
+  assert.match(firstChapter, /Hello\./);
+  assert.match(firstChapter, /你好。/);
+  assert.match(firstChapter, /lang="en"/);
+  assert.match(firstChapter, /lang="zh-Hans"/);
+  assert.match(first.detail, /双语 3 段/);
+  assert.match(firstChapter, /class="qbr-title-translation"/);
+
+  const second = await waitForTask(queue, queue.start({
+    kind: "book-build",
+    title: "生成双语电子书",
+    payload: { ...base, translation: { ...base.translation, mode: "side" } },
+  }));
+  assert.equal(second.status, "done", second.error);
+  const secondZip = await JSZip.loadAsync(fs.readFileSync(second.output));
+  const secondChapter = await secondZip.file("OEBPS/chapter-001.xhtml").async("string");
+  assert.match(secondChapter, /<body class="qbr-book-side">/);
+
+  const third = await waitForTask(queue, queue.start({
+    kind: "book-build",
+    title: "生成译文电子书",
+    payload: { ...base, translation: { ...base.translation, mode: "translated" } },
+  }));
+  assert.equal(third.status, "done", third.error);
+  assert.match(third.output.replace(/\\/g, "/"), /bilingual（中文）\.epub$/);
+  const thirdZip = await JSZip.loadAsync(fs.readFileSync(third.output));
+  const thirdChapter = await thirdZip.file("OEBPS/chapter-001.xhtml").async("string");
+  const thirdOpf = await thirdZip.file("OEBPS/content.opf").async("string");
+  assert.match(thirdChapter, /<h1 class="chapter-title">第一章<\/h1>/);
+  assert.ok(!thirdChapter.includes('class="qbr-pair"'), "translation-only output has no source/translation pairs");
+  assert.ok(!thirdChapter.includes("Hello."), "translation-only output omits the source body");
+  assert.match(thirdChapter, /你好。/);
+  assert.match(thirdOpf, /<dc:title>bilingual（中文）<\/dc:title>/);
+  assert.match(third.detail, /译文 3 段/);
+
+  const automatic = await waitForTask(queue, queue.start({
+    kind: "book-build",
+    title: "自动识别语言",
+    payload: { ...base, translation: { ...base.translation, direction: "auto", mode: "stacked" } },
+  }));
+  assert.equal(automatic.status, "done", automatic.error);
+  assert.match(automatic.detail, /English → 简体中文/);
+  assert.match(automatic.output.replace(/\\/g, "/"), /bilingual（中英对照）.*\.epub$/);
+  assert.match(JSON.stringify(aiRequests.at(-1).messages), /目标语言：简体中文/);
+
+  const chinese = await waitForTask(queue, queue.start({
+    kind: "book-build",
+    title: "自动识别中文",
+    payload: {
+      ...base,
+      chapters: [{ title: "第一章", text: "今天天气很好。\n\n我们去看书。" }],
+      translation: { ...base.translation, direction: "auto", mode: "stacked", classical: false },
+    },
+  }));
+  assert.equal(chinese.status, "done", chinese.error);
+  assert.match(chinese.detail, /中文 → English/);
+  assert.match(chinese.output.replace(/\\/g, "/"), /bilingual（中英对照）.*\.epub$/);
+  assert.match(JSON.stringify(aiRequests.at(-1).messages), /目标语言：English/);
+
+  const classical = await waitForTask(queue, queue.start({
+    kind: "book-build",
+    title: "自动识别文言文",
+    payload: {
+      ...base,
+      chapters: [{ title: "学而", text: "学而时习之，不亦说乎？" }],
+      translation: { ...base.translation, direction: "auto", mode: "stacked", classical: true },
+    },
+  }));
+  assert.equal(classical.status, "done", classical.error);
+  assert.match(classical.detail, /文言文 → 现代中文/);
+  assert.match(classical.output.replace(/\\/g, "/"), /bilingual（文白对照）.*\.epub$/);
+  assert.match(JSON.stringify(aiRequests.at(-1).messages), /目标语言：现代中文/);
+});
+
+test("the book-build runner converts Chinese script without AI or bilingual pairs", async () => {
+  const vault = tempDir("qbr-epub-script-");
+  const source = path.join(vault, "script.md");
+  fs.writeFileSync(source, "unused", "utf8");
+  const { queue } = makeQueue(tempDir("qbr-epub-script-cache-"), null);
+  const task = await waitForTask(queue, queue.start({
+    kind: "book-build",
+    title: "生成简繁转换电子书",
+    payload: {
+      source,
+      settings: {},
+      author: "鲁迅",
+      chapters: [{
+        title: "汉学",
+        text: [
+          "汉语 简体字 国家 学习 发展",
+          "",
+          "> 古语云：学而时习之。",
+          "",
+          "| 简体 | 繁体 |",
+          "| --- | --- |",
+          "| 国家 | 发展 |",
+        ].join("\n"),
+      }],
+      translation: { mode: "script", script: "t" },
+    },
+  }));
+  assert.equal(task.status, "done", task.error);
+  assert.match(task.detail, /简繁 繁體/);
+  assert.match(task.output.replace(/\\/g, "/"), /script（繁體）\.epub$/);
+  const zip = await JSZip.loadAsync(fs.readFileSync(task.output));
+  const chapter = await zip.file("OEBPS/chapter-001.xhtml").async("string");
+  const opf = await zip.file("OEBPS/content.opf").async("string");
+  assert.match(chapter, /<h1 class="chapter-title">漢學<\/h1>/);
+  assert.match(chapter, /漢語 簡體字 國家 學習 發展/);
+  assert.match(chapter, /古語云：學而時習之。/);
+  assert.match(chapter, /<table>[\s\S]*國家[\s\S]*發展[\s\S]*<\/table>/);
+  assert.ok(!chapter.includes('class="qbr-pair"'), "script conversion is not a bilingual layout");
+  assert.match(opf, /<dc:language>zh-Hant<\/dc:language>/);
+  assert.match(opf, /<dc:creator>魯迅<\/dc:creator>/);
+  assert.match(opf, /<dc:title>script（繁體）<\/dc:title>/);
+});
+
 test("the book-build runner honours chapters edited in the panel", async () => {
   const vault = tempDir("qbr-epub-vault3-");
   const source = path.join(vault, "原稿.txt");

@@ -10,6 +10,7 @@ Bundled dependencies retain their own licenses; esbuild preserves their legal co
 - [PDF.js](https://github.com/mozilla/pdf.js) — Apache-2.0, Mozilla Foundation.
 - [JSZip](https://github.com/Stuk/jszip) — MIT or GPLv3, Stuart Knightley and contributors.
 - [localForage](https://github.com/localForage/localForage) — Apache-2.0, Mozilla.
+- [OpenCC-js](https://github.com/nk2028/opencc-js) — MIT, the nk2028 Project; conversion dictionaries from OpenCC (Apache-2.0).
 
 Bundled font provenance and license are in `fonts/README.md` and `fonts/OFL.txt`.
 Starter books retain their Project Gutenberg notices; see `assets/starter-books/README.md`.

@@ -16,14 +16,14 @@ export function uvtextPath(sourcePath) {
 
 // 文档互转产物:目标扩展名(报告.docx → 报告.md)。扩展名变了就不加后缀,
 // 直接换扩展名;扩展名不变(如 PDF→PDF)时用序号区分,避免覆盖源文件。
-export function convertPath(sourcePath, ext, exists = () => false) {
+export function convertPath(sourcePath, ext, exists = () => false, baseName = "") {
   const targetExt = String(ext || "out").replace(/^\./, "") || "out";
   const normalized = String(sourcePath || "").replace(/\\/g, "/");
   const slash = normalized.lastIndexOf("/");
   const dir = slash >= 0 ? normalized.slice(0, slash) : "";
   const name = normalized.slice(slash + 1) || "book";
   const dot = name.lastIndexOf(".");
-  const base = dot > 0 ? name.slice(0, dot) : name;
+  const base = String(baseName || "").trim() || (dot > 0 ? name.slice(0, dot) : name);
   const join = (candidate) => (dir ? `${dir}/${candidate}` : candidate);
   let candidate = join(`${base}.${targetExt}`);
   let index = 1;

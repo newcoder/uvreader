@@ -113,7 +113,7 @@ const readCoverImage = async (filePath) => {
   if (image.isEmpty()) return null;
   return { data: image.toJPEG(90), mediaType: "image/jpeg", fileName: "cover.jpg" };
 };
-registerEpubRunners(workshop, { vaultRoot, cacheRoot: bookCacheRoot, coverRenderer, readImage: readCoverImage, docvortex, outlineReader: createPdfOutlineReader({ engine: engineClient }), textLayer: createTextLayerReader({ engine: engineClient }), engine: engineClient });
+registerEpubRunners(workshop, { vaultRoot, cacheRoot: bookCacheRoot, coverRenderer, readImage: readCoverImage, docvortex, outlineReader: createPdfOutlineReader({ engine: engineClient }), textLayer: createTextLayerReader({ engine: engineClient }), engine: engineClient, aiRuntime });
 // 内容提取(PDF/Office/OFD/图片 → md/html/json):pdf_tool + DocVortex。
 registerExtractRunners(workshop, { docvortex, vaultRoot, cacheRoot: bookCacheRoot, pdfText: createPdfTextReader({ engine: engineClient }), textLayer: createTextLayerReader({ engine: engineClient }), engine: engineClient });
 // 题库(W1 新):提取(引擎优先)→ 规则解析 → `<源名>_questions.json`(uvreader.question-bank/v1)

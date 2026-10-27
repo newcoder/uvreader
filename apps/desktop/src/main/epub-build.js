@@ -52,7 +52,8 @@ function escapeXml(value) {
     .replace(/"/g, "&quot;");
 }
 
-function xhtmlDocument({ title, body, lang = "zh", stylesheet = "styles.css" }) {
+function xhtmlDocument({ title, body, lang = "zh", stylesheet = "styles.css", bodyClass = "" }) {
+  const bodyAttrs = bodyClass ? ` class="${escapeXml(bodyClass)}"` : "";
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="${escapeXml(lang)}" xml:lang="${escapeXml(lang)}">
@@ -61,7 +62,7 @@ function xhtmlDocument({ title, body, lang = "zh", stylesheet = "styles.css" }) 
 <title>${escapeXml(title)}</title>
 <link rel="stylesheet" type="text/css" href="${stylesheet}"/>
 </head>
-<body>
+<body${bodyAttrs}>
 ${body}
 </body>
 </html>
@@ -202,6 +203,7 @@ export async function buildEpub({ book = {}, styles = {}, chapters = [], cover =
   }));
 
   const css = renderBookCss(styles);
+  const bodyClass = normalizeBookStyles(styles).translationLayout === "side" ? "qbr-book-side" : "";
 
   const zip = new JSZip();
   zip.file("mimetype", "application/epub+zip", { compression: "STORE" });
@@ -211,7 +213,7 @@ export async function buildEpub({ book = {}, styles = {}, chapters = [], cover =
     // 章节标题在分章时从正文里「吃掉」了:成书要把它当标题排版写回正文,
     // 否则标题只出现在导航里、翻到正文反而看不到(用户实测反馈)。
     const heading = String(chapter.title || "").trim() ? `<h1 class="chapter-title">${escapeXml(chapter.title)}</h1>\n` : "";
-    zip.file(`OEBPS/${chapter.file}`, xhtmlDocument({ title: chapter.title, body: `${heading}${chapter.html}`, lang: book.language }));
+    zip.file(`OEBPS/${chapter.file}`, xhtmlDocument({ title: chapter.title, body: `${heading}${chapter.html}`, lang: book.language, bodyClass }));
   });
   const navItems = Array.isArray(nav) && nav.length ? nav : files;
   zip.file("OEBPS/nav.xhtml", buildNav(navItems));
