@@ -16,6 +16,9 @@ import { decodeText } from "../shared/text-encoding.js";
 import { applyChapterRule, describeChapterRule } from "../shared/chapter-rules.js";
 import { describeIssues, scanChapterIssues, splitCleanupBlocks } from "../shared/text-issues.js";
 import { BOOK_BUILDER_SOURCE_EXTENSIONS, filterLibraryFiles } from "../shared/library-files.js";
+import { shouldAdoptBookBuildOutput } from "../shared/workshop-outputs.js";
+
+const WORKSHOP_SESSION_STARTED_AT = Date.now();
 
 // 书坊的 AI 辅助复用伴读的配置读取(供应商 / 模型 / 密钥都从同一份设置与密钥库来,
 // 不新增设置项);这里只用 aiConfig,翻译与高亮定位给最小实现。
@@ -2998,7 +3001,7 @@ export function createWorkshopView(leaf, options) {
       const root = String(window.qbrDesktop?.paths?.vaultRoot || "").replace(/\\/g, "/").replace(/\/+$/, "");
       this._bookLibraryOutputs ||= new Map();
       for (const task of tasks) {
-        if (task.kind !== "book-build" || task.status !== "done" || !task.output) continue;
+        if (!shouldAdoptBookBuildOutput(task, { sessionStartedAt: WORKSHOP_SESSION_STARTED_AT, vaultRoot: root })) continue;
         if (this._bookLibraryOutputs.has(task.id)) continue;
         const raw = String(task.output).replace(/\\/g, "/");
         const absolute = /^[a-zA-Z]:\//.test(raw) || raw.startsWith("//");
@@ -3007,7 +3010,8 @@ export function createWorkshopView(leaf, options) {
           this._bookLibraryOutputs.set(task.id, absolute && root ? raw.slice(root.length + 1) : raw);
           continue;
         }
-        // Output landed outside the library: import it once, then open the copy.
+        // Output landed outside the library during this session: import it
+        // once, then open the copy. Historical tasks must not be re-imported.
         this._bookLibraryOutputs.set(task.id, null);
         void Promise.resolve(plugin.importBookToLibrary(task.output))
           .then((path) => {
