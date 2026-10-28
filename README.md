@@ -6,7 +6,7 @@
 
 UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支持 EPUB、PDF、FB2/FBZ、MOBI/AZW/AZW3、CBZ 和单张图片（PNG/JPG/WebP/GIF/BMP），内置高亮、批注、阅读笔记和可选的 AI 助读。书籍、进度和笔记默认都在本机；日常阅读不需要账号，也不需要联网。
 
-> **当前版本**：`0.7.63`。Windows / macOS 安装包见 [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.63)。
+> **当前版本**：`0.7.64`。Windows / macOS 安装包见 [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.64)。
 >
 > **来源**：fork 自 Obsidian 插件 [qiaomu-reader](https://github.com/joeseesun/qiaomu-reader)，现在作为独立桌面应用维护；Obsidian 插件形态不再作为主线。
 >
@@ -120,6 +120,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 - **AI 助读**：选中文本解释、总结、追问、翻译，读取书籍上下文；可以自定义提示词和回复语言。
 - **AI 伴读**：AI 对话会记录提问时所在的书籍位置，点击位置标签即可回到书内；支持整页截图或框选截图提问，并结合当前书籍上下文继续追问。
 - **AI 书坊**：推断元数据、生成封面文案、建议分章规则、按块做最小文本清理、在成书时生成中英 / 英中双语对照。
+- **文档工具**：伴读侧栏的「文档工具」现在会列出制作电子书、翻译、双语 / 左右对照、文白对照和简繁转换等成书能力；选择后先确认参数，不会自动开始。
 - **AI 答题页**：生成答案、解析和整页交互 HTML（实验功能）。
 - 不配置 AI 时，阅读、标注、笔记、转换、成书全部照常工作；AI 请求只在用户主动操作时发生。
 
@@ -131,7 +132,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 
 ## 下载与安装
 
-- 安装包：[GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.63)。
+- 安装包：[GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.64)。
 - Windows：`UV-Reader-<版本>-setup.exe` 安装版，或 `UV-Reader-<版本>-portable.exe` 免安装版。
 - macOS：按 Releases 页面提供的 `UV-Reader-<版本>-<架构>.dmg` 安装。
 - 首次启动不需要账号；AI、OCR 和文档转换组件都是可选的，不配置也能正常阅读和做笔记。
@@ -248,7 +249,7 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 
 [Features](#features) · [Download](#download) · [FAQ](#faq) · [Build](#build)
 
-**Status:** `0.7.63`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.63). Read the [Disclaimer](DISCLAIMER.md) before use.
+**Status:** `0.7.64`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.64). Read the [Disclaimer](DISCLAIMER.md) before use.
 
 ## Recent updates (Oct 2026)
 
@@ -267,12 +268,12 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 - **Library:** local import, covers and metadata editing, tags, recent books, progress, search and file associations; generated ebooks are added automatically, and returning to the library refreshes the list. Configurable online book search can query sources such as Project Gutenberg and Standard Ebooks, preview available versions and download them into the library; verify the source's rights before using downloaded content (see the [Disclaimer](DISCLAIMER.md)).
 - **Answer pages:** a Reading Space list of standalone interactive HTML papers with question count, source, answered state, scores and drafts; open directly, filter by answered state, and continue with the AI study companion after submission.
 - **Workshop:** OCR/text layers for scanned PDFs; DocVortex format conversion (Office/ODF/PDF/EPUB/HTML/OFD/Markdown/text → Markdown/HTML/LaTeX/DOCX/PDF, EPUB → Markdown, images → PDF); content extraction to Markdown/HTML/JSON/assets (extracted HTML renders LaTeX as offline MathML); question-bank extraction; EPUB creation from PDF/Office/text/Markdown/images with chapters, metadata, covers and TOC (the source picker lists only library EPUB/PDF/image books; other formats use the local-file picker); translation-only, Chinese↔English, German→Chinese, or classical-Chinese→modern-Chinese editions with paragraph-level stacked or side-by-side source/translation blocks (AI model required), plus direct Simplified↔Traditional Chinese conversion without pairs or AI; EPUB sources keep their original layout and TOC for both translation and conversion; AZW3/MOBI via Calibre; image → CBZ/EPUB; AI answer-page generation with direct in-app answering.
-- **AI (optional):** OpenAI-compatible cloud providers or local endpoints (Ollama, llama.cpp, LM Studio); AI companion conversations remember the book location with a clickable chip back to the passage and support full-page or region screenshots; explanations, summaries, translation, custom prompts; AI metadata/cover copy/chapter suggestions/cleanup; bilingual ebook translation; AI answer-page generation. All local reading, annotation and conversion features work without AI.
+- **AI (optional):** OpenAI-compatible cloud providers or local endpoints (Ollama, llama.cpp, LM Studio); AI companion conversations remember the book location with a clickable chip back to the passage and support full-page or region screenshots; explanations, summaries, translation, custom prompts; AI metadata/cover copy/chapter suggestions/cleanup; bilingual ebook translation; document tools for ebook creation, translation, bilingual/side-by-side, literary-to-modern Chinese, and script conversion; AI answer-page generation. All local reading, annotation and conversion features work without AI.
 - **Local-first:** no account, no mandatory cloud library; keys use OS credential storage; network is used only for explicitly enabled AI, translation, or cloud OCR.
 
 ## Download
 
-Installers are available on [GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.63). Windows builds include `UV-Reader-<version>-setup.exe` and `UV-Reader-<version>-portable.exe`; macOS builds provide `UV-Reader-<version>-<arch>.dmg`. No account is required on first launch, and AI, OCR and document-conversion components are optional.
+Installers are available on [GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.64). Windows builds include `UV-Reader-<version>-setup.exe` and `UV-Reader-<version>-portable.exe`; macOS builds provide `UV-Reader-<version>-<arch>.dmg`. No account is required on first launch, and AI, OCR and document-conversion components are optional.
 
 ## FAQ
 

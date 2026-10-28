@@ -1096,6 +1096,13 @@ export function createWorkshopView(leaf, options) {
           }
         }
       }
+      if (tool === "book" && capability.bookMode) {
+        if (this._bookTranslateMode) this._bookTranslateMode.value = String(capability.bookMode);
+        if (this._bookTranslateClassical) this._bookTranslateClassical.checked = capability.bookClassical === true;
+        if (this._bookScriptTarget) this._bookScriptTarget.value = String(capability.bookScript || "t");
+        this.syncBookTranslationMode();
+        this.onBookStyleChange();
+      }
     }
 
     focusTask(id) {

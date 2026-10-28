@@ -26,7 +26,7 @@ test("the catalogue recommends PDF and EPUB outcomes for the current book", () =
   assert.equal(pdf[0].recommended, true);
   assert.deepEqual(
     pdf.filter((capability) => capability.recommended && capability.primary).map((capability) => capability.id),
-    ["make-searchable", "exam-answer-page", "extract-text", "make-ebook", "convert-word", "convert-markdown", "navigation-toc"],
+    ["make-searchable", "exam-answer-page", "extract-text", "make-ebook", "convert-word", "convert-markdown", "navigation-toc", "translate-ebook", "bilingual-ebook", "classical-modern"],
   );
   const epub = workshopCapabilitiesFor({ extension: ".EPUB" });
   assert.equal(epub[0].id, "extract-text");
@@ -56,6 +56,29 @@ test("the catalogue recommends PDF and EPUB outcomes for the current book", () =
   });
   assert.equal(azw3WithToc.find((capability) => capability.id === "export-navigation-epub").hidden, false);
   assert.equal(azw3WithToc.find((capability) => capability.id === "export-navigation-epub").recommended, true);
+});
+
+test("ebook translation and script conversion are exposed as document actions", () => {
+  const epub = workshopCapabilitiesFor({ extension: "epub" });
+  const byId = (id) => epub.find((capability) => capability.id === id);
+  for (const id of ["translate-ebook", "bilingual-ebook", "bilingual-ebook-side", "classical-modern", "script-simplified", "script-traditional"]) {
+    const capability = byId(id);
+    assert.ok(capability, id);
+    assert.equal(capability.hidden, false, id);
+    assert.equal(capability.recommended, true, id);
+    assert.equal(capability.tool, "book", id);
+  }
+  assert.equal(byId("translate-ebook").bookMode, "translated");
+  assert.equal(byId("bilingual-ebook").bookMode, "stacked");
+  assert.equal(byId("bilingual-ebook-side").bookMode, "side");
+  assert.equal(byId("classical-modern").bookClassical, true);
+  assert.equal(byId("script-simplified").bookScript, "s");
+  assert.equal(byId("script-traditional").bookScript, "t");
+  assert.ok(!byId("script-simplified").primary);
+  assert.equal(byId("classical-modern").primary, true);
+  assert.equal(byId("make-ebook").hidden, false);
+  const image = workshopCapabilitiesFor({ extension: "png" });
+  assert.equal(image.find((capability) => capability.id === "bilingual-ebook").hidden, true);
 });
 
 test("standalone exam images expose extraction, conversion and answer-page outcomes", () => {

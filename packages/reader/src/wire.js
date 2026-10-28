@@ -1615,6 +1615,12 @@ function aiToolState(view, plugin, options = {}) {
     "convert-pdf",
     "convert-kindle",
     "make-ebook",
+    "translate-ebook",
+    "bilingual-ebook",
+    "bilingual-ebook-side",
+    "classical-modern",
+    "script-simplified",
+    "script-traditional",
   ]);
   const docvortexSettings = () => docvortexTaskSettings(plugin?.settings || {});
   const formulaSettings = () => formulaTaskSettings(plugin?.settings || {});
@@ -1740,6 +1746,57 @@ function aiToolState(view, plugin, options = {}) {
           cover: { mode: "none" },
           dropPrintedToc: true,
           refresh: false,
+        },
+      };
+    }
+    const bookVariant = {
+      "translate-ebook": { mode: "translated" },
+      "bilingual-ebook": { mode: "stacked" },
+      "bilingual-ebook-side": { mode: "side" },
+      "classical-modern": { mode: "stacked", classical: true },
+      "script-simplified": { mode: "script", script: "s" },
+      "script-traditional": { mode: "script", script: "t" },
+    }[capability.id];
+    if (bookVariant) {
+      const needsAi = bookVariant.mode !== "script";
+      const config = needsAi ? taskAiConfig(aiConfig(plugin)) : null;
+      if (needsAi && (!config?.id || !config.base || !config.model || (config.needsKey && !config.key))) {
+        return { ok: false, error: "翻译、双语对照和文白对照需要先在「设置 → AI 助读」配置模型。" };
+      }
+      const label = bookVariant.mode === "script"
+        ? (bookVariant.script === "s" ? "原文件旁的简体 EPUB" : "原文件旁的繁体 EPUB")
+        : bookVariant.mode === "side"
+          ? "原文件旁的左右对照 EPUB"
+          : bookVariant.classical
+            ? "原文件旁的文白对照 EPUB"
+            : bookVariant.mode === "translated"
+              ? "原文件旁的译文 EPUB"
+              : "原文件旁的双语 EPUB";
+      return {
+        ok: true,
+        id: capability.id,
+        title: capability.title,
+        summary: capability.summary,
+        sourceLabel: view.file.basename,
+        outputLabel: label,
+        kind: "book-build",
+        detail: view.file.basename,
+        payload: {
+          settings: formulaSettings(),
+          source: view.file.path,
+          title: "",
+          author: "",
+          styles: {},
+          cover: { mode: "none" },
+          dropPrintedToc: true,
+          refresh: false,
+          translation: {
+            mode: bookVariant.mode,
+            direction: "auto",
+            classical: bookVariant.classical === true,
+            script: bookVariant.script || "t",
+            config,
+          },
         },
       };
     }
