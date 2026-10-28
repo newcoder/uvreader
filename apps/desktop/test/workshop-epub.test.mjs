@@ -68,7 +68,7 @@ async function writePoemEpub(file) {
 </ol></nav></body></html>`);
   zip.file("OEBPS/style.css", "p { line-height: 2; }");
   zip.file("OEBPS/ch1.xhtml", `<?xml version="1.0" encoding="UTF-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><body><p>漢詩<br/>國家</p></body></html>`);
+<html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><title>第五章</title></head><body><p>第五章</p><p>漢詩<br/>國家</p></body></html>`);
   zip.file("OEBPS/ch2.xhtml", `<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><body><p>學習<br/>發展</p><ul><li>閱讀<br/>寫作</li></ul><table><tr><td>國家</td></tr></table></body></html>`);
   const data = await zip.generateAsync({ type: "nodebuffer" });
@@ -84,7 +84,8 @@ test("direct EPUB bilingual translation keeps the original chapter files and lin
     stream: async () => ({
       ok: true,
       answer: JSON.stringify({ translations: [
-        { id: "c0-b1", text: "Chinese poem\ncountry" },
+        { id: "c0-b1", text: "第五章" },
+        { id: "c0-b2", text: "Chinese poem\ncountry" },
         { id: "c1-b1", text: "study\ndevelopment" },
         { id: "c1-b2", text: "reading\nwriting" },
         { id: "c1-b3", text: "country" },
@@ -105,7 +106,7 @@ test("direct EPUB bilingual translation keeps the original chapter files and lin
   assert.equal(task.status, "done", task.error);
   assert.match(task.detail, /原格式/);
   assert.match(task.detail, /2 节/);
-  assert.match(task.detail, /双语 4 段/);
+  assert.match(task.detail, /双语 5 段/);
   assert.match(task.output.replace(/\\/g, "/"), /poems（中英对照）\.epub$/);
   assert.deepEqual(fs.readFileSync(source), sourceBytes, "the source EPUB is left untouched");
 
@@ -114,6 +115,8 @@ test("direct EPUB bilingual translation keeps the original chapter files and lin
   assert.ok(!zip.file("OEBPS/chapter-001.xhtml"));
   const ch1 = await zip.file("OEBPS/ch1.xhtml").async("string");
   assert.match(ch1, /<p[^>]*>漢詩<br\/>國家<\/p>/);
+  assert.match(ch1, /<p>第五章<\/p>/);
+  assert.ok(!ch1.includes('class="qbr-epub-title-translation"'), "an unchanged chapter title is shown once");
   assert.match(ch1, /class="qbr-epub-translation"[^>]*>Chinese poem<br\/>country</);
   assert.match(ch1, /qbr-epub-translation/);
   const ch2 = await zip.file("OEBPS/ch2.xhtml").async("string");

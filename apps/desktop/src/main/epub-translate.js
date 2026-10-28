@@ -23,6 +23,7 @@ import {
   sourceTitle,
   textContent,
 } from "./epub-script.js";
+import { isChapterHeading } from "./text-book.js";
 
 const BLOCK_RE = /<(p|h[1-6]|blockquote|li|td|th|figcaption)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
 const BLOCK_CHILD_RE = /<(?:p|h[1-6]|ul|ol|li|table|pre|code|img|svg|math|figure|figcaption)\b/i;
@@ -39,6 +40,22 @@ function blockText(inner) {
     .filter(Boolean)
     .join("\n")
     .trim();
+}
+
+function documentTitle(html) {
+  const match = /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(String(html || ""));
+  return textContent(match?.[1] || "").replace(/\s+/g, " ").trim();
+}
+
+function normalizedText(value) {
+  return String(value || "").replace(/\s+/g, "").trim();
+}
+
+function isTitleBlock(block, title) {
+  if (!block || !block.text) return false;
+  const text = block.text.replace(/\s+/g, " ").trim();
+  if (title && text === title) return true;
+  return block.tag === "p" ? isChapterHeading(text) : /^h[1-6]$/.test(block.tag);
 }
 
 function extractBlocks(html, name) {
@@ -116,8 +133,13 @@ function translationHtml(text, lang) {
   return `<div class="qbr-epub-translation" lang="${escapeXml(lang)}" xml:lang="${escapeXml(lang)}">${translationBody(text)}</div>`;
 }
 
+function titleTranslationHtml(text, lang) {
+  return `<div class="qbr-epub-title-translation" lang="${escapeXml(lang)}" xml:lang="${escapeXml(lang)}">${translationBody(text)}</div>`;
+}
+
 const BILINGUAL_CSS = `
 .qbr-epub-translation { margin: .45em 0 .9em; padding-left: .9em; border-left: 2px solid rgba(128,128,128,.35); opacity: .86; }
+.qbr-epub-title-translation { margin: .2em 0 .85em; font-size: .92em; opacity: .78; }
 .qbr-epub-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.3em; align-items: start; margin: .8em 0; }
 .qbr-epub-pair > .qbr-epub-translation { margin: 0; padding-left: .9em; }
 @media (max-width: 740px) {
@@ -127,7 +149,7 @@ const BILINGUAL_CSS = `
 `;
 
 function addStyle(html) {
-  if (!html.includes("qbr-epub-translation")) return html;
+  if (!html.includes("qbr-epub-translation") && !html.includes("qbr-epub-title-translation")) return html;
   if (/<\/head>/i.test(html)) return html.replace(/<\/head>/i, `<style>${BILINGUAL_CSS}</style></head>`);
   return `<style>${BILINGUAL_CSS}</style>${html}`;
 }
@@ -136,6 +158,15 @@ function injectTranslations(html, blocks, mode, targetLang) {
   let output = String(html);
   for (const block of [...blocks].sort((left, right) => right.start - left.start)) {
     if (!block.translation) continue;
+    if (block.titleLike && mode !== "translated") {
+      // A title paragraph must not become a second body paragraph with a
+      // translation border. If the title is identical in the target script
+      // (common for 文白), leave it once; otherwise add a subtitle line.
+      if (normalizedText(block.translation) === normalizedText(block.text)) continue;
+      const titleTranslation = titleTranslationHtml(block.translation, targetLang);
+      output = output.slice(0, block.start) + `${block.original}\n${titleTranslation}` + output.slice(block.end);
+      continue;
+    }
     const translated = translationHtml(block.translation, targetLang);
     let replacement;
     if (mode === "translated") {
@@ -194,7 +225,11 @@ export async function translateEpub({
     const html = await zip.file(name).async("string");
     files.push({ name, html, blocks: [] });
   }
-  for (const file of files) file.blocks = extractBlocks(file.html, file.name);
+  for (const file of files) {
+    const title = documentTitle(file.html);
+    file.blocks = extractBlocks(file.html, file.name);
+    if (file.blocks[0]) file.blocks[0].titleLike = isTitleBlock(file.blocks[0], title);
+  }
   if (!files.some((file) => file.blocks.length)) {
     throw new Error("EPUB 中没有可翻译的正文");
   }
