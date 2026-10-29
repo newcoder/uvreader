@@ -11,6 +11,7 @@ import { detectBookLanguage } from "../shared/language-detect.js";
 import {
   appendTranslationSuffix,
   directionForSource,
+  normalizeTranslationTarget,
   translationLanguagePair,
   translationOutputSuffix,
 } from "../shared/book-translation.js";
@@ -120,8 +121,8 @@ function spineFiles(zip, opfName, opf) {
 }
 
 function shouldTranslate(text, pair) {
-  if (pair.id === "zh-en" || pair.id === "wenyan-zh") return /\p{Script=Han}/u.test(text);
-  if (pair.id === "en-zh" || pair.id === "de-zh") return /\p{Script=Latin}/u.test(text);
+  if (pair.source === "zh" || pair.source === "lzh") return /\p{Script=Han}/u.test(text);
+  if (pair.source === "en" || pair.source === "de") return /\p{Script=Latin}/u.test(text);
   return true;
 }
 
@@ -199,6 +200,7 @@ export async function translateEpub({
   translator = null,
   mode = "stacked",
   direction = "",
+  target = "",
   classical = false,
   customTitle = "",
   config = null,
@@ -244,13 +246,20 @@ export async function translateEpub({
   let directionId = String(direction || "").trim();
   if (directionId === "auto") directionId = "";
   if (!directionId) {
+    const requestedTarget = normalizeTranslationTarget(target);
     if (classical) {
       if (detected.language === "ja" || detected.language === "ko") {
         throw new Error("已勾选文言文，但识别到的不是中文书稿；请检查书稿或取消勾选");
       }
+      if (requestedTarget && requestedTarget !== "zh") {
+        throw new Error("文白对照的目标固定为现代中文，不能选择其它目标语言");
+      }
       directionId = "wenyan-zh";
     } else {
-      directionId = directionForSource({ language: detected.language, classical: false });
+      if (requestedTarget && detected.language === requestedTarget) {
+        throw new Error(`原文已经是 ${requestedTarget === "zh" ? "中文" : requestedTarget === "en" ? "English" : "Deutsch"}，请选择其它目标语言`);
+      }
+      directionId = directionForSource({ language: detected.language, classical: false, target: requestedTarget });
       if (!directionId) {
         throw new Error(`无法自动识别可翻译的原文语言（识别为 ${detected.language || "未知"}）；目前支持中文、英文、德文`);
       }

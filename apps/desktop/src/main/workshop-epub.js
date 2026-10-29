@@ -16,7 +16,7 @@ import { createBookTranslator } from "./book-translate.js";
 import { convertChineseScript, scriptTargetLabel } from "./book-script.js";
 import { convertEpubScript } from "./epub-script.js";
 import { translateEpub } from "./epub-translate.js";
-import { appendTranslationSuffix, directionForSource, scriptOutputSuffix, splitTranslationBlocks, translationLanguagePair, translationOutputSuffix } from "../shared/book-translation.js";
+import { appendTranslationSuffix, directionForSource, normalizeTranslationTarget, scriptOutputSuffix, splitTranslationBlocks, translationLanguagePair, translationOutputSuffix } from "../shared/book-translation.js";
 import { detectBookLanguage, detectSourceLanguage } from "../shared/language-detect.js";
 import { collectMathFromMarkdown, countRawFormulas, markdownToHtml, stripBom, textToChapters, textToHtml } from "./text-book.js";
 import { decodeText } from "../shared/text-encoding.js";
@@ -334,6 +334,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
         translator,
         mode: translationMode,
         direction: payload?.translation?.direction || "",
+        target: payload?.translation?.target || "",
         classical: payload?.translation?.classical === true,
         customTitle,
         config: payload?.translation?.config || null,
@@ -528,6 +529,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       const manualDirection = String(payload?.translation?.direction || "").trim();
       let directionId = manualDirection && manualDirection !== "auto" ? manualDirection : "";
       const classical = payload?.translation?.classical === true;
+      const requestedTarget = normalizeTranslationTarget(payload?.translation?.target);
       if (!directionId) {
         const sample = bookChapters
           .map((chapter) => `${chapter.title}\n${chapter.text || ""}`)
@@ -543,9 +545,15 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
           if (!/\p{Script=Han}/u.test(sample) || detected.language === "ja" || detected.language === "ko") {
             throw new Error("已勾选文言文，但没有识别到中文正文；请检查书稿或取消勾选");
           }
+          if (requestedTarget && requestedTarget !== "zh") {
+            throw new Error("文白对照的目标固定为现代中文，不能选择其它目标语言");
+          }
           directionId = "wenyan-zh";
         } else {
-          directionId = directionForSource({ language: detected.language, classical: false });
+          if (requestedTarget && detected.language === requestedTarget) {
+            throw new Error(`原文已经是 ${requestedTarget === "zh" ? "中文" : requestedTarget === "en" ? "English" : "Deutsch"}，请选择其它目标语言`);
+          }
+          directionId = directionForSource({ language: detected.language, classical: false, target: requestedTarget });
           if (!directionId) {
             throw new Error(`无法自动识别可翻译的原文语言（识别为 ${detected.language || "未知"}）；目前支持中文、英文、德文`);
           }
@@ -760,6 +768,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       translator,
       mode,
       direction: translation.direction || "auto",
+      target: translation.target || "",
       classical: translation.classical === true,
       customTitle: String(payload?.title || "").trim(),
       config: translation.config || null,

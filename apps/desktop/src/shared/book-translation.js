@@ -7,7 +7,9 @@ export const BOOK_TRANSLATION_MAX_CHARS = 1_200_000;
 
 export const BOOK_TRANSLATION_DIRECTIONS = Object.freeze([
   { id: "zh-en", source: "zh", target: "en", sourceLabel: "中文", targetLabel: "English" },
+  { id: "zh-de", source: "zh", target: "de", sourceLabel: "中文", targetLabel: "Deutsch" },
   { id: "en-zh", source: "en", target: "zh-Hans", sourceLabel: "English", targetLabel: "简体中文" },
+  { id: "en-de", source: "en", target: "de", sourceLabel: "English", targetLabel: "Deutsch" },
   {
     id: "de-zh",
     source: "de",
@@ -15,6 +17,7 @@ export const BOOK_TRANSLATION_DIRECTIONS = Object.freeze([
     sourceLabel: "Deutsch",
     targetLabel: "简体中文",
   },
+  { id: "de-en", source: "de", target: "en", sourceLabel: "Deutsch", targetLabel: "English" },
   {
     id: "wenyan-zh",
     source: "lzh",
@@ -46,34 +49,46 @@ export function translationLanguagePair(value) {
 // Default file/display suffix for generated books. A translated-only edition
 // is named after the target language; bilingual editions use one shared
 // label. A no-op translation keeps the original name.
+export function normalizeTranslationTarget(value) {
+  const target = String(value || "").trim().toLowerCase();
+  if (target === "zh-hans" || target === "zh-hant" || target === "zh-cn") return "zh";
+  return ["en", "zh", "de"].includes(target) ? target : "";
+}
+
 export function translationOutputSuffix({ mode = "none", direction = "zh-en" } = {}) {
   const pair = translationLanguagePair(direction);
+  const source = pair.source === "lzh" ? "zh" : pair.source;
+  const target = String(pair.target || "").toLowerCase().startsWith("zh") ? "zh" : pair.target;
   if (mode === "stacked" || mode === "side") {
     if (pair.id === "wenyan-zh") return "（文白对照）";
-    if (pair.id === "de-zh") return "（中德对照）";
-    return "（中英对照）";
+    const pairName = [source, target].sort().join("-");
+    if (pairName === "en-zh") return "（中英对照）";
+    if (pairName === "de-zh") return "（中德对照）";
+    if (pairName === "de-en") return "（英德对照）";
+    return `（${pair.sourceLabel}${pair.targetLabel}对照）`;
   }
   if (mode !== "translated") return "";
   if (pair.target === pair.source) return "";
   if (pair.id === "wenyan-zh") return "（白话）";
-  if (pair.target === "en") return "（English）";
-  if (String(pair.target).toLowerCase().startsWith("zh")) return "（中文）";
+  if (target === "en") return "（English）";
+  if (target === "zh") return "（中文）";
   return `（${pair.targetLabel}）`;
 }
 
 // The source language is detected automatically; whether a Chinese source is
-// literary Chinese remains a manual choice. This keeps a detected Chinese
-// novel from being forced into the 文白 pipeline by a character heuristic.
-export function directionForSource({ language = "", classical = false } = {}) {
+// literary Chinese remains a manual choice. `target` empty means the original
+// automatic mapping (Chinese→English, English/German→Chinese).
+export function directionForSource({ language = "", classical = false, target = "" } = {}) {
   const value = String(language || "").toLowerCase();
+  const wanted = normalizeTranslationTarget(target);
   if (classical) {
-    if (value !== "zh") return "";
+    if (value !== "zh" || (wanted && wanted !== "zh")) return "";
     return "wenyan-zh";
   }
-  if (value === "zh") return "zh-en";
-  if (value === "en") return "en-zh";
-  if (value === "de") return "de-zh";
-  return "";
+  const defaultTarget = { zh: "en", en: "zh", de: "zh" }[value] || "";
+  const effectiveTarget = wanted || defaultTarget;
+  if (!effectiveTarget || effectiveTarget === value) return "";
+  return `${value}-${effectiveTarget}`;
 }
 
 export function scriptOutputSuffix(script = "t") {

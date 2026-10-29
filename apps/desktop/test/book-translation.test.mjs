@@ -7,7 +7,9 @@ import test from "node:test";
 import {
   appendTranslationSuffix,
   buildBookTranslationMessages,
+  directionForSource,
   normalizeBookTranslationDirection,
+  normalizeTranslationTarget,
   parseBookTranslationAnswer,
   scriptOutputSuffix,
   splitTranslationBlocks,
@@ -84,6 +86,16 @@ test("default translated book names follow the source and target languages", () 
   assert.equal(appendTranslationSuffix("Book（中文）", "（中文）"), "Book（中文）");
   assert.equal(scriptOutputSuffix("t"), "（繁體）");
   assert.equal(scriptOutputSuffix("s"), "（简体）");
+  assert.equal(normalizeTranslationTarget("zh-Hans"), "zh");
+  assert.equal(normalizeTranslationTarget("auto"), "");
+  assert.equal(directionForSource({ language: "zh", target: "de" }), "zh-de");
+  assert.equal(directionForSource({ language: "en", target: "de" }), "en-de");
+  assert.equal(directionForSource({ language: "de", target: "en" }), "de-en");
+  assert.equal(directionForSource({ language: "zh", target: "zh" }), "");
+  assert.equal(translationOutputSuffix({ mode: "stacked", direction: "zh-de" }), "（中德对照）");
+  assert.equal(translationOutputSuffix({ mode: "stacked", direction: "en-de" }), "（英德对照）");
+  assert.equal(translationOutputSuffix({ mode: "translated", direction: "zh-de" }), "（Deutsch）");
+  assert.equal(translationOutputSuffix({ mode: "translated", direction: "de-en" }), "（English）");
 });
 
 test("source language detection distinguishes modern Chinese, English, German and classical Chinese", () => {

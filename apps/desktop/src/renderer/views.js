@@ -1703,6 +1703,18 @@ export function createWorkshopView(leaf, options) {
       ]) {
         this._bookTranslateMode.createEl("option", { attr: { value }, text: label });
       }
+      const translateTargetRow = translationStep.createDiv("qbr-workshop-row");
+      translateTargetRow.createSpan({ cls: "qbr-workshop-hint", text: "目标语言" });
+      this._bookTranslateTarget = translateTargetRow.createEl("select", { cls: "qbr-workshop-select" });
+      for (const [value, label] of [
+        ["auto", "自动（按原文）"],
+        ["en", "English"],
+        ["zh", "简体中文"],
+        ["de", "Deutsch"],
+      ]) {
+        this._bookTranslateTarget.createEl("option", { attr: { value }, text: label });
+      }
+      this._bookTranslateTargetRow = translateTargetRow;
       const scriptRow = translationStep.createDiv("qbr-workshop-row");
       scriptRow.createSpan({ cls: "qbr-workshop-hint", text: "转换为" });
       this._bookScriptTarget = scriptRow.createEl("select", { cls: "qbr-workshop-select" });
@@ -1732,6 +1744,10 @@ export function createWorkshopView(leaf, options) {
         this.onBookStyleChange();
       });
       this._bookScriptTarget.addEventListener("change", () => this.onBookStyleChange());
+      this._bookTranslateTarget.addEventListener("change", () => {
+        this.syncBookTranslationMode();
+        this.onBookStyleChange();
+      });
       this.syncBookTranslationMode();
 
       // ④ 书名与封面
@@ -2041,15 +2057,18 @@ export function createWorkshopView(leaf, options) {
       state.coverImage = String(this._bookCoverImage || "");
       state.subtitle = String(this._bookSubtitle?.value || "");
       state.translationMode = String(this._bookTranslateMode?.value || "none");
+      state.translationTarget = String(this._bookTranslateTarget?.value || "auto");
       state.translationClassical = Boolean(this._bookTranslateClassical?.checked);
       state.translationScript = String(this._bookScriptTarget?.value || "t");
       return state;
     }
 
     bookTranslationState() {
+      const classical = Boolean(this._bookTranslateClassical?.checked);
       return {
         mode: String(this._bookTranslateMode?.value || "none"),
-        classical: Boolean(this._bookTranslateClassical?.checked),
+        target: classical ? "zh" : String(this._bookTranslateTarget?.value || "auto"),
+        classical,
         script: String(this._bookScriptTarget?.value || "t"),
       };
     }
@@ -2099,6 +2118,7 @@ export function createWorkshopView(leaf, options) {
           title: state.title,
           translation: {
             mode: translation.mode,
+            target: translation.target,
             classical: translation.classical,
             config,
           },
@@ -2112,6 +2132,9 @@ export function createWorkshopView(leaf, options) {
       const modal = new (class extends Modal {
         onOpen() {
           this.titleEl?.setText("试译预览");
+          this.modalEl.style.width = "min(1200px, 94vw)";
+          this.modalEl.style.maxWidth = "94vw";
+          this.modalEl.style.height = "88vh";
           this.contentEl.addClass("qbr-book-preview-modal");
           const caption = [result.title, result.pair?.sourceLabel && result.pair?.targetLabel
             ? `${result.pair.sourceLabel} → ${result.pair.targetLabel}`
@@ -2120,7 +2143,7 @@ export function createWorkshopView(leaf, options) {
           const frame = this.contentEl.createEl("iframe", { attr: { title: "试译预览", sandbox: "" } });
           frame.srcdoc = html;
           frame.style.width = "100%";
-          frame.style.height = "70vh";
+          frame.style.height = "calc(88vh - 7em)";
           frame.style.border = "0";
           frame.style.background = "var(--background-primary)";
         }
@@ -2136,8 +2159,10 @@ export function createWorkshopView(leaf, options) {
       const mode = String(this._bookTranslateMode?.value || "none");
       const disabled = mode === "none";
       const script = mode === "script";
+      const classical = Boolean(this._bookTranslateClassical?.checked);
       if (this._bookTranslateClassical) this._bookTranslateClassical.disabled = disabled || script;
       if (this._bookScriptRow) this._bookScriptRow.hidden = !script;
+      if (this._bookTranslateTargetRow) this._bookTranslateTargetRow.hidden = disabled || script || classical;
       this.syncBookPreviewRow();
       if (this._bookTranslateHint) {
         this._bookTranslateHint.setText(mode === "none"
@@ -2145,8 +2170,8 @@ export function createWorkshopView(leaf, options) {
           : script
             ? "EPUB 会保留原排版、目录、图片和换行，只转换文字，不应用本次封面/排版设置；其它格式按文本重建，代码、表格、图片和公式保留原样。不需要 AI，也不生成原文/译文对照，仅支持中文书稿。"
             : mode === "translated"
-              ? "EPUB 会保留原排版、目录和换行，只替换文字，不应用本次封面/排版设置；其它格式按文本重建。自动识别原文语言：中文→English，English/Deutsch→中文；勾选文言文则生成现代中文。需要先在「设置 → AI 助读」配置模型。"
-              : "EPUB 会保留原排版、目录和换行，只插入译文，不应用本次封面/排版设置；其它格式按文本重建。自动识别原文语言：中文→English，English/Deutsch→中文；勾选文言文则生成文白对照。左右对照在窄屏或部分阅读器会自动回退为上下。需要先在「设置 → AI 助读」配置模型。");
+              ? "EPUB 会保留原排版、目录和换行，只替换文字，不应用本次封面/排版设置；其它格式按文本重建。可手动选择目标语言；自动时中文→English，English/Deutsch→中文，勾选文言文则生成现代中文。需要先在「设置 → AI 助读」配置模型。"
+              : "EPUB 会保留原排版、目录和换行，只插入译文，不应用本次封面/排版设置；其它格式按文本重建。可手动选择目标语言；自动时中文→English，English/Deutsch→中文，勾选文言文则生成文白对照。左右对照在窄屏或部分阅读器会自动回退为上下。需要先在「设置 → AI 助读」配置模型。");
       }
     }
 
@@ -2185,6 +2210,7 @@ export function createWorkshopView(leaf, options) {
       if (typeof saved.coverImage === "string") this._bookCoverImage = saved.coverImage;
       if (typeof saved.subtitle === "string") this._bookSubtitle.value = saved.subtitle;
       if (saved.translationMode) this._bookTranslateMode.value = String(saved.translationMode);
+      if (saved.translationTarget) this._bookTranslateTarget.value = String(saved.translationTarget);
       if (this._bookTranslateClassical) this._bookTranslateClassical.checked = saved.translationClassical === true;
       if (saved.translationScript) this._bookScriptTarget.value = String(saved.translationScript);
       this.syncBookCoverRow();
@@ -2735,7 +2761,9 @@ export function createWorkshopView(leaf, options) {
           translation: translation.mode === "none" ? null : {
             mode: translation.mode,
             // The source language is detected from the extracted text; only
-            // 文言文/白话 is a manual choice. Script conversion needs no AI.
+            // the target language and 文言文/白话 are manual choices. Script
+            // conversion needs no AI.
+            target: translation.target,
             classical: translation.classical,
             script: translation.script,
             config: translationConfig,

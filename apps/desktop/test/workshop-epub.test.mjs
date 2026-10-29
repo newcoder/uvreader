@@ -171,6 +171,20 @@ test("direct EPUB bilingual translation keeps the original chapter files and lin
   assert.ok(!preview.result.previewHtml.includes('class="qbr-epub-title-translation"'));
   assert.match(preview.detail, /试译 · 中文 → English/);
   assert.equal(preview.result.previewFiles, 2);
+
+  const previewSide = await waitForTask(queue, queue.start({
+    kind: "book-preview",
+    title: "试译开头",
+    payload: {
+      source,
+      title: "",
+      translation: { ...base.translation, mode: "side", target: "de" },
+    },
+  }));
+  assert.equal(previewSide.status, "done", previewSide.error);
+  assert.match(previewSide.result.previewHtml, /class="qbr-epub-pair"/);
+  assert.equal(previewSide.result.pair.id, "zh-de");
+  assert.match(previewSide.detail, /试译 · 中文 → Deutsch/);
 });
 
 test("the book-build runner turns a txt into a readable EPUB", async () => {
