@@ -60,14 +60,15 @@ export function bilingualChapterHtml(chapter = {}, translated = {}, {
   sourceLang = "zh",
   targetLang = "en",
   renderMath = null,
+  lineAlign = false,
 } = {}) {
   const blocks = Array.isArray(translated.blocks) ? translated.blocks : [];
   const sourceHtml = (block) => (block.markdown
-    ? markdownToHtml(block.source, { renderMath })
-    : textToHtml(block.source));
+    ? markdownToHtml(block.source, { renderMath, preserveLineBreaks: lineAlign })
+    : textToHtml(block.source, { preserveLineBreaks: lineAlign }));
   const translationHtml = (block) => (block.markdown
-    ? markdownToHtml(block.translation, { renderMath })
-    : textToHtml(block.translation));
+    ? markdownToHtml(block.translation, { renderMath, preserveLineBreaks: lineAlign })
+    : textToHtml(block.translation, { preserveLineBreaks: lineAlign }));
   if (mode === "translated") {
     const onlyTranslation = blocks.map((block) => {
       if (block.translatable && block.translation) return translationHtml(block);
@@ -337,6 +338,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
         target: payload?.translation?.target || "",
         classical: payload?.translation?.classical === true,
         glossary: payload?.translation?.glossary || "",
+        lineAlign: payload?.translation?.lineAlign === true,
         customTitle,
         config: payload?.translation?.config || null,
         workRoot,
@@ -648,6 +650,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
           sourceLang: translationPair.source,
           targetLang: translationPair.target,
           renderMath,
+          lineAlign: payload?.translation?.lineAlign === true,
         });
         return {
           ...output,
@@ -775,6 +778,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       target: translation.target || "",
       classical: translation.classical === true,
       glossary: translation.glossary || "",
+      lineAlign: translation.lineAlign === true,
       customTitle: String(payload?.title || "").trim(),
       config: translation.config || null,
       workRoot,

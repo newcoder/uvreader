@@ -76,7 +76,7 @@ function writeCached(file, translations) {
   }
 }
 
-export function translationCacheKey({ blocks = [], direction = "zh-en", model = "", configId = "", base = "", glossary = "" } = {}) {
+export function translationCacheKey({ blocks = [], direction = "zh-en", model = "", configId = "", base = "", glossary = "", lineAlign = false } = {}) {
   const source = blocks.map((block) => ({
     id: String(block.id || ""),
     text: String(block.source || ""),
@@ -90,6 +90,7 @@ export function translationCacheKey({ blocks = [], direction = "zh-en", model = 
       base: String(base || ""),
       source,
       glossary: parseTranslationGlossary(glossary),
+      lineAlign: lineAlign === true,
     }))
     .digest("hex");
 }
@@ -103,6 +104,7 @@ export function createBookTranslator({ aiRuntime = null, log = () => {} } = {}) 
     }
     const direction = translationLanguagePair(translation.direction);
     const glossary = parseTranslationGlossary(translation.glossary);
+    const lineAlign = translation.lineAlign === true;
     const chapterBlocks = (Array.isArray(chapters) ? chapters : []).map((chapter, index) => ({
       index,
       title: String(chapter?.title || ""),
@@ -122,9 +124,30 @@ export function createBookTranslator({ aiRuntime = null, log = () => {} } = {}) 
         kind: "title",
       }
       : null);
+    const lineJobs = (block) => {
+      if (!lineAlign) return null;
+      const lines = String(block.source || "").split("\n");
+      if (lines.length < 2) return null;
+      const jobs = lines.map((line, index) => ({
+        id: `${block.id}-l${index + 1}`,
+        source: line.trim(),
+        markdown: false,
+        translatable: true,
+        kind: "line",
+        blockId: block.id,
+        lineIndex: index,
+      })).filter((job) => job.source);
+      return jobs.length ? jobs : null;
+    };
+    for (const chapter of chapterBlocks) {
+      for (const block of chapter.blocks) {
+        block.lineAligned = Boolean(lineJobs(block));
+      }
+    }
+    const jobsForBlock = (block) => lineJobs(block) || [block];
     const allJobs = chapterBlocks.flatMap((chapter) => [
       ...(titleJob(chapter) ? [titleJob(chapter)] : []),
-      ...chapter.blocks.filter((block) => block.translatable),
+      ...chapter.blocks.filter((block) => block.translatable).flatMap(jobsForBlock),
     ]);
     const chars = allJobs.reduce((sum, block) => sum + String(block.source || "").length, 0);
     if (chars > BOOK_TRANSLATION_MAX_CHARS) {
@@ -156,11 +179,15 @@ export function createBookTranslator({ aiRuntime = null, log = () => {} } = {}) 
       configId: config.id,
       base: config.base,
       glossary,
+      lineAlign,
     }));
     const chunkPlans = [];
     for (const chapter of chapterBlocks) {
       const title = titleJob(chapter);
-      const jobs = [...(title ? [title] : []), ...chapter.blocks.filter((block) => block.translatable)];
+      const jobs = [
+        ...(title ? [title] : []),
+        ...chapter.blocks.filter((block) => block.translatable).flatMap(jobsForBlock),
+      ];
       for (const chunk of packChunks(jobs)) {
         chunkPlans.push({ chapter, chunk, file: cachedFile(chunk) });
       }
@@ -199,6 +226,7 @@ export function createBookTranslator({ aiRuntime = null, log = () => {} } = {}) 
                 bookTitle: translation.bookTitle || "",
                 chapterTitle: plan.chapter.title,
                 glossary,
+                lineAlign,
               }),
               options: { timeoutMs: 180_000, maxTokens: 6000 },
             });
@@ -232,16 +260,31 @@ export function createBookTranslator({ aiRuntime = null, log = () => {} } = {}) 
       index: chapter.index,
       title: chapter.title,
       translatedTitle: translations.get(`c${chapter.index}-title`) || "",
-      blocks: chapter.blocks.map((block) => ({
-        ...block,
-        translation: translations.get(String(block.id)) || "",
-      })),
+      blocks: chapter.blocks.map((block) => {
+        if (!block.lineAligned) {
+          return {
+            ...block,
+            translation: translations.get(String(block.id)) || "",
+          };
+        }
+        const lines = String(block.source || "").split("\n");
+        return {
+          ...block,
+          translation: lines.map((_line, index) => (
+            translations.get(`${block.id}-l${index + 1}`) || ""
+          )).join("\n"),
+        };
+      }),
     }));
+    const translatedBlocks = chapterBlocks.reduce(
+      (sum, chapter) => sum + chapter.blocks.filter((block) => block.translatable).length + (titleJob(chapter) ? 1 : 0),
+      0,
+    );
     const stats = {
       chunks: total,
       cachedChunks,
       calls,
-      translatedBlocks: translations.size,
+      translatedBlocks,
       chars,
       direction: direction.id,
     };

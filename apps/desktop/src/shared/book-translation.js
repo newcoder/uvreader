@@ -215,6 +215,7 @@ export function buildBookTranslationMessages({
   bookTitle = "",
   chapterTitle = "",
   glossary = "",
+  lineAlign = false,
 } = {}) {
   const pair = translationLanguagePair(direction);
   const rows = blocks.map((block) => ({
@@ -225,6 +226,9 @@ export function buildBookTranslationMessages({
   const glossaryText = terms.length
     ? `术语表（原文出现时必须使用对应译名，不得改写）：\n${terms.map((term) => `- ${term.source} → ${term.target}`).join("\n")}`
     : "";
+  const lineText = lineAlign
+    ? "逐行对齐：每个输入项是一行，只翻译该行；不要合并、拆分或省略行，返回的行数与输入相同。"
+    : "";
   return [
     {
       role: "system",
@@ -234,6 +238,7 @@ export function buildBookTranslationMessages({
         "保持段落边界和 Markdown 结构（标题/列表/引用等）；不增删内容，不总结，不解释，不加引号。",
         "专有名词、人名、地名和术语在整本书中保持一致；不确定的专名保留原文并在必要时音译。",
         glossaryText,
+        lineText,
         "只输出 JSON，不要 Markdown 代码围栏。",
       ].filter(Boolean).join("\n"),
     },

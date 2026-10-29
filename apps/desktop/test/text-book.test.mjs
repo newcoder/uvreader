@@ -127,6 +127,11 @@ test("textToHtml turns blank-line separated blocks into paragraphs", () => {
   assert.equal(textToHtml('<script>x</script>'), "<p>&lt;script&gt;x&lt;/script&gt;</p>");
 });
 
+test("line-aligned rendering preserves single line breaks", () => {
+  assert.equal(textToHtml("孤鸿海上来\n池潢不敢顾", { preserveLineBreaks: true }), "<p>孤鸿海上来<br/>池潢不敢顾</p>");
+  assert.equal(markdownToHtml("孤鸿海上来\n池潢不敢顾", { preserveLineBreaks: true }), "<p>孤鸿海上来<br/>池潢不敢顾</p>");
+});
+
 test("markdownToHtml keeps numbered sections in one list, their bodies in the same item", () => {
   // 「1. 标题 + 紧跟正文 + 空行 + 2. 标题」是最常见的中文技术稿写法。两个坑:
   // 续行掉到列表外(正文丢)、每项各起一个列表(Word 里编号 1.1.1.1.1. 从 1 重来)。

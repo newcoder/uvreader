@@ -158,6 +158,46 @@ test("translation prompt asks for stable IDs and target language", () => {
   assert.match(classical[0].content, /现代汉语/);
 });
 
+test("line alignment translates multiline blocks as stable line jobs", async () => {
+  const workRoot = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-translate-lines-"));
+  const calls = [];
+  const aiRuntime = {
+    async stream(request) {
+      calls.push(request);
+      return {
+        ok: true,
+        answer: JSON.stringify({
+          translations: [
+            { id: "c0-b1-l1", text: "Hello" },
+            { id: "c0-b1-l2", text: "World" },
+            { id: "c0-b2", text: "Plain" },
+          ],
+        }),
+      };
+    },
+  };
+  const config = { id: "local", base: "http://127.0.0.1", model: "test", key: "" };
+  const translator = createBookTranslator({ aiRuntime });
+  const result = await translator.translateBook({
+    chapters: [{ title: "", text: "hello\nworld\n\nplain", markdown: true }],
+    translation: { direction: "zh-en", config, lineAlign: true },
+    workRoot,
+  });
+  assert.equal(result.chapters[0].blocks[0].translation, "Hello\nWorld");
+  assert.equal(result.chapters[0].blocks[1].translation, "Plain");
+  assert.match(JSON.stringify(calls[0].messages), /逐行对齐/);
+  assert.match(JSON.stringify(calls[0].messages), /c0-b1-l1/);
+  compareLineAlignCacheKeys();
+});
+
+function compareLineAlignCacheKeys() {
+  const blocks = [{ id: "c0-b1", source: "hello\nworld" }];
+  assert.notEqual(
+    translationCacheKey({ blocks, lineAlign: true }),
+    translationCacheKey({ blocks, lineAlign: false }),
+  );
+}
+
 test("book translator caches chunks and resumes without another model call", async () => {
   const workRoot = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-translate-"));
   const calls = [];

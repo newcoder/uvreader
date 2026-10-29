@@ -216,20 +216,26 @@ export function countRawFormulas(html) {
   return (prose.match(/\$\$|\\tag\{|\\\(|\\\[/g) || []).length;
 }
 
-// 纯文本段落 → HTML(空行分段,单换行并成一行)。
-export function textToHtml(text) {
+// 纯文本段落 → HTML(空行分段;默认把段落内单换行并成一行,诗歌模式保留换行)。
+export function textToHtml(text, { preserveLineBreaks = false } = {}) {
   const blocks = stripBom(text).replace(/\r\n?/g, "\n").split(/\n{2,}/);
   return blocks
-    .map((block) => block.split("\n").map((line) => line.trim()).filter(Boolean).join(""))
+    .map((block) => {
+      const lines = block.split("\n").map((line) => line.trim()).filter(Boolean);
+      return preserveLineBreaks
+        ? lines.length ? `<p>${lines.map(escapeHtml).join("<br/>")}</p>` : ""
+        : lines.length ? `<p>${escapeHtml(lines.join(""))}</p>` : "";
+    })
     .filter(Boolean)
-    .map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`)
     .join("\n");
 }
 
 // 最小 Markdown → HTML:标题/段落/列表/引用/代码块/图片/链接/强调/管道表格。
 // options.renderMath(latex, display) 返回公式 HTML;缺省时公式按原文保留。
+// options.preserveLineBreaks 保留段落内单换行(诗歌逐行对齐)。
 export function markdownToHtml(markdown, options = {}) {
   const renderMath = typeof options.renderMath === "function" ? options.renderMath : null;
+  const preserveLineBreaks = options.preserveLineBreaks === true;
   const lines = stripBom(markdown).replace(/\r\n?/g, "\n").split("\n");
   const out = [];
   let paragraph = [];
@@ -247,7 +253,8 @@ export function markdownToHtml(markdown, options = {}) {
     if (!paragraph.length) return;
     // 段落不属于列表:先把整串列表收掉,否则 `<p>` 会落在 `<ol>`/`<ul>` 里 —— 不是合法 HTML。
     closeList();
-    const joined = paragraph.join(" ");
+    const lines = paragraph.slice();
+    const joined = lines.join(" ");
     paragraph = [];
     // 整段就是一条行间公式时不包 <p>,直接输出块级公式。
     if (renderMath && isMathSegment(joined)) {
@@ -258,7 +265,10 @@ export function markdownToHtml(markdown, options = {}) {
         return;
       }
     }
-    out.push(`<p>${inlineWithMath(joined, renderMath)}</p>`);
+    const content = preserveLineBreaks
+      ? lines.map((line) => inlineWithMath(line, renderMath)).join("<br/>")
+      : inlineWithMath(joined, renderMath);
+    out.push(`<p>${content}</p>`);
   };
   const topList = () => lists[lists.length - 1] || null;
   // 一层的项正文落地:`<li>` 开标签先不闭(后面可能跟嵌套列表)。
