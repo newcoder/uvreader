@@ -202,6 +202,7 @@ export async function translateEpub({
   direction = "",
   target = "",
   classical = false,
+  glossary = "",
   customTitle = "",
   config = null,
   workRoot = "",
@@ -298,6 +299,7 @@ export async function translateEpub({
     translation: {
       direction: directionId,
       classical,
+      glossary,
       config,
       bookTitle: customTitle || sourceTitle(opf, path.basename(source).replace(/\.[^.]+$/, "")),
     },

@@ -11,6 +11,7 @@ import {
   normalizeBookTranslationDirection,
   normalizeTranslationTarget,
   parseBookTranslationAnswer,
+  parseTranslationGlossary,
   scriptOutputSuffix,
   splitTranslationBlocks,
   translationLanguagePair,
@@ -98,6 +99,28 @@ test("default translated book names follow the source and target languages", () 
   assert.equal(translationOutputSuffix({ mode: "translated", direction: "de-en" }), "（English）");
 });
 
+test("glossary terms are normalized, included in the prompt and part of the cache key", () => {
+  const glossary = parseTranslationGlossary("道=Dao\n德：De\n# comment\n道=Way\nbad line");
+  assert.deepEqual(glossary, [{ source: "道", target: "Dao" }, { source: "德", target: "De" }]);
+  const messages = buildBookTranslationMessages({
+    blocks: [{ id: "c0-b1", source: "道" }],
+    direction: "zh-en",
+    glossary,
+  });
+  const prompt = JSON.stringify(messages);
+  assert.match(prompt, /道 → Dao/);
+  assert.match(prompt, /德 → De/);
+  const base = [{ id: "c0-b1", source: "道" }];
+  assert.equal(
+    translationCacheKey({ blocks: base, glossary }),
+    translationCacheKey({ blocks: base, glossary: "道=Dao\n德=De" }),
+  );
+  assert.notEqual(
+    translationCacheKey({ blocks: base, glossary }),
+    translationCacheKey({ blocks: base, glossary: "道=Way\n德=De" }),
+  );
+});
+
 test("source language detection distinguishes modern Chinese, English, German and classical Chinese", () => {
   assert.equal(detectSourceLanguage("今天我们去图书馆看书。这个周末的天气很好，适合出门。").language, "zh");
   assert.equal(detectSourceLanguage("The weather is good today and we will go to the library together.").language, "en");
@@ -154,7 +177,7 @@ test("book translator caches chunks and resumes without another model call", asy
     },
   };
   const config = { id: "local", base: "http://127.0.0.1", model: "test", key: "" };
-  const translation = { direction: "zh-en", config, bookTitle: "T" };
+  const translation = { direction: "zh-en", config, bookTitle: "T", glossary: "你好=Hello" };
   const chapters = [{ title: "Chapter", text: "你好\n\n世界", markdown: false }];
   const translator = createBookTranslator({ aiRuntime });
   const first = await translator.translateBook({ chapters, translation, workRoot });
@@ -162,6 +185,7 @@ test("book translator caches chunks and resumes without another model call", asy
   assert.equal(first.chapters[0].translatedTitle, "Chapter");
   assert.equal(first.chapters[0].blocks[0].translation, "Hello");
   assert.equal(first.chapters[0].blocks[1].translation, "World");
+  assert.match(JSON.stringify(calls[0].messages), /你好 → Hello/);
   assert.match(translationCacheKey({ blocks: [{ id: "c0-b1", source: "你好" }], direction: "zh-en", model: "test", configId: "local", base: "http://local" }), /^[a-f0-9]{40}$/);
   const second = await translator.translateBook({ chapters, translation, workRoot });
   assert.equal(second.stats.calls, 0);

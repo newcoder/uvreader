@@ -91,6 +91,34 @@ export function directionForSource({ language = "", classical = false, target = 
   return `${value}-${effectiveTarget}`;
 }
 
+export function parseTranslationGlossary(value) {
+  const lines = Array.isArray(value) ? value : String(value || "").split(/\r?\n/);
+  const seen = new Set();
+  const result = [];
+  for (const line of lines) {
+    let source = "";
+    let target = "";
+    if (line && typeof line === "object") {
+      source = String(line.source || "").trim();
+      target = String(line.target || "").trim();
+    } else {
+      const text = String(line || "").trim();
+      if (!text || text.startsWith("#")) continue;
+      const match = /^(.+?)\s*(?:=>|→|=|：|:)\s*(.+)$/.exec(text);
+      if (!match) continue;
+      source = match[1].trim();
+      target = match[2].trim();
+    }
+    source = source.slice(0, 120);
+    target = target.slice(0, 120);
+    if (!source || !target || seen.has(source)) continue;
+    seen.add(source);
+    result.push({ source, target });
+    if (result.length >= 300) break;
+  }
+  return result;
+}
+
 export function scriptOutputSuffix(script = "t") {
   return script === "s" ? "（简体）" : "（繁體）";
 }
@@ -186,12 +214,17 @@ export function buildBookTranslationMessages({
   direction = "zh-en",
   bookTitle = "",
   chapterTitle = "",
+  glossary = "",
 } = {}) {
   const pair = translationLanguagePair(direction);
   const rows = blocks.map((block) => ({
     id: String(block.id || ""),
     text: String(block.source || ""),
   }));
+  const terms = parseTranslationGlossary(glossary);
+  const glossaryText = terms.length
+    ? `术语表（原文出现时必须使用对应译名，不得改写）：\n${terms.map((term) => `- ${term.source} → ${term.target}`).join("\n")}`
+    : "";
   return [
     {
       role: "system",
@@ -200,8 +233,9 @@ export function buildBookTranslationMessages({
         pair.style || `把每一段从${pair.sourceLabel}翻译成${pair.targetLabel}。`,
         "保持段落边界和 Markdown 结构（标题/列表/引用等）；不增删内容，不总结，不解释，不加引号。",
         "专有名词、人名、地名和术语在整本书中保持一致；不确定的专名保留原文并在必要时音译。",
+        glossaryText,
         "只输出 JSON，不要 Markdown 代码围栏。",
-      ].join("\n"),
+      ].filter(Boolean).join("\n"),
     },
     {
       role: "user",

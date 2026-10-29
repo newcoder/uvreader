@@ -11,6 +11,7 @@ import {
   BOOK_TRANSLATION_VERSION,
   buildBookTranslationMessages,
   parseBookTranslationAnswer,
+  parseTranslationGlossary,
   splitTranslationBlocks,
   translationLanguagePair,
 } from "../shared/book-translation.js";
@@ -75,7 +76,7 @@ function writeCached(file, translations) {
   }
 }
 
-export function translationCacheKey({ blocks = [], direction = "zh-en", model = "", configId = "", base = "" } = {}) {
+export function translationCacheKey({ blocks = [], direction = "zh-en", model = "", configId = "", base = "", glossary = "" } = {}) {
   const source = blocks.map((block) => ({
     id: String(block.id || ""),
     text: String(block.source || ""),
@@ -88,6 +89,7 @@ export function translationCacheKey({ blocks = [], direction = "zh-en", model = 
       configId: String(configId || ""),
       base: String(base || ""),
       source,
+      glossary: parseTranslationGlossary(glossary),
     }))
     .digest("hex");
 }
@@ -100,6 +102,7 @@ export function createBookTranslator({ aiRuntime = null, log = () => {} } = {}) 
       throw new Error("AI 还没配置好：先在「设置 → AI 助读」里选供应商与模型");
     }
     const direction = translationLanguagePair(translation.direction);
+    const glossary = parseTranslationGlossary(translation.glossary);
     const chapterBlocks = (Array.isArray(chapters) ? chapters : []).map((chapter, index) => ({
       index,
       title: String(chapter?.title || ""),
@@ -152,6 +155,7 @@ export function createBookTranslator({ aiRuntime = null, log = () => {} } = {}) 
       model: config.model,
       configId: config.id,
       base: config.base,
+      glossary,
     }));
     const chunkPlans = [];
     for (const chapter of chapterBlocks) {
@@ -194,6 +198,7 @@ export function createBookTranslator({ aiRuntime = null, log = () => {} } = {}) 
                 direction: direction.id,
                 bookTitle: translation.bookTitle || "",
                 chapterTitle: plan.chapter.title,
+                glossary,
               }),
               options: { timeoutMs: 180_000, maxTokens: 6000 },
             });

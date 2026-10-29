@@ -1715,6 +1715,16 @@ export function createWorkshopView(leaf, options) {
         this._bookTranslateTarget.createEl("option", { attr: { value }, text: label });
       }
       this._bookTranslateTargetRow = translateTargetRow;
+      const glossaryRow = translationStep.createDiv("qbr-workshop-row");
+      glossaryRow.createSpan({ cls: "qbr-workshop-hint", text: "术语表" });
+      this._bookGlossary = glossaryRow.createEl("textarea", {
+        cls: "qbr-workshop-input",
+        attr: { rows: "3", placeholder: "每行：原文=译文，例如：道=Dao" },
+      });
+      this._bookGlossary.style.minHeight = "3.2em";
+      this._bookGlossary.style.resize = "vertical";
+      glossaryRow.createSpan({ cls: "qbr-workshop-hint", text: "可选；统一人名、地名、功法等译名" });
+      this._bookGlossaryRow = glossaryRow;
       const scriptQuickRow = translationStep.createDiv("qbr-workshop-row");
       scriptQuickRow.createSpan({ cls: "qbr-workshop-hint", text: "简繁快捷转换" });
       const simplify = scriptQuickRow.createEl("button", { text: "转为简体" });
@@ -1764,6 +1774,10 @@ export function createWorkshopView(leaf, options) {
       this._bookTranslateTarget.addEventListener("change", () => {
         this.resetBookPreview();
         this.syncBookTranslationMode();
+        this.onBookStyleChange();
+      });
+      this._bookGlossary.addEventListener("input", () => {
+        this.resetBookPreview();
         this.onBookStyleChange();
       });
       this.syncBookTranslationMode();
@@ -2078,6 +2092,7 @@ export function createWorkshopView(leaf, options) {
       state.translationTarget = String(this._bookTranslateTarget?.value || "auto");
       state.translationClassical = Boolean(this._bookTranslateClassical?.checked);
       state.translationScript = String(this._bookScriptTarget?.value || "t");
+      state.translationGlossary = String(this._bookGlossary?.value || "");
       return state;
     }
 
@@ -2088,6 +2103,7 @@ export function createWorkshopView(leaf, options) {
         target: classical ? "zh" : String(this._bookTranslateTarget?.value || "auto"),
         classical,
         script: String(this._bookScriptTarget?.value || "t"),
+        glossary: String(this._bookGlossary?.value || ""),
       };
     }
 
@@ -2217,6 +2233,7 @@ export function createWorkshopView(leaf, options) {
               mode: translation.mode,
               target: translation.target,
               classical: translation.classical,
+              glossary: translation.glossary,
               config,
             },
           },
@@ -2276,6 +2293,7 @@ export function createWorkshopView(leaf, options) {
       if (this._bookTranslateClassical) this._bookTranslateClassical.disabled = disabled || script;
       if (this._bookScriptRow) this._bookScriptRow.hidden = !script;
       if (this._bookTranslateTargetRow) this._bookTranslateTargetRow.hidden = disabled || script || classical;
+      if (this._bookGlossaryRow) this._bookGlossaryRow.hidden = disabled || script;
       this.syncBookPreviewRow();
       if (this._bookTranslateHint) {
         this._bookTranslateHint.setText(mode === "none"
@@ -2326,6 +2344,7 @@ export function createWorkshopView(leaf, options) {
       if (saved.translationTarget) this._bookTranslateTarget.value = String(saved.translationTarget);
       if (this._bookTranslateClassical) this._bookTranslateClassical.checked = saved.translationClassical === true;
       if (saved.translationScript) this._bookScriptTarget.value = String(saved.translationScript);
+      if (typeof saved.translationGlossary === "string") this._bookGlossary.value = saved.translationGlossary;
       this.syncBookCoverRow();
       this.syncBookTranslationMode();
       void this.renderBookChapters();
@@ -2881,6 +2900,7 @@ export function createWorkshopView(leaf, options) {
             target: translation.target,
             classical: translation.classical,
             script: translation.script,
+            glossary: translation.glossary,
             config: translationConfig,
             bookTitle: state.title,
           },
