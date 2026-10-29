@@ -6,7 +6,7 @@
 
 UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支持 EPUB、PDF、FB2/FBZ、MOBI/AZW/AZW3、CBZ 和单张图片（PNG/JPG/WebP/GIF/BMP），内置高亮、批注、阅读笔记和可选的 AI 助读。书籍、进度和笔记默认都在本机；日常阅读不需要账号，也不需要联网。
 
-> **当前版本**：`0.7.77`。Windows / macOS 安装包见 [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.77)。
+> **当前版本**：`0.7.78`。Windows / macOS 安装包见 [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.78)。
 >
 > **来源**：fork 自 Obsidian 插件 [qiaomu-reader](https://github.com/joeseesun/qiaomu-reader)，现在作为独立桌面应用维护；Obsidian 插件形态不再作为主线。
 >
@@ -20,7 +20,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 - **答题页中心**：「悦空间 → 答题页」集中查看答题页，显示题目数、来源、作答状态、得分和草稿；支持已作答 / 未作答筛选，点击直接作答。交卷后仍可继续使用 AI 伴学。
 - **单张图片阅读**：PNG / JPG / WebP / GIF / BMP 可以直接作为一本书打开，整页显示，支持适配宽度、滚轮缩放和拖拽平移。
 - **双语 / 文白 / 简繁电子书**：电子书制作新增「仅译文」、中英 / 英中段落级对照和文言文 → 现代中文的「文白对照」，可生成纯译文或原文 + 译文的上下 / 左右对照 EPUB；另支持简体 ↔ 繁体直接转换，不生成对照、不调用 AI。EPUB 的简繁转换和翻译都会保留原排版、目录、图片和换行，只转换或插入文字。翻译可先「试译开头」预览前两章，不写入书库；AI 翻译支持取消后继续，窄屏和部分阅读器会自动回退为上下布局。
-- **AI 整理标签**：书库「标签」下新增 AI 整理入口。先确认可用标签（可新增），再选择全部书库或当前筛选，一键让 AI 在标签范围内归类；只发送书名、作者、简介和已有标签，不读取正文，每本一次请求，写入后可以撤销。自动结果可继续用原有标签编辑器手动调整。
+- **AI 整理标签**：书库「标签」下新增 AI 整理入口。先确认可用标签（可新增），再选择全部书库或当前筛选，一键让 AI 在标签范围内归类；默认只发送书名、作者、简介和已有标签，可选择读取开头片段提高准确度（会明确发送少量正文），也可只处理还没有自定义标签的书；每本一次请求，写入后可以撤销。自动结果可继续用原有标签编辑器手动调整。
 - **电子书目录与封面选项**：目录标题留空时按书籍语言自动使用「目录 / Contents / Inhalt / 目錄」等，也可自定义；目录层级可选全部、前 2 级或 1 级。指定图片封面可选择完整显示或铺满页面。适用于按文本重建的书稿；直接翻译或简繁转换 EPUB 仍保留原目录和封面。
 - **书坊引擎更新检查**：设置 → 书坊 → 书坊引擎新增「检查更新」，会显示已安装版本和最新引擎版本；运行中的引擎需要先停止，再更新到新版本。
 - **任务产物只导入一次**：完成的书坊任务会记录已处理状态；生成的书删掉后，重启应用不会从旧任务历史重新导入。任务行可「忽略自动导入」，也可以「恢复自动导入」。
@@ -60,7 +60,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 - 本地导入 EPUB / PDF / MOBI / AZW3 / FB2 / CBZ 和 PNG/JPG/WebP/GIF/BMP 图片，支持拖拽、批量导入和文件关联。
 - 封面、书名、作者、语言、标签、简介等元数据编辑；可以选封面、自动取封面或生成模板封面。
 - 最近阅读、阅读进度、阅读中/未读状态、书库筛选和搜索。
-- **AI 整理标签**：在标签树下先确认标签范围，再对全部书库或当前筛选一键归类；只发送书名、作者、简介和已有标签，不读取正文；每本一次请求，可撤销上次结果。
+- **AI 整理标签**：在标签树下先确认标签范围，再对全部书库或当前筛选一键归类；默认只发送书名、作者、简介和已有标签，可选择开头片段、只处理未归类书籍；每本一次请求，可撤销上次结果。
 - **网络搜书**：按书名检索可配置的第三方书源（如 Project Gutenberg、Standard Ebooks），查看可用版本并下载到书库；使用下载内容时请遵守来源授权和[免责声明](DISCLAIMER.md)。
 - 所有书籍、进度、标注和笔记都保存在本地应用数据目录，不依赖云书库。
 - 制作完成的电子书自动入库；从阅读器返回书库会刷新列表，不再显示旧内容。
@@ -138,7 +138,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 
 ## 下载与安装
 
-- 安装包：[GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.77)。
+- 安装包：[GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.78)。
 - Windows：`UV-Reader-<版本>-setup.exe` 安装版，或 `UV-Reader-<版本>-portable.exe` 免安装版。
 - macOS：按 Releases 页面提供的 `UV-Reader-<版本>-<架构>.dmg` 安装。
 - 首次启动不需要账号；AI、OCR 和文档转换组件都是可选的，不配置也能正常阅读和做笔记。
@@ -234,7 +234,7 @@ CI 顺序：test → test:shim → test:desktop → check:i18n → eslint → de
 ## 数据与隐私
 
 - 书籍、封面、阅读进度、高亮、笔记和设置默认保存在本机应用数据目录；没有账号体系。
-- AI 只在主动使用时发送所选文本 / 书籍上下文；AI 标签整理只发送书名、作者、简介和已有标签，不读取正文；本地模型端点不会离开本机。
+- AI 只在主动使用时发送所选文本 / 书籍上下文；AI 标签整理默认只发送书名、作者、简介和已有标签；开启「读取开头片段」后会额外发送少量正文；本地模型端点不会离开本机。
 - 翻译使用 Google Translate 网络请求（可关闭）；MinerU 云端模式会把扫描页发送到对应服务。
 - AI 密钥保存在系统凭据存储，不写进书籍或笔记文件。
 - 具体安全说明见 [SECURITY.md](SECURITY.md)。
@@ -255,7 +255,7 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 
 [Features](#features) · [Download](#download) · [FAQ](#faq) · [Build](#build)
 
-**Status:** `0.7.77`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.77). Read the [Disclaimer](DISCLAIMER.md) before use.
+**Status:** `0.7.78`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.78). Read the [Disclaimer](DISCLAIMER.md) before use.
 
 ## Recent updates (Oct 2026)
 
@@ -265,7 +265,7 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 - **Answer-page hub:** Reading Space → Answer pages lists generated pages with question count, source, answered state, scores and drafts, with answered/unanswered filters and direct opening. The AI study companion remains available after submission.
 - **Standalone images:** PNG/JPG/WebP/GIF/BMP files open as a full-page reader with fit-width, wheel zoom and drag-to-pan.
 - **Bilingual / literary-Chinese / script-conversion ebooks:** ebook creation supports translation-only, paragraph-level Chinese↔English source/translation editions, German→Chinese editions, and classical-Chinese → modern-Chinese editions in stacked or side-by-side layouts; the source language is detected automatically (Chinese / English / German), the target language can be English / Simplified Chinese / German, an optional glossary (`source=target` per line) keeps names and terms consistent; an optional line-alignment mode keeps poetry and short lines one-to-one; literary Chinese is a manual checkbox. Chinese Simplified↔Traditional conversion replaces the text directly, with no pairs and no AI call (use the dedicated conversion action, not the translation target); for EPUB sources both conversion and translation keep the original layout, TOC, images and line breaks, with translations inserted in place. A two-chapter sample preview opens automatically when ready and can be checked before generating the full book; it never enters the library. Default titles get suffixes such as `（English）`, `（中文）`, `（中英对照）`, `（中德对照）`, `（文白对照）`, `（简体）` or `（繁體）`; AI translation is resumable and narrow readers fall back to stacked pairs.
-- **AI library tagging:** confirm the allowed tags (and add new ones) under the library's Tags section, then tag all books or only the current filter in one pass. Only titles, authors, descriptions and existing tags are sent; book contents are not read. One request per book; the batch can be undone and individual tags stay editable.
+- **AI library tagging:** confirm the allowed tags (and add new ones) under the library's Tags section, then tag all books or only the current filter in one pass. By default only titles, authors, descriptions and existing tags are sent; an optional opening excerpt adds a little book text for accuracy, and an untagged-only option skips books that already have custom tags. One request per book; the batch can be undone and individual tags stay editable.
 - **Ebook TOC and cover options:** the TOC title defaults to the book language (`Contents`, `Inhalt`, `目錄`, etc.) and can be overridden; TOC depth can keep all levels, two levels or one. Image covers can be contained or fill the page. These apply to rebuilt sources; direct EPUB translation and script conversion keep the original TOC and cover.
 - **Workshop engine updates:** Settings → Workshop → Workshop engine now has Check for updates, showing the installed and latest engine versions. Stop a running engine before updating it.
 - **One-time task output adoption:** completed workshop tasks remember what was already adopted. Deleting a generated book no longer lets an old task history re-import it after a restart. Each task row has Ignore automatic import and Restore automatic import actions.
@@ -275,7 +275,7 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 
 - **Reading:** paged or scrolling mode, single/two columns, wheel/keyboard/swipe paging, page and chapter jumps, fit width/height, PDF original-page rendering and zoom, standalone PNG/JPG/WebP/GIF/BMP images with fit-width, wheel zoom and drag pan, multiple themes and fonts, per-device reading settings, location bookmarks, reading statistics and daily goals. Printed contents pages in EPUB/AZW3 can be turned into clickable navigation and saved as a portable copy with nav/NCX; AZW3 export requires Calibre.
 - **Annotations and notes:** multi-colour highlights, inline comments, cross-page selection, pinyin annotations pinned to the text, selection translation (copy it or save it to the reading note), word hints, AI explain/ask, bookmarks; one Markdown reading note per book with chapter-grouped excerpts and links back to the source; book notes and highlight export. Deleting a book also removes its highlights, pinyin pins, bookmarks, drafts and conversations; reading notes are kept.
-- **Library:** local import, covers and metadata editing, tags, recent books, progress, search and file associations; AI library tagging uses a confirmed tag vocabulary for all books or the current filter, sends only titles, authors, descriptions and existing tags, and can be undone; generated ebooks are added automatically, and returning to the library refreshes the list. Configurable online book search can query sources such as Project Gutenberg and Standard Ebooks, preview available versions and download them into the library; verify the source's rights before using downloaded content (see the [Disclaimer](DISCLAIMER.md)).
+- **Library:** local import, covers and metadata editing, tags, recent books, progress, search and file associations; AI library tagging uses a confirmed tag vocabulary for all books or the current filter, can include a short opening excerpt, can skip books that already have custom tags, and can be undone; generated ebooks are added automatically, and returning to the library refreshes the list. Configurable online book search can query sources such as Project Gutenberg and Standard Ebooks, preview available versions and download them into the library; verify the source's rights before using downloaded content (see the [Disclaimer](DISCLAIMER.md)).
 - **Answer pages:** a Reading Space list of standalone interactive HTML papers with question count, source, answered state, scores and drafts; open directly, filter by answered state, and continue with the AI study companion after submission.
 - **Workshop:** OCR/text layers for scanned PDFs; DocVortex format conversion (Office/ODF/PDF/EPUB/HTML/OFD/Markdown/text → Markdown/HTML/LaTeX/DOCX/PDF, EPUB → Markdown, images → PDF); content extraction to Markdown/HTML/JSON/assets (extracted HTML renders LaTeX as offline MathML); question-bank extraction; EPUB creation from PDF/Office/text/Markdown/images with chapters, metadata, covers and a configurable TOC title/depth (the source picker lists only library EPUB/PDF/image books; other formats use the local-file picker); translation-only, Chinese↔English, German→Chinese, or classical-Chinese→modern-Chinese editions with paragraph-level stacked or side-by-side source/translation blocks (AI model required), plus direct Simplified↔Traditional Chinese conversion without pairs or AI; EPUB sources keep their original layout and TOC for both translation and conversion, with a two-chapter preview before full translation; AZW3/MOBI via Calibre; image → CBZ/EPUB; AI answer-page generation with direct in-app answering.
 - **AI (optional):** OpenAI-compatible cloud providers or local endpoints (Ollama, llama.cpp, LM Studio); AI companion conversations remember the book location with a clickable chip back to the passage and support full-page or region screenshots; explanations, summaries, translation, custom prompts; AI metadata/cover copy/chapter suggestions/cleanup; AI library tagging within a confirmed tag vocabulary, with undo; bilingual ebook translation; document tools for ebook creation, translation, bilingual/side-by-side, literary-to-modern Chinese, and script conversion; AI answer-page generation. All local reading, annotation and conversion features work without AI.
@@ -283,7 +283,7 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 
 ## Download
 
-Installers are available on [GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.77). Windows builds include `UV-Reader-<version>-setup.exe` and `UV-Reader-<version>-portable.exe`; macOS builds provide `UV-Reader-<version>-<arch>.dmg`. No account is required on first launch, and AI, OCR and document-conversion components are optional.
+Installers are available on [GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.78). Windows builds include `UV-Reader-<version>-setup.exe` and `UV-Reader-<version>-portable.exe`; macOS builds provide `UV-Reader-<version>-<arch>.dmg`. No account is required on first launch, and AI, OCR and document-conversion components are optional.
 
 ## FAQ
 
@@ -323,7 +323,7 @@ Architecture: `apps/desktop` is the Electron shell; `packages/reader/src` contai
 ## Data and privacy
 
 - Books, covers, reading progress, highlights, notes and settings live in the local app-data directory by default; there is no account system.
-- AI sends selected text or book context only when explicitly used; AI library tagging sends only titles, authors, descriptions and existing tags, not book contents; local model endpoints never leave the machine.
+- AI sends selected text or book context only when explicitly used; AI library tagging sends titles, authors, descriptions and existing tags by default; enabling the opening excerpt also sends a small amount of book text. Local model endpoints never leave the machine.
 - Translation uses Google Translate and requires network access (can be disabled); MinerU cloud mode uploads scanned pages to the configured service.
 - AI keys are stored in OS credential storage, not in books or notes. See [SECURITY.md](SECURITY.md).
 

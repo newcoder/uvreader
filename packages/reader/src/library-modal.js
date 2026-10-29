@@ -9,7 +9,7 @@ import { coverFromBytes } from "./reader-engine.js";
 import { coverPalette } from "./book-cover.js";
 import { docOf } from "./reader-dom.js";
 import { findStarterBook } from "./starter-library.js";
-import { readEpubInfo } from "./library-book-info.js";
+import { readEpubDetails } from "./library-book-info.js";
 import { svgIcon } from "./reader-icons.js";
 
 export function createLibraryModal({
@@ -127,6 +127,14 @@ export function createLibraryModal({
       const keep = keepLabel.createEl("input", { type: "checkbox" });
       keep.checked = true;
       keepLabel.createSpan({ text: qiaomuReaderTranslate("ai-tag-keep-existing") });
+      const untaggedLabel = this.contentEl.createEl("label", { cls: "qiaomu-reader-ai-tag-keep" });
+      const untaggedOnly = untaggedLabel.createEl("input", { type: "checkbox" });
+      untaggedOnly.checked = true;
+      untaggedLabel.createSpan({ text: qiaomuReaderTranslate("ai-tag-untagged-only") });
+      const excerptLabel = this.contentEl.createEl("label", { cls: "qiaomu-reader-ai-tag-keep" });
+      const readExcerpt = excerptLabel.createEl("input", { type: "checkbox" });
+      excerptLabel.createSpan({ text: qiaomuReaderTranslate("ai-tag-read-excerpt") });
+      const countHint = this.contentEl.createDiv({ cls: "qiaomu-reader-ai-tag-hint" });
 
       const status = this.contentEl.createDiv({
         cls: "qiaomu-reader-ai-tag-status",
@@ -141,9 +149,17 @@ export function createLibraryModal({
       this.start = start;
       this.scope = scope;
       this.keep = keep;
+      this.untaggedOnly = untaggedOnly;
+      this.readExcerpt = readExcerpt;
+      this.countHint = countHint;
+      this.systemTags = systemTags;
       this.status = status;
       this.selected = selected;
       syncStart();
+      const syncCount = () => this.syncAutoTagCount();
+      scope.addEventListener("change", syncCount);
+      untaggedOnly.addEventListener("change", syncCount);
+      syncCount();
 
       const setBusy = (busy) => {
         this.busy = busy;
@@ -153,6 +169,8 @@ export function createLibraryModal({
         addButton.disabled = busy;
         scope.disabled = busy;
         keep.disabled = busy;
+        untaggedOnly.disabled = busy;
+        readExcerpt.disabled = busy;
         config.disabled = busy;
         cancel.disabled = false;
       };
@@ -198,7 +216,7 @@ export function createLibraryModal({
       );
       return shown.filter((file) => selected !== "study:highlights" || this.owner._libMarked?.has(file.path));
     }
-    _booksForScope() {
+    _scopeBooks() {
       const allBooks = this.owner._libFiles || [];
       const books = this.scope?.value === "current" ? this._currentBooks(allBooks) : allBooks;
       const seen = new Set();
@@ -208,7 +226,25 @@ export function createLibraryModal({
         return true;
       });
     }
-    async _readPdfInfo(bytes) {
+    _booksForScope() {
+      const books = this._scopeBooks();
+      if (!this.untaggedOnly?.checked) return books;
+      const system = this.systemTags || new Set();
+      return books.filter((book) => bookTagsOf(this.plugin.settings, book.path).every((tag) => system.has(tag)));
+    }
+    syncAutoTagCount() {
+      if (!this.countHint) return;
+      const total = this._scopeBooks().length;
+      const selected = this._booksForScope().length;
+      if (!total) {
+        this.countHint.setText(qiaomuReaderTranslate("ai-tag-none"));
+        return;
+      }
+      this.countHint.setText(selected === total
+        ? qiaomuReaderTranslate("ai-tag-count-simple", selected)
+        : qiaomuReaderTranslate("ai-tag-count", selected, total - selected));
+    }
+    async _readPdfInfo(bytes, includeExcerpt = false) {
       await setupWorker(this.app);
       const loadingTask = pdfjsLib.getDocument({ data: bytes, ...PDF_CMAP_OPTIONS, isEvalSupported: false });
       try {
@@ -216,23 +252,33 @@ export function createLibraryModal({
         const metadata = await doc.getMetadata();
         const info = metadata?.info && typeof metadata.info === "object" ? metadata.info : {};
         const text = (value) => String(value || "").trim();
+        let excerpt = "";
+        if (includeExcerpt) {
+          try {
+            const page = await doc.getPage(1);
+            const content = await page.getTextContent();
+            excerpt = content.items.map((item) => String(item?.str || "")).join(" ").replace(/\s+/g, " ").trim().slice(0, 800);
+          } catch { /* scanned or unreadable first page */ }
+        }
         return {
           title: text(info.Title).slice(0, 200),
           author: text(info.Author).slice(0, 160),
           description: [text(info.Subject), text(info.Keywords)].filter(Boolean).join(" · ").slice(0, 800),
           subjects: "",
+          excerpt,
         };
       } finally {
         await loadingTask.destroy();
       }
     }
-    async _bookInfo(book) {
-      if (this.infoCache.has(book.path)) return this.infoCache.get(book.path);
+    async _bookInfo(book, includeExcerpt = false) {
+      const cacheKey = `${book.path}|${includeExcerpt ? "excerpt" : "meta"}`;
+      if (this.infoCache.has(cacheKey)) return this.infoCache.get(cacheKey);
       let info = {};
       try {
         const bytes = await this.app.vault.readBinary(book);
-        if (book.extension === "epub") info = await readEpubInfo(bytes);
-        else if (book.extension === "pdf") info = await this._readPdfInfo(bytes);
+        if (book.extension === "epub") info = await readEpubDetails(bytes, { includeExcerpt, maxChars: 800 });
+        else if (book.extension === "pdf") info = await this._readPdfInfo(bytes, includeExcerpt);
       } catch {
         // A damaged or unusual file still gets filename-only tagging.
       }
@@ -245,11 +291,12 @@ export function createLibraryModal({
         author: clean(info.author),
         description: clean(info.description),
         subjects: clean(info.subjects),
+        excerpt: includeExcerpt ? clean(info.excerpt).slice(0, 800) : "",
       };
-      this.infoCache.set(book.path, prepared);
+      this.infoCache.set(cacheKey, prepared);
       return prepared;
     }
-    async _prepareBooks(books, signal, onProgress) {
+    async _prepareBooks(books, signal, onProgress, includeExcerpt = false) {
       const prepared = [];
       for (let index = 0; index < books.length; index += 1) {
         if (signal.aborted) {
@@ -259,7 +306,7 @@ export function createLibraryModal({
         }
         const book = books[index];
         onProgress(index, books.length, book.basename || book.path || "");
-        prepared.push(await this._bookInfo(book));
+        prepared.push(await this._bookInfo(book, includeExcerpt));
         onProgress(index + 1, books.length, book.basename || book.path || "");
       }
       return prepared;
@@ -275,7 +322,9 @@ export function createLibraryModal({
       }
       if (!books.length) {
         this.status.style.display = "";
-        this.status.setText(qiaomuReaderTranslate("ai-tag-none"));
+        this.status.setText(this.untaggedOnly?.checked && this._scopeBooks().length
+          ? qiaomuReaderTranslate("ai-tag-all-tagged")
+          : qiaomuReaderTranslate("ai-tag-none"));
         return;
       }
       if (books.length > AI_TAG_LIMIT) {
@@ -296,7 +345,7 @@ export function createLibraryModal({
         const prepared = await this._prepareBooks(books, controller.signal, (done, total, label) => {
           if (!this.contentEl.isConnected || controller.signal.aborted) return;
           this.status.setText(qiaomuReaderTranslate("ai-tag-reading", done, total, label || ""));
-        });
+        }, this.readExcerpt?.checked === true);
         if (!this.contentEl.isConnected || controller.signal.aborted) return;
         this.status.setText(qiaomuReaderTranslate("ai-tag-progress", 0, prepared.length, ""));
         const outcome = await this.plugin.aiTagLibrary({

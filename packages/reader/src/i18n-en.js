@@ -1500,7 +1500,7 @@ export const QIAOMU_READER_EN = {
   "signed-copy-save-failed": "Could not save the signed copy",
   "translation-failed-tap-to-retry": "Translation failed · tap to retry",
   "ai-tag-organize": "AI tag library",
-  "ai-tag-lead": "Choose the tags AI may use, then organize the library in one pass. Only titles, authors, descriptions and existing tags are sent; book contents are not read. One request per book; you can undo the batch.",
+  "ai-tag-lead": "Choose the tags AI may use, then organize the library in one pass. By default only titles, authors, descriptions and existing tags are sent; you can optionally include a short opening excerpt for accuracy. One request per book; you can undo the batch.",
   "ai-tag-vocabulary": "Available tags",
   "ai-tag-add-placeholder": "Add a tag",
   "ai-tag-add": "Add",
@@ -1523,4 +1523,9 @@ export const QIAOMU_READER_EN = {
   "ai-tag-too-many": "Up to {0} books per run",
   "ai-tag-empty": "No tags available yet. Add one below.",
   "ai-tag-reading": "Reading book details {0}/{1}: {2}",
+  "ai-tag-untagged-only": "Only books without custom tags",
+  "ai-tag-read-excerpt": "Include a short opening excerpt (sends a little book text for accuracy)",
+  "ai-tag-count": "Will tag {0}; skipping {1} already tagged",
+  "ai-tag-count-simple": "Will tag {0} books",
+  "ai-tag-all-tagged": "All selected books already have custom tags. Clear “Only books without custom tags” to tag them again.",
 };

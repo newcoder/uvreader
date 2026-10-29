@@ -1500,7 +1500,7 @@ export default {
   "signed-copy-save-failed": "서명된 사본을 저장할 수 없습니다",
   "translation-failed-tap-to-retry": "번역에 실패했습니다 · 눌러서 다시 시도",
   "ai-tag-organize": "AI 태그 정리",
-  "ai-tag-lead": "AI가 사용할 태그를 고른 뒤 서재를 한 번에 정리합니다. 제목, 저자, 소개, 기존 태그만 전송하며 본문은 읽지 않습니다. 책마다 한 번 요청하고, 나중에 되돌릴 수 있습니다.",
+  "ai-tag-lead": "AI가 사용할 태그를 고른 뒤 서재를 한 번에 정리합니다. 기본적으로 제목, 저자, 소개, 기존 태그만 전송하며, 정확도를 위해 짧은 도입부를 포함할 수 있습니다. 책마다 한 번 요청하고, 나중에 되돌릴 수 있습니다.",
   "ai-tag-vocabulary": "사용 가능한 태그",
   "ai-tag-add-placeholder": "태그 추가",
   "ai-tag-add": "추가",
@@ -1523,4 +1523,9 @@ export default {
   "ai-tag-too-many": "한 번에 최대 {0}권",
   "ai-tag-empty": "사용 가능한 태그가 없습니다. 아래에서 추가하세요.",
   "ai-tag-reading": "책 정보 읽는 중 {0}/{1}: {2}",
+  "ai-tag-untagged-only": "사용자 태그가 없는 책만 처리",
+  "ai-tag-read-excerpt": "짧은 도입부 포함 (책 본문 일부를 전송해 정확도 향상)",
+  "ai-tag-count": "{0}권을 정리하고, 이미 정리된 {1}권은 건너뜁니다",
+  "ai-tag-count-simple": "{0}권을 정리합니다",
+  "ai-tag-all-tagged": "선택한 책에 모두 사용자 태그가 있습니다. 「사용자 태그가 없는 책만 처리」를 해제하면 다시 정리할 수 있습니다.",
 };

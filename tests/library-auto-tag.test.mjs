@@ -7,7 +7,7 @@ import {
   normalizeAutoTagVocabulary,
   parseAutoTagAnswer,
 } from "../packages/reader/src/library-auto-tag.js";
-import { readEpubInfo } from "../packages/reader/src/library-book-info.js";
+import { readEpubExcerpt, readEpubInfo } from "../packages/reader/src/library-book-info.js";
 
 test("auto-tag vocabulary trims, deduplicates and limits tags", () => {
   assert.deepEqual(normalizeAutoTagVocabulary([" 历史 ", "历史", "", "文学", null]), ["历史", "文学"]);
@@ -22,6 +22,7 @@ test("auto-tag prompt only offers the confirmed vocabulary", () => {
       title: "活著",
       author: "余华",
       description: "一个普通人在时代里的命运。",
+      excerpt: "我听到老人粗哑的歌声。",
       extension: "epub",
     },
     allowedTags: ["文学", "历史", "文学"],
@@ -32,6 +33,7 @@ test("auto-tag prompt only offers the confirmed vocabulary", () => {
   assert.match(messages[1].content, /书名：活著/);
   assert.match(messages[1].content, /作者：余华/);
   assert.match(messages[1].content, /简介：一个普通人在时代里的命运。/);
+  assert.match(messages[1].content, /开头摘录：我听到老人粗哑的歌声。/);
   assert.match(messages[1].content, /- 文学/);
   assert.match(messages[1].content, /- 历史/);
   assert.equal((messages[1].content.match(/- 文学/g) || []).length, 1);
@@ -92,4 +94,31 @@ test("EPUB metadata falls back to the first OPF in the archive", async () => {
     description: "",
     subjects: "",
   });
+});
+
+test("EPUB excerpt reads only opted-in opening text and strips markup", async () => {
+  const zip = new JSZip();
+  zip.file("META-INF/container.xml", `<?xml version="1.0"?>
+    <container xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+      <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+    </container>`);
+  zip.file("OEBPS/content.opf", `<?xml version="1.0"?>
+    <package xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/">
+      <metadata><dc:title>Excerpt</dc:title></metadata>
+      <manifest>
+        <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+        <item id="ch1" href="chapters/one.xhtml" media-type="application/xhtml+xml"/>
+        <item id="ch2" href="chapters/two.xhtml" media-type="application/xhtml+xml"/>
+      </manifest>
+      <spine><itemref idref="ch1"/><itemref idref="ch2"/></spine>
+    </package>`);
+  zip.file("OEBPS/nav.xhtml", "<html><body>Navigation should not be read</body></html>");
+  zip.file("OEBPS/chapters/one.xhtml", `<html><head><style>p { color: red }</style></head><body><h1>Chapter</h1><p>Hello <b>world</b>.</p><script>alert(1)</script></body></html>`);
+  zip.file("OEBPS/chapters/two.xhtml", "<html><body><p>Second page.</p></body></html>");
+  const bytes = await zip.generateAsync({ type: "uint8array" });
+  const excerpt = await readEpubExcerpt(bytes, { maxChars: 120 });
+  assert.match(excerpt, /Hello world\./);
+  assert.match(excerpt, /Second page\./);
+  assert.doesNotMatch(excerpt, /Navigation|color: red|alert/);
+  assert.equal((await readEpubInfo(bytes)).excerpt, undefined);
 });

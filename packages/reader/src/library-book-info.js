@@ -60,10 +60,45 @@ function trim(value, max) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, max);
 }
 
+function normalizeZipPath(value) {
+  const parts = [];
+  for (const part of String(value || "").split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") parts.pop();
+    else parts.push(part);
+  }
+  return parts.join("/");
+}
+
+function htmlExcerpt(html) {
+  return decodeXml(String(html || "")
+    .replace(/<head\b[\s\S]*?<\/head>/gi, " ")
+    .replace(/<script\b[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " "));
+}
+
+function opfItems(opf) {
+  const manifest = new Map();
+  for (const match of String(opf || "").matchAll(/<item\b[^>]*>/gi)) {
+    const tag = match[0];
+    const id = attribute(tag, "id");
+    const href = attribute(tag, "href");
+    if (id && href) manifest.set(id, { href, mediaType: attribute(tag, "media-type").toLowerCase() });
+  }
+  const spine = [];
+  for (const match of String(opf || "").matchAll(/<itemref\b[^>]*>/gi)) {
+    const idref = attribute(match[0], "idref");
+    if (idref) spine.push(idref);
+  }
+  return { manifest, spine };
+}
+
 // Read title/creator/description/subjects from an EPUB without opening a
-// chapter. Malformed containers simply yield an empty object; the caller falls
-// back to the file name.
-export async function readEpubInfo(bytes) {
+// chapter. `includeExcerpt` is an explicit opt-in; it reads only the first few
+// spine documents and returns a short plain-text opening. Malformed containers
+// simply yield an empty object; the caller falls back to the file name.
+export async function readEpubDetails(bytes, { includeExcerpt = false, maxChars = 800 } = {}) {
   const zip = await JSZip.loadAsync(bytes);
   let opfPath = "";
   const container = zip.file("META-INF/container.xml");
@@ -83,10 +118,44 @@ export async function readEpubInfo(bytes) {
   const authors = elementTexts(opf, "creator");
   const description = elementText(opf, "description") || metaContent(opf, "dcterms:description");
   const subjects = elementTexts(opf, "subject");
-  return {
+  const info = {
     title: trim(title, 200),
     author: trim(authors.join(" / "), 160),
     description: trim(description, 800),
     subjects: trim(subjects.join(" / "), 200),
   };
+  if (!includeExcerpt) return info;
+
+  const { manifest, spine } = opfItems(opf);
+  const base = opfPath.includes("/") ? opfPath.slice(0, opfPath.lastIndexOf("/") + 1) : "";
+  const candidates = spine
+    .map((id) => manifest.get(id))
+    .filter((item) => item && /xhtml|html/i.test(item.mediaType || ""));
+  if (!candidates.length) {
+    for (const item of manifest.values()) {
+      if (/xhtml|html/i.test(item.mediaType || "")) candidates.push(item);
+    }
+  }
+  const parts = [];
+  let length = 0;
+  for (const item of candidates.slice(0, 4)) {
+    if (length >= maxChars) break;
+    const href = String(item.href || "").split("#")[0];
+    const file = zip.file(normalizeZipPath(`${base}${href}`));
+    if (!file) continue;
+    const text = htmlExcerpt(await file.async("string"));
+    if (!text) continue;
+    parts.push(text);
+    length += text.length + 1;
+  }
+  return { ...info, excerpt: trim(parts.join(" "), maxChars) };
+}
+
+export async function readEpubInfo(bytes) {
+  return readEpubDetails(bytes);
+}
+
+export async function readEpubExcerpt(bytes, { maxChars = 800 } = {}) {
+  const details = await readEpubDetails(bytes, { includeExcerpt: true, maxChars });
+  return String(details.excerpt || "");
 }

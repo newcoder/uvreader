@@ -1946,7 +1946,7 @@ Object.assign(QIAOMU_READER_ZH_CN, {
   "signed-copy-save-failed": "保存签署副本失败",
   "translation-failed-tap-to-retry": "翻译失败 · 点此重试",
   "ai-tag-organize": "AI 整理标签",
-  "ai-tag-lead": "先勾选 AI 可用的标签，再一键整理书库。只发送书名、作者、简介和已有标签，不读取正文；每本一次请求，整理后可撤销。",
+  "ai-tag-lead": "先勾选 AI 可用的标签，再一键整理书库。默认只发送书名、作者、简介和已有标签；可选择读取开头片段提高准确度。每本一次请求，整理后可撤销。",
   "ai-tag-vocabulary": "可用标签",
   "ai-tag-add-placeholder": "输入新标签",
   "ai-tag-add": "添加",
@@ -1969,4 +1969,9 @@ Object.assign(QIAOMU_READER_ZH_CN, {
   "ai-tag-too-many": "一次最多整理 {0} 本",
   "ai-tag-empty": "还没有可用标签，请在下面输入一个标签。",
   "ai-tag-reading": "正在读取书籍信息 {0}/{1}：{2}",
+  "ai-tag-untagged-only": "只处理还没有自定义标签的书",
+  "ai-tag-read-excerpt": "读取开头片段（会发送少量正文，更准确）",
+  "ai-tag-count": "将处理 {0} 本，跳过 {1} 本已归类",
+  "ai-tag-count-simple": "将处理 {0} 本",
+  "ai-tag-all-tagged": "所选书都已有自定义标签；取消「只处理还没有自定义标签的书」可重新整理。",
 });

@@ -20,6 +20,7 @@ export function buildAutoTagMessages({ book = {}, allowedTags = [], existingTags
   const author = String(book.author || "").trim();
   const description = String(book.description || "").trim().slice(0, 800);
   const subjects = String(book.subjects || "").trim();
+  const excerpt = String(book.excerpt || "").trim().slice(0, 800);
   return [
     {
       role: "system",
@@ -38,6 +39,7 @@ export function buildAutoTagMessages({ book = {}, allowedTags = [], existingTags
         `格式：${String(book.extension || "").toUpperCase()}`,
         subjects ? `主题：${subjects}` : "",
         description ? `简介：${description}` : "",
+        excerpt ? `开头摘录：${excerpt}` : "",
         existing.length ? `已有标签：${existing.join(" / ")}` : "已有标签：无",
         "可选标签：",
         ...vocabulary.map((tag) => `- ${tag}`),

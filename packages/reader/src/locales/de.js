@@ -1500,7 +1500,7 @@ export default {
   "signed-copy-save-failed": "Signierte Kopie konnte nicht gespeichert werden",
   "translation-failed-tap-to-retry": "Übersetzung fehlgeschlagen · zum Wiederholen tippen",
   "ai-tag-organize": "KI-Schlagwörter",
-  "ai-tag-lead": "Wähle die Schlagwörter, die die KI verwenden darf, und ordne die Bibliothek in einem Durchgang. Nur Titel, Autoren, Beschreibungen und vorhandene Schlagwörter werden gesendet; Buchinhalte werden nicht gelesen. Eine Anfrage pro Buch; du kannst den Lauf rückgängig machen.",
+  "ai-tag-lead": "Wähle die Schlagwörter, die die KI verwenden darf, und ordne die Bibliothek in einem Durchgang. Standardmäßig werden nur Titel, Autoren, Beschreibungen und vorhandene Schlagwörter gesendet; optional kann ein kurzer Textanfang für mehr Genauigkeit mitgegeben werden. Eine Anfrage pro Buch; du kannst den Lauf rückgängig machen.",
   "ai-tag-vocabulary": "Verfügbare Schlagwörter",
   "ai-tag-add-placeholder": "Schlagwort hinzufügen",
   "ai-tag-add": "Hinzufügen",
@@ -1523,4 +1523,9 @@ export default {
   "ai-tag-too-many": "Pro Lauf bis zu {0} Bücher",
   "ai-tag-empty": "Noch keine Schlagwörter verfügbar. Füge unten eines hinzu.",
   "ai-tag-reading": "Lese Buchdaten {0}/{1}: {2}",
+  "ai-tag-untagged-only": "Nur Bücher ohne eigene Schlagwörter",
+  "ai-tag-read-excerpt": "Kurzen Textanfang mitsenden (etwas Buchtext, für mehr Genauigkeit)",
+  "ai-tag-count": "{0} Bücher werden verschlagwortet; {1} bereits verschlagwortete werden übersprungen",
+  "ai-tag-count-simple": "{0} Bücher werden verschlagwortet",
+  "ai-tag-all-tagged": "Alle ausgewählten Bücher haben bereits eigene Schlagwörter. Deaktiviere „Nur Bücher ohne eigene Schlagwörter“, um sie erneut zu verschlagworten.",
 };

@@ -1500,7 +1500,7 @@ export default {
   "signed-copy-save-failed": "Não foi possível salvar a cópia assinada",
   "translation-failed-tap-to-retry": "Falha na tradução · toque para tentar de novo",
   "ai-tag-organize": "Etiquetas com IA",
-  "ai-tag-lead": "Escolha as etiquetas que a IA pode usar e organize a biblioteca de uma vez. Apenas títulos, autores, descrições e etiquetas existentes são enviados; o conteúdo dos livros não é lido. Uma solicitação por livro; você pode desfazer o lote.",
+  "ai-tag-lead": "Escolha as etiquetas que a IA pode usar e organize a biblioteca de uma vez. Por padrão, apenas títulos, autores, descrições e etiquetas existentes são enviados; você pode incluir um pequeno trecho inicial para maior precisão. Uma solicitação por livro; você pode desfazer o lote.",
   "ai-tag-vocabulary": "Etiquetas disponíveis",
   "ai-tag-add-placeholder": "Adicionar etiqueta",
   "ai-tag-add": "Adicionar",
@@ -1523,4 +1523,9 @@ export default {
   "ai-tag-too-many": "Até {0} livros por lote",
   "ai-tag-empty": "Ainda não há etiquetas disponíveis. Adicione uma abaixo.",
   "ai-tag-reading": "Lendo informações {0}/{1}: {2}",
+  "ai-tag-untagged-only": "Somente livros sem etiquetas personalizadas",
+  "ai-tag-read-excerpt": "Incluir um pequeno trecho inicial (envia um pouco do texto do livro, mais preciso)",
+  "ai-tag-count": "{0} livros serão etiquetados; {1} já etiquetados serão ignorados",
+  "ai-tag-count-simple": "{0} livros serão etiquetados",
+  "ai-tag-all-tagged": "Todos os livros selecionados já têm etiquetas personalizadas. Desmarque «Somente livros sem etiquetas personalizadas» para etiquetá-los novamente.",
 };

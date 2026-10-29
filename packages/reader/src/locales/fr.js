@@ -1500,7 +1500,7 @@ export default {
   "signed-copy-save-failed": "Impossible d'enregistrer la copie signée",
   "translation-failed-tap-to-retry": "Échec de la traduction · toucher pour réessayer",
   "ai-tag-organize": "Étiquettes IA",
-  "ai-tag-lead": "Choisissez les étiquettes que l’IA peut utiliser, puis rangez la bibliothèque en une passe. Seuls les titres, auteurs, descriptions et étiquettes existantes sont envoyés ; le contenu des livres n’est pas lu. Une requête par livre ; l’opération peut être annulée.",
+  "ai-tag-lead": "Choisissez les étiquettes que l’IA peut utiliser, puis rangez la bibliothèque en une passe. Par défaut, seuls les titres, auteurs, descriptions et étiquettes existantes sont envoyés ; vous pouvez inclure un court extrait d’ouverture pour plus de précision. Une requête par livre ; l’opération peut être annulée.",
   "ai-tag-vocabulary": "Étiquettes disponibles",
   "ai-tag-add-placeholder": "Ajouter une étiquette",
   "ai-tag-add": "Ajouter",
@@ -1523,4 +1523,9 @@ export default {
   "ai-tag-too-many": "Jusqu’à {0} livres par passe",
   "ai-tag-empty": "Aucune étiquette disponible. Ajoutez-en une ci-dessous.",
   "ai-tag-reading": "Lecture des informations {0}/{1} : {2}",
+  "ai-tag-untagged-only": "Uniquement les livres sans étiquette personnalisée",
+  "ai-tag-read-excerpt": "Inclure un court extrait d’ouverture (envoie un peu de texte du livre, plus précis)",
+  "ai-tag-count": "{0} livres seront étiquetés ; {1} déjà étiquetés seront ignorés",
+  "ai-tag-count-simple": "{0} livres seront étiquetés",
+  "ai-tag-all-tagged": "Tous les livres sélectionnés ont déjà des étiquettes personnalisées. Désactivez « Uniquement les livres sans étiquette personnalisée » pour les étiqueter à nouveau.",
 };
