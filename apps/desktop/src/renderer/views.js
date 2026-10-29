@@ -17,6 +17,7 @@ import { applyChapterRule, describeChapterRule } from "../shared/chapter-rules.j
 import { describeIssues, scanChapterIssues, splitCleanupBlocks } from "../shared/text-issues.js";
 import { BOOK_BUILDER_SOURCE_EXTENSIONS, filterLibraryFiles } from "../shared/library-files.js";
 import { parseOutputAdoptionState, serializeOutputAdoptionState, shouldAdoptBookBuildOutput } from "../shared/workshop-outputs.js";
+import { pickAiSuggestion } from "../shared/workshop-ai-suggestions.js";
 
 const WORKSHOP_SESSION_STARTED_AT = Date.now();
 const WORKSHOP_OUTPUT_ADOPTION_KEY = "qbr-workshop-output-adoption";
@@ -1700,6 +1701,8 @@ export function createWorkshopView(leaf, options) {
       this._bookSelection ||= [];
       this._bookImages ||= [];
       this._bookSources = Array.isArray(this._bookSources) ? this._bookSources.slice(0, 1) : [];
+      // Any chapter read still in flight belongs to the previous panel render.
+      this._bookChapterToken = (this._bookChapterToken || 0) + 1;
       const root = panel.createDiv("qbr-workshop-tool");
 
       // 主流程只有一条:向导(① 内容 → ② 目录 → ③ 书名与封面 → ④ 排版 → 生成);
@@ -2222,11 +2225,31 @@ export function createWorkshopView(leaf, options) {
       if (this._bookPreviewStatusRow) this._bookPreviewStatusRow.hidden = !show;
     }
 
-    resetBookPreview() {
-      if (this._pendingPreviewTaskId) return;
+    cancelBookPreview() {
+      const id = String(this._pendingPreviewTaskId || "");
+      this._pendingPreviewTaskId = "";
+      this._pendingPreviewSource = "";
+      this._previewToken = (this._previewToken || 0) + 1;
+      this.setBookPreviewBusy(false);
+      if (id && id !== "__starting__") void bridge?.cancel?.(id)?.catch?.(() => {});
       this._lastBookPreviewResult = null;
       if (this._bookPreviewView) this._bookPreviewView.hidden = true;
       if (this._bookPreviewStatus) this._bookPreviewStatus.setText("尚未试译");
+    }
+
+    resetBookPreview() {
+      // Settings or the source changed while a preview was running: its result
+      // no longer describes the current book, so stop it instead of showing it.
+      this.cancelBookPreview();
+    }
+
+    resetBookAiSuggestionState() {
+      this._aiSuggestion = null;
+      this._bookIssues = null;
+      this._cleanSummary = null;
+      for (const host of [this._bookAiSuggestion, this._bookAiChapters, this._bookAiClean]) {
+        if (host) host.empty();
+      }
     }
 
     setBookPreviewBusy(busy) {
@@ -2246,6 +2269,11 @@ export function createWorkshopView(leaf, options) {
         if (id === "__starting__") this.setBookPreviewStatus("试译中…");
         return;
       }
+      const previewSource = String(this._pendingPreviewSource || "");
+      if (previewSource && previewSource !== String(this._bookSources?.[0] || "")) {
+        this.resetBookPreview();
+        return;
+      }
       const task = tasks.find((entry) => entry.id === id);
       if (!task) {
         this.setBookPreviewStatus("等待试译任务…");
@@ -2261,6 +2289,7 @@ export function createWorkshopView(leaf, options) {
         return;
       }
       this._pendingPreviewTaskId = "";
+      this._pendingPreviewSource = "";
       this.setBookPreviewBusy(false);
       if (task.status === "done" && task.result?.previewHtml) {
         this._lastBookPreviewResult = task.result;
@@ -2317,6 +2346,9 @@ export function createWorkshopView(leaf, options) {
         return;
       }
       const state = this.bookStyleState();
+      const token = (this._previewToken || 0) + 1;
+      this._previewToken = token;
+      this._pendingPreviewSource = rel;
       this._pendingPreviewTaskId = "__starting__";
       this.setBookPreviewBusy(true);
       this.setBookPreviewStatus("试译中…");
@@ -2340,14 +2372,21 @@ export function createWorkshopView(leaf, options) {
           },
         }) || "");
       } catch (error) {
+        if (token !== this._previewToken) return;
         this._pendingPreviewTaskId = "";
+        this._pendingPreviewSource = "";
         this.setBookPreviewBusy(false);
         this.setBookPreviewStatus("试译未启动");
         new Notice(String(error?.message || error));
         return;
       }
+      if (token !== this._previewToken || String(this._bookSources?.[0] || "") !== rel) {
+        if (id) void bridge?.cancel?.(id)?.catch?.(() => {});
+        return;
+      }
       if (!id) {
         this._pendingPreviewTaskId = "";
+        this._pendingPreviewSource = "";
         this.setBookPreviewBusy(false);
         this.setBookPreviewStatus("试译未启动");
         new Notice("试译任务没有启动");
@@ -2516,6 +2555,7 @@ export function createWorkshopView(leaf, options) {
         return;
       }
       const text = await this.bookSourceText();
+      if (String(this._bookSources?.[0] || "") !== rel) return;
       if (text.trim().length < 20) {
         new Notice("没有可用的正文:PDF / Office 书稿请先跑一次「内容提取」,或直接选 txt / Markdown");
         return;
@@ -2525,6 +2565,7 @@ export function createWorkshopView(leaf, options) {
         kind,
         title: kind === "ai-metadata" ? "AI 推断元数据" : "AI 封面文案",
         detail: rel,
+        source: rel,
         payload: { config, text, fileName },
       }).catch((error) => new Notice(String(error?.message || error)));
       new Notice("AI 在后台处理,结果会出现在「书名与封面」这一步(只作建议)");
@@ -2532,11 +2573,12 @@ export function createWorkshopView(leaf, options) {
 
     // 任务完成 → 记下建议;面板里显式「应用」才写进字段 / 替换目录(可选、可撤销)。
     captureAiSuggestions(tasks) {
-      const pending = (tasks || []).find((task) => (task.kind === "ai-metadata" || task.kind === "ai-cover-copy" || task.kind === "ai-chapters")
-        && task.status === "done" && task.result);
-      if (!pending) return;
-      if (this._aiSuggestion?.taskId === pending.id || this._aiDismissed?.has?.(pending.id)) return;
-      this._aiSuggestion = { kind: pending.kind, taskId: pending.id, data: pending.result };
+      const pending = pickAiSuggestion(tasks, {
+        source: this._bookSources?.[0] || "",
+        dismissed: this._aiDismissed,
+      });
+      if (!pending || this._aiSuggestion?.taskId === pending.id) return;
+      this._aiSuggestion = { kind: pending.kind, taskId: pending.id, source: String(pending.source || ""), data: pending.result };
       this.renderAiSuggestion();
     }
 
@@ -2596,7 +2638,17 @@ export function createWorkshopView(leaf, options) {
       const suggestion = this._aiSuggestion;
       const rule = suggestion?.data?.rule;
       if (!rule) return;
+      const source = String(suggestion.source || "");
+      if (source !== String(this._bookSources?.[0] || "")) {
+        this.resetBookAiSuggestionState();
+        new Notice("书稿已经换过了,没有套用上一本的 AI 目录");
+        return;
+      }
       const text = await this.bookSourceFullText();
+      if (source !== String(this._bookSources?.[0] || "")) {
+        this.resetBookAiSuggestionState();
+        return;
+      }
       const applied = applyChapterRule(text, rule);
       if (applied.error) {
         new Notice(`套用失败:${applied.error}`);
@@ -2604,6 +2656,7 @@ export function createWorkshopView(leaf, options) {
       }
       this._bookChapters = applied.chapters.map((chapter) => ({ title: chapter.title, text: chapter.body }));
       this.renderChapterRows();
+      this._aiDismissed?.add?.(suggestion.taskId);
       this._aiSuggestion = null;
       this.renderAiSuggestion();
       new Notice(`已套用 AI 目录:${applied.count} 章(可继续改名 / 合并 / 排序)`);
@@ -2626,6 +2679,7 @@ export function createWorkshopView(leaf, options) {
         kind: "ai-chapters",
         title: "AI 建议分章",
         detail: rel,
+        source: rel,
         payload: { config, source: rel, fileName },
       }).catch((error) => new Notice(String(error?.message || error)));
       new Notice("AI 在后台判断章名形态,结果会出现在「目录」这一步(套用前先看预览)");
@@ -2722,6 +2776,7 @@ export function createWorkshopView(leaf, options) {
         kind: "ai-clean",
         title: "AI 清理",
         detail: `${chapters.length} 章 · ${blocks} 块`,
+        source: rel,
         payload: { config, chapters, source: rel },
       }).catch((error) => new Notice(String(error?.message || error)));
       new Notice("AI 在后台清理,完成后这里给出清理前后的对比(应用前不会改动目录)");
@@ -2744,6 +2799,11 @@ export function createWorkshopView(leaf, options) {
       const suggestion = this._aiSuggestion;
       const file = String(suggestion?.data?.file || "");
       const host = this._bookAiClean;
+      if (String(suggestion?.source || "") !== String(this._bookSources?.[0] || "")) {
+        this.resetBookAiSuggestionState();
+        new Notice("书稿已经换过了,没有应用上一本的清理结果");
+        return;
+      }
       if (!file) {
         new Notice("清理结果不可用(没有落盘)");
         return;
@@ -2771,6 +2831,7 @@ export function createWorkshopView(leaf, options) {
         applied += 1;
       }
       this.renderChapterRows();
+      this._aiDismissed?.add?.(suggestion.taskId);
       this._aiSuggestion = null;
       this._bookIssues = null;
       this._cleanSummary = null;
@@ -2781,6 +2842,11 @@ export function createWorkshopView(leaf, options) {
     applyAiSuggestion() {
       const suggestion = this._aiSuggestion;
       if (!suggestion?.data) return;
+      if (String(suggestion.source || "") !== String(this._bookSources?.[0] || "")) {
+        this.resetBookAiSuggestionState();
+        new Notice("书稿已经换过了,没有应用上一本的 AI 建议");
+        return;
+      }
       const fill = (input, value) => {
         // 已有内容不覆盖(用户写的东西优先);只填空着的字段。
         if (!input || !String(value || "").trim() || String(input.value || "").trim()) return false;
@@ -2792,6 +2858,7 @@ export function createWorkshopView(leaf, options) {
         ? [fill(this._bookTitle, data.title), fill(this._bookAuthor, data.author)]
         : [fill(this._bookSubtitle, data.subtitle), fill(this._bookTitle, data.title)];
       this.onBookStyleChange();
+      this._aiDismissed?.add?.(suggestion.taskId);
       this._aiSuggestion = null;
       this.renderAiSuggestion();
       new Notice(touched.some(Boolean) ? "已填入空的字段(其余保持不变)" : "字段里已经有内容,没有覆盖");
@@ -2801,6 +2868,9 @@ export function createWorkshopView(leaf, options) {
     async renderBookChapters() {
       const host = this._bookChaptersHost;
       if (!host) return;
+      const token = (this._bookChapterToken || 0) + 1;
+      this._bookChapterToken = token;
+      this._bookChapters = [];
       host.empty();
       const rel = this._bookSources?.[0];
       const file = rel ? app?.vault?.getAbstractFileByPath?.(rel) : null;
@@ -2815,6 +2885,8 @@ export function createWorkshopView(leaf, options) {
         return;
       }
       const text = await this.readSourceText(rel);
+      // A slow read must not replace the chapter list for a newer source.
+      if (token !== this._bookChapterToken || String(this._bookSources?.[0] || "") !== rel) return;
       const isMarkdown = /\.(md|markdown)$/i.test(rel);
       const cleaned = isMarkdown ? unwrapProseFences(text) : text;
       const found = isMarkdown ? splitMarkdownChapters(cleaned, { bookTitle: this._bookTitle?.value || "" }) : [];
@@ -2918,6 +2990,7 @@ export function createWorkshopView(leaf, options) {
       // several sources without silently affecting the wrong book.
       this._bookSources = [String(path)];
       this.resetBookPreview();
+      this.resetBookAiSuggestionState();
       this.renderBookSourceChips();
       this.refreshBookSourceList();
       void this.renderBookChapters();
@@ -2926,6 +2999,7 @@ export function createWorkshopView(leaf, options) {
     removeBookSource(path) {
       this._bookSources = (this._bookSources || []).filter((item) => item !== path);
       this.resetBookPreview();
+      this.resetBookAiSuggestionState();
       this.renderBookSourceChips();
       void this.renderBookChapters();
       this.refreshBookSourceList();

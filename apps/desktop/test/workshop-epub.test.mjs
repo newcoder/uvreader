@@ -55,6 +55,7 @@ async function writePoemEpub(file) {
   <manifest>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
     <item id="css" href="style.css" media-type="text/css"/>
+    <item id="pixel" href="images/pixel.png" media-type="image/png"/>
     <item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/>
     <item id="ch2" href="ch2.xhtml" media-type="application/xhtml+xml"/>
   </manifest>
@@ -66,9 +67,10 @@ async function writePoemEpub(file) {
   <li><a href="ch1.xhtml">漢詩</a></li>
   <li><a href="ch2.xhtml">學習</a></li>
 </ol></nav></body></html>`);
-  zip.file("OEBPS/style.css", "p { line-height: 2; }");
+  zip.file("OEBPS/style.css", 'p { line-height: 2; }\nbody { background-image: url("images/pixel.png"); }');
+  zip.file("OEBPS/images/pixel.png", Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"));
   zip.file("OEBPS/ch1.xhtml", `<?xml version="1.0" encoding="UTF-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><title>第五章</title></head><body><p>第五章</p><p>漢詩<br/>國家</p></body></html>`);
+<html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><head><title>第五章</title></head><body><p>第五章</p><p>漢詩<br/>國家</p><img src="images/pixel.png" alt="pixel"/></body></html>`);
   zip.file("OEBPS/ch2.xhtml", `<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml" lang="zh"><body><p>學習<br/>發展</p><ul><li>閱讀<br/>寫作</li></ul><table><tr><td>國家</td></tr></table></body></html>`);
   const data = await zip.generateAsync({ type: "nodebuffer" });
@@ -123,7 +125,7 @@ test("direct EPUB bilingual translation keeps the original chapter files and lin
   assert.match(ch2, /<li>閱讀<br\/>寫作<div class="qbr-epub-translation"[^>]*>reading<br\/>writing<\/div><\/li>/);
   assert.match(ch2, /<td>國家<div class="qbr-epub-translation"[^>]*>country<\/div><\/td>/);
   assert.match(await zip.file("OEBPS/nav.xhtml").async("string"), /漢詩/);
-  assert.equal(await zip.file("OEBPS/style.css").async("string"), "p { line-height: 2; }");
+  assert.equal(await zip.file("OEBPS/style.css").async("string"), 'p { line-height: 2; }\nbody { background-image: url("images/pixel.png"); }');
   const opf = await zip.file("OEBPS/content.opf").async("string");
   assert.match(opf, /<dc:title>漢語詩（中英对照）<\/dc:title>/);
   assert.match(opf, /<dc:language>zh<\/dc:language>/);
@@ -169,6 +171,9 @@ test("direct EPUB bilingual translation keeps the original chapter files and lin
   assert.match(preview.result.previewHtml, /<p>第五章<\/p>/);
   assert.match(preview.result.previewHtml, /class="qbr-epub-translation"/);
   assert.ok(!preview.result.previewHtml.includes('class="qbr-epub-title-translation"'));
+  assert.match(preview.result.previewHtml, /data:image\/png;base64,/);
+  assert.doesNotMatch(preview.result.previewHtml, /src="images\/pixel\.png"/);
+  assert.match(preview.result.previewHtml, /background-image:\s*url\("data:image\/png;base64,/);
   assert.match(preview.detail, /试译 · 中文 → English/);
   assert.equal(preview.result.previewFiles, 2);
 
@@ -408,7 +413,7 @@ test("direct EPUB script conversion keeps the original chapter files and line br
   assert.ok(zip.file("OEBPS/ch1.xhtml"));
   assert.ok(zip.file("OEBPS/ch2.xhtml"));
   assert.ok(!zip.file("OEBPS/chapter-001.xhtml"), "the original chapter files are preserved");
-  assert.equal(await zip.file("OEBPS/style.css").async("string"), "p { line-height: 2; }");
+  assert.equal(await zip.file("OEBPS/style.css").async("string"), 'p { line-height: 2; }\nbody { background-image: url("images/pixel.png"); }');
   assert.match(await zip.file("OEBPS/ch1.xhtml").async("string"), /汉诗<br\/>国家/);
   assert.match(await zip.file("OEBPS/nav.xhtml").async("string"), /汉诗/);
   const opf = await zip.file("OEBPS/content.opf").async("string");

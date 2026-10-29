@@ -155,17 +155,20 @@ test("history is persisted, reloaded and capped", async () => {
   assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")).tasks, []);
 });
 
-test("task history keeps the document it belongs to, including retries", async () => {
+test("task history keeps the document and source it belongs to, including retries", async () => {
   const { queue, file } = makeQueue({ quick: async () => ({ output: "x" }) });
-  const id = queue.start({ kind: "quick", title: "转换", bookPath: "Books/a.pdf", origin: "assistant" });
+  const id = queue.start({ kind: "quick", title: "转换", bookPath: "Books/a.pdf", source: "Books/a.pdf", origin: "assistant" });
   await waitForDone(queue, [id]);
   const finished = queue.snapshot().tasks.find((task) => task.id === id);
   assert.equal(finished.bookPath, "Books/a.pdf");
+  assert.equal(finished.source, "Books/a.pdf");
   const saved = JSON.parse(fs.readFileSync(file, "utf8")).tasks.find((task) => task.id === id);
   assert.equal(saved.bookPath, "Books/a.pdf");
+  assert.equal(saved.source, "Books/a.pdf");
   const retried = queue.retry(id);
   await waitForDone(queue, [retried]);
   assert.equal(queue.snapshot().tasks.find((task) => task.id === retried).bookPath, "Books/a.pdf");
+  assert.equal(queue.snapshot().tasks.find((task) => task.id === retried).source, "Books/a.pdf");
 });
 
 test("an unknown kind is rejected before anything runs", () => {

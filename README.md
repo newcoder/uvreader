@@ -6,7 +6,7 @@
 
 UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支持 EPUB、PDF、FB2/FBZ、MOBI/AZW/AZW3、CBZ 和单张图片（PNG/JPG/WebP/GIF/BMP），内置高亮、批注、阅读笔记和可选的 AI 助读。书籍、进度和笔记默认都在本机；日常阅读不需要账号，也不需要联网。
 
-> **当前版本**：`0.7.80`。Windows / macOS 安装包见 [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.80)。
+> **当前版本**：`0.7.81`。Windows / macOS 安装包见 [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.81)。
 >
 > **来源**：fork 自 Obsidian 插件 [qiaomu-reader](https://github.com/joeseesun/qiaomu-reader)，现在作为独立桌面应用维护；Obsidian 插件形态不再作为主线。
 >
@@ -16,6 +16,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 
 > 以下改进已进入当前代码；正式安装包版本仍以 [Releases](https://github.com/newcoder/uvreader/releases) 为准。
 
+- **书坊修复**：试译预览会把 EPUB 章节里的插图和 CSS 背景图内嵌到预览中，不再显示破图；AI 书名、封面和分章建议按书稿隔离，切换书稿不会串用上一本的建议；AI 清理结果会正常显示，应用过的建议不会再次弹出；试译进行中修改排版或换书会取消旧预览。
 - **印刷目录 → 可跳转导航**：EPUB / AZW3 可以从书前印刷目录页提取条目并匹配正文，生成结果支持预览、应用和撤销。EPUB 可以直接另存一份带 EPUB 3 `nav` 和 `NCX` 的副本；AZW3 会通过 Calibre 转换成带导航的 AZW3 副本，原书保持不变，方便其它阅读器识别目录。
 - **答题页中心**：「悦空间 → 答题页」集中查看答题页，显示题目数、来源、作答状态、得分和草稿；支持已作答 / 未作答筛选，点击直接作答。交卷后仍可继续使用 AI 伴学。
 - **单张图片阅读**：PNG / JPG / WebP / GIF / BMP 可以直接作为一本书打开，整页显示，支持适配宽度、滚轮缩放和拖拽平移。
@@ -139,7 +140,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 
 ## 下载与安装
 
-- 安装包：[GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.80)。
+- 安装包：[GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.81)。
 - Windows：`UV-Reader-<版本>-setup.exe` 安装版，或 `UV-Reader-<版本>-portable.exe` 免安装版。
 - macOS：按 Releases 页面提供的 `UV-Reader-<版本>-<架构>.dmg` 安装。
 - 首次启动不需要账号；AI、OCR 和文档转换组件都是可选的，不配置也能正常阅读和做笔记。
@@ -256,12 +257,13 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 
 [Features](#features) · [Download](#download) · [FAQ](#faq) · [Build](#build)
 
-**Status:** `0.7.80`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.80). Read the [Disclaimer](DISCLAIMER.md) before use.
+**Status:** `0.7.81`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.81). Read the [Disclaimer](DISCLAIMER.md) before use.
 
 ## Recent updates (Oct 2026)
 
 > These changes are in the current codebase; installers still follow the [Releases](https://github.com/newcoder/uvreader/releases) page.
 
+- **Workshop fixes:** translation previews now embed chapter images and CSS background images instead of showing broken images; AI title, cover and chapter suggestions stay with the book that produced them, so switching books cannot reuse the previous book's suggestion; AI cleanup results now appear, applied suggestions stay dismissed, and changing layout or switching books cancels an in-flight preview.
 - **Printed contents → navigation:** EPUB and AZW3 can build clickable TOC entries from the book's printed contents page, with preview, apply and undo. EPUB can save a new copy with EPUB 3 `nav` and `NCX`; AZW3 is converted through Calibre into a new AZW3 copy with navigation. The original stays untouched.
 - **Answer-page hub:** Reading Space → Answer pages lists generated pages with question count, source, answered state, scores and drafts, with answered/unanswered filters and direct opening. The AI study companion remains available after submission.
 - **Standalone images:** PNG/JPG/WebP/GIF/BMP files open as a full-page reader with fit-width, wheel zoom and drag-to-pan.
@@ -285,7 +287,7 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 
 ## Download
 
-Installers are available on [GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.80). Windows builds include `UV-Reader-<version>-setup.exe` and `UV-Reader-<version>-portable.exe`; macOS builds provide `UV-Reader-<version>-<arch>.dmg`. No account is required on first launch, and AI, OCR and document-conversion components are optional.
+Installers are available on [GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.81). Windows builds include `UV-Reader-<version>-setup.exe` and `UV-Reader-<version>-portable.exe`; macOS builds provide `UV-Reader-<version>-<arch>.dmg`. No account is required on first launch, and AI, OCR and document-conversion components are optional.
 
 ## FAQ
 

@@ -43,6 +43,103 @@ function blockText(inner) {
     .trim();
 }
 
+const PREVIEW_IMAGE_MIME = Object.freeze({
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".bmp": "image/bmp",
+  ".tif": "image/tiff",
+  ".tiff": "image/tiff",
+  ".svg": "image/svg+xml",
+  ".avif": "image/avif",
+  ".jfif": "image/jpeg",
+});
+
+function normalizeZipPath(value) {
+  const parts = [];
+  for (const part of String(value || "").split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") parts.pop();
+    else parts.push(part);
+  }
+  return parts.join("/");
+}
+
+function resolvePreviewAsset(baseName, rawUrl) {
+  const value = String(rawUrl || "").trim().split(/[?#]/)[0];
+  if (!value || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(value)) return "";
+  let decoded = value;
+  try { decoded = decodeURIComponent(value); } catch { /* keep raw path */ }
+  const base = baseName.includes("/") ? baseName.slice(0, baseName.lastIndexOf("/") + 1) : "";
+  return normalizeZipPath(decoded.startsWith("/") ? decoded.slice(1) : `${base}${decoded}`);
+}
+
+function previewImageMime(name) {
+  return PREVIEW_IMAGE_MIME[path.extname(String(name || "")).toLowerCase()] || "";
+}
+
+async function previewAssetDataUrl(zip, name, cache) {
+  const mime = previewImageMime(name);
+  if (!mime) return "";
+  if (cache.has(name)) return cache.get(name);
+  const entry = zip.file(name);
+  if (!entry) return "";
+  const base64 = await entry.async("base64");
+  const url = `data:${mime};base64,${base64}`;
+  cache.set(name, url);
+  return url;
+}
+
+async function replaceAsync(input, regex, replacer) {
+  const text = String(input || "");
+  const matches = [...text.matchAll(regex)];
+  if (!matches.length) return text;
+  let output = "";
+  let last = 0;
+  for (const match of matches) {
+    output += text.slice(last, match.index);
+    output += await replacer(...match);
+    last = match.index + match[0].length;
+  }
+  return output + text.slice(last);
+}
+
+async function inlinePreviewHtmlAssets(html, zip, baseName, cache) {
+  let output = await replaceAsync(
+    html,
+    /(<img\b[^>]*?\bsrc\s*=\s*["'])([^"']+)(["'])/gi,
+    async (whole, prefix, src, suffix) => {
+      const asset = resolvePreviewAsset(baseName, src);
+      const url = asset ? await previewAssetDataUrl(zip, asset, cache) : "";
+      return url ? `${prefix}${url}${suffix}` : whole;
+    },
+  );
+  output = await replaceAsync(
+    output,
+    /(<image\b[^>]*?\b(?:href|xlink:href)\s*=\s*["'])([^"']+)(["'])/gi,
+    async (whole, prefix, src, suffix) => {
+      const asset = resolvePreviewAsset(baseName, src);
+      const url = asset ? await previewAssetDataUrl(zip, asset, cache) : "";
+      return url ? `${prefix}${url}${suffix}` : whole;
+    },
+  );
+  return output;
+}
+
+async function inlinePreviewCssAssets(css, zip, baseName, cache) {
+  return replaceAsync(
+    css,
+    /url\(\s*(["']?)([^"')]+)\1\s*\)/gi,
+    async (whole, _quote, src) => {
+      const asset = resolvePreviewAsset(baseName, src);
+      const url = asset ? await previewAssetDataUrl(zip, asset, cache) : "";
+      return url ? `url("${url}")` : whole;
+    },
+  );
+}
+
 function documentTitle(html) {
   const match = /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(String(html || ""));
   return textContent(match?.[1] || "").replace(/\s+/g, " ").trim();
@@ -329,14 +426,16 @@ export async function translateEpub({
   const spineCount = (opf.match(/<itemref\b/gi) || []).length;
 
   if (preview) {
-    const css = (await Promise.all(
-      names.filter((name) => /\.css$/i.test(name)).map((name) => zip.file(name).async("string")),
-    )).join("\n");
-    const body = selectedFiles.map((file) => {
+    const assetCache = new Map();
+    const cssNames = names.filter((name) => /\.css$/i.test(name));
+    const css = (await Promise.all(cssNames.map(async (name) => (
+      inlinePreviewCssAssets(await zip.file(name).async("string"), zip, name, assetCache)
+    )))).join("\n");
+    const body = (await Promise.all(selectedFiles.map(async (file) => {
       const injected = injectTranslations(file.html, file.blocks, mode, pair.target);
       const bodyMatch = /<body\b[^>]*>([\s\S]*?)<\/body>/i.exec(injected);
-      return bodyMatch?.[1] || injected;
-    }).join("\n<hr/>\n");
+      return inlinePreviewHtmlAssets(bodyMatch?.[1] || injected, zip, file.name, assetCache);
+    }))).join("\n<hr/>\n");
     const previewHtml = `<!doctype html>
 <html lang="zh"><head><meta charset="utf-8"/>
 <style>${css}

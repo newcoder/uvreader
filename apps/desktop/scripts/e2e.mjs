@@ -3315,22 +3315,33 @@ async function runWorkshopEpubScenario() {
         cards: panel.querySelectorAll(".qbr-workshop-card").length,
       };
     });
-    if (structure.steps.join(",") !== "内容,目录,书名与封面,排版样式") throw new Error(`unexpected wizard steps: ${JSON.stringify(structure)}`);
+    if (structure.steps.join(",") !== "内容,目录,翻译与转换,书名与封面,排版样式") throw new Error(`unexpected wizard steps: ${JSON.stringify(structure)}`);
     if (!structure.tools.some((tool) => tool.includes("AZW3")) || !structure.tools.some((tool) => tool.includes("CBZ"))) {
       throw new Error(`the secondary tools should live under 更多工具: ${JSON.stringify(structure.tools)}`);
     }
     if (structure.cards !== 2) throw new Error(`the panel should be one wizard card plus 更多工具, saw ${structure.cards}`);
     console.log("workshop-epub: steps", structure.steps.join(" → "), "· tools", structure.tools.length);
-    const wizardPicked = await page.evaluate(() => {
+    const libraryPicker = await page.evaluate(() => {
       const panel = document.querySelector(".qbr-workshop-panel[data-tool='book']");
       const pick = [...panel.querySelectorAll("button")].find((button) => button.textContent.includes("选择书稿"));
       pick?.click();
-      const row = [...document.querySelectorAll(".qbr-workshop-book")].find((entry) => entry.textContent.includes("示例文稿"));
-      const box = row?.querySelector("input");
-      if (box) { box.checked = true; box.dispatchEvent(new Event("change", { bubbles: true })); }
-      return Boolean(row);
+      const rows = [...document.querySelectorAll(".qbr-workshop-book")].map((entry) => entry.textContent || "");
+      return {
+        rows,
+        listsTxt: rows.some((text) => text.includes("示例文稿")),
+        hint: panel.querySelector(".qbr-workshop-row .qbr-workshop-hint")?.textContent || "",
+      };
     });
-    if (!wizardPicked) throw new Error("the wizard did not list the txt manuscript");
+    if (libraryPicker.listsTxt) throw new Error(`the library picker must not list txt: ${JSON.stringify(libraryPicker.rows)}`);
+    if (!libraryPicker.hint.includes("EPUB / PDF / 图片")) {
+      throw new Error(`the library picker should explain its formats: ${JSON.stringify(libraryPicker)}`);
+    }
+    // Local files use the OS picker, which Playwright cannot drive; exercise
+    // the same source setter the picker calls for text manuscripts.
+    await page.evaluate(() => window.__qbrApp.workspace.getLeavesOfType("qbr-workshop")[0].view.addBookSource("Books/示例文稿.txt"));
+    const wizardPicked = await page.evaluate(() => [...document.querySelectorAll(".qbr-workshop-chip")]
+      .some((entry) => (entry.textContent || "").includes("示例文稿")));
+    if (!wizardPicked) throw new Error("the wizard did not accept the local txt manuscript");
     const layout = await page.evaluate(() => {
       const grid = document.querySelector(".qbr-workshop-panel[data-tool='book'] .qbr-workshop-wizard");
       return {

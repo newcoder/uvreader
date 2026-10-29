@@ -48,6 +48,7 @@ export function createWorkshopQueue({ file = "", onState = () => {}, onFinished 
       title: task.title,
       detail: task.detail,
       bookPath: task.bookPath,
+      source: task.source,
       status: task.status,
       origin: task.origin || "user",
       done: task.done,
@@ -107,6 +108,7 @@ export function createWorkshopQueue({ file = "", onState = () => {}, onFinished 
           ...entry,
           detail: String(entry.detail || ""),
           bookPath: String(entry.bookPath || ""),
+          source: String(entry.source || ""),
           origin: entry.origin === "assistant" ? "assistant" : "user",
           label: String(entry.label || ""),
           output: String(entry.output || ""),
@@ -146,6 +148,9 @@ export function createWorkshopQueue({ file = "", onState = () => {}, onFinished 
       // The document this task belongs to. Completion messages use it to stay
       // in that document's AI conversation instead of every open chat.
       bookPath: String(request.bookPath || ""),
+      // The input file a workshop task was started from. The renderer uses it
+      // to keep suggestions from one book out of another book's panel.
+      source: String(request.source || ""),
       payload: request.payload ?? null,
       status: "queued",
       origin: request.origin === "assistant" ? "assistant" : "user",
@@ -241,7 +246,7 @@ export function createWorkshopQueue({ file = "", onState = () => {}, onFinished 
   function retry(id) {
     const task = byId.get(String(id || ""));
     if (!task || !TERMINAL.has(task.status)) return "";
-    return start({ kind: task.kind, title: task.title, detail: task.detail, bookPath: task.bookPath, payload: task.payload, notify: task.notify, origin: task.origin });
+    return start({ kind: task.kind, title: task.title, detail: task.detail, bookPath: task.bookPath, source: task.source, payload: task.payload, notify: task.notify, origin: task.origin });
   }
 
   function clearHistory() {
