@@ -118,6 +118,7 @@ window.qbrDesktop = {
     jobs: (settings, limit) => ipcRenderer.invoke("qbr:engine:jobs", { settings, limit }),
     pickBundle: () => ipcRenderer.invoke("qbr:engine:pick-bundle"),
     service: () => ipcRenderer.invoke("qbr:engine:service"),
+    checkUpdate: () => ipcRenderer.invoke("qbr:engine:check-update"),
     start: (payload) => ipcRenderer.invoke("qbr:engine:start", payload),
     stop: () => ipcRenderer.invoke("qbr:engine:stop"),
     autoStart: (settings) => ipcRenderer.invoke("qbr:engine:auto-start", settings),

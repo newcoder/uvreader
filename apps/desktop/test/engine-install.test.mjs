@@ -7,9 +7,11 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 
 import {
+  checkEngineUpdate,
   createEngineInstaller,
   engineAssetName,
   enginePlatform,
+  engineUpdateState,
   parseSha256,
   pickEngineAsset,
   registerEngineComponentRunner,
@@ -64,6 +66,44 @@ test("pickEngineAsset takes the newest engine release for this platform", () => 
   // No engine release at all, or nothing for the platform, is not an error here.
   assert.equal(pickEngineAsset([], "win32-x64"), null);
   assert.equal(pickEngineAsset([{ tag_name: "v1.0.0", assets: [] }], "win32-x64"), null);
+});
+
+test("engineUpdateState compares the installed engine with the newest bundle", () => {
+  const releases = [{
+    tag_name: "engine-v0.1.10",
+    assets: [{ name: "uvreader-engine-0.1.10-win32-x64.zip", browser_download_url: "https://dl/new.zip" }],
+  }];
+  assert.deepEqual(engineUpdateState(releases, "win32-x64", "0.1.9"), {
+    ok: true,
+    installed: "0.1.9",
+    latest: "0.1.10",
+    available: true,
+    assetName: "uvreader-engine-0.1.10-win32-x64.zip",
+    detail: "已安装 0.1.9 · 最新 0.1.10",
+  });
+  assert.equal(engineUpdateState(releases, "win32-x64", "0.1.10").available, false);
+  assert.equal(engineUpdateState(releases, "win32-x64", "").available, true);
+  assert.equal(engineUpdateState([], "win32-x64", "0.1.10").ok, false);
+});
+
+test("checkEngineUpdate fetches releases without downloading an archive", async () => {
+  const calls = [];
+  const update = await checkEngineUpdate({
+    installedVersion: "0.1.0",
+    platform: "win32-x64",
+    releasesUrl: "https://api.example/releases",
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return new Response(JSON.stringify([{
+        tag_name: "engine-v0.1.1",
+        assets: [{ name: "uvreader-engine-0.1.1-win32-x64.zip", browser_download_url: "https://dl/engine.zip" }],
+      }]), { status: 200, headers: { "content-type": "application/json" } });
+    },
+  });
+  assert.equal(update.available, true);
+  assert.equal(update.latest, "0.1.1");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "https://api.example/releases");
 });
 
 test("parseSha256 reads the hash out of a .sha256 file", () => {

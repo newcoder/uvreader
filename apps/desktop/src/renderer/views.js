@@ -575,11 +575,15 @@ export function createSettingsView(leaf, options) {
     engineAuto.checked = settings.engineAutoStart !== false;
     engineAutoLabel.createSpan({ text: "启动应用时自动开启书坊引擎(引擎没装就什么都不做)" });
     engineAuto.addEventListener("change", () => persist("engineAutoStart", engineAuto.checked));
+    let engineState = null;
+    let syncEngineInstallButtons = () => {};
     const renderEngineService = (state) => {
       if (!state) return;
+      engineState = state;
       engineServiceStatus.setText(String(state.detail || (state.installed ? (state.running ? "运行中" : "未运行") : "未安装")));
       engineStartBtn.disabled = state.installed !== true || state.running === true;
       engineStopBtn.disabled = state.running !== true;
+      syncEngineInstallButtons();
     };
     const refreshEngineService = async () => {
       if (!bridge?.engine?.service) return;
@@ -630,7 +634,22 @@ export function createSettingsView(leaf, options) {
     const engineInstallRow = engineCard.createDiv("qbr-workshop-row");
     const engineInstallBtn = engineInstallRow.createEl("button", { cls: "mod-cta", text: "下载并安装引擎" });
     const engineInstallLocalBtn = engineInstallRow.createEl("button", { text: "从本地包安装" });
+    const engineUpdateBtn = engineInstallRow.createEl("button", { text: "检查更新" });
     const engineInstallStatus = engineInstallRow.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "" });
+    const engineUpdateRow = engineCard.createDiv("qbr-workshop-row");
+    const engineUpdateStatus = engineUpdateRow.createSpan({ cls: "qbr-workshop-hint", text: "安装后可检查最新版本" });
+    let engineLatest = null;
+    let engineInstallBusy = false;
+    const syncInstallButtons = () => {
+      const blocked = engineInstallBusy || engineState?.running === true;
+      engineInstallBtn.disabled = blocked;
+      engineInstallLocalBtn.disabled = blocked;
+      engineUpdateBtn.disabled = engineInstallBusy;
+      const update = engineLatest?.available === true && Boolean(engineLatest?.installed);
+      engineInstallBtn.setText(update ? "下载并更新引擎" : "下载并安装引擎");
+    };
+    syncEngineInstallButtons = syncInstallButtons;
+    syncInstallButtons();
     const applyEngineInstall = (result) => {
       if (!result?.engineUrl) return;
       persist("engineUrl", result.engineUrl);
@@ -639,7 +658,13 @@ export function createSettingsView(leaf, options) {
         persist("engineToken", result.engineToken);
         engineToken.value = result.engineToken;
       }
+      engineLatest = result.version
+        ? { ok: true, installed: String(result.version), latest: String(result.version), available: false }
+        : null;
       engineInstallStatus.setText(`引擎 ${result.version || ""} 已装好并启动 ✓`);
+      engineUpdateStatus.setText(result.version ? `当前引擎 ${result.version}` : "");
+      syncInstallButtons();
+      void refreshEngineService();
       void checkEngine(true);
     };
     const watchEngineInstall = (taskId) => {
@@ -652,6 +677,8 @@ export function createSettingsView(leaf, options) {
           return;
         }
         stop?.();
+        engineInstallBusy = false;
+        syncInstallButtons();
         if (task.status === "done") applyEngineInstall(task.result);
         else if (task.status === "cancelled") engineInstallStatus.setText("安装已取消。");
         else engineInstallStatus.setText(`安装失败:${task.error || "看任务详情"}`);
@@ -659,11 +686,44 @@ export function createSettingsView(leaf, options) {
     };
     const startEngineInstall = (payload, detail) => {
       if (!bridge?.workshop?.start) return;
+      if (engineState?.running === true) {
+        engineInstallStatus.setText("引擎正在运行，请先停止引擎再更新。");
+        return;
+      }
+      engineInstallBusy = true;
+      syncInstallButtons();
       engineInstallStatus.setText("排队中…");
       void bridge.workshop.start({ kind: "engine-install", title: "安装书坊引擎", detail, payload })
         .then((taskId) => watchEngineInstall(String(taskId || "")))
-        .catch((error) => engineInstallStatus.setText(`启动失败:${String(error?.message || error)}`));
+        .catch((error) => {
+          engineInstallBusy = false;
+          syncInstallButtons();
+          engineInstallStatus.setText(`启动失败:${String(error?.message || error)}`);
+        });
     };
+    engineUpdateBtn.addEventListener("click", async () => {
+      engineLatest = null;
+      syncInstallButtons();
+      engineUpdateBtn.disabled = true;
+      engineUpdateStatus.setText("检查更新…");
+      try {
+        const result = await bridge?.engine?.checkUpdate?.();
+        engineLatest = result || null;
+        if (!result?.ok) {
+          engineUpdateStatus.setText(String(result?.detail || "暂时拿不到引擎发布信息"));
+        } else if (!result.installed) {
+          engineUpdateStatus.setText(`最新引擎 ${result.latest}；点「下载并安装引擎」`);
+        } else if (result.available) {
+          engineUpdateStatus.setText(`已安装 ${result.installed} · 可更新到 ${result.latest}${result.running ? "；先停止引擎再更新" : ""}`);
+        } else {
+          engineUpdateStatus.setText(`已是最新 ${result.installed}`);
+        }
+      } catch (error) {
+        engineUpdateStatus.setText(`检查更新失败:${String(error?.message || error)}`);
+      } finally {
+        syncInstallButtons();
+      }
+    });
     engineInstallBtn.addEventListener("click", () => startEngineInstall({ port: 8760 }, "最新版"));
     engineInstallLocalBtn.addEventListener("click", async () => {
       const file = await bridge?.engine?.pickBundle?.().catch(() => "");

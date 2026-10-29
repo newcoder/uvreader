@@ -6,7 +6,7 @@
 
 UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支持 EPUB、PDF、FB2/FBZ、MOBI/AZW/AZW3、CBZ 和单张图片（PNG/JPG/WebP/GIF/BMP），内置高亮、批注、阅读笔记和可选的 AI 助读。书籍、进度和笔记默认都在本机；日常阅读不需要账号，也不需要联网。
 
-> **当前版本**：`0.7.75`。Windows / macOS 安装包见 [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.75)。
+> **当前版本**：`0.7.76`。Windows / macOS 安装包见 [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.76)。
 >
 > **来源**：fork 自 Obsidian 插件 [qiaomu-reader](https://github.com/joeseesun/qiaomu-reader)，现在作为独立桌面应用维护；Obsidian 插件形态不再作为主线。
 >
@@ -22,6 +22,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 - **双语 / 文白 / 简繁电子书**：电子书制作新增「仅译文」、中英 / 英中段落级对照和文言文 → 现代中文的「文白对照」，可生成纯译文或原文 + 译文的上下 / 左右对照 EPUB；另支持简体 ↔ 繁体直接转换，不生成对照、不调用 AI。EPUB 的简繁转换和翻译都会保留原排版、目录、图片和换行，只转换或插入文字。翻译可先「试译开头」预览前两章，不写入书库；AI 翻译支持取消后继续，窄屏和部分阅读器会自动回退为上下布局。
 - **AI 整理标签**：书库「标签」下新增 AI 整理入口。先确认可用标签（可新增），再选择全部书库或当前筛选，一键让 AI 在标签范围内归类；只发送书名、作者、简介和已有标签，不读取正文，每本一次请求，写入后可以撤销。自动结果可继续用原有标签编辑器手动调整。
 - **电子书目录与封面选项**：目录标题留空时按书籍语言自动使用「目录 / Contents / Inhalt / 目錄」等，也可自定义；目录层级可选全部、前 2 级或 1 级。指定图片封面可选择完整显示或铺满页面。适用于按文本重建的书稿；直接翻译或简繁转换 EPUB 仍保留原目录和封面。
+- **书坊引擎更新检查**：设置 → 书坊 → 书坊引擎新增「检查更新」，会显示已安装版本和最新引擎版本；运行中的引擎需要先停止，再更新到新版本。
 - **装载性能**：书库改为按需读取文件元数据，并在同一轮渲染中复用文件清单；答题页列表只读取 manifest 前缀并缓存结果。大书库和大量答题页的打开、刷新明显更快。
 
 [功能总览](#功能总览) · [下载与安装](#下载与安装) · [常见问题](#常见问题) · [从源码运行](#从源码运行)
@@ -114,7 +115,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 #### 任务与外部组件
 
 - 统一的运行队列：进度、取消、重试、产物打开、失败信息。
-- 可选本地引擎：pdf_tool / MinerU / DocVortex / Calibre；设置页提供探测、路径配置和启动状态。
+- 可选本地引擎：pdf_tool / MinerU / DocVortex / Calibre；设置页提供探测、路径配置、启动状态和引擎版本更新检查。
 - 外部工具缺失时只影响对应功能，不影响阅读和已有书籍。
 
 ### AI（可选）
@@ -136,7 +137,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 
 ## 下载与安装
 
-- 安装包：[GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.75)。
+- 安装包：[GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.76)。
 - Windows：`UV-Reader-<版本>-setup.exe` 安装版，或 `UV-Reader-<版本>-portable.exe` 免安装版。
 - macOS：按 Releases 页面提供的 `UV-Reader-<版本>-<架构>.dmg` 安装。
 - 首次启动不需要账号；AI、OCR 和文档转换组件都是可选的，不配置也能正常阅读和做笔记。
@@ -253,7 +254,7 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 
 [Features](#features) · [Download](#download) · [FAQ](#faq) · [Build](#build)
 
-**Status:** `0.7.75`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.75). Read the [Disclaimer](DISCLAIMER.md) before use.
+**Status:** `0.7.76`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.76). Read the [Disclaimer](DISCLAIMER.md) before use.
 
 ## Recent updates (Oct 2026)
 
@@ -265,6 +266,7 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 - **Bilingual / literary-Chinese / script-conversion ebooks:** ebook creation supports translation-only, paragraph-level Chinese↔English source/translation editions, German→Chinese editions, and classical-Chinese → modern-Chinese editions in stacked or side-by-side layouts; the source language is detected automatically (Chinese / English / German), the target language can be English / Simplified Chinese / German, an optional glossary (`source=target` per line) keeps names and terms consistent; an optional line-alignment mode keeps poetry and short lines one-to-one; literary Chinese is a manual checkbox. Chinese Simplified↔Traditional conversion replaces the text directly, with no pairs and no AI call (use the dedicated conversion action, not the translation target); for EPUB sources both conversion and translation keep the original layout, TOC, images and line breaks, with translations inserted in place. A two-chapter sample preview opens automatically when ready and can be checked before generating the full book; it never enters the library. Default titles get suffixes such as `（English）`, `（中文）`, `（中英对照）`, `（中德对照）`, `（文白对照）`, `（简体）` or `（繁體）`; AI translation is resumable and narrow readers fall back to stacked pairs.
 - **AI library tagging:** confirm the allowed tags (and add new ones) under the library's Tags section, then tag all books or only the current filter in one pass. Only titles, authors, descriptions and existing tags are sent; book contents are not read. One request per book; the batch can be undone and individual tags stay editable.
 - **Ebook TOC and cover options:** the TOC title defaults to the book language (`Contents`, `Inhalt`, `目錄`, etc.) and can be overridden; TOC depth can keep all levels, two levels or one. Image covers can be contained or fill the page. These apply to rebuilt sources; direct EPUB translation and script conversion keep the original TOC and cover.
+- **Workshop engine updates:** Settings → Workshop → Workshop engine now has Check for updates, showing the installed and latest engine versions. Stop a running engine before updating it.
 - **Faster loading:** the library reads file metadata on demand and reuses one inventory per render; the answer-page list reads only the manifest prefix and caches results.
 
 ## Features
@@ -279,7 +281,7 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 
 ## Download
 
-Installers are available on [GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.75). Windows builds include `UV-Reader-<version>-setup.exe` and `UV-Reader-<version>-portable.exe`; macOS builds provide `UV-Reader-<version>-<arch>.dmg`. No account is required on first launch, and AI, OCR and document-conversion components are optional.
+Installers are available on [GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.76). Windows builds include `UV-Reader-<version>-setup.exe` and `UV-Reader-<version>-portable.exe`; macOS builds provide `UV-Reader-<version>-<arch>.dmg`. No account is required on first launch, and AI, OCR and document-conversion components are optional.
 
 ## FAQ
 

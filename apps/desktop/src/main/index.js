@@ -7,7 +7,7 @@ import { BOOK_EXTENSIONS, isBookFile } from "../shared/books.js";
 import { WORKSHOP_PICK_EXTENSIONS } from "../shared/workshop-formats.js";
 import { createAiRuntime } from "./ai-runtime.js";
 import { createEngineClient, describeEngineHealth } from "./engine-client.js";
-import { createEngineInstaller, registerEngineComponentRunner, registerEngineInstallRunner } from "./engine-install.js";
+import { checkEngineUpdate, createEngineInstaller, registerEngineComponentRunner, registerEngineInstallRunner } from "./engine-install.js";
 import { createEngineService, portFromUrl } from "./engine-service.js";
 import { syncLocalMineru } from "./engine-wiring.js";
 import { createCalibre } from "./calibre.js";
@@ -621,6 +621,11 @@ ipcMain.handle("qbr:engine:save-config", (_event, payload = {}) => engineClient.
 ipcMain.handle("qbr:engine:jobs", (_event, payload = {}) => engineClient.jobs(payload?.settings || {}, payload?.limit || 20));
 // 引擎进程:状态 / 启动 / 停止 / 应用启动时自动开启(只动应用自己起的那个)。
 ipcMain.handle("qbr:engine:service", () => engineService.status());
+ipcMain.handle("qbr:engine:check-update", async () => {
+  const status = await engineService.status();
+  const update = await checkEngineUpdate({ installedVersion: status?.version || "" });
+  return { ...update, installed: status?.version || "", running: status?.running === true };
+});
 ipcMain.handle("qbr:engine:start", (_event, payload = {}) => {
   const port = Math.min(65535, Math.max(1, Number(payload?.port) || portFromUrl(payload?.engineUrl)));
   return engineService.start({ port });

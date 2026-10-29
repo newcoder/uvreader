@@ -6,7 +6,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 
 import { removeTree } from "./paths.js";
-import { writePid } from "./engine-service.js";
+import { compareVersions, writePid } from "./engine-service.js";
 
 export const ENGINE_RELEASES_API = "https://api.github.com/repos/newcoder/uvreader/releases?per_page=30";
 
@@ -37,6 +37,36 @@ export function pickEngineAsset(releases, platform) {
   if (!candidates.length) return null;
   const wanted = engineAssetName(candidates[0].version, platform);
   return candidates.find((item) => item.name === wanted) || candidates[0];
+}
+
+// Compare the installed engine with the newest published bundle without
+// downloading anything. The UI can decide between "install" and "update".
+export function engineUpdateState(releases, platform, installedVersion = "") {
+  const latest = pickEngineAsset(releases, platform);
+  const installed = String(installedVersion || "");
+  if (!latest) return { ok: false, installed, latest: "", available: false, detail: "还没有可用的引擎发布" };
+  return {
+    ok: true,
+    installed,
+    latest: latest.version,
+    available: !installed || compareVersions(latest.version, installed) > 0,
+    assetName: latest.name,
+    detail: installed ? `已安装 ${installed} · 最新 ${latest.version}` : `最新 ${latest.version}`,
+  };
+}
+
+export async function checkEngineUpdate({
+  installedVersion = "",
+  platform = enginePlatform(),
+  releasesUrl = ENGINE_RELEASES_API,
+  fetchImpl = (...args) => fetch(...args),
+} = {}) {
+  const response = await fetchImpl(releasesUrl, {
+    headers: { Accept: "application/vnd.github+json", "User-Agent": "uvreader-engine-install" },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response?.ok) throw new Error(`查询发布列表失败:HTTP ${response?.status || "?"}`);
+  return engineUpdateState(await response.json(), platform, installedVersion);
 }
 
 export function sha256File(filePath) {
