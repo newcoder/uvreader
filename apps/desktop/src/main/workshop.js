@@ -7,6 +7,9 @@ import path from "node:path";
 export const WORKSHOP_HISTORY_LIMIT = 20;
 
 const TERMINAL = new Set(["done", "failed", "cancelled"]);
+// Preview tasks are an in-memory confirmation surface; their HTML result is
+// deliberately not persisted (it can be large and is meaningless next launch).
+const EPHEMERAL_KINDS = new Set(["book-preview"]);
 const SILENT_KINDS = new Set([
   "probe",
   "docvortex-probe",
@@ -72,7 +75,9 @@ export function createWorkshopQueue({ file = "", onState = () => {}, onFinished 
   function persist() {
     if (!file) return;
     try {
-      const history = tasks.filter((task) => TERMINAL.has(task.status)).slice(0, WORKSHOP_HISTORY_LIMIT);
+      const history = tasks
+        .filter((task) => TERMINAL.has(task.status) && !EPHEMERAL_KINDS.has(task.kind))
+        .slice(0, WORKSHOP_HISTORY_LIMIT);
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, tasks: history.map(publicTask) }, null, 2));
     } catch (error) {

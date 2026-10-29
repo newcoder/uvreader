@@ -154,6 +154,23 @@ test("direct EPUB bilingual translation keeps the original chapter files and lin
   const translatedOpf = await translatedZip.file("OEBPS/content.opf").async("string");
   assert.match(translatedOpf, /<dc:title>漢語詩（English）<\/dc:title>/);
   assert.match(translatedOpf, /<dc:language>en<\/dc:language>/);
+
+  const preview = await waitForTask(queue, queue.start({
+    kind: "book-preview",
+    title: "试译开头",
+    payload: {
+      source,
+      title: "",
+      translation: base.translation,
+    },
+  }));
+  assert.equal(preview.status, "done", preview.error);
+  assert.equal(preview.output, "", "preview is ephemeral and does not create a book file");
+  assert.match(preview.result.previewHtml, /<p>第五章<\/p>/);
+  assert.match(preview.result.previewHtml, /class="qbr-epub-translation"/);
+  assert.ok(!preview.result.previewHtml.includes('class="qbr-epub-title-translation"'));
+  assert.match(preview.detail, /试译 · 中文 → English/);
+  assert.equal(preview.result.previewFiles, 2);
 });
 
 test("the book-build runner turns a txt into a readable EPUB", async () => {

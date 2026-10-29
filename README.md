@@ -6,7 +6,7 @@
 
 UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支持 EPUB、PDF、FB2/FBZ、MOBI/AZW/AZW3、CBZ 和单张图片（PNG/JPG/WebP/GIF/BMP），内置高亮、批注、阅读笔记和可选的 AI 助读。书籍、进度和笔记默认都在本机；日常阅读不需要账号，也不需要联网。
 
-> **当前版本**：`0.7.67`。Windows / macOS 安装包见 [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.67)。
+> **当前版本**：`0.7.68`。Windows / macOS 安装包见 [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.68)。
 >
 > **来源**：fork 自 Obsidian 插件 [qiaomu-reader](https://github.com/joeseesun/qiaomu-reader)，现在作为独立桌面应用维护；Obsidian 插件形态不再作为主线。
 >
@@ -19,7 +19,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 - **印刷目录 → 可跳转导航**：EPUB / AZW3 可以从书前印刷目录页提取条目并匹配正文，生成结果支持预览、应用和撤销。EPUB 可以直接另存一份带 EPUB 3 `nav` 和 `NCX` 的副本；AZW3 会通过 Calibre 转换成带导航的 AZW3 副本，原书保持不变，方便其它阅读器识别目录。
 - **答题页中心**：「悦空间 → 答题页」集中查看答题页，显示题目数、来源、作答状态、得分和草稿；支持已作答 / 未作答筛选，点击直接作答。交卷后仍可继续使用 AI 伴学。
 - **单张图片阅读**：PNG / JPG / WebP / GIF / BMP 可以直接作为一本书打开，整页显示，支持适配宽度、滚轮缩放和拖拽平移。
-- **双语 / 文白 / 简繁电子书**：电子书制作新增「仅译文」、中英 / 英中段落级对照和文言文 → 现代中文的「文白对照」，可生成纯译文或原文 + 译文的上下 / 左右对照 EPUB；另支持简体 ↔ 繁体直接转换，不生成对照、不调用 AI。EPUB 的简繁转换和翻译都会保留原排版、目录、图片和换行，只转换或插入文字。AI 翻译支持取消后继续，窄屏和部分阅读器会自动回退为上下布局。
+- **双语 / 文白 / 简繁电子书**：电子书制作新增「仅译文」、中英 / 英中段落级对照和文言文 → 现代中文的「文白对照」，可生成纯译文或原文 + 译文的上下 / 左右对照 EPUB；另支持简体 ↔ 繁体直接转换，不生成对照、不调用 AI。EPUB 的简繁转换和翻译都会保留原排版、目录、图片和换行，只转换或插入文字。翻译可先「试译开头」预览前两章，不写入书库；AI 翻译支持取消后继续，窄屏和部分阅读器会自动回退为上下布局。
 - **装载性能**：书库改为按需读取文件元数据，并在同一轮渲染中复用文件清单；答题页列表只读取 manifest 前缀并缓存结果。大书库和大量答题页的打开、刷新明显更快。
 
 [功能总览](#功能总览) · [下载与安装](#下载与安装) · [常见问题](#常见问题) · [从源码运行](#从源码运行)
@@ -98,7 +98,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 - 「选择书稿」只列书库中的 EPUB / PDF / 图片；txt、Markdown、Office 等书库外文件用「打开本地文件…」选择。
 - 自动提取 / 分章，编辑章节标题、合并 / 拆分 / 排序，设置元数据、封面、目录和基础排版样式。
 - EPUB 3 输出（nav + NCX），公式转 MathML，图片嵌入，生成后可直接在 UV Reader 打开。
-- **翻译与对照**：支持中文 ↔ English、Deutsch → 中文以及文言文 → 现代中文的段落级翻译，可只输出译文，或生成原文 + 译文的上下 / 左右对照 EPUB。原文语言自动识别（中文 / English / Deutsch），只有「是否文言文」需要手动勾选；翻译走 AI，可取消后继续，左右布局在窄屏自动回退为上下；EPUB 会保留原排版、目录和换行，只插入译文。默认书名会自动加「（English）」「（中文）」「（中英对照）」「（中德对照）」「（文白对照）」「（简体）」「（繁體）」等后缀；翻译模式需要先在「设置 → AI 助读」配置模型，简繁转换只支持中文书稿且不需要 AI。EPUB 直接转换保留原书结构、目录、图片和换行，且不应用本次封面/排版设置；其它格式仍按文本重建。
+- **翻译与对照**：支持中文 ↔ English、Deutsch → 中文以及文言文 → 现代中文的段落级翻译，可只输出译文，或生成原文 + 译文的上下 / 左右对照 EPUB。原文语言自动识别（中文 / English / Deutsch），只有「是否文言文」需要手动勾选；翻译走 AI，可取消后继续，左右布局在窄屏自动回退为上下；EPUB 会保留原排版、目录和换行，只插入译文。可先「试译开头」预览前两章，确认格式后再生成全书，试译不会写入书库。默认书名会自动加「（English）」「（中文）」「（中英对照）」「（中德对照）」「（文白对照）」「（简体）」「（繁體）」等后缀；翻译模式需要先在「设置 → AI 助读」配置模型，简繁转换只支持中文书稿且不需要 AI。EPUB 直接转换保留原书结构、目录、图片和换行，且不应用本次封面/排版设置；其它格式仍按文本重建。
 - 通过 Calibre 可继续转换为 AZW3 / MOBI；图片可以打包成 CBZ 或 EPUB。
 - 支持多本书批量制作。
 
@@ -132,7 +132,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 
 ## 下载与安装
 
-- 安装包：[GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.67)。
+- 安装包：[GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.68)。
 - Windows：`UV-Reader-<版本>-setup.exe` 安装版，或 `UV-Reader-<版本>-portable.exe` 免安装版。
 - macOS：按 Releases 页面提供的 `UV-Reader-<版本>-<架构>.dmg` 安装。
 - 首次启动不需要账号；AI、OCR 和文档转换组件都是可选的，不配置也能正常阅读和做笔记。
@@ -249,7 +249,7 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 
 [Features](#features) · [Download](#download) · [FAQ](#faq) · [Build](#build)
 
-**Status:** `0.7.67`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.67). Read the [Disclaimer](DISCLAIMER.md) before use.
+**Status:** `0.7.68`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.68). Read the [Disclaimer](DISCLAIMER.md) before use.
 
 ## Recent updates (Oct 2026)
 
@@ -258,7 +258,7 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 - **Printed contents → navigation:** EPUB and AZW3 can build clickable TOC entries from the book's printed contents page, with preview, apply and undo. EPUB can save a new copy with EPUB 3 `nav` and `NCX`; AZW3 is converted through Calibre into a new AZW3 copy with navigation. The original stays untouched.
 - **Answer-page hub:** Reading Space → Answer pages lists generated pages with question count, source, answered state, scores and drafts, with answered/unanswered filters and direct opening. The AI study companion remains available after submission.
 - **Standalone images:** PNG/JPG/WebP/GIF/BMP files open as a full-page reader with fit-width, wheel zoom and drag-to-pan.
-- **Bilingual / literary-Chinese / script-conversion ebooks:** ebook creation supports translation-only, paragraph-level Chinese↔English source/translation editions, German→Chinese editions, and classical-Chinese → modern-Chinese editions in stacked or side-by-side layouts; the source language is detected automatically (Chinese / English / German), while literary Chinese is a manual checkbox. Chinese Simplified↔Traditional conversion replaces the text directly, with no pairs and no AI call; for EPUB sources both conversion and translation keep the original layout, TOC, images and line breaks, with translations inserted in place. Default titles get suffixes such as `（English）`, `（中文）`, `（中英对照）`, `（中德对照）`, `（文白对照）`, `（简体）` or `（繁體）`; AI translation is resumable and narrow readers fall back to stacked pairs.
+- **Bilingual / literary-Chinese / script-conversion ebooks:** ebook creation supports translation-only, paragraph-level Chinese↔English source/translation editions, German→Chinese editions, and classical-Chinese → modern-Chinese editions in stacked or side-by-side layouts; the source language is detected automatically (Chinese / English / German), while literary Chinese is a manual checkbox. Chinese Simplified↔Traditional conversion replaces the text directly, with no pairs and no AI call; for EPUB sources both conversion and translation keep the original layout, TOC, images and line breaks, with translations inserted in place. A two-chapter sample preview can be checked before generating the full book; it never enters the library. Default titles get suffixes such as `（English）`, `（中文）`, `（中英对照）`, `（中德对照）`, `（文白对照）`, `（简体）` or `（繁體）`; AI translation is resumable and narrow readers fall back to stacked pairs.
 - **Faster loading:** the library reads file metadata on demand and reuses one inventory per render; the answer-page list reads only the manifest prefix and caches results.
 
 ## Features
@@ -267,13 +267,13 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 - **Annotations and notes:** multi-colour highlights, inline comments, cross-page selection, pinyin annotations pinned to the text, selection translation (copy it or save it to the reading note), word hints, AI explain/ask, bookmarks; one Markdown reading note per book with chapter-grouped excerpts and links back to the source; book notes and highlight export. Deleting a book also removes its highlights, pinyin pins, bookmarks, drafts and conversations; reading notes are kept.
 - **Library:** local import, covers and metadata editing, tags, recent books, progress, search and file associations; generated ebooks are added automatically, and returning to the library refreshes the list. Configurable online book search can query sources such as Project Gutenberg and Standard Ebooks, preview available versions and download them into the library; verify the source's rights before using downloaded content (see the [Disclaimer](DISCLAIMER.md)).
 - **Answer pages:** a Reading Space list of standalone interactive HTML papers with question count, source, answered state, scores and drafts; open directly, filter by answered state, and continue with the AI study companion after submission.
-- **Workshop:** OCR/text layers for scanned PDFs; DocVortex format conversion (Office/ODF/PDF/EPUB/HTML/OFD/Markdown/text → Markdown/HTML/LaTeX/DOCX/PDF, EPUB → Markdown, images → PDF); content extraction to Markdown/HTML/JSON/assets (extracted HTML renders LaTeX as offline MathML); question-bank extraction; EPUB creation from PDF/Office/text/Markdown/images with chapters, metadata, covers and TOC (the source picker lists only library EPUB/PDF/image books; other formats use the local-file picker); translation-only, Chinese↔English, German→Chinese, or classical-Chinese→modern-Chinese editions with paragraph-level stacked or side-by-side source/translation blocks (AI model required), plus direct Simplified↔Traditional Chinese conversion without pairs or AI; EPUB sources keep their original layout and TOC for both translation and conversion; AZW3/MOBI via Calibre; image → CBZ/EPUB; AI answer-page generation with direct in-app answering.
+- **Workshop:** OCR/text layers for scanned PDFs; DocVortex format conversion (Office/ODF/PDF/EPUB/HTML/OFD/Markdown/text → Markdown/HTML/LaTeX/DOCX/PDF, EPUB → Markdown, images → PDF); content extraction to Markdown/HTML/JSON/assets (extracted HTML renders LaTeX as offline MathML); question-bank extraction; EPUB creation from PDF/Office/text/Markdown/images with chapters, metadata, covers and TOC (the source picker lists only library EPUB/PDF/image books; other formats use the local-file picker); translation-only, Chinese↔English, German→Chinese, or classical-Chinese→modern-Chinese editions with paragraph-level stacked or side-by-side source/translation blocks (AI model required), plus direct Simplified↔Traditional Chinese conversion without pairs or AI; EPUB sources keep their original layout and TOC for both translation and conversion, with a two-chapter preview before full translation; AZW3/MOBI via Calibre; image → CBZ/EPUB; AI answer-page generation with direct in-app answering.
 - **AI (optional):** OpenAI-compatible cloud providers or local endpoints (Ollama, llama.cpp, LM Studio); AI companion conversations remember the book location with a clickable chip back to the passage and support full-page or region screenshots; explanations, summaries, translation, custom prompts; AI metadata/cover copy/chapter suggestions/cleanup; bilingual ebook translation; document tools for ebook creation, translation, bilingual/side-by-side, literary-to-modern Chinese, and script conversion; AI answer-page generation. All local reading, annotation and conversion features work without AI.
 - **Local-first:** no account, no mandatory cloud library; keys use OS credential storage; network is used only for explicitly enabled AI, translation, or cloud OCR.
 
 ## Download
 
-Installers are available on [GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.67). Windows builds include `UV-Reader-<version>-setup.exe` and `UV-Reader-<version>-portable.exe`; macOS builds provide `UV-Reader-<version>-<arch>.dmg`. No account is required on first launch, and AI, OCR and document-conversion components are optional.
+Installers are available on [GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.68). Windows builds include `UV-Reader-<version>-setup.exe` and `UV-Reader-<version>-portable.exe`; macOS builds provide `UV-Reader-<version>-<arch>.dmg`. No account is required on first launch, and AI, OCR and document-conversion components are optional.
 
 ## FAQ
 

@@ -203,6 +203,8 @@ export async function translateEpub({
   customTitle = "",
   config = null,
   workRoot = "",
+  preview = false,
+  previewFiles = 2,
   signal = null,
   report = () => {},
   log = () => {},
@@ -258,12 +260,17 @@ export async function translateEpub({
   }
   const pair = translationLanguagePair(directionId);
   const suffix = customTitle ? "" : translationOutputSuffix({ mode, direction: directionId });
-  if (!out) out = outputPath(suffix);
-  if (path.resolve(out) === path.resolve(source)) {
-    throw new Error("输出路径不能覆盖原 EPUB，请换一个文件名");
+  if (!preview) {
+    if (!out) out = outputPath(suffix);
+    if (path.resolve(out) === path.resolve(source)) {
+      throw new Error("输出路径不能覆盖原 EPUB，请换一个文件名");
+    }
   }
+  const selectedFiles = preview
+    ? files.slice(0, Math.max(1, Math.min(5, Number(previewFiles) || 2)))
+    : files;
 
-  const chapters = files.map((file) => {
+  const chapters = selectedFiles.map((file) => {
     file.blocks = file.blocks.filter((block) => shouldTranslate(block.text, pair));
     return {
       title: "",
@@ -288,7 +295,7 @@ export async function translateEpub({
   });
   if (signal?.aborted) throw new Error("任务已取消");
 
-  for (const [fileIndex, file] of files.entries()) {
+  for (const [fileIndex, file] of selectedFiles.entries()) {
     const translatedBlocks = translated.chapters[fileIndex]?.blocks || [];
     if (translatedBlocks.length !== file.blocks.length) {
       throw new Error("译文段落数与原文不一致，请重试");
@@ -303,6 +310,36 @@ export async function translateEpub({
     ? customTitle
     : appendTranslationSuffix(sourceTitle(opf, sourceBase), suffix);
   const targetLanguage = mode === "translated" ? pair.target : sourceLanguage(opf, pair.source);
+  const spineCount = (opf.match(/<itemref\b/gi) || []).length;
+
+  if (preview) {
+    const css = (await Promise.all(
+      names.filter((name) => /\.css$/i.test(name)).map((name) => zip.file(name).async("string")),
+    )).join("\n");
+    const body = selectedFiles.map((file) => {
+      const injected = injectTranslations(file.html, file.blocks, mode, pair.target);
+      const bodyMatch = /<body\b[^>]*>([\s\S]*?)<\/body>/i.exec(injected);
+      return bodyMatch?.[1] || injected;
+    }).join("\n<hr/>\n");
+    const previewHtml = `<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"/>
+<style>${css}
+${BILINGUAL_CSS}
+body { padding: 1.2em; }
+</style></head><body>${body}</body></html>`;
+    log("[epub-translate] preview", { direction: pair.id, mode, files: selectedFiles.length, blocks: translated.stats.translatedBlocks });
+    return {
+      output: "",
+      previewHtml,
+      title,
+      pair,
+      spineCount,
+      previewFiles: selectedFiles.length,
+      chapters: translated.chapters,
+      stats: translated.stats,
+    };
+  }
+
   const outputZip = new JSZip();
   const mimetype = zip.file("mimetype");
   if (!mimetype) throw new Error("EPUB 缺少 mimetype，无法保留原格式翻译");
@@ -343,7 +380,6 @@ export async function translateEpub({
   const temp = `${out}.tmp`;
   fs.writeFileSync(temp, data);
   fs.renameSync(temp, out);
-  const spineCount = (opf.match(/<itemref\b/gi) || []).length;
   log("[epub-translate]", { direction: pair.id, mode, blocks: translated.stats.translatedBlocks });
   return {
     output: out,

@@ -1,4 +1,4 @@
-import { ItemView, Notice, setIcon } from "obsidian";
+import { ItemView, Modal, Notice, setIcon } from "obsidian";
 
 import { iconResolver } from "./icons.js";
 import { CONVERT_FORMATS, DOCVORTEX_INPUTS, EBOOK_TARGETS, IMAGE_BOOK_TARGETS, docvortexFormatExt } from "../shared/workshop-formats.js";
@@ -1717,6 +1717,12 @@ export function createWorkshopView(leaf, options) {
       this._bookTranslateClassical = classicalRow.createEl("input", { attr: { type: "checkbox" } });
       classicalRow.createSpan({ text: "原文为文言文（仅中文原文，生成文白对照）" });
       this._bookTranslateHint = translationStep.createDiv("qbr-workshop-hint");
+      const previewRow = translationStep.createDiv("qbr-workshop-row");
+      this._bookPreviewRow = previewRow;
+      this._bookPreviewButton = previewRow.createEl("button", { text: "试译开头" });
+      this._bookPreviewButton.addEventListener("click", () => void this.startBookPreview());
+      previewRow.createSpan({ cls: "qbr-workshop-hint", text: "只翻译前两章，不写入书库；确认排版后再生成全书。" });
+      this._bookPreviewRow.hidden = true;
       this._bookTranslateMode.addEventListener("change", () => {
         this.syncBookTranslationMode();
         this.onBookStyleChange();
@@ -2048,12 +2054,91 @@ export function createWorkshopView(leaf, options) {
       };
     }
 
+    bookSourceExtension() {
+      const source = String(this._bookSources?.[0] || "");
+      return (source.match(/\.([^./\\]+)$/)?.[1] || "").toLowerCase();
+    }
+
+    syncBookPreviewRow() {
+      const mode = String(this._bookTranslateMode?.value || "none");
+      const show = Boolean(this._bookPreviewRow)
+        && mode !== "none"
+        && mode !== "script"
+        && this.bookSourceExtension() === "epub";
+      if (this._bookPreviewRow) this._bookPreviewRow.hidden = !show;
+    }
+
+    async startBookPreview() {
+      if (!bridge) return;
+      const rel = String(this._bookSources?.[0] || "");
+      if (!rel) {
+        new Notice("请先选择书稿");
+        return;
+      }
+      if (!/\.epub$/i.test(rel)) {
+        new Notice("试译预览目前只支持 EPUB 书稿");
+        return;
+      }
+      const translation = this.bookTranslationState();
+      if (!["translated", "stacked", "side"].includes(translation.mode)) {
+        new Notice("请选择翻译或对照方式");
+        return;
+      }
+      const config = this.aiReadyConfig();
+      if (!config) {
+        new Notice("试译需要先配置 AI：设置 → AI 助读");
+        return;
+      }
+      const state = this.bookStyleState();
+      void bridge.start({
+        kind: "book-preview",
+        title: "试译开头",
+        detail: `${rel} · 前两章 · ${translation.mode === "translated" ? "仅译文" : translation.mode === "side" ? "左右对照" : "上下对照"}`,
+        payload: {
+          source: rel,
+          title: state.title,
+          translation: {
+            mode: translation.mode,
+            classical: translation.classical,
+            config,
+          },
+        },
+      }).catch((error) => new Notice(String(error?.message || error)));
+    }
+
+    openBookPreview(result = {}) {
+      const html = String(result.previewHtml || "");
+      if (!html) return;
+      const modal = new (class extends Modal {
+        onOpen() {
+          this.titleEl?.setText("试译预览");
+          this.contentEl.addClass("qbr-book-preview-modal");
+          const caption = [result.title, result.pair?.sourceLabel && result.pair?.targetLabel
+            ? `${result.pair.sourceLabel} → ${result.pair.targetLabel}`
+            : ""].filter(Boolean).join(" · ");
+          if (caption) this.contentEl.createDiv({ cls: "qbr-workshop-hint", text: caption });
+          const frame = this.contentEl.createEl("iframe", { attr: { title: "试译预览", sandbox: "" } });
+          frame.srcdoc = html;
+          frame.style.width = "100%";
+          frame.style.height = "70vh";
+          frame.style.border = "0";
+          frame.style.background = "var(--background-primary)";
+        }
+
+        onClose() {
+          this.contentEl.empty();
+        }
+      })(app);
+      modal.open();
+    }
+
     syncBookTranslationMode() {
       const mode = String(this._bookTranslateMode?.value || "none");
       const disabled = mode === "none";
       const script = mode === "script";
       if (this._bookTranslateClassical) this._bookTranslateClassical.disabled = disabled || script;
       if (this._bookScriptRow) this._bookScriptRow.hidden = !script;
+      this.syncBookPreviewRow();
       if (this._bookTranslateHint) {
         this._bookTranslateHint.setText(mode === "none"
           ? "不翻译时保留原始书稿；需要双语文档或简繁转换时再开启。"
@@ -2583,6 +2668,7 @@ export function createWorkshopView(leaf, options) {
       const sources = this._bookSources || [];
       if (!sources.length) {
         host.createSpan({ cls: "qbr-workshop-hint", text: "未选择书稿" });
+        this.syncBookPreviewRow();
         return;
       }
       for (const source of sources) {
@@ -2591,6 +2677,7 @@ export function createWorkshopView(leaf, options) {
         const remove = chip.createEl("button", { cls: "qbr-workshop-chip-x", text: "✕" });
         remove.addEventListener("click", () => this.removeBookSource(source));
       }
+      this.syncBookPreviewRow();
     }
 
     async pickLocalBookSources() {
@@ -3183,6 +3270,10 @@ export function createWorkshopView(leaf, options) {
       if (task.status === "failed" || task.status === "cancelled") {
         const retry = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "重试" });
         retry.addEventListener("click", () => { void bridge?.retry?.(task.id).catch(() => {}); });
+      }
+      if (task.kind === "book-preview" && task.status === "done" && task.result?.previewHtml) {
+        const preview = actions.createEl("button", { cls: "qbr-workshop-task-btn mod-cta", text: "查看试译" });
+        preview.addEventListener("click", () => this.openBookPreview(task.result));
       }
       if (task.status === "done" && /[\\/]/.test(String(task.output || ""))) {
         const libraryOutput = this._bookLibraryOutputs?.get(task.id) || "";

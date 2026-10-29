@@ -736,4 +736,49 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       detail: `EPUB · ${result.chapters} 章 · ${Math.round(result.bytes / 1024)} KB${fonts.length ? ` · ${fonts.length} 款字体` : ""}${images.length ? ` · ${images.length} 图` : ""}${formulaCount ? ` · ${formulaCount} 公式` : ""}${translatedDetail}${scriptDetail}${tocStrip.dropped ? ` · 去印刷目录 ${tocStrip.dropped} 章` : ""}${navItems ? ` · 目录${navSource === "outline" ? "来自 PDF 大纲" : navSource === "upstream" ? "来自上游" : navSource === "printed" ? "来自印刷目录" : "来自正文标题"} ${navItems.length} 条${navDropped ? `(丢弃 ${navDropped})` : ""}` : ""}${normalized.dropped ? ` · 去重复页眉 ${normalized.dropped} 章` : ""}${unrendered ? ` · 未渲染 ${unrendered}` : ""}`,
     };
   });
+
+  // A small, ephemeral translation sample. It uses the same cache directory as
+  // the full book so confirming the preview does not pay for those chunks again.
+  workshop.register("book-preview", async ({ payload, report, signal }) => {
+    const source = absolute(payload?.source);
+    if (!source || !fs.existsSync(source)) throw new Error(`源文件不存在：${source}`);
+    if (!/\.epub$/i.test(source)) throw new Error("试译预览目前只支持 EPUB 书稿");
+    if (!translator) throw new Error("试译预览需要桌面 AI 运行时");
+    const translation = payload?.translation || {};
+    const mode = String(translation.mode || "stacked");
+    if (!["stacked", "side", "translated"].includes(mode)) {
+      throw new Error("试译预览只支持逐段翻译或双语对照");
+    }
+    const stat = fs.statSync(source);
+    const key = crypto.createHash("sha1").update(`${source}\n${stat.size}\n${stat.mtimeMs}`).digest("hex").slice(0, 8);
+    const workRoot = path.join(cacheRoot, "work", `${path.basename(source).replace(/[^\w.-]+/g, "_").slice(0, 40)}-${key}`);
+    report({ label: "准备试译" });
+    const result = await translateEpub({
+      source,
+      out: "",
+      outputPath: () => "",
+      translator,
+      mode,
+      direction: translation.direction || "auto",
+      classical: translation.classical === true,
+      customTitle: String(payload?.title || "").trim(),
+      config: translation.config || null,
+      workRoot,
+      preview: true,
+      previewFiles: 2,
+      signal,
+      report,
+      log,
+    });
+    return {
+      result: {
+        previewHtml: result.previewHtml,
+        title: result.title,
+        pair: result.pair,
+        previewFiles: result.previewFiles,
+        stats: result.stats,
+      },
+      detail: `试译 · ${result.pair.sourceLabel} → ${result.pair.targetLabel} · ${result.stats.translatedBlocks} 段`,
+    };
+  });
 }
