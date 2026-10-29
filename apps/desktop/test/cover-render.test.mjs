@@ -106,9 +106,10 @@ test("markdown auto covers use the first local image", () => {
 
 test("resolveCover picks image, auto and template sources", async () => {
   const loadImage = async (file) => ({ data: Buffer.from(`img:${file}`), mediaType: "image/jpeg" });
-  const image = await resolveCover({ payload: { cover: { mode: "image", imagePath: "D:/covers/a.png" } }, loadImage });
+  const image = await resolveCover({ payload: { cover: { mode: "image", imagePath: "D:/covers/a.png", fit: "cover" } }, loadImage });
   assert.equal(image.data.toString(), "img:D:/covers/a.png");
   assert.equal(image.mediaType, "image/jpeg");
+  assert.equal(image.fit, "cover");
 
   const auto = await resolveCover({
     payload: { cover: { mode: "auto" } },
@@ -117,6 +118,7 @@ test("resolveCover picks image, auto and template sources", async () => {
     loadImage,
   });
   assert.match(auto.data.toString(), /one\.png$/);
+  assert.equal(auto.fit, "contain");
 
   const rendered = [];
   const template = await resolveCover({

@@ -91,6 +91,36 @@ function navTree(chapters) {
   return roots;
 }
 
+const NAV_TITLES = Object.freeze({
+  zh: "目录",
+  en: "Contents",
+  de: "Inhalt",
+  fr: "Table des matières",
+  es: "Índice",
+  pt: "Sumário",
+  ru: "Содержание",
+  ja: "目次",
+  ko: "목차",
+});
+
+export function defaultNavTitle(language = "") {
+  const normalized = String(language || "").toLowerCase();
+  if (/hant|tw|hk/.test(normalized)) return "目錄";
+  const id = normalized.split(/[-_]/)[0];
+  return NAV_TITLES[id] || NAV_TITLES.zh;
+}
+
+// A reader-facing TOC can be shallower than the source outline. Keep only the
+// requested levels; if that would remove every entry, keep the original list
+// rather than ship a book with an empty TOC.
+export function filterNavDepth(chapters, depth = 3) {
+  const list = Array.isArray(chapters) ? chapters : [];
+  const max = Math.min(3, Math.max(1, Number(depth) || 3));
+  if (max >= 3) return list;
+  const filtered = list.filter((chapter) => Math.min(3, Math.max(1, Number(chapter?.level) || 1)) <= max);
+  return filtered.length ? filtered : list;
+}
+
 export function buildNav(chapters, title = "目录") {
   const lines = [];
   const render = (nodes, indent) => {
@@ -191,11 +221,12 @@ export const CONTAINER_XML = `<?xml version="1.0" encoding="UTF-8"?>
 `;
 
 // 生成 EPUB(zip)。
-export async function buildEpub({ book = {}, styles = {}, chapters = [], cover = null, images = [], colophon = "", nav = null } = {}, out) {
+export async function buildEpub({ book = {}, styles = {}, chapters = [], cover = null, images = [], colophon = "", nav = null, navTitle = "", navDepth = 3 } = {}, out) {
   if (!chapters.length) throw new Error("没有章节可写");
   const title = String(book.title || "未命名");
   const identifier = String(book.identifier || `urn:qbr:${Date.now().toString(36)}`);
   const modified = String(book.modified || new Date().toISOString().replace(/\.\d+Z$/, "Z"));
+  const tocTitle = String(navTitle || "").trim() || defaultNavTitle(book.language);
   const files = chapters.map((chapter, index) => ({
     ...chapter,
     file: `chapter-${String(index + 1).padStart(3, "0")}.xhtml`,
@@ -215,8 +246,9 @@ export async function buildEpub({ book = {}, styles = {}, chapters = [], cover =
     const heading = String(chapter.title || "").trim() ? `<h1 class="chapter-title">${escapeXml(chapter.title)}</h1>\n` : "";
     zip.file(`OEBPS/${chapter.file}`, xhtmlDocument({ title: chapter.title, body: `${heading}${chapter.html}`, lang: book.language, bodyClass }));
   });
-  const navItems = Array.isArray(nav) && nav.length ? nav : files;
-  zip.file("OEBPS/nav.xhtml", buildNav(navItems));
+  const rawNavItems = Array.isArray(nav) && nav.length ? nav : files;
+  const navItems = filterNavDepth(rawNavItems, navDepth);
+  zip.file("OEBPS/nav.xhtml", buildNav(navItems, tocTitle));
   zip.file("OEBPS/toc.ncx", buildNcx(navItems, { title, identifier }));
 
   const manifestFiles = [];
@@ -229,11 +261,14 @@ export async function buildEpub({ book = {}, styles = {}, chapters = [], cover =
   let hasCover = false;
   if (cover?.data) {
     const coverName = cover.fileName || "cover.jpg";
+    const coverStyle = cover.fit === "cover"
+      ? "width:100%;height:100vh;object-fit:cover;display:block;margin:0"
+      : "max-width:100%;max-height:100vh;height:auto;object-fit:contain;display:block;margin:0 auto";
     zip.file(`OEBPS/images/${coverName}`, cover.data);
     manifestFiles.push({ id: "cover-image", href: `images/${coverName}`, mediaType: cover.mediaType || "image/jpeg" });
     zip.file("OEBPS/cover.xhtml", xhtmlDocument({
       title: "封面",
-      body: `  <div style="margin:0;padding:0;text-align:center"><img src="images/${escapeXml(coverName)}" alt="${escapeXml(title)}" style="max-width:100%;height:auto;margin:0"/></div>`,
+      body: `  <div style="margin:0;padding:0;text-align:center"><img src="images/${escapeXml(coverName)}" alt="${escapeXml(title)}" style="${coverStyle}"/></div>`,
       lang: book.language,
     }));
     hasCover = true;

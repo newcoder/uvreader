@@ -7,7 +7,7 @@ import test from "node:test";
 import { JSDOM } from "jsdom";
 import JSZip from "jszip";
 
-import { BOOK_STYLE_DEFAULTS, buildEpub, buildNav, buildNcx, normalizeBookStyles, renderBookCss } from "../src/main/epub-build.js";
+import { BOOK_STYLE_DEFAULTS, buildEpub, buildNav, buildNcx, defaultNavTitle, filterNavDepth, normalizeBookStyles, renderBookCss } from "../src/main/epub-build.js";
 
 const chapter = (title, html) => ({ title, html });
 
@@ -38,6 +38,27 @@ test("side-by-side translation CSS is opt-in and keeps a stacked fallback", () =
   assert.match(css, /grid-template-columns/);
   assert.match(css, /@media \(max-width: 740px\)/);
   assert.equal(normalizeBookStyles({ translationLayout: "nope" }).translationLayout, "stacked");
+});
+
+test("TOC title follows the book language and stays customizable", () => {
+  assert.equal(defaultNavTitle("zh-Hans"), "目录");
+  assert.equal(defaultNavTitle("zh-Hant"), "目錄");
+  assert.equal(defaultNavTitle("en-US"), "Contents");
+  assert.equal(defaultNavTitle("de"), "Inhalt");
+  assert.equal(defaultNavTitle("ja"), "目次");
+  assert.equal(defaultNavTitle(""), "目录");
+});
+
+test("TOC depth filters deeper levels but never returns an empty list", () => {
+  const entries = [
+    { title: "一", file: "chapter-001.xhtml", level: 1 },
+    { title: "1.1", file: "chapter-002.xhtml", level: 2 },
+    { title: "1.1.1", file: "chapter-003.xhtml", level: 3 },
+  ];
+  assert.deepEqual(filterNavDepth(entries, 1).map((entry) => entry.title), ["一"]);
+  assert.deepEqual(filterNavDepth(entries, 2).map((entry) => entry.title), ["一", "1.1"]);
+  assert.deepEqual(filterNavDepth(entries, 3), entries);
+  assert.deepEqual(filterNavDepth(entries.filter((entry) => entry.level > 1), 1), entries.filter((entry) => entry.level > 1));
 });
 
 test("buildNcx numbers the reading order", () => {
@@ -114,6 +135,36 @@ test("buildEpub applies the side-by-side body class only when requested", async 
   const xhtml = await zip.file("OEBPS/chapter-001.xhtml").async("string");
   assert.match(xhtml, /<body class="qbr-book-side">/);
   assert.match(xhtml, /class="qbr-pair"/);
+});
+
+test("buildEpub applies TOC title/depth and cover fit", async () => {
+  const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "qbr-epub-options-")), "options.epub");
+  await buildEpub({
+    book: { title: "Options", language: "en" },
+    chapters: [chapter("One", "<p>One</p>"), chapter("One A", "<p>One A</p>")],
+    nav: [
+      { title: "One", file: "chapter-001.xhtml", level: 1 },
+      { title: "One A", file: "chapter-002.xhtml", level: 2 },
+    ],
+    navDepth: 1,
+    cover: { data: Buffer.from("fake-jpeg"), fileName: "cover.jpg", fit: "cover" },
+  }, out);
+  const zip = await JSZip.loadAsync(fs.readFileSync(out));
+  const nav = await zip.file("OEBPS/nav.xhtml").async("string");
+  assert.match(nav, /<h1>Contents<\/h1>/);
+  assert.match(nav, /chapter-001\.xhtml/);
+  assert.ok(!nav.includes("chapter-002.xhtml"), "level 2 is omitted at depth 1");
+  const cover = await zip.file("OEBPS/cover.xhtml").async("string");
+  assert.match(cover, /object-fit:cover/);
+
+  const customOut = path.join(path.dirname(out), "custom.epub");
+  await buildEpub({
+    book: { title: "Custom", language: "zh" },
+    chapters: [chapter("一", "<p>正文</p>")],
+    navTitle: "我的目录",
+  }, customOut);
+  const customZip = await JSZip.loadAsync(fs.readFileSync(customOut));
+  assert.match(await customZip.file("OEBPS/nav.xhtml").async("string"), /<h1>我的目录<\/h1>/);
 });
 
 test("buildEpub refuses empty chapters", async () => {

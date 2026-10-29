@@ -988,7 +988,7 @@ const WORKSHOP_TOOLS = [
   { id: "extract", group: "处理", label: "内容提取", title: "内容提取", en: "Extract", icon: "file-text",
     lead: "只取内容、可丢版式:PDF / DOCX / 图片 → Markdown / HTML / 结构化 JSON(题库等 schema 模板)。" },
   { id: "book", group: "处理", label: "电子书制作", title: "新建电子书", en: "Make a Book", icon: "book-open",
-    lead: "从 PDF / Office / txt / Markdown / 图片制作 EPUB:自动提取与分章,配样式、封面、目录,边调边看预览。" },
+    lead: "从 PDF / Office / txt / Markdown / 图片制作 EPUB:自动提取与分章,配样式、封面、目录,成品自动入库。" },
   { id: "tasks", group: "队列", label: "任务", title: "任务", en: "Tasks", icon: "history",
     lead: "运行中与最近的任务;取消、重试、打开产物。历史不自动续跑。" },
 ];
@@ -1673,6 +1673,22 @@ export function createWorkshopView(leaf, options) {
       this._bookDropToc.checked = true;
       tocRow.createSpan({ text: "去掉书里的印刷目录(与电子书导航重复的那几页)" });
 
+      const tocTitleRow = chapterStep.createDiv("qbr-workshop-row");
+      tocTitleRow.createSpan({ cls: "qbr-workshop-hint", text: "目录标题" });
+      this._bookTocTitle = tocTitleRow.createEl("input", {
+        cls: "qbr-workshop-input",
+        attr: { placeholder: "留空按书籍语言：目录 / Contents" },
+      });
+      this._bookTocTitle.addEventListener("input", () => this.onBookStyleChange());
+      const tocDepthRow = chapterStep.createDiv("qbr-workshop-row");
+      tocDepthRow.createSpan({ cls: "qbr-workshop-hint", text: "目录层级" });
+      this._bookTocDepth = tocDepthRow.createEl("select", { cls: "qbr-workshop-select" });
+      for (const [value, label] of [["3", "全部层级"], ["2", "只保留前 2 级"], ["1", "只保留 1 级"]]) {
+        this._bookTocDepth.createEl("option", { attr: { value }, text: label });
+      }
+      this._bookTocDepth.addEventListener("change", () => this.onBookStyleChange());
+      tocDepthRow.createSpan({ cls: "qbr-workshop-hint", text: "层级取自 PDF 大纲 / Markdown 标题" });
+
       // AI 分章建议:章名不是常见形态时,让模型归纳规则,套用前先给预览(可撤销)。
       const aiChapterRow = chapterStep.createDiv("qbr-workshop-row");
       aiChapterRow.createSpan({ cls: "qbr-workshop-hint", text: "认不出章名?" });
@@ -1828,6 +1844,13 @@ export function createWorkshopView(leaf, options) {
       this._bookCoverPick = coverRow2.createEl("button", { text: "选择图片…" });
       this._bookCoverPick.addEventListener("click", () => void this.pickCoverImage());
       this._bookCoverLabel = coverRow2.createSpan({ cls: "qbr-workshop-hint", text: "" });
+      const coverFitRow = metaStep.createDiv("qbr-workshop-row");
+      coverFitRow.createSpan({ cls: "qbr-workshop-hint", text: "图片显示" });
+      this._bookCoverFit = coverFitRow.createEl("select", { cls: "qbr-workshop-select" });
+      this._bookCoverFit.createEl("option", { attr: { value: "contain" }, text: "完整显示（留白）" });
+      this._bookCoverFit.createEl("option", { attr: { value: "cover" }, text: "铺满页面（可能裁切）" });
+      this._bookCoverFit.addEventListener("change", () => this.onBookStyleChange());
+      this._bookCoverFitRow = coverFitRow;
       this._bookCoverMode.addEventListener("change", () => { this.syncBookCoverRow(); this.onBookStyleChange(); });
       this.syncBookCoverRow();
 
@@ -2096,7 +2119,10 @@ export function createWorkshopView(leaf, options) {
       state.coverMode = String(this._bookCoverMode?.value || "template");
       state.coverPalette = String(this._bookCoverPalette?.value || "warm");
       state.coverImage = String(this._bookCoverImage || "");
+      state.coverFit = String(this._bookCoverFit?.value || "contain");
       state.subtitle = String(this._bookSubtitle?.value || "");
+      state.tocTitle = String(this._bookTocTitle?.value || "");
+      state.tocDepth = String(this._bookTocDepth?.value || "3");
       state.translationMode = String(this._bookTranslateMode?.value || "none");
       state.translationTarget = String(this._bookTranslateTarget?.value || "auto");
       state.translationClassical = Boolean(this._bookTranslateClassical?.checked);
@@ -2323,6 +2349,7 @@ export function createWorkshopView(leaf, options) {
       const mode = String(this._bookCoverMode?.value || "template");
       if (this._bookCoverPalette) this._bookCoverPalette.hidden = mode !== "template" && mode !== "auto";
       if (this._bookCoverPick) this._bookCoverPick.hidden = mode !== "image";
+      if (this._bookCoverFitRow) this._bookCoverFitRow.hidden = mode !== "image" && mode !== "auto";
       if (this._bookCoverLabel) {
         this._bookCoverLabel.setText(mode === "image" && this._bookCoverImage ? String(this._bookCoverImage).split("/").pop() : "");
       }
@@ -2352,7 +2379,10 @@ export function createWorkshopView(leaf, options) {
       if (saved.coverMode) this._bookCoverMode.value = String(saved.coverMode);
       if (saved.coverPalette) this._bookCoverPalette.value = String(saved.coverPalette);
       if (typeof saved.coverImage === "string") this._bookCoverImage = saved.coverImage;
+      if (["contain", "cover"].includes(String(saved.coverFit))) this._bookCoverFit.value = String(saved.coverFit);
       if (typeof saved.subtitle === "string") this._bookSubtitle.value = saved.subtitle;
+      if (typeof saved.tocTitle === "string") this._bookTocTitle.value = saved.tocTitle;
+      if (["1", "2", "3"].includes(String(saved.tocDepth))) this._bookTocDepth.value = String(saved.tocDepth);
       if (saved.translationMode) this._bookTranslateMode.value = String(saved.translationMode);
       if (saved.translationTarget) this._bookTranslateTarget.value = String(saved.translationTarget);
       if (this._bookTranslateClassical) this._bookTranslateClassical.checked = saved.translationClassical === true;
@@ -2902,7 +2932,10 @@ export function createWorkshopView(leaf, options) {
             imagePath: state.coverImage,
             subtitle: state.subtitle,
             palette: state.coverPalette,
+            fit: state.coverFit,
           },
+          tocTitle: state.tocTitle,
+          tocDepth: Number(state.tocDepth) || 3,
           chapters: (this._bookChapters || []).length
             ? (this._bookChapters || []).map((chapter) => ({ title: chapter.title, text: chapter.text }))
             : undefined,

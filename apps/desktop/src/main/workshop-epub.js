@@ -213,10 +213,11 @@ export async function resolveCover({ payload = {}, title = "", author = "", mark
   const cover = payload.cover || {};
   const mode = String(cover.mode || "none");
   if (mode === "none") return null;
+  const fit = String(cover.fit || "") === "cover" ? "cover" : "contain";
   const fromImage = async (imagePath) => {
     const image = loadImage ? await loadImage(imagePath) : null;
     if (!image?.data?.length) return null;
-    return { data: image.data, mediaType: image.mediaType || "image/jpeg", fileName: "cover.jpg" };
+    return { data: image.data, mediaType: image.mediaType || "image/jpeg", fileName: "cover.jpg", fit };
   };
   if (mode === "image" && cover.imagePath) {
     const picked = await fromImage(cover.imagePath);
@@ -740,6 +741,10 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       cover,
       // 印刷目录匹配出来的导航(为空时 buildEpub 按章节标题生成,与旧行为一致)。
       nav: navItems,
+      navTitle: scriptBook
+        ? convertChineseScript(String(payload?.tocTitle || ""), scriptTarget)
+        : String(payload?.tocTitle || "").trim(),
+      navDepth: Math.min(3, Math.max(1, Number(payload?.tocDepth) || 3)),
       colophon: scriptBook
         ? convertChineseScript(String(payload?.colophon || "由 UV Reader 书坊生成"), scriptTarget)
         : String(payload?.colophon || "由 UV Reader 书坊生成"),
