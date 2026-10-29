@@ -299,6 +299,20 @@ img.qiaomu-reader-pdf-lazy:not([data-loaded="1"]) { background:color-mix(in srgb
 .qiaomu-reader-tag-on { background:color-mix(in srgb,var(--interactive-accent) 14%,transparent); border-color:var(--interactive-accent); color:var(--interactive-accent); font-weight:600; }
 .qiaomu-reader-tag-input { width:100%; height:34px; padding:0 10px; border-radius:8px; border:1px solid var(--background-modifier-border); background:var(--background-primary); color:var(--text-normal); font:inherit; font-size:13px; }
 .qiaomu-reader-tag-editor-foot { display:flex; justify-content:flex-end; gap:8px; margin-top:4px; }
+/* AI batch tagging: vocabulary first, then one progress line per batch. */
+.qiaomu-reader-ai-tag-modal { display:flex; flex-direction:column; gap:12px; max-width:620px; }
+.qiaomu-reader-ai-tag-title { font-size:16px; font-weight:700; }
+.qiaomu-reader-ai-tag-lead { line-height:1.5; font-size:12px; color:var(--text-muted); }
+.qiaomu-reader-ai-tag-section-title { font-size:12px; font-weight:600; color:var(--text-muted); }
+.qiaomu-reader-ai-tag-hint { font-size:12px; color:var(--text-muted); }
+.qiaomu-reader-ai-tag-add { display:flex; gap:8px; align-items:center; }
+.qiaomu-reader-ai-tag-add input { flex:1; min-width:0; height:32px; padding:0 9px; border-radius:7px; border:1px solid var(--background-modifier-border); background:var(--background-primary); color:var(--text-normal); font:inherit; font-size:13px; }
+.qiaomu-reader-ai-tag-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.qiaomu-reader-ai-tag-row-label { font-size:12px; color:var(--text-muted); }
+.qiaomu-reader-ai-tag-row select { min-width:180px; max-width:100%; height:32px; border-radius:7px; border:1px solid var(--background-modifier-border); background:var(--background-primary); color:var(--text-normal); font:inherit; font-size:13px; }
+.qiaomu-reader-ai-tag-keep { display:flex; align-items:center; gap:7px; font-size:12px; color:var(--text-muted); }
+.qiaomu-reader-ai-tag-status { padding:8px 10px; border-radius:7px; background:color-mix(in srgb,var(--interactive-accent) 8%,transparent); line-height:1.45; font-size:12px; }
+.qiaomu-reader-ai-tag-modal .qiaomu-reader-tag-editor-chips { max-height:190px; overflow-y:auto; padding:2px 0; }
 .qiaomu-reader-lib-bookgroup { grid-column:1/-1; border:1px solid var(--qiaomu-reader-lib-border,#ddd9ce); border-radius:12px; padding:12px 14px 8px; background:color-mix(in srgb,var(--qiaomu-reader-lib-text) 2%,transparent); }
 .qiaomu-reader-lib-bookgroup-title { font-size:14px; font-weight:700; color:var(--qiaomu-reader-lib-text,#1a1a2e); }
 .qiaomu-reader-lib-bookgroup-meta { font-size:12px; color:var(--qiaomu-reader-lib-muted,#8a8678); margin-top:2px; }

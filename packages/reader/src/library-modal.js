@@ -9,12 +9,366 @@ import { coverFromBytes } from "./reader-engine.js";
 import { coverPalette } from "./book-cover.js";
 import { docOf } from "./reader-dom.js";
 import { findStarterBook } from "./starter-library.js";
+import { readEpubInfo } from "./library-book-info.js";
 import { svgIcon } from "./reader-icons.js";
 
 export function createLibraryModal({
   Menu, Modal, Notice, TFile, BOOK_EXTENSIONS, IMPORT_MIME_EXT, addBookFileMenu, bookNoteLinkFor, bookStatusOf, bookTagsOf, buildLibChips, deleteBookFromVault, filterLibBooks, freeBookPath, groupLibChips, mergeBookTags, openOrCreateBookNoteBeside, pickLibraryFolder, qiaomuReaderLibTheme, qiaomuReaderLocale, qiaomuReaderPath, qiaomuReaderTranslate, readerHud, resolveBookNote, setupWorker,
 }) {
   const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif", "bmp"]);
+  const AI_TAG_LIMIT = 200;
+  const splitTypedTags = (raw) => String(raw || "")
+    .split(/[,;\n]+/)
+    .map((tag) => tag.trim().replace(/^#+/, "").trim())
+    .filter(Boolean)
+    .filter((tag, index, all) => all.indexOf(tag) === index);
+
+  // The batch tagging dialog. The vocabulary is confirmed here first, then one
+  // AI request per book; applying is a single settings write with an undo
+  // snapshot so a wrong batch never becomes a dead end.
+  const AutoTagModal = class extends Modal {
+    constructor(app, owner) {
+      super(app);
+      this.owner = owner;
+      this.plugin = owner.plugin;
+      this.controller = null;
+      this.busy = false;
+      this.infoCache = new Map();
+    }
+    onOpen() {
+      this.contentEl.empty();
+      this.contentEl.addClass("qiaomu-reader-ai-tag-modal");
+      this.contentEl.createDiv({ cls: "qiaomu-reader-ai-tag-title", text: qiaomuReaderTranslate("ai-tag-organize") });
+      this.contentEl.createDiv({ cls: "qiaomu-reader-ai-tag-lead", text: qiaomuReaderTranslate("ai-tag-lead") });
+
+      const allBooks = this.owner._libFiles || [];
+      const currentBooks = this._currentBooks(allBooks);
+      const allTags = new Set();
+      for (const file of allBooks) for (const tag of bookTagsOf(this.plugin.settings, file.path)) allTags.add(tag);
+      const systemTags = new Set([
+        qiaomuReaderTranslate("auto-tag-import"),
+        qiaomuReaderTranslate("auto-tag-download"),
+      ]);
+      const selected = new Set([...allTags].filter((tag) => !systemTags.has(tag)).sort((a, b) => a.localeCompare(b)));
+      const chipEls = new Map();
+
+      this.contentEl.createDiv({ cls: "qiaomu-reader-ai-tag-section-title", text: qiaomuReaderTranslate("ai-tag-vocabulary") });
+      const tags = this.contentEl.createDiv("qiaomu-reader-tag-editor-chips");
+      const syncStart = () => {
+        if (this.start) this.start.disabled = this.busy || selected.size === 0;
+      };
+      const addChip = (name, on) => {
+        const tag = String(name || "").trim();
+        if (!tag) return null;
+        if (chipEls.has(tag)) {
+          const chip = chipEls.get(tag);
+          if (on) {
+            selected.add(tag);
+            chip.addClass("qiaomu-reader-tag-on");
+            chip.setAttribute("aria-pressed", "true");
+            syncStart();
+          }
+          return chip;
+        }
+        tags.querySelector(".qiaomu-reader-ai-tag-hint")?.remove();
+        const chip = tags.createEl("button", {
+          cls: `qiaomu-reader-tag-chip${on ? " qiaomu-reader-tag-on" : ""}`,
+          text: tag,
+          attr: { type: "button", "aria-pressed": String(Boolean(on)) },
+        });
+        chip.addEventListener("click", () => {
+          if (this.busy) return;
+          const next = !selected.has(tag);
+          if (next) selected.add(tag); else selected.delete(tag);
+          chip.toggleClass("qiaomu-reader-tag-on", next);
+          chip.setAttribute("aria-pressed", String(next));
+          syncStart();
+        });
+        chipEls.set(tag, chip);
+        if (on) selected.add(tag); else selected.delete(tag);
+        syncStart();
+        return chip;
+      };
+      for (const tag of [...selected]) addChip(tag, true);
+      if (!chipEls.size) tags.createDiv({ cls: "qiaomu-reader-ai-tag-hint", text: qiaomuReaderTranslate("ai-tag-empty") });
+
+      const addRow = this.contentEl.createDiv("qiaomu-reader-ai-tag-add");
+      const addInput = addRow.createEl("input", {
+        attr: {
+          type: "text",
+          placeholder: qiaomuReaderTranslate("ai-tag-add-placeholder"),
+          "aria-label": qiaomuReaderTranslate("ai-tag-add-placeholder"),
+          spellcheck: "false",
+        },
+      });
+      const addButton = addRow.createEl("button", { attr: { type: "button" }, text: qiaomuReaderTranslate("ai-tag-add") });
+      const addTyped = () => {
+        if (this.busy) return;
+        for (const tag of splitTypedTags(addInput.value)) addChip(tag, true);
+        addInput.value = "";
+        addInput.focus();
+      };
+      addButton.addEventListener("click", addTyped);
+      addInput.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        addTyped();
+      });
+
+      const scopeRow = this.contentEl.createDiv("qiaomu-reader-ai-tag-row");
+      scopeRow.createSpan({ cls: "qiaomu-reader-ai-tag-row-label", text: qiaomuReaderTranslate("ai-tag-scope") });
+      const scope = scopeRow.createEl("select", { attr: { "aria-label": qiaomuReaderTranslate("ai-tag-scope") } });
+      scope.createEl("option", { value: "all", text: qiaomuReaderTranslate("ai-tag-scope-all", allBooks.length) });
+      scope.createEl("option", {
+        value: "current",
+        text: qiaomuReaderTranslate("ai-tag-scope-current", currentBooks.length),
+      });
+      const keepLabel = this.contentEl.createEl("label", { cls: "qiaomu-reader-ai-tag-keep" });
+      const keep = keepLabel.createEl("input", { type: "checkbox" });
+      keep.checked = true;
+      keepLabel.createSpan({ text: qiaomuReaderTranslate("ai-tag-keep-existing") });
+
+      const status = this.contentEl.createDiv({
+        cls: "qiaomu-reader-ai-tag-status",
+        attr: { role: "status", "aria-live": "polite" },
+      });
+      status.style.display = "none";
+      const foot = this.contentEl.createDiv("qiaomu-reader-tag-editor-foot");
+      const config = foot.createEl("button", { attr: { type: "button" }, text: qiaomuReaderTranslate("ai-setup") });
+      config.style.display = "none";
+      const cancel = foot.createEl("button", { attr: { type: "button" }, text: qiaomuReaderTranslate("cancel") });
+      const start = foot.createEl("button", { cls: "mod-cta", attr: { type: "button" }, text: qiaomuReaderTranslate("ai-tag-start") });
+      this.start = start;
+      this.scope = scope;
+      this.keep = keep;
+      this.status = status;
+      this.selected = selected;
+      syncStart();
+
+      const setBusy = (busy) => {
+        this.busy = busy;
+        start.disabled = busy || selected.size === 0;
+        for (const button of tags.querySelectorAll("button")) button.disabled = busy;
+        addInput.disabled = busy;
+        addButton.disabled = busy;
+        scope.disabled = busy;
+        keep.disabled = busy;
+        config.disabled = busy;
+        cancel.disabled = false;
+      };
+      this.setBusy = setBusy;
+
+      const showError = (error) => {
+        const reason = error?.qiaomuReaderReason;
+        const setupNeeded = reason === "notconfigured" || reason === "nokey"
+          || reason === "auth" || reason === "forbidden";
+        status.style.display = "";
+        status.setText(setupNeeded
+          ? qiaomuReaderTranslate("ai-tag-ai-needed")
+          : qiaomuReaderTranslate("ai-tag-failed", String(error?.message || error || "")));
+        config.style.display = setupNeeded && typeof this.plugin.openAiSettings === "function" ? "" : "none";
+      };
+      this.showError = showError;
+
+      config.addEventListener("click", () => {
+        this.plugin.openAiSettings?.();
+      });
+      cancel.addEventListener("click", () => {
+        if (this.busy) {
+          this.controller?.abort();
+          status.style.display = "";
+          status.setText(qiaomuReaderTranslate("ai-tag-cancelled"));
+          this.busy = false;
+          setBusy(false);
+          return;
+        }
+        this.close();
+      });
+      start.addEventListener("click", () => { void this._start(); });
+    }
+    _currentBooks(allBooks) {
+      const selected = this.owner._libSelected || "all";
+      const shown = filterLibBooks(
+        allBooks,
+        selected,
+        this.owner._libQuery || "",
+        this.owner._libFolder,
+        this.owner._libProgressOf,
+        this.owner._libTagsOf,
+      );
+      return shown.filter((file) => selected !== "study:highlights" || this.owner._libMarked?.has(file.path));
+    }
+    _booksForScope() {
+      const allBooks = this.owner._libFiles || [];
+      const books = this.scope?.value === "current" ? this._currentBooks(allBooks) : allBooks;
+      const seen = new Set();
+      return books.filter((book) => {
+        if (!book?.path || seen.has(book.path)) return false;
+        seen.add(book.path);
+        return true;
+      });
+    }
+    async _readPdfInfo(bytes) {
+      await setupWorker(this.app);
+      const loadingTask = pdfjsLib.getDocument({ data: bytes, ...PDF_CMAP_OPTIONS, isEvalSupported: false });
+      try {
+        const doc = await loadingTask.promise;
+        const metadata = await doc.getMetadata();
+        const info = metadata?.info && typeof metadata.info === "object" ? metadata.info : {};
+        const text = (value) => String(value || "").trim();
+        return {
+          title: text(info.Title).slice(0, 200),
+          author: text(info.Author).slice(0, 160),
+          description: [text(info.Subject), text(info.Keywords)].filter(Boolean).join(" · ").slice(0, 800),
+          subjects: "",
+        };
+      } finally {
+        await loadingTask.destroy();
+      }
+    }
+    async _bookInfo(book) {
+      if (this.infoCache.has(book.path)) return this.infoCache.get(book.path);
+      let info = {};
+      try {
+        const bytes = await this.app.vault.readBinary(book);
+        if (book.extension === "epub") info = await readEpubInfo(bytes);
+        else if (book.extension === "pdf") info = await this._readPdfInfo(bytes);
+      } catch {
+        // A damaged or unusual file still gets filename-only tagging.
+      }
+      const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
+      const prepared = {
+        path: book.path,
+        basename: book.basename || "",
+        extension: book.extension || "",
+        title: clean(info.title || book.basename),
+        author: clean(info.author),
+        description: clean(info.description),
+        subjects: clean(info.subjects),
+      };
+      this.infoCache.set(book.path, prepared);
+      return prepared;
+    }
+    async _prepareBooks(books, signal, onProgress) {
+      const prepared = [];
+      for (let index = 0; index < books.length; index += 1) {
+        if (signal.aborted) {
+          const error = new Error("AI tagging cancelled");
+          error.qiaomuReaderReason = "cancelled";
+          throw error;
+        }
+        const book = books[index];
+        onProgress(index, books.length, book.basename || book.path || "");
+        prepared.push(await this._bookInfo(book));
+        onProgress(index + 1, books.length, book.basename || book.path || "");
+      }
+      return prepared;
+    }
+    async _start() {
+      if (this.busy) return;
+      const books = this._booksForScope();
+      const tags = [...this.selected];
+      if (!tags.length) {
+        this.status.style.display = "";
+        this.status.setText(qiaomuReaderTranslate("ai-tag-no-tags"));
+        return;
+      }
+      if (!books.length) {
+        this.status.style.display = "";
+        this.status.setText(qiaomuReaderTranslate("ai-tag-none"));
+        return;
+      }
+      if (books.length > AI_TAG_LIMIT) {
+        this.status.style.display = "";
+        this.status.setText(qiaomuReaderTranslate("ai-tag-too-many", AI_TAG_LIMIT));
+        return;
+      }
+      if (typeof this.plugin.aiTagConfigured === "function" && !this.plugin.aiTagConfigured()) {
+        this.showError({ qiaomuReaderReason: "notconfigured" });
+        return;
+      }
+      this.setBusy(true);
+      this.status.style.display = "";
+      this.status.setText(qiaomuReaderTranslate("ai-tag-reading", 0, books.length, ""));
+      const controller = new AbortController();
+      this.controller = controller;
+      try {
+        const prepared = await this._prepareBooks(books, controller.signal, (done, total, label) => {
+          if (!this.contentEl.isConnected || controller.signal.aborted) return;
+          this.status.setText(qiaomuReaderTranslate("ai-tag-reading", done, total, label || ""));
+        });
+        if (!this.contentEl.isConnected || controller.signal.aborted) return;
+        this.status.setText(qiaomuReaderTranslate("ai-tag-progress", 0, prepared.length, ""));
+        const outcome = await this.plugin.aiTagLibrary({
+          books: prepared,
+          tags,
+          signal: controller.signal,
+          onProgress: ({ done, total, label }) => {
+            if (!this.contentEl.isConnected || controller.signal.aborted) return;
+            this.status.setText(qiaomuReaderTranslate("ai-tag-progress", done, total, label || ""));
+          },
+        });
+        if (!this.contentEl.isConnected || controller.signal.aborted) return;
+        if (!outcome.results.length) {
+          const failed = outcome.errors.length;
+          if (failed) {
+            const first = outcome.errors[0] || {};
+            const error = new Error(first.message || "");
+            error.qiaomuReaderReason = first.reason || "";
+            this.showError(error);
+          } else {
+            this.status.style.display = "";
+            this.status.setText(qiaomuReaderTranslate("ai-tag-no-change"));
+          }
+          this.setBusy(false);
+          return;
+        }
+        const changes = outcome.results.map((result) => {
+          const existing = bookTagsOf(this.plugin.settings, result.path);
+          return {
+            path: result.path,
+            tags: this.keep.checked ? mergeBookTags(existing, result.tags) : result.tags,
+          };
+        });
+        if (controller.signal.aborted || !this.contentEl.isConnected) return;
+        const applied = await this.plugin.applyLibraryTags(changes);
+        if (!this.contentEl.isConnected) return;
+        const failed = outcome.errors.length;
+        const message = !applied.changed
+          ? qiaomuReaderTranslate("ai-tag-no-change")
+          : failed
+            ? qiaomuReaderTranslate("ai-tag-partial", applied.changed, failed)
+            : qiaomuReaderTranslate("ai-tag-done", applied.changed);
+        new Notice(message, 6000);
+        this.close();
+        this.owner._refresh();
+      } catch (error) {
+        if (!this.contentEl.isConnected || this.controller !== controller) return;
+        if (controller.signal.aborted || error?.qiaomuReaderReason === "cancelled") {
+          this.status.style.display = "";
+          this.status.setText(qiaomuReaderTranslate("ai-tag-cancelled"));
+          this.busy = false;
+          this.setBusy(false);
+          return;
+        }
+        this.showError(error);
+        this.busy = false;
+        this.setBusy(false);
+      } finally {
+        const current = this.controller === controller;
+        if (current) this.controller = null;
+        if (current && this.busy) {
+          this.busy = false;
+          this.setBusy(false);
+        }
+      }
+    }
+    onClose() {
+      this.controller?.abort();
+      this.contentEl.empty();
+    }
+  };
+
   return class LibraryModal extends Modal {
   constructor(app, plugin) {
     super(app);
@@ -165,6 +519,20 @@ export function createLibraryModal({
       for (const tag of groups.tags) makeNode(tagGroup.children, { id: tag.id, label: tag.label, countText: String(tag.count), icon: "tag", level: "sub" });
     } else {
       tagGroup.children.createDiv("qiaomu-reader-lib-node-hint").setText(qiaomuReaderTranslate("add-tag-hint"));
+    }
+    const aiTag = makeNode(tagGroup.children, {
+      label: qiaomuReaderTranslate("ai-tag-organize"),
+      icon: "wand-sparkles",
+      cls: "qiaomu-reader-lib-node-action",
+    });
+    aiTag.addEventListener("click", (ev) => { ev.stopPropagation(); this._openAiTagModal(); });
+    if (this.plugin.settings.aiTagUndo?.tags && Object.keys(this.plugin.settings.aiTagUndo.tags).length) {
+      const undo = makeNode(tagGroup.children, {
+        label: qiaomuReaderTranslate("ai-tag-undo"),
+        icon: "rotate-ccw",
+        cls: "qiaomu-reader-lib-node-action",
+      });
+      undo.addEventListener("click", (ev) => { ev.stopPropagation(); void this._undoAiTags(); });
     }
     const statusGroup = makeGroup(children, qiaomuReaderTranslate("reading-status"));
     for (const status of statuses) makeNode(statusGroup.children, { id: status.id, label: status.label, countText: String(status.count), level: "sub" });
@@ -550,6 +918,21 @@ export function createLibraryModal({
   }
   _refreshLibTree() {
     if (this._libTree) this._drawLibTree(this._libTree);
+  }
+  _openAiTagModal() {
+    new AutoTagModal(this.app, this).open();
+  }
+  async _undoAiTags() {
+    try {
+      const restored = await this.plugin.undoAiTagLibrary();
+      if (restored > 0) {
+        new Notice(qiaomuReaderTranslate("ai-tag-undone"), 5000);
+        this._refresh();
+      }
+    } catch (error) {
+      console.warn("UV Reader: could not undo AI tags", error);
+      new Notice(qiaomuReaderTranslate("ai-tag-failed", String(error?.message || error || "")), 7000);
+    }
   }
   _applyLibTheme(modalEl) {
     const theme = qiaomuReaderLibTheme(this.plugin.settings);

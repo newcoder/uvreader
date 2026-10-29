@@ -94,6 +94,7 @@ import { createTagEditor } from "./tag-editor.js";
 import { createReaderModal } from "./reader-modal.js";
 import { buildTocItems, chapterForBlock, pageForBlock, pdfSearchPages, readerSearchTexts } from "./toc-build.js";
 import { createLibraryData, freeBookPath, groupLibChips, IMPORT_MIME_EXT, mergeBookTags, pickLibraryFolder } from "./library-data.js";
+import { buildAutoTagMessages, normalizeAutoTagVocabulary, parseAutoTagAnswer } from "./library-auto-tag.js";
 import { createPdfDocument } from "./pdf-document.js";
 import { createAiContext } from "./ai-context.js";
 import { saveImageFromSource } from "./image-save.js";
@@ -4395,6 +4396,130 @@ QiaomuBookReader.prototype.openReadingProjects = function openReadingProjects(op
 QiaomuBookReader.prototype.openTagEditor = function openTagEditor(file, onSaved) {
   if (!file) return;
   new TagEditorModal(this.app, this, file, onSaved).open();
+};
+
+// One request per book keeps the prompt and the failure isolated. The library
+// UI owns the vocabulary and confirms the batch before this method runs; this
+// method never edits tags itself.
+const AI_LIBRARY_TAG_LIMIT = 200;
+QiaomuBookReader.prototype.aiTagConfigured = function aiTagConfigured() {
+  const cfg = aiConfig(this);
+  return Boolean(cfg.provider && cfg.base && cfg.model && (!cfg.needsKey || cfg.key));
+};
+
+QiaomuBookReader.prototype.aiTagLibrary = async function aiTagLibrary({ books = [], tags = [], signal = null, onProgress = null } = {}) {
+  const cfg = aiConfig(this);
+  const configError = (reason) => {
+    const error = new Error(reason === "nokey" ? "no api key" : "AI is not configured");
+    error.qiaomuReaderReason = reason;
+    return error;
+  };
+  if (!cfg.provider) throw configError("notconfigured");
+  if (cfg.needsKey && !cfg.key) throw configError("nokey");
+  if (!cfg.base || !cfg.model) throw configError("notconfigured");
+  const vocabulary = normalizeAutoTagVocabulary(tags);
+  if (!vocabulary.length) throw new Error("No tags allowed");
+  const list = (Array.isArray(books) ? books : [])
+    .map((book) => typeof book === "string" ? { path: book } : book)
+    .filter((book) => book && book.path)
+    .slice(0, AI_LIBRARY_TAG_LIMIT);
+  if (!list.length) throw new Error("No books to tag");
+  const report = (done, label) => {
+    try { onProgress?.({ done, total: list.length, label: String(label || "") }); } catch { /* caller's UI */ }
+  };
+  const results = [];
+  const errors = [];
+  for (let index = 0; index < list.length; index += 1) {
+    if (signal?.aborted) {
+      const error = new Error("AI tagging cancelled");
+      error.qiaomuReaderReason = "cancelled";
+      throw error;
+    }
+    const book = list[index];
+    report(index, book.basename || book.name || book.path);
+    try {
+      const answer = await aiComplete(buildAutoTagMessages({
+        book,
+        allowedTags: vocabulary,
+        existingTags: libraryData.bookTagsOf(this.settings, book.path),
+      }), this, { signal });
+      results.push({
+        path: book.path,
+        basename: book.basename || book.name || book.path,
+        tags: parseAutoTagAnswer(answer, vocabulary),
+      });
+    } catch (error) {
+      if (signal?.aborted || error?.qiaomuReaderReason === "cancelled") throw error;
+      errors.push({
+        path: book.path,
+        basename: book.basename || book.name || book.path,
+        reason: String(error?.qiaomuReaderReason || ""),
+        message: String(error?.message || error).slice(0, 200),
+      });
+    }
+    report(index + 1, book.basename || book.name || book.path);
+  }
+  return { results, errors };
+};
+
+// Apply exact tag lists in one settings save. The previous lists are kept as a
+// single undo snapshot; a failed save restores the in-memory state too.
+QiaomuBookReader.prototype.applyLibraryTags = async function applyLibraryTags(changes = []) {
+  if (!this.settings.bookTags) this.settings.bookTags = {};
+  const beforeBookTags = this.settings.bookTags;
+  const previousUndo = this.settings.aiTagUndo;
+  const nextBookTags = { ...beforeBookTags };
+  const previous = {};
+  let changed = 0;
+  for (const change of Array.isArray(changes) ? changes : []) {
+    const bookPath = String(change?.path || "");
+    if (!bookPath) continue;
+    const before = libraryData.bookTagsOf(this.settings, bookPath);
+    const tags = normalizeAutoTagVocabulary(change?.tags);
+    if (JSON.stringify(before) === JSON.stringify(tags)) continue;
+    previous[bookPath] = before;
+    if (tags.length) nextBookTags[bookPath] = tags;
+    else delete nextBookTags[bookPath];
+    changed += 1;
+  }
+  if (!changed) return { changed: 0 };
+  this.settings.bookTags = nextBookTags;
+  this.settings.aiTagUndo = { at: Date.now(), tags: previous };
+  const saved = await this._saveLocalData();
+  if (saved === false) {
+    this.settings.bookTags = beforeBookTags;
+    this.settings.aiTagUndo = previousUndo;
+    throw new Error("Could not save tags");
+  }
+  return { changed };
+};
+
+QiaomuBookReader.prototype.undoAiTagLibrary = async function undoAiTagLibrary() {
+  const undo = this.settings.aiTagUndo;
+  if (!undo || !undo.tags || typeof undo.tags !== "object") return 0;
+  const beforeBookTags = this.settings.bookTags;
+  const previousUndo = undo;
+  const nextBookTags = { ...(beforeBookTags || {}) };
+  let restored = 0;
+  for (const [bookPath, tags] of Object.entries(undo.tags)) {
+    const list = normalizeAutoTagVocabulary(tags);
+    if (list.length) nextBookTags[bookPath] = list;
+    else delete nextBookTags[bookPath];
+    restored += 1;
+  }
+  this.settings.bookTags = nextBookTags;
+  delete this.settings.aiTagUndo;
+  const saved = await this._saveLocalData();
+  if (saved === false) {
+    this.settings.bookTags = beforeBookTags;
+    this.settings.aiTagUndo = previousUndo;
+    throw new Error("Could not restore tags");
+  }
+  return restored;
+};
+
+QiaomuBookReader.prototype.openAiSettings = function openAiSettings(onReady) {
+  openPluginAiSettings(this.app, this, onReady);
 };
 
 // The library's online tab turns a fuzzy request into a book list through the
