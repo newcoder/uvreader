@@ -6,7 +6,7 @@
 
 UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支持 EPUB、PDF、FB2/FBZ、MOBI/AZW/AZW3、CBZ 和单张图片（PNG/JPG/WebP/GIF/BMP），内置高亮、批注、阅读笔记和可选的 AI 助读。书籍、进度和笔记默认都在本机；日常阅读不需要账号，也不需要联网。
 
-> **当前版本**：`0.7.79`。Windows / macOS 安装包见 [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.79)。
+> **当前版本**：`0.7.80`。Windows / macOS 安装包见 [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.80)。
 >
 > **来源**：fork 自 Obsidian 插件 [qiaomu-reader](https://github.com/joeseesun/qiaomu-reader)，现在作为独立桌面应用维护；Obsidian 插件形态不再作为主线。
 >
@@ -106,7 +106,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 - EPUB 3 输出（nav + NCX），公式转 MathML，图片嵌入，生成后可直接在 UV Reader 打开。
 - **翻译与对照**：支持中文 ↔ English、Deutsch → 中文以及文言文 → 现代中文的段落级翻译，可只输出译文，或生成原文 + 译文的上下 / 左右对照 EPUB。原文语言自动识别（中文 / English / Deutsch），目标语言可选择 English / 简体中文（外文原文）/ Deutsch，只有「是否文言文」需要手动勾选；可选「术语表」（每行 `原文=译文`）统一人名、地名和专名；可选「逐行对齐（诗歌 / 短句）」保证原文与译文行数对应；简繁转换使用「简繁转换（本机）」或旁边的「转为简体 / 转为繁体」快捷按钮，不调用 AI；翻译走 AI，可取消后继续，左右布局在窄屏自动回退为上下；EPUB 会保留原排版、目录和换行，只插入译文。可先「试译开头」预览前两章，完成后自动弹出预览，确认格式后再生成全书，试译不会写入书库。默认书名会自动加「（English）」「（中文）」「（中英对照）」「（中德对照）」「（文白对照）」「（简体）」「（繁體）」等后缀；翻译模式需要先在「设置 → AI 助读」配置模型，简繁转换只支持中文书稿且不需要 AI。EPUB 直接转换保留原书结构、目录、图片和换行，且不应用本次封面/排版设置；其它格式仍按文本重建。
 - 通过 Calibre 可继续转换为 AZW3 / MOBI；图片可以打包成 CBZ 或 EPUB。
-- 支持多本书批量制作。
+- 一次选择一本书制作；批量成书暂未提供。
 
 #### 答题页
 
@@ -139,7 +139,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 
 ## 下载与安装
 
-- 安装包：[GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.79)。
+- 安装包：[GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.80)。
 - Windows：`UV-Reader-<版本>-setup.exe` 安装版，或 `UV-Reader-<版本>-portable.exe` 免安装版。
 - macOS：按 Releases 页面提供的 `UV-Reader-<版本>-<架构>.dmg` 安装。
 - 首次启动不需要账号；AI、OCR 和文档转换组件都是可选的，不配置也能正常阅读和做笔记。
@@ -256,7 +256,7 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 
 [Features](#features) · [Download](#download) · [FAQ](#faq) · [Build](#build)
 
-**Status:** `0.7.79`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.79). Read the [Disclaimer](DISCLAIMER.md) before use.
+**Status:** `0.7.80`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.80). Read the [Disclaimer](DISCLAIMER.md) before use.
 
 ## Recent updates (Oct 2026)
 
@@ -285,7 +285,7 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 
 ## Download
 
-Installers are available on [GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.79). Windows builds include `UV-Reader-<version>-setup.exe` and `UV-Reader-<version>-portable.exe`; macOS builds provide `UV-Reader-<version>-<arch>.dmg`. No account is required on first launch, and AI, OCR and document-conversion components are optional.
+Installers are available on [GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.80). Windows builds include `UV-Reader-<version>-setup.exe` and `UV-Reader-<version>-portable.exe`; macOS builds provide `UV-Reader-<version>-<arch>.dmg`. No account is required on first launch, and AI, OCR and document-conversion components are optional.
 
 ## FAQ
 

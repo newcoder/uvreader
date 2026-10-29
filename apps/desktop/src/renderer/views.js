@@ -1699,6 +1699,7 @@ export function createWorkshopView(leaf, options) {
     renderBookPanel(panel) {
       this._bookSelection ||= [];
       this._bookImages ||= [];
+      this._bookSources = Array.isArray(this._bookSources) ? this._bookSources.slice(0, 1) : [];
       const root = panel.createDiv("qbr-workshop-tool");
 
       // 主流程只有一条:向导(① 内容 → ② 目录 → ③ 书名与封面 → ④ 排版 → 生成);
@@ -1716,7 +1717,7 @@ export function createWorkshopView(leaf, options) {
       pickSource.addEventListener("click", () => this.toggleBookSourceList());
       const pickSourceLocal = sourceRow.createEl("button", { text: "打开本地文件…" });
       pickSourceLocal.addEventListener("click", () => void this.pickLocalBookSources());
-      sourceRow.createSpan({ cls: "qbr-workshop-hint", text: "书稿列表只显示书库中的 EPUB / PDF / 图片;txt / Markdown / Office 等用「打开本地文件…」" });
+      sourceRow.createSpan({ cls: "qbr-workshop-hint", text: "书稿列表只显示书库中的 EPUB / PDF / 图片;txt / Markdown / Office 等用「打开本地文件…」。一次只能选择一本。" });
       this._bookSourceList = sourceStep.createDiv("qbr-workshop-booklist");
       this._bookSourceList.hidden = true;
       this._bookSourceChips = sourceStep.createDiv("qbr-workshop-chips");
@@ -2901,21 +2902,24 @@ export function createWorkshopView(leaf, options) {
       this._bookSources ||= [];
       for (const file of sources) {
         const row = list.createEl("label", { cls: "qbr-workshop-book" });
-        const box = row.createEl("input", { attr: { type: "checkbox" } });
+        const box = row.createEl("input", { attr: { type: "radio", name: "qbr-workshop-book-source" } });
         box.checked = this._bookSources.includes(file.path);
         box.addEventListener("change", () => {
           if (box.checked) this.addBookSource(file.path);
-          else this.removeBookSource(file.path);
         });
         row.createSpan({ text: `${file.basename} · ${String(file.extension || "").toUpperCase()}` });
       }
     }
 
     addBookSource(path) {
-      this._bookSources ||= [];
-      if (path && !this._bookSources.includes(path)) this._bookSources.push(path);
+      if (!path) return;
+      // Ebook creation is one source per run. Other workshop tools may accept
+      // batches, but a shared chapter/style configuration cannot be applied to
+      // several sources without silently affecting the wrong book.
+      this._bookSources = [String(path)];
       this.resetBookPreview();
       this.renderBookSourceChips();
+      this.refreshBookSourceList();
       void this.renderBookChapters();
     }
 
@@ -2950,13 +2954,15 @@ export function createWorkshopView(leaf, options) {
       if (!bridge?.pickFiles) return;
       const paths = await bridge.pickFiles().catch(() => []);
       const wanted = ["txt", "md", "markdown", ...DOCVORTEX_INPUTS, ...IMAGE_INPUTS];
-      for (const picked of paths) {
-        const normalized = String(picked).replace(/\\/g, "/");
-        const ext = normalized.split(".").pop()?.toLowerCase() || "";
-        if (wanted.includes(ext)) this.addBookSource(normalized);
-        else new Notice("这个格式暂不支持制作电子书。");
+      const valid = paths
+        .map((picked) => String(picked).replace(/\\/g, "/"))
+        .filter((path) => wanted.includes(path.split(".").pop()?.toLowerCase() || ""));
+      if (!valid.length) {
+        if (paths.length) new Notice("这个格式暂不支持制作电子书。");
+        return;
       }
-      this.refreshBookSourceList();
+      if (valid.length > 1) new Notice(`一次只能制作一本，已选择「${valid[0].split("/").pop()}」。`);
+      this.addBookSource(valid[0]);
     }
 
     startBookBuild() {
