@@ -42,8 +42,16 @@ jobs:
         include:
           - os: windows-latest
             artifact: windows
-          - os: macos-latest
-            artifact: macos
+            macArch: ""
+          # Build each Mac architecture on its own runner. A single
+          # macos-latest job builds both DMGs and has repeatedly waited on
+          # scarce arm64 capacity, which can stall the whole release.
+          - os: macos-15-intel
+            artifact: macos-x64
+            macArch: x64
+          - os: macos-15
+            artifact: macos-arm64
+            macArch: arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -62,6 +70,7 @@ jobs:
         env:
           # Code signing and notarization are tracked separately (P-6).
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          QBR_MAC_ARCH: ${{ matrix.macArch }}
       - name: Upload installers
         uses: actions/upload-artifact@v4
         with:

@@ -3,6 +3,15 @@
 // release tag always agree.
 const rootPackage = require("../../package.json");
 
+// The release workflow builds each Mac architecture on its own runner so one
+// scarce arm64 runner cannot stall both DMGs. Local builds keep both targets.
+const requestedMacArch = String(process.env.QBR_MAC_ARCH || "").trim();
+const macArchs = requestedMacArch === "arm64"
+  ? ["arm64"]
+  : requestedMacArch === "x64"
+    ? ["x64"]
+    : ["arm64", "x64"];
+
 module.exports = {
   appId: "com.uvreader.app",
   productName: "UV Reader",
@@ -29,7 +38,7 @@ module.exports = {
   mac: {
     icon: "build/icon.png",
     category: "public.app-category.books",
-    target: [{ target: "dmg", arch: ["arm64", "x64"] }],
+    target: [{ target: "dmg", arch: macArchs }],
   },
   dmg: { artifactName: "UV-Reader-${version}-${arch}.${ext}" },
   // Linux 目标先不产出(AppImage 留待以后);配置留着便于恢复。

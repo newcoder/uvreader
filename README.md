@@ -6,7 +6,7 @@
 
 UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支持 EPUB、PDF、FB2/FBZ、MOBI/AZW/AZW3、CBZ 和单张图片（PNG/JPG/WebP/GIF/BMP），内置高亮、批注、阅读笔记和可选的 AI 助读。书籍、进度和笔记默认都在本机；日常阅读不需要账号，也不需要联网。
 
-> **当前版本**：`0.7.66`。Windows / macOS 安装包见 [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.66)。
+> **当前版本**：`0.7.67`。Windows / macOS 安装包见 [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.67)。
 >
 > **来源**：fork 自 Obsidian 插件 [qiaomu-reader](https://github.com/joeseesun/qiaomu-reader)，现在作为独立桌面应用维护；Obsidian 插件形态不再作为主线。
 >
@@ -132,7 +132,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 
 ## 下载与安装
 
-- 安装包：[GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.66)。
+- 安装包：[GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.67)。
 - Windows：`UV-Reader-<版本>-setup.exe` 安装版，或 `UV-Reader-<版本>-portable.exe` 免安装版。
 - macOS：按 Releases 页面提供的 `UV-Reader-<版本>-<架构>.dmg` 安装。
 - 首次启动不需要账号；AI、OCR 和文档转换组件都是可选的，不配置也能正常阅读和做笔记。
@@ -249,7 +249,7 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 
 [Features](#features) · [Download](#download) · [FAQ](#faq) · [Build](#build)
 
-**Status:** `0.7.66`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.66). Read the [Disclaimer](DISCLAIMER.md) before use.
+**Status:** `0.7.67`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.67). Read the [Disclaimer](DISCLAIMER.md) before use.
 
 ## Recent updates (Oct 2026)
 
@@ -273,7 +273,7 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 
 ## Download
 
-Installers are available on [GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.66). Windows builds include `UV-Reader-<version>-setup.exe` and `UV-Reader-<version>-portable.exe`; macOS builds provide `UV-Reader-<version>-<arch>.dmg`. No account is required on first launch, and AI, OCR and document-conversion components are optional.
+Installers are available on [GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.67). Windows builds include `UV-Reader-<version>-setup.exe` and `UV-Reader-<version>-portable.exe`; macOS builds provide `UV-Reader-<version>-<arch>.dmg`. No account is required on first launch, and AI, OCR and document-conversion components are optional.
 
 ## FAQ
 
