@@ -138,3 +138,56 @@ test("real starter books survive the EPUB translation structure matrix", async (
 
   assert.ok(reports.length >= 5);
 });
+
+test("target-language matrix produces German and rejects same-language targets", async () => {
+  const outDir = tempDir("qbr-translation-targets-");
+  const chinese = path.join(starterRoot, "7337.epub");
+  const english = path.join(starterRoot, "11.epub");
+  const chineseToGerman = await translateEpub({
+    source: chinese,
+    out: path.join(outDir, "daodejing-de.epub"),
+    translator: fakeTranslator(),
+    mode: "stacked",
+    target: "de",
+    config: {},
+  });
+  assert.equal(chineseToGerman.pair.id, "zh-de");
+  assert.match(chineseToGerman.title, /中德对照/);
+  const chineseZip = await JSZip.loadAsync(fs.readFileSync(chineseToGerman.output));
+  const chineseChapter = await chineseZip.file("EPUB/s4.xhtml").async("string");
+  assert.match(chineseChapter, /class="qbr-epub-translation"[^>]*lang="de"/);
+
+  const englishToGerman = await translateEpub({
+    source: english,
+    out: path.join(outDir, "alice-de.epub"),
+    translator: fakeTranslator(),
+    mode: "stacked",
+    target: "de",
+    config: {},
+  });
+  assert.equal(englishToGerman.pair.id, "en-de");
+  assert.match(englishToGerman.title, /英德对照/);
+
+  await assert.rejects(
+    translateEpub({
+      source: chinese,
+      out: path.join(outDir, "reject-zh.epub"),
+      translator: fakeTranslator(),
+      mode: "stacked",
+      target: "zh",
+      config: {},
+    }),
+    /如需简繁转换/,
+  );
+  await assert.rejects(
+    translateEpub({
+      source: english,
+      out: path.join(outDir, "reject-en.epub"),
+      translator: fakeTranslator(),
+      mode: "stacked",
+      target: "en",
+      config: {},
+    }),
+    /原文已经是 English/,
+  );
+});
