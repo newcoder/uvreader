@@ -6,7 +6,7 @@
 
 UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支持 EPUB、PDF、FB2/FBZ、MOBI/AZW/AZW3、CBZ 和单张图片（PNG/JPG/WebP/GIF/BMP），内置高亮、批注、阅读笔记和可选的 AI 助读。书籍、进度和笔记默认都在本机；日常阅读不需要账号，也不需要联网。
 
-> **当前版本**：`0.7.76`。Windows / macOS 安装包见 [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.76)。
+> **当前版本**：`0.7.77`。Windows / macOS 安装包见 [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.77)。
 >
 > **来源**：fork 自 Obsidian 插件 [qiaomu-reader](https://github.com/joeseesun/qiaomu-reader)，现在作为独立桌面应用维护；Obsidian 插件形态不再作为主线。
 >
@@ -23,6 +23,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 - **AI 整理标签**：书库「标签」下新增 AI 整理入口。先确认可用标签（可新增），再选择全部书库或当前筛选，一键让 AI 在标签范围内归类；只发送书名、作者、简介和已有标签，不读取正文，每本一次请求，写入后可以撤销。自动结果可继续用原有标签编辑器手动调整。
 - **电子书目录与封面选项**：目录标题留空时按书籍语言自动使用「目录 / Contents / Inhalt / 目錄」等，也可自定义；目录层级可选全部、前 2 级或 1 级。指定图片封面可选择完整显示或铺满页面。适用于按文本重建的书稿；直接翻译或简繁转换 EPUB 仍保留原目录和封面。
 - **书坊引擎更新检查**：设置 → 书坊 → 书坊引擎新增「检查更新」，会显示已安装版本和最新引擎版本；运行中的引擎需要先停止，再更新到新版本。
+- **任务产物只导入一次**：完成的书坊任务会记录已处理状态；生成的书删掉后，重启应用不会从旧任务历史重新导入。任务行可「忽略自动导入」，也可以「恢复自动导入」。
 - **装载性能**：书库改为按需读取文件元数据，并在同一轮渲染中复用文件清单；答题页列表只读取 manifest 前缀并缓存结果。大书库和大量答题页的打开、刷新明显更快。
 
 [功能总览](#功能总览) · [下载与安装](#下载与安装) · [常见问题](#常见问题) · [从源码运行](#从源码运行)
@@ -137,7 +138,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 
 ## 下载与安装
 
-- 安装包：[GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.76)。
+- 安装包：[GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.77)。
 - Windows：`UV-Reader-<版本>-setup.exe` 安装版，或 `UV-Reader-<版本>-portable.exe` 免安装版。
 - macOS：按 Releases 页面提供的 `UV-Reader-<版本>-<架构>.dmg` 安装。
 - 首次启动不需要账号；AI、OCR 和文档转换组件都是可选的，不配置也能正常阅读和做笔记。
@@ -254,7 +255,7 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 
 [Features](#features) · [Download](#download) · [FAQ](#faq) · [Build](#build)
 
-**Status:** `0.7.76`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.76). Read the [Disclaimer](DISCLAIMER.md) before use.
+**Status:** `0.7.77`; Windows and macOS installers are available on [Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.77). Read the [Disclaimer](DISCLAIMER.md) before use.
 
 ## Recent updates (Oct 2026)
 
@@ -267,6 +268,7 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 - **AI library tagging:** confirm the allowed tags (and add new ones) under the library's Tags section, then tag all books or only the current filter in one pass. Only titles, authors, descriptions and existing tags are sent; book contents are not read. One request per book; the batch can be undone and individual tags stay editable.
 - **Ebook TOC and cover options:** the TOC title defaults to the book language (`Contents`, `Inhalt`, `目錄`, etc.) and can be overridden; TOC depth can keep all levels, two levels or one. Image covers can be contained or fill the page. These apply to rebuilt sources; direct EPUB translation and script conversion keep the original TOC and cover.
 - **Workshop engine updates:** Settings → Workshop → Workshop engine now has Check for updates, showing the installed and latest engine versions. Stop a running engine before updating it.
+- **One-time task output adoption:** completed workshop tasks remember what was already adopted. Deleting a generated book no longer lets an old task history re-import it after a restart. Each task row has Ignore automatic import and Restore automatic import actions.
 - **Faster loading:** the library reads file metadata on demand and reuses one inventory per render; the answer-page list reads only the manifest prefix and caches results.
 
 ## Features
@@ -281,7 +283,7 @@ UV Reader is a Chinese-first **standalone desktop reader** (Electron) for EPUB, 
 
 ## Download
 
-Installers are available on [GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.76). Windows builds include `UV-Reader-<version>-setup.exe` and `UV-Reader-<version>-portable.exe`; macOS builds provide `UV-Reader-<version>-<arch>.dmg`. No account is required on first launch, and AI, OCR and document-conversion components are optional.
+Installers are available on [GitHub Releases](https://github.com/newcoder/uvreader/releases/tag/v0.7.77). Windows builds include `UV-Reader-<version>-setup.exe` and `UV-Reader-<version>-portable.exe`; macOS builds provide `UV-Reader-<version>-<arch>.dmg`. No account is required on first launch, and AI, OCR and document-conversion components are optional.
 
 ## FAQ
 

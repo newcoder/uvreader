@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { shouldAdoptBookBuildOutput } from "../src/shared/workshop-outputs.js";
+import {
+  parseOutputAdoptionState,
+  serializeOutputAdoptionState,
+  shouldAdoptBookBuildOutput,
+} from "../src/shared/workshop-outputs.js";
 
 const sessionStartedAt = 2_000;
 const root = "C:/Users/reader/AppData/Roaming/uvreader/library";
@@ -30,4 +34,23 @@ test("only completed ebook builds are adopted", () => {
   assert.equal(shouldAdoptBookBuildOutput(task({ kind: "ebook-convert" }), { sessionStartedAt, vaultRoot: root }), false);
   assert.equal(shouldAdoptBookBuildOutput(task({ status: "failed" }), { sessionStartedAt, vaultRoot: root }), false);
   assert.equal(shouldAdoptBookBuildOutput(task({ output: "" }), { sessionStartedAt, vaultRoot: root }), false);
+});
+
+test("adopted and ignored task ids stay excluded across restarts", () => {
+  const current = task({ id: "task-1", finishedAt: sessionStartedAt + 1 });
+  assert.equal(shouldAdoptBookBuildOutput(current, { sessionStartedAt, vaultRoot: root, adoptedTaskIds: ["task-1"] }), false);
+  assert.equal(shouldAdoptBookBuildOutput(current, { sessionStartedAt, vaultRoot: root, ignoredTaskIds: ["task-1"] }), false);
+  assert.equal(shouldAdoptBookBuildOutput(current, { sessionStartedAt, vaultRoot: root, adoptedTaskIds: new Set(["task-1"]) }), false);
+});
+
+test("output adoption state is parsed safely and capped", () => {
+  assert.deepEqual(parseOutputAdoptionState("not json"), { adopted: [], ignored: [] });
+  assert.deepEqual(parseOutputAdoptionState(JSON.stringify({
+    adopted: ["a", "a", "b"],
+    ignored: ["c", ""],
+  })), { adopted: ["a", "b"], ignored: ["c"] });
+  assert.deepEqual(parseOutputAdoptionState(JSON.stringify({
+    adopted: Array.from({ length: 1100 }, (_, index) => `task-${index}`),
+  })).adopted.length, 1000);
+  assert.equal(serializeOutputAdoptionState({ adopted: ["a"], ignored: ["b"] }), '{"adopted":["a"],"ignored":["b"]}');
 });

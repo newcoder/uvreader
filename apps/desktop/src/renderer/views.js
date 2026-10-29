@@ -16,9 +16,10 @@ import { decodeText } from "../shared/text-encoding.js";
 import { applyChapterRule, describeChapterRule } from "../shared/chapter-rules.js";
 import { describeIssues, scanChapterIssues, splitCleanupBlocks } from "../shared/text-issues.js";
 import { BOOK_BUILDER_SOURCE_EXTENSIONS, filterLibraryFiles } from "../shared/library-files.js";
-import { shouldAdoptBookBuildOutput } from "../shared/workshop-outputs.js";
+import { parseOutputAdoptionState, serializeOutputAdoptionState, shouldAdoptBookBuildOutput } from "../shared/workshop-outputs.js";
 
 const WORKSHOP_SESSION_STARTED_AT = Date.now();
+const WORKSHOP_OUTPUT_ADOPTION_KEY = "qbr-workshop-output-adoption";
 
 // 书坊的 AI 辅助复用伴读的配置读取(供应商 / 模型 / 密钥都从同一份设置与密钥库来,
 // 不新增设置项);这里只用 aiConfig,翻译与高亮定位给最小实现。
@@ -1115,6 +1116,7 @@ export function createWorkshopView(leaf, options) {
       this._tool = localStorage.getItem("qbr-workshop-tool") || "ocr";
       if (!WORKSHOP_TOOLS.some((tool) => tool.id === this._tool)) this._tool = "ocr";
       this._collapsed = localStorage.getItem("qbr-workshop-rail") === "collapsed";
+      this._outputAdoption = parseOutputAdoptionState(localStorage.getItem(WORKSHOP_OUTPUT_ADOPTION_KEY));
       this.render();
       if (bridge) {
         this._unsubscribe = bridge.onState((state) => this.renderTasks(state));
@@ -3351,6 +3353,50 @@ export function createWorkshopView(leaf, options) {
       this.selectTool("tasks");
     }
 
+    _saveOutputAdoption() {
+      try {
+        localStorage.setItem(WORKSHOP_OUTPUT_ADOPTION_KEY, serializeOutputAdoptionState(this._outputAdoption));
+      } catch { /* storage is optional */ }
+    }
+
+    _markOutputAdopted(taskId) {
+      const id = String(taskId || "");
+      if (!id) return;
+      const adopted = new Set(this._outputAdoption?.adopted || []);
+      adopted.add(id);
+      this._outputAdoption = {
+        adopted: [...adopted],
+        ignored: (this._outputAdoption?.ignored || []).filter((value) => value !== id),
+      };
+      this._saveOutputAdoption();
+    }
+
+    ignoreBookBuildOutput(taskId) {
+      const id = String(taskId || "");
+      if (!id) return;
+      const ignored = new Set(this._outputAdoption?.ignored || []);
+      ignored.add(id);
+      this._outputAdoption = {
+        adopted: (this._outputAdoption?.adopted || []).filter((value) => value !== id),
+        ignored: [...ignored],
+      };
+      this._saveOutputAdoption();
+      if (this._lastState) this.renderTasks(this._lastState);
+      new Notice("这个任务的产物不会再自动导入书库；可在任务行点「恢复自动导入」。");
+    }
+
+    restoreBookBuildOutput(taskId) {
+      const id = String(taskId || "");
+      if (!id) return;
+      this._outputAdoption = {
+        adopted: this._outputAdoption?.adopted || [],
+        ignored: (this._outputAdoption?.ignored || []).filter((value) => value !== id),
+      };
+      this._saveOutputAdoption();
+      if (this._lastState) this.renderTasks(this._lastState);
+      new Notice("已恢复这个任务的自动导入。");
+    }
+
     // 电子书制作完成后,把产物放进当前书库。源文件本来就在书库时 import 只返回
     // 现有路径;源文件在本地时会在书库创建一份并自动打「导入」标签。之后任务行
     // 的「打开产物」使用书库路径,点击即进入阅读器。
@@ -3358,14 +3404,21 @@ export function createWorkshopView(leaf, options) {
       if (!plugin?.importBookToLibrary) return;
       const root = String(window.qbrDesktop?.paths?.vaultRoot || "").replace(/\\/g, "/").replace(/\/+$/, "");
       this._bookLibraryOutputs ||= new Map();
+      this._outputAdoption ||= { adopted: [], ignored: [] };
       for (const task of tasks) {
-        if (!shouldAdoptBookBuildOutput(task, { sessionStartedAt: WORKSHOP_SESSION_STARTED_AT, vaultRoot: root })) continue;
+        if (!shouldAdoptBookBuildOutput(task, {
+          sessionStartedAt: WORKSHOP_SESSION_STARTED_AT,
+          vaultRoot: root,
+          adoptedTaskIds: this._outputAdoption.adopted,
+          ignoredTaskIds: this._outputAdoption.ignored,
+        })) continue;
         if (this._bookLibraryOutputs.has(task.id)) continue;
         const raw = String(task.output).replace(/\\/g, "/");
         const absolute = /^[a-zA-Z]:\//.test(raw) || raw.startsWith("//");
         // Already inside the app library: just remember its vault-relative path.
         if (!absolute || (root && raw.toLowerCase().startsWith(`${root.toLowerCase()}/`))) {
           this._bookLibraryOutputs.set(task.id, absolute && root ? raw.slice(root.length + 1) : raw);
+          this._markOutputAdopted(task.id);
           continue;
         }
         // Output landed outside the library during this session: import it
@@ -3373,7 +3426,9 @@ export function createWorkshopView(leaf, options) {
         this._bookLibraryOutputs.set(task.id, null);
         void Promise.resolve(plugin.importBookToLibrary(task.output))
           .then((path) => {
-            if (path) this._bookLibraryOutputs.set(task.id, path);
+            if (!path) return;
+            this._bookLibraryOutputs.set(task.id, path);
+            if (!(this._outputAdoption?.ignored || []).includes(task.id)) this._markOutputAdopted(task.id);
           })
           .catch(() => {});
       }
@@ -3546,6 +3601,16 @@ export function createWorkshopView(leaf, options) {
       if (task.kind === "book-preview" && task.status === "done" && task.result?.previewHtml) {
         const preview = actions.createEl("button", { cls: "qbr-workshop-task-btn mod-cta", text: "查看试译" });
         preview.addEventListener("click", () => this.openBookPreview(task.result));
+      }
+      if (task.kind === "book-build" && task.status === "done" && task.output) {
+        const ignored = (this._outputAdoption?.ignored || []).includes(String(task.id || ""));
+        if (ignored) {
+          const restore = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "恢复自动导入" });
+          restore.addEventListener("click", () => this.restoreBookBuildOutput(task.id));
+        } else {
+          const ignore = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "忽略自动导入" });
+          ignore.addEventListener("click", () => this.ignoreBookBuildOutput(task.id));
+        }
       }
       if (task.status === "done" && /[\\/]/.test(String(task.output || ""))) {
         const libraryOutput = this._bookLibraryOutputs?.get(task.id) || "";
