@@ -1699,22 +1699,29 @@ export function createWorkshopView(leaf, options) {
         ["translated", "仅译文"],
         ["stacked", "上下对照"],
         ["side", "左右对照"],
-        ["script", "简繁转换"],
+        ["script", "简繁转换（本机）"],
       ]) {
         this._bookTranslateMode.createEl("option", { attr: { value }, text: label });
       }
       const translateTargetRow = translationStep.createDiv("qbr-workshop-row");
-      translateTargetRow.createSpan({ cls: "qbr-workshop-hint", text: "目标语言" });
+      translateTargetRow.createSpan({ cls: "qbr-workshop-hint", text: "翻译目标" });
       this._bookTranslateTarget = translateTargetRow.createEl("select", { cls: "qbr-workshop-select" });
       for (const [value, label] of [
         ["auto", "自动（按原文）"],
         ["en", "English"],
-        ["zh", "简体中文"],
+        ["zh", "简体中文（外文→中文）"],
         ["de", "Deutsch"],
       ]) {
         this._bookTranslateTarget.createEl("option", { attr: { value }, text: label });
       }
       this._bookTranslateTargetRow = translateTargetRow;
+      const scriptQuickRow = translationStep.createDiv("qbr-workshop-row");
+      scriptQuickRow.createSpan({ cls: "qbr-workshop-hint", text: "简繁快捷转换" });
+      const simplify = scriptQuickRow.createEl("button", { text: "转为简体" });
+      simplify.addEventListener("click", () => this.startBookScriptConversion("s"));
+      const traditional = scriptQuickRow.createEl("button", { text: "转为繁体" });
+      traditional.addEventListener("click", () => this.startBookScriptConversion("t"));
+      scriptQuickRow.createSpan({ cls: "qbr-workshop-hint", text: "本机直接替换，不需要 AI；EPUB 保留原排版。" });
       const scriptRow = translationStep.createDiv("qbr-workshop-row");
       scriptRow.createSpan({ cls: "qbr-workshop-hint", text: "转换为" });
       this._bookScriptTarget = scriptRow.createEl("select", { cls: "qbr-workshop-select" });
@@ -2154,6 +2161,22 @@ export function createWorkshopView(leaf, options) {
         this.setBookPreviewStatus("试译完成，但没有预览内容");
         new Notice("试译完成，但没有可显示的预览内容");
       }
+    }
+
+    startBookScriptConversion(target) {
+      if (!bridge) return;
+      const rel = String(this._bookSources?.[0] || "");
+      if (!rel) {
+        new Notice("请先选择书稿");
+        return;
+      }
+      if (!this._bookTranslateMode || !this._bookScriptTarget) return;
+      this._bookTranslateMode.value = "script";
+      this._bookScriptTarget.value = target === "s" ? "s" : "t";
+      this.syncBookTranslationMode();
+      this.onBookStyleChange();
+      this.startBookBuild();
+      new Notice(target === "s" ? "已开始转为简体" : "已开始转为繁体");
     }
 
     async startBookPreview() {

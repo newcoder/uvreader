@@ -257,7 +257,10 @@ export async function translateEpub({
       directionId = "wenyan-zh";
     } else {
       if (requestedTarget && detected.language === requestedTarget) {
-        throw new Error(`原文已经是 ${requestedTarget === "zh" ? "中文" : requestedTarget === "en" ? "English" : "Deutsch"}，请选择其它目标语言`);
+        if (requestedTarget === "zh") {
+          throw new Error("原文已经是中文。翻译目标不能与原文相同；如需简繁转换，请使用「简繁转换（本机）」或「转为简体/繁体」快捷按钮");
+        }
+        throw new Error(`原文已经是 ${requestedTarget === "en" ? "English" : "Deutsch"}，请选择其它目标语言`);
       }
       directionId = directionForSource({ language: detected.language, classical: false, target: requestedTarget });
       if (!directionId) {
