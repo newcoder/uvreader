@@ -1735,16 +1735,27 @@ export function createWorkshopView(leaf, options) {
       this._bookPreviewButton.addEventListener("click", () => void this.startBookPreview());
       previewRow.createSpan({ cls: "qbr-workshop-hint", text: "只翻译前两章，不写入书库；确认排版后再生成全书。" });
       this._bookPreviewRow.hidden = true;
+      const previewStatusRow = translationStep.createDiv("qbr-workshop-row");
+      this._bookPreviewStatus = previewStatusRow.createSpan({ cls: "qbr-workshop-hint", text: "尚未试译" });
+      this._bookPreviewView = previewStatusRow.createEl("button", { text: "查看试译" });
+      this._bookPreviewView.hidden = true;
+      this._bookPreviewView.addEventListener("click", () => {
+        if (this._lastBookPreviewResult) this.openBookPreview(this._lastBookPreviewResult);
+      });
+      this._bookPreviewStatusRow = previewStatusRow;
       this._bookTranslateMode.addEventListener("change", () => {
+        this.resetBookPreview();
         this.syncBookTranslationMode();
         this.onBookStyleChange();
       });
       this._bookTranslateClassical.addEventListener("change", () => {
+        this.resetBookPreview();
         this.syncBookTranslationMode();
         this.onBookStyleChange();
       });
       this._bookScriptTarget.addEventListener("change", () => this.onBookStyleChange());
       this._bookTranslateTarget.addEventListener("change", () => {
+        this.resetBookPreview();
         this.syncBookTranslationMode();
         this.onBookStyleChange();
       });
@@ -2085,6 +2096,64 @@ export function createWorkshopView(leaf, options) {
         && mode !== "script"
         && this.bookSourceExtension() === "epub";
       if (this._bookPreviewRow) this._bookPreviewRow.hidden = !show;
+      if (this._bookPreviewStatusRow) this._bookPreviewStatusRow.hidden = !show;
+    }
+
+    resetBookPreview() {
+      if (this._pendingPreviewTaskId) return;
+      this._lastBookPreviewResult = null;
+      if (this._bookPreviewView) this._bookPreviewView.hidden = true;
+      if (this._bookPreviewStatus) this._bookPreviewStatus.setText("尚未试译");
+    }
+
+    setBookPreviewBusy(busy) {
+      if (!this._bookPreviewButton) return;
+      this._bookPreviewButton.disabled = Boolean(busy);
+      this._bookPreviewButton.setText(busy ? "试译中…" : "试译开头");
+    }
+
+    setBookPreviewStatus(text, { view = false } = {}) {
+      if (this._bookPreviewStatus) this._bookPreviewStatus.setText(String(text || ""));
+      if (this._bookPreviewView) this._bookPreviewView.hidden = !view;
+    }
+
+    handlePendingBookPreview(tasks = []) {
+      const id = String(this._pendingPreviewTaskId || "");
+      if (!id || id === "__starting__") {
+        if (id === "__starting__") this.setBookPreviewStatus("试译中…");
+        return;
+      }
+      const task = tasks.find((entry) => entry.id === id);
+      if (!task) {
+        this.setBookPreviewStatus("等待试译任务…");
+        return;
+      }
+      if (task.status === "queued") {
+        this.setBookPreviewStatus("试译排队中…");
+        return;
+      }
+      if (task.status === "running") {
+        const progress = task.total ? ` ${task.done || 0}/${task.total}` : "";
+        this.setBookPreviewStatus(`试译中…${progress}${task.label ? ` · ${task.label}` : ""}`);
+        return;
+      }
+      this._pendingPreviewTaskId = "";
+      this.setBookPreviewBusy(false);
+      if (task.status === "done" && task.result?.previewHtml) {
+        this._lastBookPreviewResult = task.result;
+        this.setBookPreviewStatus("试译已完成", { view: true });
+        this.openBookPreview(task.result);
+        return;
+      }
+      if (task.status === "failed") {
+        this.setBookPreviewStatus(task.error ? `试译失败：${task.error}` : "试译失败");
+        new Notice(task.error || "试译失败");
+      } else if (task.status === "cancelled") {
+        this.setBookPreviewStatus("试译已取消");
+      } else if (task.status === "done") {
+        this.setBookPreviewStatus("试译完成，但没有预览内容");
+        new Notice("试译完成，但没有可显示的预览内容");
+      }
     }
 
     async startBookPreview() {
@@ -2109,21 +2178,42 @@ export function createWorkshopView(leaf, options) {
         return;
       }
       const state = this.bookStyleState();
-      void bridge.start({
-        kind: "book-preview",
-        title: "试译开头",
-        detail: `${rel} · 前两章 · ${translation.mode === "translated" ? "仅译文" : translation.mode === "side" ? "左右对照" : "上下对照"}`,
-        payload: {
-          source: rel,
-          title: state.title,
-          translation: {
-            mode: translation.mode,
-            target: translation.target,
-            classical: translation.classical,
-            config,
+      this._pendingPreviewTaskId = "__starting__";
+      this.setBookPreviewBusy(true);
+      this.setBookPreviewStatus("试译中…");
+      let id = "";
+      try {
+        id = String(await bridge.start({
+          kind: "book-preview",
+          title: "试译开头",
+          detail: `${rel} · 前两章 · ${translation.mode === "translated" ? "仅译文" : translation.mode === "side" ? "左右对照" : "上下对照"}`,
+          payload: {
+            source: rel,
+            title: state.title,
+            translation: {
+              mode: translation.mode,
+              target: translation.target,
+              classical: translation.classical,
+              config,
+            },
           },
-        },
-      }).catch((error) => new Notice(String(error?.message || error)));
+        }) || "");
+      } catch (error) {
+        this._pendingPreviewTaskId = "";
+        this.setBookPreviewBusy(false);
+        this.setBookPreviewStatus("试译未启动");
+        new Notice(String(error?.message || error));
+        return;
+      }
+      if (!id) {
+        this._pendingPreviewTaskId = "";
+        this.setBookPreviewBusy(false);
+        this.setBookPreviewStatus("试译未启动");
+        new Notice("试译任务没有启动");
+        return;
+      }
+      this._pendingPreviewTaskId = id;
+      this.handlePendingBookPreview(this._lastState?.tasks || []);
     }
 
     openBookPreview(result = {}) {
@@ -2676,12 +2766,14 @@ export function createWorkshopView(leaf, options) {
     addBookSource(path) {
       this._bookSources ||= [];
       if (path && !this._bookSources.includes(path)) this._bookSources.push(path);
+      this.resetBookPreview();
       this.renderBookSourceChips();
       void this.renderBookChapters();
     }
 
     removeBookSource(path) {
       this._bookSources = (this._bookSources || []).filter((item) => item !== path);
+      this.resetBookPreview();
       this.renderBookSourceChips();
       void this.renderBookChapters();
       this.refreshBookSourceList();
@@ -3151,6 +3243,7 @@ export function createWorkshopView(leaf, options) {
         this._updateTaskBar(running, queued);
         return;
       }
+      this.handlePendingBookPreview(tasks);
       this.adoptBookBuildOutputs(tasks);
       this.captureAiSuggestions(tasks);
       const visibleTasks = tasks.filter((task) => task.kind !== "quiz-export");
