@@ -93,7 +93,7 @@ import { createLibraryModal } from "./library-modal.js";
 import { createTagEditor } from "./tag-editor.js";
 import { createReaderModal } from "./reader-modal.js";
 import { buildTocItems, chapterForBlock, pageForBlock, pdfSearchPages, readerSearchTexts } from "./toc-build.js";
-import { createLibraryData, freeBookPath, groupLibChips, IMPORT_MIME_EXT, mergeBookTags, pickLibraryFolder } from "./library-data.js";
+import { createLibraryData, freeBookPath, groupLibChips, IMPORT_MIME_EXT, mergeBookTags, pickLibraryFolder, removeBookTagEntries, renameBookTagEntries } from "./library-data.js";
 import { buildAutoTagMessages, normalizeAutoTagVocabulary, parseAutoTagAnswer } from "./library-auto-tag.js";
 import { createPdfDocument } from "./pdf-document.js";
 import { createAiContext } from "./ai-context.js";
@@ -4516,6 +4516,39 @@ QiaomuBookReader.prototype.undoAiTagLibrary = async function undoAiTagLibrary() 
     throw new Error("Could not restore tags");
   }
   return restored;
+};
+
+QiaomuBookReader.prototype.renameLibraryTag = async function renameLibraryTag(from, to) {
+  const beforeBookTags = this.settings.bookTags;
+  const beforeUndo = this.settings.aiTagUndo;
+  const result = renameBookTagEntries(beforeBookTags, from, to);
+  if (!result.changed) return 0;
+  this.settings.bookTags = result.bookTags;
+  // A manual rename makes the last AI batch's undo snapshot misleading.
+  delete this.settings.aiTagUndo;
+  const saved = await this._saveLocalData();
+  if (saved === false) {
+    this.settings.bookTags = beforeBookTags;
+    this.settings.aiTagUndo = beforeUndo;
+    throw new Error("Could not rename the tag");
+  }
+  return result.changed;
+};
+
+QiaomuBookReader.prototype.deleteLibraryTag = async function deleteLibraryTag(tag) {
+  const beforeBookTags = this.settings.bookTags;
+  const beforeUndo = this.settings.aiTagUndo;
+  const result = removeBookTagEntries(beforeBookTags, tag);
+  if (!result.changed) return 0;
+  this.settings.bookTags = result.bookTags;
+  delete this.settings.aiTagUndo;
+  const saved = await this._saveLocalData();
+  if (saved === false) {
+    this.settings.bookTags = beforeBookTags;
+    this.settings.aiTagUndo = beforeUndo;
+    throw new Error("Could not delete the tag");
+  }
+  return result.changed;
 };
 
 QiaomuBookReader.prototype.openAiSettings = function openAiSettings(onReady) {

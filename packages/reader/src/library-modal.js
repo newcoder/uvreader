@@ -23,6 +23,97 @@ export function createLibraryModal({
     .filter(Boolean)
     .filter((tag, index, all) => all.indexOf(tag) === index);
 
+  // Global tag housekeeping. Renaming merges into an existing tag; deleting
+  // removes the tag from every book. Both are confirmed before closing.
+  const TagManagerModal = class extends Modal {
+    constructor(app, owner) {
+      super(app);
+      this.owner = owner;
+      this.plugin = owner.plugin;
+    }
+    onOpen() {
+      this.contentEl.empty();
+      this.contentEl.addClass("qiaomu-reader-tag-manager");
+      this.contentEl.createDiv({ cls: "qiaomu-reader-tag-manager-title", text: qiaomuReaderTranslate("manage-tags") });
+      this.contentEl.createDiv({ cls: "qiaomu-reader-tag-manager-lead", text: qiaomuReaderTranslate("manage-tags-lead") });
+      const counts = new Map();
+      for (const file of this.owner._libFiles || []) {
+        for (const tag of bookTagsOf(this.plugin.settings, file.path)) counts.set(tag, (counts.get(tag) || 0) + 1);
+      }
+      const list = this.contentEl.createDiv("qiaomu-reader-tag-manager-list");
+      const tags = [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+      if (!tags.length) {
+        list.createDiv({ cls: "qiaomu-reader-tag-manager-empty", text: qiaomuReaderTranslate("tag-manager-empty") });
+      }
+      for (const [tag, count] of tags) {
+        const row = list.createDiv("qiaomu-reader-tag-manager-row");
+        const input = row.createEl("input", {
+          cls: "qiaomu-reader-tag-manager-input",
+          attr: { type: "text", "aria-label": qiaomuReaderTranslate("rename-tag") },
+        });
+        input.value = tag;
+        row.createSpan({ cls: "qiaomu-reader-tag-manager-count", text: qiaomuReaderTranslate("books-count", count) });
+        const save = row.createEl("button", { attr: { type: "button" }, text: qiaomuReaderTranslate("rename-tag") });
+        const remove = row.createEl("button", { attr: { type: "button" }, text: qiaomuReaderTranslate("delete-tag") });
+        save.addEventListener("click", () => void this._rename(tag, input.value));
+        input.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          void this._rename(tag, input.value);
+        });
+        let armed = false;
+        let timer = null;
+        remove.addEventListener("click", () => {
+          if (!armed) {
+            armed = true;
+            remove.setText(qiaomuReaderTranslate("delete-tag-confirm"));
+            timer = window.setTimeout(() => {
+              armed = false;
+              if (remove.isConnected) remove.setText(qiaomuReaderTranslate("delete-tag"));
+            }, 4000);
+            return;
+          }
+          if (timer) window.clearTimeout(timer);
+          void this._delete(tag);
+        });
+      }
+      const foot = this.contentEl.createDiv("qiaomu-reader-tag-editor-foot");
+      const close = foot.createEl("button", { attr: { type: "button" }, text: qiaomuReaderTranslate("close") });
+      close.addEventListener("click", () => this.close());
+    }
+    async _rename(from, value) {
+      const to = String(value || "").trim();
+      if (!to) {
+        new Notice(qiaomuReaderTranslate("tag-name-empty"));
+        return;
+      }
+      if (to === from) return;
+      try {
+        const changed = await this.plugin.renameLibraryTag(from, to);
+        if (!changed) return;
+        new Notice(qiaomuReaderTranslate("tag-renamed-0", changed));
+        this.close();
+        this.owner._refresh();
+      } catch (error) {
+        new Notice(qiaomuReaderTranslate("tag-update-failed", String(error?.message || error)));
+      }
+    }
+    async _delete(tag) {
+      try {
+        const changed = await this.plugin.deleteLibraryTag(tag);
+        if (!changed) return;
+        new Notice(qiaomuReaderTranslate("tag-deleted-0", changed));
+        this.close();
+        this.owner._refresh();
+      } catch (error) {
+        new Notice(qiaomuReaderTranslate("tag-update-failed", String(error?.message || error)));
+      }
+    }
+    onClose() {
+      this.contentEl.empty();
+    }
+  };
+
   // The batch tagging dialog. The vocabulary is confirmed here first, then one
   // AI request per book; applying is a single settings write with an undo
   // snapshot so a wrong batch never becomes a dead end.
@@ -583,6 +674,12 @@ export function createLibraryModal({
       });
       undo.addEventListener("click", (ev) => { ev.stopPropagation(); void this._undoAiTags(); });
     }
+    const manageTags = makeNode(tagGroup.children, {
+      label: qiaomuReaderTranslate("manage-tags"),
+      icon: "sliders",
+      cls: "qiaomu-reader-lib-node-action",
+    });
+    manageTags.addEventListener("click", (ev) => { ev.stopPropagation(); this._openTagManager(); });
     const statusGroup = makeGroup(children, qiaomuReaderTranslate("reading-status"));
     for (const status of statuses) makeNode(statusGroup.children, { id: status.id, label: status.label, countText: String(status.count), level: "sub" });
     if (groups.folders.length) {
@@ -970,6 +1067,9 @@ export function createLibraryModal({
   }
   _openAiTagModal() {
     new AutoTagModal(this.app, this).open();
+  }
+  _openTagManager() {
+    new TagManagerModal(this.app, this).open();
   }
   async _undoAiTags() {
     try {

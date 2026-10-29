@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createLibraryData, existingVaultBookPath, freeBookPath, groupLibChips, IMPORT_MIME_EXT, isInsideVaultPath, mergeBookTags, pickLibraryFolder, vaultBookPaths, vaultOnlyRecord } from "../packages/reader/src/library-data.js";
+import { createLibraryData, existingVaultBookPath, freeBookPath, groupLibChips, IMPORT_MIME_EXT, isInsideVaultPath, mergeBookTags, pickLibraryFolder, removeBookTagEntries, renameBookTagEntries, vaultBookPaths, vaultOnlyRecord } from "../packages/reader/src/library-data.js";
 
 const normalize = (p) => String(p == null ? "" : p).trim()
   .replace(/\\/g, "/").replace(/\/+/g, "/").replace(/^\/+|\/+$/g, "");
@@ -132,6 +132,38 @@ test("mergeBookTags unions existing and added tags without duplicates", () => {
   assert.deepEqual(mergeBookTags(undefined, ["下载"]), ["下载"]);
   assert.deepEqual(mergeBookTags([" "], []), []);
   assert.deepEqual(mergeBookTags(["a"], ["b", "a", "c"]), ["a", "b", "c"]);
+});
+
+test("renameBookTagEntries merges duplicates and keeps other books untouched", () => {
+  const original = {
+    "a.epub": ["旧", "文学"],
+    "b.epub": ["旧"],
+    "c.epub": ["历史"],
+  };
+  const result = renameBookTagEntries(original, "旧", "文学");
+  assert.equal(result.changed, 2);
+  assert.deepEqual(result.bookTags, {
+    "a.epub": ["文学"],
+    "b.epub": ["文学"],
+    "c.epub": ["历史"],
+  });
+  assert.deepEqual(original["a.epub"], ["旧", "文学"], "input is not mutated");
+  assert.equal(renameBookTagEntries(original, "旧", "旧").changed, 0);
+  assert.equal(renameBookTagEntries(original, "", "新").changed, 0);
+});
+
+test("removeBookTagEntries removes one tag and drops empty book entries", () => {
+  const result = removeBookTagEntries({
+    "a.epub": ["旧", "文学"],
+    "b.epub": ["旧"],
+    "c.epub": ["历史"],
+  }, "旧");
+  assert.equal(result.changed, 2);
+  assert.deepEqual(result.bookTags, {
+    "a.epub": ["文学"],
+    "c.epub": ["历史"],
+  });
+  assert.equal(removeBookTagEntries({}, "旧").changed, 0);
 });
 
 test("freeBookPath keeps the extension and suffixes duplicates", () => {

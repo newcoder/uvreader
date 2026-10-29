@@ -28,6 +28,45 @@ export function mergeBookTags(existing, added) {
   return out;
 }
 
+// Rename one tag across a bookTags map. Renaming onto an existing tag merges
+// the two lists; the returned map is a shallow copy so callers can roll back.
+export function renameBookTagEntries(bookTags, from, to) {
+  const source = String(from || "").trim();
+  const target = String(to || "").trim();
+  const current = bookTags && typeof bookTags === "object" ? bookTags : {};
+  if (!source || !target || source === target) return { bookTags: { ...current }, changed: 0 };
+  const next = {};
+  let changed = 0;
+  for (const [bookPath, tags] of Object.entries(current)) {
+    if (!Array.isArray(tags) || !tags.includes(source)) {
+      next[bookPath] = tags;
+      continue;
+    }
+    const merged = mergeBookTags(tags.map((tag) => tag === source ? target : tag), []);
+    if (merged.length) next[bookPath] = merged;
+    changed += 1;
+  }
+  return { bookTags: next, changed };
+}
+
+export function removeBookTagEntries(bookTags, tag) {
+  const name = String(tag || "").trim();
+  const current = bookTags && typeof bookTags === "object" ? bookTags : {};
+  if (!name) return { bookTags: { ...current }, changed: 0 };
+  const next = {};
+  let changed = 0;
+  for (const [bookPath, tags] of Object.entries(current)) {
+    if (!Array.isArray(tags) || !tags.includes(name)) {
+      next[bookPath] = tags;
+      continue;
+    }
+    const remaining = tags.filter((value) => value !== name);
+    if (remaining.length) next[bookPath] = remaining;
+    changed += 1;
+  }
+  return { bookTags: next, changed };
+}
+
 // "book.epub" → "book.epub", "book.epub" → "book (2).epub" … `exists` is the
 // caller's vault lookup so the helper stays host-free.
 export function freeBookPath(dir, name, exists) {
