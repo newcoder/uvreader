@@ -16,7 +16,7 @@ import { createCalibre } from "./calibre.js";
 import { createCoverRenderer } from "./cover-render.js";
 import { createDocvortex, registerDocvortexRunners } from "./docvortex.js";
 import { extractMarkdown, registerExtractRunners } from "./extract-doc.js";
-import { clearMineruCaches, createMineruLocalService, resolveLocalBackend, resolveMineruKit } from "./mineru-local.js";
+import { clearMineruCaches, createMineruLocalService, mineruKitProblem, resolveLocalBackend, resolveMineruKit } from "./mineru-local.js";
 import { createPdfCleaner, createPdfTextReader, registerTextConvertRunner } from "./pdf-text.js";
 import { createPdfFormService } from "./pdf-form.js";
 import { createFormulaChain, pdfToolScriptCommand, registerFormulaRunners, resolveMineruToken } from "./workshop-formula.js";
@@ -597,7 +597,7 @@ ipcMain.handle("qbr:launch-file", () => launchFile);
 ipcMain.handle("qbr:mineru:status", (_event, settings) => mineruLocal.status(settings || {}));
 ipcMain.handle("qbr:mineru:ensure", (_event, settings) => mineruLocal.ensure(settings || {}));
 ipcMain.handle("qbr:mineru:stop", () => mineruLocal.stop());
-ipcMain.handle("qbr:mineru:path", (_event, settings = {}) => ({ path: resolveMineruKit(settings || {}) }));
+ipcMain.handle("qbr:mineru:path", (_event, settings = {}) => ({ path: resolveMineruKit(settings || {}, { validate: true }) }));
 // 直接在设置页里跑的链路探测(不入队):文字层 / DocVortex / 公式 / Calibre。
 ipcMain.handle("qbr:probe:ocr", (_event, settings = {}) => pdfOcr.probe(settings || {}, OCR_PROBE_TIMEOUT));
 ipcMain.handle("qbr:probe:docvortex", (_event, settings = {}) => docvortex.probe(settings || {}));
@@ -610,6 +610,14 @@ ipcMain.handle("qbr:calibre:convert", async (_event, payload = {}) => {
   return calibre.convert(payload?.settings || {}, { source, out });
 });
 // 书坊引擎(本地 HTTP 服务):应用只做探测,能力清单由引擎的 /v1/health 上报。
+const syncEngineMineru = (value = {}) => syncLocalMineru({
+  settings: value,
+  engine: engineClient,
+  resolveBackend: (input) => resolveLocalBackend(input),
+  resolveKit: (input) => resolveMineruKit(input, { validate: true }),
+  checkKit: (exe) => mineruKitProblem(exe),
+  log: (message, detail) => log("[engine]", message, detail || ""),
+});
 ipcMain.handle("qbr:probe:engine", async (_event, settings = {}) => {
   const value = settings || {};
   const result = await engineClient.health(value, { refresh: value.refresh === true });
@@ -619,13 +627,7 @@ ipcMain.handle("qbr:probe:engine", async (_event, settings = {}) => {
   // 引擎还用不上 MinerU、而本机有活着的本地 MinerU 服务:把地址 / 程序 / 凭据写进引擎配置
   // (只写引擎没配的时候,不覆盖用户填的;凭据只发给本机引擎)。
   if (health.capabilities?.mineru?.ok !== true) {
-    synced = await syncLocalMineru({
-      settings: value,
-      engine: engineClient,
-      resolveBackend: (input) => resolveLocalBackend(input),
-      resolveKit: (input) => resolveMineruKit(input),
-      log: (message, detail) => log("[engine]", message, detail || ""),
-    });
+    synced = await syncEngineMineru(value);
     if (synced?.capabilities) health = { ...health, capabilities: synced.capabilities };
   }
   return { ok: true, detail: describeEngineHealth(health), health, synced };
@@ -650,7 +652,12 @@ ipcMain.handle("qbr:engine:start", async (_event, payload = {}) => {
       : bundledEngineArchive
         ? await findFreePort()
         : portFromUrl("");
-  return engineService.start({ port });
+  const started = await engineService.start({ port });
+  if (started?.ok) {
+    const synced = await syncEngineMineru(payload);
+    return { ...started, synced };
+  }
+  return started;
 });
 ipcMain.handle("qbr:engine:stop", () => engineService.stop());
 ipcMain.handle("qbr:engine:auto-start", async (_event, settings = {}) => {
@@ -669,10 +676,15 @@ ipcMain.handle("qbr:engine:auto-start", async (_event, settings = {}) => {
   // Without a saved URL, a bundled engine should get a fresh loopback port
   // instead of probing (or colliding with) whatever happens to use 8760.
   const health = value.engineUrl ? await engineClient.health(value) : null;
-  if (health?.ok) return { skipped: "running", detail: describeEngineHealth(health.data || {}) };
+  if (health?.ok) {
+    const synced = await syncEngineMineru(value);
+    return { skipped: "running", detail: describeEngineHealth(health.data || {}), synced };
+  }
   try {
     const port = value.engineUrl ? portFromUrl(value.engineUrl) : bundledEngineArchive ? await findFreePort() : portFromUrl("");
-    return await engineService.start({ port });
+    const started = await engineService.start({ port });
+    const synced = started?.ok ? await syncEngineMineru(value) : null;
+    return { ...started, ...(synced ? { synced } : {}) };
   } catch (error) {
     log("[engine] auto-start failed:", String(error?.message || error));
     return { skipped: "failed", error: String(error?.message || error) };
@@ -698,7 +710,12 @@ ipcMain.handle("qbr:probe:formula", async (_event, settings = {}) => {
   const backend = await resolveLocalBackend(value);
   const token = resolveMineruToken(value, {});
   if (!backend.url && !token && !backend.exe) {
-    return { ok: false, detail: "没有找到 MinerU 凭据或本地 MinerU:在「设置 → 书坊」里填。" };
+    return {
+      ok: false,
+      detail: backend.exeProblem
+        ? `本地 MinerU 程序无法启动:${backend.exeProblem}`
+        : "没有找到 MinerU 凭据或本地 MinerU:在「设置 → 书坊」里填。",
+    };
   }
   const probe = await docvortex.probe(value);
   if (!probe.ok) return { ok: false, detail: `DocVortex 不可用:${String(probe.detail || "").slice(0, 120)}` };

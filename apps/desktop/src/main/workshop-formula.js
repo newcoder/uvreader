@@ -228,7 +228,8 @@ export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000,
         return { ok: false, error: "没有找到 MinerU 凭据:在「设置 → 书坊 → MinerU 凭据」里填,或配置环境变量 MINERU_API_KEY / MINERU_TOKEN;也可以启动本地 MinerU 服务并填「本地 MinerU 服务」地址。" };
       }
       if (backend.wantLocal && !backend.url && !backend.exe) {
-        return { ok: false, error: "选了本地 MinerU,但服务没在跑、也找不到 mineru-kit:在「设置 → 书坊 → 本地 MinerU 程序」里填完整路径(或点「启动服务」)。" };
+        const broken = backend.exeProblem ? `(${backend.exeProblem})` : "";
+        return { ok: false, error: `选了本地 MinerU,但服务没在跑、也找不到可用的 mineru-kit${broken}:在「设置 → 书坊 → 本地 MinerU 程序」里填完整路径(或点「启动服务」)。` };
       }
       report?.({ label: backend.url ? "本地 MinerU 服务解析" : backend.exe && backend.wantLocal ? "本地 MinerU(CLI)解析" : "MinerU 云端解析" });
       log("formula chain: pdf_tool", target.command, target.script);

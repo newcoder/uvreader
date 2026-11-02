@@ -180,7 +180,9 @@ test("the pdf runner hands the local MinerU program to pdf_tool and blocks dead 
   const source = path.join(vault, "试卷.pdf");
   fs.writeFileSync(source, "%PDF-1.4");
   const exe = path.join(vault, "mineru-kit.exe");
-  fs.writeFileSync(exe, "stub");
+  // Real executable so `mineru-kit --version` validation passes; the fake
+  // spawn below never runs it.
+  fs.copyFileSync(process.execPath, exe);
   const { spawnImpl, calls } = fakeSpawn((call, child) => {
     const outDir = call.args[call.args.indexOf("--out-dir") + 1];
     fs.writeFileSync(path.join(outDir, "试卷_doc.md"), "正文\n");

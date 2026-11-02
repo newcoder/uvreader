@@ -79,6 +79,24 @@ def test_health_requires_the_token(client):
     assert "detail" in capabilities["pdfTool"], "能力项给 {ok, detail}"
 
 
+def test_a_copied_mineru_venv_is_rejected(tmp_path):
+    from engine import mineru
+
+    assert mineru.local_kit_problem(sys.executable) == ""
+    if sys.platform == "win32":
+        script = tmp_path / "broken-kit.cmd"
+        script.write_text(
+            "@echo off\r\necho No Python at 'C:\\Users\\old\\python.exe' 1>&2\r\nexit /b 103\r\n",
+            encoding="ascii",
+        )
+    else:
+        script = tmp_path / "broken-kit"
+        script.write_text("#!/bin/sh\necho 'No Python at old user' >&2\nexit 103\n", encoding="utf-8")
+        script.chmod(0o755)
+    problem = mineru.local_kit_problem(str(script))
+    assert "Python" in problem and "不存在" in problem
+
+
 def test_math_renders_and_repairs_empty_shells(client):
     response = client.post("/v1/math", headers=AUTH, json={"latex": ["x^2 + y^2 = z^2", FORMULA, "\\begin{array}{c} a \\\\ b \\end{array}\\tag{1.1}"]})
     assert response.status_code == 200

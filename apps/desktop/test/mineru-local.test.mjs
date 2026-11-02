@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { clearMineruCaches, createMineruLocalService, mineruKitCandidates, mineruServiceUrl, mineruStartArgs, resolveMineruKit, servicePort } from "../src/main/mineru-local.js";
+import { clearMineruCaches, createMineruLocalService, mineruKitCandidates, mineruKitProblem, mineruServiceUrl, mineruStartArgs, resolveMineruKit, servicePort } from "../src/main/mineru-local.js";
 
 function fakeChild() {
   const child = new EventEmitter();
@@ -58,6 +58,38 @@ test("resolveMineruKit prefers the setting, then the environment", () => {
   const venvPython = `D:${path.sep}mineru_env${path.sep}Scripts${path.sep}python.exe`;
   const venv = mineruKitCandidates({ ocrPython: venvPython });
   assert.ok(venv.includes(path.join(path.dirname(venvPython), "mineru-kit.exe")), "venv python → 同目录 mineru-kit");
+});
+
+test("a copied venv whose base Python is gone is rejected, not used", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-kit-broken-"));
+  const exe = path.join(dir, "Scripts", "mineru-kit.exe");
+  fs.mkdirSync(path.dirname(exe), { recursive: true });
+  fs.writeFileSync(exe, "stub");
+  const problem = mineruKitProblem(exe, {
+    spawnSyncImpl: () => ({
+      status: 103,
+      stdout: "",
+      stderr: "No Python at 'C:\\Users\\rayni\\AppData\\Local\\Python\\python.exe'",
+    }),
+  });
+  assert.match(problem, /venv 指向的 Python 不存在/);
+  // A healthy launcher passes, and `validate` skips the broken path instead
+  // of handing it to pdf_tool.
+  assert.equal(resolveMineruKit(
+    { mineruLocalExe: exe },
+    { validate: true, kitProblem: () => "No Python at old user" },
+  ), "");
+  const good = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-kit-good-"));
+  const goodExe = path.join(good, "Scripts", "mineru-kit.exe");
+  fs.mkdirSync(path.dirname(goodExe), { recursive: true });
+  fs.writeFileSync(goodExe, "stub");
+  assert.equal(mineruKitProblem(goodExe, {
+    spawnSyncImpl: () => ({ status: 0, stdout: "MinerU 4.0.12", stderr: "" }),
+  }), "");
+  assert.equal(resolveMineruKit(
+    { mineruLocalExe: goodExe },
+    { validate: true, kitProblem: () => "" },
+  ), goodExe);
 });
 
 test("status probes /v1/health and never starts anything", async () => {

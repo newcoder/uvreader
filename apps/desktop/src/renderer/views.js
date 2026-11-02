@@ -623,7 +623,7 @@ export function createSettingsView(leaf, options) {
     };
     engineStartBtn.addEventListener("click", async () => {
       engineServiceStatus.setText("启动中…");
-      const result = await bridge?.engine?.start?.({ engineUrl: settings.engineUrl })
+      const result = await bridge?.engine?.start?.({ ...settings, engineUrl: settings.engineUrl })
         .catch((error) => ({ ok: false, detail: String(error?.message || error) }));
       if (!result?.ok) {
         engineServiceStatus.setText(`启动失败:${result?.detail || result?.error || "没有返回原因"}`);

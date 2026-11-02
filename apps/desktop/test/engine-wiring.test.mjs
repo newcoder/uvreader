@@ -63,6 +63,28 @@ test("syncLocalMineru skips a dead local service but still fills the other two",
   assert.equal(synced.patch.mineruLocalExe, "C:/mineru_env/Scripts/mineru-kit.exe");
 });
 
+test("syncLocalMineru replaces or clears an unusable local MinerU kit", async () => {
+  const replace = engineWith({ config: { mineruLocalExe: "C:/old/mineru-kit.exe", hasMineruToken: true } });
+  const replaced = await syncLocalMineru({
+    settings: { engineUrl: "http://127.0.0.1:8760" },
+    engine: replace,
+    resolveBackend: async () => ({ url: "" }),
+    resolveKit: () => "C:/new/mineru-kit.exe",
+    checkKit: (exe) => exe === "C:/old/mineru-kit.exe" ? "venv 指向的 Python 不存在" : "",
+  });
+  assert.equal(replaced.patch.mineruLocalExe, "C:/new/mineru-kit.exe");
+
+  const clear = engineWith({ config: { mineruLocalExe: "C:/old/mineru-kit.exe", hasMineruToken: true } });
+  const cleared = await syncLocalMineru({
+    settings: { engineUrl: "http://127.0.0.1:8760" },
+    engine: clear,
+    resolveBackend: async () => ({ url: "" }),
+    resolveKit: () => "",
+    checkKit: (exe) => exe === "C:/old/mineru-kit.exe" ? "venv 指向的 Python 不存在" : "",
+  });
+  assert.equal(cleared.patch.mineruLocalExe, "", "没有可用替代时清掉坏路径，避免 pdf_tool 硬跑 103");
+});
+
 test("syncLocalMineru never sends the cloud token to a non-loopback engine", async () => {
   const engine = engineWith({ config: { mineruLocalUrl: "" } });
   const synced = await syncLocalMineru({

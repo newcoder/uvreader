@@ -145,7 +145,9 @@ test("prepare uses the local MinerU service without cloud credentials", async ()
   });
   const healthy = { ok: true, status: 200, json: async () => ({ status: "ok", version: "4.0.12" }) };
   const exe = path.join(dir, "mineru-kit.exe");
-  fs.writeFileSync(exe, "stub");
+  // A real executable that answers `--version` with exit 0; the fake spawn
+  // below never runs it. A text stub would now be rejected by validation.
+  fs.copyFileSync(process.execPath, exe);
   const chain = createFormulaChain({ spawnImpl, readEnv: () => "", fetchImpl: async () => healthy, textLayer: { read: async () => ({ ok: false, error: "stub" }) } });
   const result = await chain.prepare({
     settings: { ocrSidecarDir: dir, mineruSource: "local", mineruLocalUrl: "http://127.0.0.1:8123", mineruLocalExe: exe },
@@ -171,7 +173,9 @@ test("prepare falls back to the mineru-kit CLI when the local service is down", 
     child.emit("close", 0);
   });
   const exe = path.join(dir, "mineru-kit.exe");
-  fs.writeFileSync(exe, "stub");
+  // A real executable that answers `--version` with exit 0; the fake spawn
+  // below never runs it. A text stub would now be rejected by validation.
+  fs.copyFileSync(process.execPath, exe);
   const chain = createFormulaChain({
     spawnImpl,
     readEnv: () => "",
@@ -192,7 +196,9 @@ test("a stale MINERU_LOCAL_URL in the environment never reaches pdf_tool", async
   const dir = makePdfToolDir();
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-formula-stale-"));
   const exe = path.join(dir, "mineru-kit.exe");
-  fs.writeFileSync(exe, "stub");
+  // A real executable that answers `--version` with exit 0; the fake spawn
+  // below never runs it. A text stub would now be rejected by validation.
+  fs.copyFileSync(process.execPath, exe);
   const { spawnImpl, calls } = fakeSpawn((_call, child) => {
     writeDocJson(workDir, "s", [{ type: "text", text: "正文 $z$" }]);
     child.emit("close", 0);

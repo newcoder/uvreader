@@ -8,6 +8,7 @@ E2 再把 extract / convert / pdf-text / outline / redact / images-to-pdf / eboo
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import sys
@@ -15,6 +16,7 @@ import time
 from pathlib import Path
 
 from .jobs import Job, report_progress
+from .mineru import local_kit_problem
 
 # ── LaTeX → MathML(同步接口)──────────────────────────────────────────
 
@@ -288,8 +290,17 @@ def run_extract(job: Job) -> dict:
     env["MINERU_LOCAL_URL"] = str(config.get("mineruLocalUrl") or "")
     if str(config.get("mineruToken") or "").strip():
         env["MINERU_TOKEN"] = str(config["mineruToken"])
-    if str(config.get("mineruLocalExe") or "").strip():
-        env["MINERU_LOCAL_CMD"] = str(config["mineruLocalExe"])
+    local_exe = str(config.get("mineruLocalExe") or "").strip()
+    if local_exe:
+        problem = local_kit_problem(local_exe)
+        if problem:
+            # A copied venv can still exist while its base Python is gone.
+            # Passing it to pdf_tool would fail every extraction with exit 103.
+            logging.getLogger(__name__).warning(
+                "ignoring unusable mineruLocalExe %s: %s", local_exe, problem
+            )
+        else:
+            env["MINERU_LOCAL_CMD"] = local_exe
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
     code, output = run_process(job, python, args, cwd=str(config.get("pdfToolDir") or "").strip() or None,

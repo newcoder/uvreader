@@ -118,6 +118,7 @@ def _calibre_available(config: dict) -> bool:
 def _mineru_capability(config: dict) -> dict:
     token = str(config.get("mineruToken") or "").strip()
     url = str(config.get("mineruLocalUrl") or "").strip()
+    local_exe = str(config.get("mineruLocalExe") or "").strip()
     base = {"kind": "external", "detail": "公式 / 视觉提取(本地服务或云端)"}
     if url:
         try:
@@ -133,6 +134,12 @@ def _mineru_capability(config: dict) -> dict:
             return {**base, "ok": False, "detail": f"本地服务连不上:{url}", "fix": FIX_MINERU}
     if token:
         return {**base, "ok": True, "detail": "云端 token 已配置", "mode": "cloud"}
+    if local_exe:
+        from .mineru import local_kit_problem
+
+        problem = local_kit_problem(local_exe)
+        if problem:
+            return {**base, "ok": False, "detail": f"本机程序无法启动:{problem}", "fix": FIX_MINERU}
     return {**base, "ok": False, "fix": FIX_MINERU}
 
 

@@ -5,7 +5,7 @@
 // - `mineruLocalExe`:能找到 mineru-kit(引擎的 pdf_tool helper 靠它对 venv);
 // - `mineruToken`:云端凭据 —— **只发给本机引擎**(127.0.0.1 / localhost),不把凭据发到别的机器。
 // 本机服务不活就不写 URL,避免把一个死地址写进引擎、回头任务全超时。
-export async function syncLocalMineru({ settings = {}, engine, resolveBackend, resolveKit, log = () => {} } = {}) {
+export async function syncLocalMineru({ settings = {}, engine, resolveBackend, resolveKit, checkKit = () => "", log = () => {} } = {}) {
   if (!engine?.saveConfig || !engine?.config) return null;
   const config = await Promise.resolve()
     .then(() => engine.config(settings))
@@ -21,7 +21,18 @@ export async function syncLocalMineru({ settings = {}, engine, resolveBackend, r
   if (url && !String(config.mineruLocalUrl || "").trim()) patch.mineruLocalUrl = url;
 
   const exe = typeof resolveKit === "function" ? String(resolveKit(settings) || "").trim() : "";
-  if (exe && !String(config.mineruLocalExe || "").trim()) patch.mineruLocalExe = exe;
+  const currentExe = String(config.mineruLocalExe || "").trim();
+  if (exe && !currentExe) {
+    patch.mineruLocalExe = exe;
+  } else if (currentExe) {
+    // A copied venv can exist while its base Python is gone. Replace it with a
+    // usable local kit, or clear it so pdf_tool does not die with exit 103.
+    const problem = currentExe !== exe ? checkKit(currentExe) : "";
+    if (problem) {
+      patch.mineruLocalExe = exe; // may be empty: fall back to cloud / text mode
+      log("[engine] dropping unusable mineruLocalExe:", problem);
+    }
+  }
 
   const engineUrl = String(settings.engineUrl || "").trim();
   const loopback = !engineUrl || /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?(\/|$)/i.test(engineUrl);

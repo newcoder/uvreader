@@ -1,7 +1,7 @@
 // 本地 MinerU 常驻服务(mineru-kit api-server)的生命周期:
 // 应用启动时按设置自动拉起(默认开,可在面板关掉),书坊里可以检测运行状态;
 // 退出时只收自己拉起的进程——已经手动起的服务只探测、不接管、不杀。
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -86,11 +86,78 @@ export function mineruKitCandidates(settings = {}, { env = process.env, exists =
   return list;
 }
 
+const kitCheckCache = new Map();
+const KIT_CHECK_TTL_MS = 60_000;
+
+// A path that merely exists is not enough. A copied MinerU venv can point at
+// another machine's Python (`No Python at ...`), and every later extraction
+// then dies with exit 103. Run `mineru-kit --version` once per file revision;
+// the answer is cached so this does not slow down normal work.
+export function mineruKitProblem(exe, {
+  exists = fs.existsSync,
+  spawnSyncImpl = spawnSync,
+  timeoutMs = 8_000,
+  now = Date.now,
+} = {}) {
+  const value = String(exe || "").trim();
+  if (!value) return "没有配置 mineru-kit 路径";
+  // Bare names are resolved through PATH by the spawn later; we cannot know
+  // which file that will be without duplicating `which` semantics here.
+  if (value === "mineru-kit" || value === "mineru-kit.exe") return "";
+  if (!exists(value)) return `找不到 ${value}`;
+  let stat;
+  try {
+    stat = fs.statSync(value);
+  } catch (error) {
+    return String(error?.message || error);
+  }
+  // A repaired venv changes pyvenv.cfg without touching the launcher, so the
+  // cache key must include it.
+  let venvStamp = "";
+  try {
+    const cfg = path.join(path.dirname(path.dirname(value)), "pyvenv.cfg");
+    if (fs.existsSync(cfg)) {
+      const info = fs.statSync(cfg);
+      venvStamp = `${info.mtimeMs}:${info.size}`;
+    }
+  } catch { /* no venv config */ }
+  const key = `${value}|${stat.mtimeMs}:${stat.size}|${venvStamp}`;
+  const cached = kitCheckCache.get(key);
+  if (cached && now() - cached.at < KIT_CHECK_TTL_MS) return cached.problem;
+
+  const result = spawnSyncImpl(value, ["--version"], {
+    timeout: timeoutMs,
+    windowsHide: true,
+    encoding: "utf8",
+  });
+  let problem = "";
+  if (result?.error?.code === "ETIMEDOUT") {
+    problem = `启动超时(${timeoutMs}ms)`;
+  } else if (result?.error) {
+    problem = String(result.error.message || result.error);
+  } else if (result?.status !== 0) {
+    const text = `${result?.stderr || ""} ${result?.stdout || ""}`.replace(/\s+/g, " ").trim();
+    problem = /No Python at/i.test(text)
+      ? `venv 指向的 Python 不存在:${text.slice(0, 240)}`
+      : `退出码 ${result?.status}: ${text.slice(0, 240)}`;
+  }
+  kitCheckCache.set(key, { at: now(), problem });
+  if (kitCheckCache.size > 40) {
+    const oldest = [...kitCheckCache.entries()].sort((left, right) => left[1].at - right[1].at)[0];
+    if (oldest) kitCheckCache.delete(oldest[0]);
+  }
+  return problem;
+}
+
 // 找到就用完整路径;裸名字也返回(让 spawn 去 PATH 找,ENOENT 时给可操作提示)。
-export function resolveMineruKit(settings = {}, { env = process.env, exists = fs.existsSync } = {}) {
+// `validate:true` 会跳过存在但启动不了的 venv（例如从别的电脑拷来的
+// mineru-kit，pyvenv.cfg 还指向 C:\Users\<old-user>\...）。
+export function resolveMineruKit(settings = {}, { env = process.env, exists = fs.existsSync, validate = false, kitProblem = mineruKitProblem } = {}) {
   for (const candidate of mineruKitCandidates(settings, { env })) {
     if (candidate === "mineru-kit" || candidate === "mineru-kit.exe") return candidate;
-    if (exists(candidate)) return candidate;
+    if (!exists(candidate)) continue;
+    if (validate && kitProblem(candidate, { exists })) continue;
+    return candidate;
   }
   return "";
 }
@@ -140,10 +207,16 @@ export async function resolveLocalBackend(settings = {}, { fetchImpl = (...args)
   const wantLocal = String(settings.mineruSource || "").trim() === "local" || Boolean(configured);
   const candidate = configured || (wantLocal ? `http://127.0.0.1:${DEFAULT_MINERU_PORT}` : "");
   const health = probe && candidate ? await probeMineruService(candidate, { fetchImpl }) : { ok: false };
+  // Never hand pdf_tool a copied venv whose Python is gone: it fails with an
+  // opaque exit 103 and hides the cloud/text fallback.
+  const exe = resolveMineruKit(settings, { env, exists, validate: true });
+  const configuredExe = String(settings.mineruLocalExe || "").trim();
+  const exeProblem = !exe && configuredExe ? mineruKitProblem(configuredExe, { exists }) : "";
   return {
     wantLocal,
     url: health.ok ? candidate : "",
-    exe: resolveMineruKit(settings, { env, exists }) || String(settings.mineruLocalExe || "").trim(),
+    exe,
+    exeProblem,
   };
 }
 
