@@ -1,11 +1,12 @@
 {
   "schemaVersion": 1,
-  "engineVersion": "0.1.0",
+  "engineVersion": "0.1.12",
   "platform": "dev",
   "python": { "version": "" },
   "packages": {},
   "pdfTool": { "commit": "" },
   "capabilities": {
+    "ocr": true,
     "docvortex": false,
     "pdfTool": false,
     "mineruLocal": false,

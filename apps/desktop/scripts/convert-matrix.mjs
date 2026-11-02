@@ -178,10 +178,11 @@ const engineClient = Object.keys(ENGINE_SETTINGS).length ? createEngineClient({ 
 if (engineClient) console.log(`矩阵走引擎:${ENGINE_SETTINGS.engineUrl}\n`);
 const docvortex = createDocvortex({ engine: engineClient });
 const calibre = createCalibre();
+const pdfText = createPdfTextReader({ engine: engineClient });
 registerDocvortexRunners(queue, { docvortex, vaultRoot, engine: engineClient });
 registerBookRunners(queue, { calibre, vaultRoot, engine: engineClient });
-registerExtractRunners(queue, { docvortex, vaultRoot, cacheRoot, engine: engineClient, pdfText: createPdfTextReader({ engine: engineClient }), textLayer: createTextLayerReader({ engine: engineClient }) });
-registerTextConvertRunner(queue, { docvortex, vaultRoot, cacheRoot, engine: engineClient });
+registerExtractRunners(queue, { docvortex, vaultRoot, cacheRoot, engine: engineClient, pdfText, textLayer: createTextLayerReader({ engine: engineClient }) });
+registerTextConvertRunner(queue, { docvortex, vaultRoot, cacheRoot, pdfText });
 
 function runTask(request, timeoutMs = 300_000) {
   return new Promise((resolve) => {
@@ -233,7 +234,7 @@ async function checkProduct(file, marker, { kind = "text" } = {}) {
     }
     if (kind === "file") return "";
     if (kind === "pdf") {
-      const read = await createPdfTextReader().read(file, { python: process.env.QBR_OCR_PYTHON || "python" });
+      const read = await pdfText.read(file, { python: process.env.QBR_OCR_PYTHON || "python", engineSettings: ENGINE_SETTINGS });
       if (!read.ok) return `PDF 读不出文字:${read.error}`;
       const text = read.pages.flatMap((page) => page.lines.map((line) => line.text)).join("\n");
       return text.includes(marker) ? "" : "PDF 文字层里没有源标记";
@@ -267,7 +268,14 @@ const outName = (source, format, ext) => `${source}_to_${format}.${ext}`;
 
 // ---------------------------------------------------------------- ① DocVortex 互转矩阵
 async function docvortexMatrix() {
-  const probe = await docvortex.probe({});
+  // With an engine URL the capability lives on the engine; probing the local
+  // machine would wrongly skip a perfectly good engine-only run.
+  const probe = engineClient
+    ? await engineClient.health(ENGINE_SETTINGS).then((result) => ({
+      ok: result?.ok === true && result.data?.capabilities?.docvortex?.ok === true,
+      detail: result?.data?.capabilities?.docvortex?.detail || result?.error || "",
+    }))
+    : await docvortex.probe({});
   if (!probe.ok) {
     record("docvortex", "互转矩阵", "SKIP", `DocVortex 不可用:${String(probe.detail || "").slice(0, 80)}`);
     return;

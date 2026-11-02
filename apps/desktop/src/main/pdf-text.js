@@ -752,6 +752,9 @@ export function writeTextProducts(doc, { outDir, stem, assets = [] } = {}) {
 // 格式转换的「文本型」链路:本地确定性提取 → 桥接 HTML → DocVortex 转目标格式。
 // 与「公式优先」同构,只是解析结果来自 fitz(不需要 MinerU、不把文字裁成图片)。
 export function registerTextConvertRunner(workshop, { docvortex, vaultRoot = "", cacheRoot = "", pdfText = createPdfTextReader(), log = (...args) => console.log(...args) } = {}) {
+  // pdfText must be injectable: the app passes a reader with the engine client,
+  // so text-mode PDF conversion uses the engine instead of a local Python that
+  // may not have PyMuPDF installed.
   const absolute = (raw) => {
     const value = String(raw || "");
     return path.isAbsolute(value) ? value : path.join(vaultRoot, value);

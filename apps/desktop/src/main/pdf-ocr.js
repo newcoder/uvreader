@@ -48,11 +48,26 @@ function resolveSidecarExe(exe, dir) {
 }
 
 // Where the sidecar comes from: a packaged executable wins, then a pdf_tool
-// checkout run through the configured Python.
-export function ocrCommand(settings = {}) {
+// checkout run through the configured Python. When neither is configured, an
+// installed engine's bundled pdf_tool + RapidOCR is the fallback (a fresh
+// machine has no system Python or pdf_tool checkout).
+export function ocrCommand(settings = {}, { engineSidecar = null } = {}) {
   const python = String(settings.ocrPython || "").trim() || "python";
   const dir = String(settings.ocrSidecarDir || "").trim();
   const exe = String(settings.ocrSidecarExe || "").trim();
+  // Engine fallback: its private Python + bundled pdf_tool checkout. The caller
+  // only passes this when the engine bundle actually has an OCR backend.
+  const engine = engineSidecar || {};
+  const engineDir = String(engine.ocrSidecarDir || engine.dir || "").trim();
+  const enginePython = String(engine.ocrPython || engine.python || "").trim() || python;
+  const fromEngine = () => pdfToolDirCommand(enginePython, engineDir);
+  const engineFallback = (why) => {
+    const command = fromEngine();
+    if (!command) return null;
+    if (why) log(`${why}; falling back to the engine's pdf_tool`);
+    return command;
+  };
+
   if (exe) {
     const resolved = resolveSidecarExe(exe, dir);
     if (resolved) return { command: resolved, args: [], cwd: path.dirname(resolved) };
@@ -63,11 +78,15 @@ export function ocrCommand(settings = {}) {
       log(`sidecar exe not found (${exe}); falling back to the pdf_tool folder ${dir}`);
       return fromDir;
     }
-    return { error: `找不到 OCR 程序：${exe}` };
+    return engineFallback(`sidecar exe not found (${exe})`)
+      || { error: `找不到 OCR 程序：${exe}` };
   }
   const fromDir = pdfToolDirCommand(python, dir);
   if (fromDir) return fromDir;
-  if (dir) return { error: `这个目录里没有 pdf_tool：${dir}` };
+  if (dir) {
+    return engineFallback(`pdf_tool folder is invalid (${dir})`)
+      || { error: `这个目录里没有 pdf_tool：${dir}` };
+  }
   // A development checkout can point at the sidecar without touching settings.
   const fromEnv = String(process.env.QBR_OCR_SIDECAR || "").trim();
   if (fromEnv) {
@@ -77,7 +96,8 @@ export function ocrCommand(settings = {}) {
     const envDir = pdfToolDirCommand(python, fromEnv);
     if (envDir) return envDir;
   }
-  return { error: "还没有配置 pdf_tool 目录" };
+  return engineFallback("")
+    || { error: "还没有配置 pdf_tool 目录;如果已安装书坊引擎,请更新到带 OCR 的引擎版本,或在「设置 → 书坊」里配置本机 pdf_tool。" };
 }
 
 // MinerU writes a layout JSON somewhere under the output folder; that file is
@@ -237,8 +257,14 @@ function spawnSession({ command, args, cwd, spawnImpl, onNotification, onExit, c
   };
 }
 
-export function createPdfOcr({ spawnImpl = spawn, cacheRoot = "", startTimeoutMs = OCR_START_TIMEOUT, sessionTimeoutMs = OCR_SESSION_TIMEOUT } = {}) {
+export function createPdfOcr({ spawnImpl = spawn, cacheRoot = "", startTimeoutMs = OCR_START_TIMEOUT, sessionTimeoutMs = OCR_SESSION_TIMEOUT, engineSidecar = null } = {}) {
   const cacheDir = String(cacheRoot || "").trim();
+  // Resolve the engine fallback lazily: the user can install/update the engine
+  // while the app is running, and each request should see the newest bundle.
+  const commandFor = (settings = {}) => {
+    const engine = typeof engineSidecar === "function" ? engineSidecar(settings) : engineSidecar;
+    return ocrCommand(settings, { engineSidecar: engine });
+  };
   if (cacheDir) {
     try { fs.mkdirSync(cacheDir, { recursive: true }); } catch { /* created lazily by the sidecar */ }
   }
@@ -247,7 +273,7 @@ export function createPdfOcr({ spawnImpl = spawn, cacheRoot = "", startTimeoutMs
 
   // Liveness/config check used by the settings row.
   function probe(settings = {}, timeoutMs = OCR_PROBE_TIMEOUT) {
-    const target = ocrCommand(settings);
+    const target = commandFor(settings);
     if (target.error) return Promise.resolve({ ok: false, detail: target.error });
     let session;
     try {
@@ -266,7 +292,7 @@ export function createPdfOcr({ spawnImpl = spawn, cacheRoot = "", startTimeoutMs
   // The page count comes from `doc.open` so batch callers (workshop) can walk
   // the whole document; a failure there must not kill the session.
   async function openSession(settings = {}, sourcePath = "", textSourcePath = "") {
-    const target = ocrCommand(settings);
+    const target = commandFor(settings);
     if (target.error) throw new Error(target.error);
     const source = path.resolve(String(sourcePath || ""));
     if (!fs.existsSync(source)) throw new Error(`源文件不存在：${source || "(空)"}`);
@@ -327,7 +353,7 @@ export function createPdfOcr({ spawnImpl = spawn, cacheRoot = "", startTimeoutMs
 
   // One-shot export job: OCR text layer → a new searchable PDF at `out`.
   function start(settings = {}, request = {}, handlers = {}) {
-    const target = ocrCommand(settings);
+    const target = commandFor(settings);
     if (target.error) throw new Error(target.error);
     const source = path.resolve(String(request.source || ""));
     const out = path.resolve(String(request.out || ""));
@@ -395,7 +421,7 @@ export function createPdfOcr({ spawnImpl = spawn, cacheRoot = "", startTimeoutMs
   // (derived/mineru/layout.json) with page-level progress. The token comes from
   // the request or MINERU_API_KEY in the environment.
   function startTextSource(settings = {}, request = {}, handlers = {}) {
-    const target = ocrCommand(settings);
+    const target = commandFor(settings);
     if (target.error) throw new Error(target.error);
     const source = path.resolve(String(request.source || ""));
     const out = path.resolve(String(request.out || ""));

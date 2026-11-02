@@ -169,6 +169,25 @@ async function boot() {
       .catch((error) => console.warn("[qbr] local MinerU failed", String(error?.message || error)));
   }
 
+  // 装好的引擎自带 pdf_tool + RapidOCR:本机 OCR 路径为空时自动回填,阅读器
+  // 打开扫描件才知道要生成文字层。用户手填的路径不覆盖。
+  const applyEngineOcrPaths = (state) => {
+    const dir = String(state?.ocrSidecarDir || "").trim();
+    const python = String(state?.ocrPython || "").trim();
+    if (!dir || !python) return false;
+    const currentDir = String(plugin.settings?.ocrSidecarDir || "").trim();
+    const currentPython = String(plugin.settings?.ocrPython || "").trim();
+    const currentExe = String(plugin.settings?.ocrSidecarExe || "").trim();
+    // "python" is the built-in placeholder meaning "PATH python"; treat it as
+    // unset so the engine's private interpreter can take over. The engine paths
+    // are a pair, so a manual dir/exe/python always wins as a whole.
+    if (currentDir || currentExe || (currentPython && currentPython !== "python")) return false;
+    plugin.settings.ocrSidecarDir = dir;
+    plugin.settings.ocrPython = python;
+    void plugin.saveAll?.();
+    return true;
+  };
+
   // 书坊引擎:独立服务,应用重启不会自动带起它 —— 按设置自动拉起(没装就什么都不做)。
   // 只拉应用自己装/起的引擎(有 pid 记录),手工起的那个不去碰。
   if (!bridge.smoke) {
@@ -179,15 +198,32 @@ async function boot() {
       engineAutoStart: plugin.settings?.workshopEnabled !== false && plugin.settings?.engineAutoStart !== false,
     })
       .then((result) => {
+        applyEngineOcrPaths(result);
         if (result?.skipped === "disabled" || result?.skipped === "not-installed") return;
         if (result?.skipped === "running") return;
         if (result?.ok) {
+          const token = result.engineToken || result.token;
+          let changed = false;
+          if (result.engineUrl && plugin.settings.engineUrl !== result.engineUrl) {
+            plugin.settings.engineUrl = result.engineUrl;
+            changed = true;
+          }
+          if (token && plugin.settings.engineToken !== token) {
+            plugin.settings.engineToken = token;
+            changed = true;
+          }
+          if (changed) void plugin.saveAll?.();
           console.log(`[qbr] workshop engine running ${result.engineUrl} v${result.version || "?"}`);
         } else if (result?.skipped === "failed") {
           console.log(`[qbr] workshop engine not started: ${String(result.error || "").slice(0, 120)}`);
         }
       })
       .catch((error) => console.warn("[qbr] workshop engine auto-start failed", String(error?.message || error)));
+    // Even when auto-start is off (or the engine was already running), pick up
+    // the bundled OCR paths from the installed engine.
+    void bridge.engine?.service?.()
+      .then(applyEngineOcrPaths)
+      .catch((error) => console.warn("[qbr] engine service check failed", String(error?.message || error)));
   }
 
   window.__qbrApp = app;

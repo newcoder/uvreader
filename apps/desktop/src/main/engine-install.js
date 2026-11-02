@@ -6,7 +6,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 
 import { removeTree } from "./paths.js";
-import { compareVersions, writePid } from "./engine-service.js";
+import { compareVersions, engineOcrPaths, engineOcrReady, writePid } from "./engine-service.js";
 
 export const ENGINE_RELEASES_API = "https://api.github.com/repos/newcoder/uvreader/releases?per_page=30";
 
@@ -232,11 +232,20 @@ export function registerEngineInstallRunner(workshop, {
       const health = await installer.waitHealthy({ port, token });
       if (!health) throw new Error("引擎装好了但没起来(看引擎目录里的 engine.log)");
       const engineUrl = `http://127.0.0.1:${port}`;
+      const ocr = engineOcrReady(target) ? engineOcrPaths(target) : null;
       log("[engine-install] ready", asset.version, engineUrl);
       return {
-        output: `引擎 ${asset.version} 已安装并启动 · ${engineUrl}`,
+        output: `引擎 ${asset.version} 已安装并启动 · ${engineUrl}${ocr ? " · OCR 已就绪" : ""}`,
         detail: `http://127.0.0.1:${port} · ${asset.version}`,
-        result: { engineUrl, engineToken: token, version: asset.version, platform, pid: started.pid },
+        result: {
+          engineUrl,
+          engineToken: token,
+          version: asset.version,
+          platform,
+          pid: started.pid,
+          ocrReady: Boolean(ocr),
+          ...(ocr || {}),
+        },
       };
     } finally {
       removeTree(tempDir);

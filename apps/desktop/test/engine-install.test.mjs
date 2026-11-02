@@ -18,8 +18,22 @@ import {
   registerEngineInstallRunner,
   sha256File,
 } from "../src/main/engine-install.js";
+import { engineOcrPaths } from "../src/main/engine-service.js";
 
 const tempDir = () => fs.mkdtempSync(path.join(os.tmpdir(), "qbr-engine-install-"));
+
+const writeOcrBundle = (target) => {
+  const paths = engineOcrPaths(target);
+  fs.mkdirSync(path.join(paths.ocrSidecarDir, "pdf_tool", "reader"), { recursive: true });
+  fs.writeFileSync(path.join(paths.ocrSidecarDir, "pdf_tool", "reader", "server.py"), "");
+  fs.mkdirSync(path.dirname(paths.ocrPython), { recursive: true });
+  fs.writeFileSync(paths.ocrPython, "");
+  const sitePackages = process.platform === "win32"
+    ? path.join(target, "site-packages")
+    : path.join(target, "python", "lib", "python3.12", "site-packages");
+  fs.mkdirSync(path.join(sitePackages, "rapidocr"), { recursive: true });
+  return paths;
+};
 const streamResponse = (buffer) => ({
   ok: true,
   status: 200,
@@ -167,11 +181,13 @@ test("the install runner unpacks a local bundle, starts it and returns the setti
   const runners = new Map();
   const workshop = { register: (kind, runner) => runners.set(kind, runner) };
   const started = [];
+  let ocrPaths = null;
   const installer = {
     download: async () => { throw new Error("本地包不该走下载"); },
     extract: async (_archive, target) => {
       fs.mkdirSync(target, { recursive: true });
       fs.writeFileSync(path.join(target, "engine.json"), "{}");
+      ocrPaths = writeOcrBundle(target);
     },
     start: ({ engineRoot, port, token }) => {
       started.push({ engineRoot, port, token });
@@ -192,6 +208,9 @@ test("the install runner unpacks a local bundle, starts it and returns the setti
   assert.equal(result.result.engineUrl, "http://127.0.0.1:8899");
   assert.equal(result.result.version, "0.1.0");
   assert.equal(result.result.pid, 4242);
+  assert.equal(result.result.ocrReady, true);
+  assert.equal(result.result.ocrSidecarDir, ocrPaths.ocrSidecarDir);
+  assert.equal(result.result.ocrPython, ocrPaths.ocrPython);
   assert.equal(started.length, 1);
   assert.equal(started[0].port, 8899);
   assert.equal(started[0].engineRoot, path.join(root, "0.1.0"));

@@ -7,8 +7,10 @@ import { BOOK_EXTENSIONS, isBookFile } from "../shared/books.js";
 import { WORKSHOP_PICK_EXTENSIONS } from "../shared/workshop-formats.js";
 import { createAiRuntime } from "./ai-runtime.js";
 import { createEngineClient, describeEngineHealth } from "./engine-client.js";
-import { checkEngineUpdate, createEngineInstaller, registerEngineComponentRunner, registerEngineInstallRunner } from "./engine-install.js";
-import { createEngineService, portFromUrl } from "./engine-service.js";
+import { createEngineInstaller, checkEngineUpdate, registerEngineComponentRunner, registerEngineInstallRunner } from "./engine-install.js";
+import { findBundledEngineArchive } from "./engine-bundle.js";
+import { resolveEngineRoot } from "./engine-location.js";
+import { createEngineService, engineOcrSettings, findFreePort, portFromUrl } from "./engine-service.js";
 import { syncLocalMineru } from "./engine-wiring.js";
 import { createCalibre } from "./calibre.js";
 import { createCoverRenderer } from "./cover-render.js";
@@ -59,12 +61,24 @@ const vaultRoot = path.join(userData, "library");
 const secretsPath = path.join(userData, "secrets.json");
 // 书坊引擎装在这里:Windows 用 %LOCALAPPDATA%\UVReader\engine\<版本>(与手工部署的
 // venv/token.txt 同一个根,方便找);其他平台放应用数据目录。QBR_ENGINE_ROOT 可覆盖(测试用)。
-const engineRoot = process.env.QBR_ENGINE_ROOT || (process.platform === "win32" && process.env.LOCALAPPDATA
-  ? path.join(process.env.LOCALAPPDATA, "UVReader", "engine")
-  : path.join(userData, "engine"));
+// MSIX 下必须落到 Packages/<family>/LocalState 的真实路径:应用进程里的
+// %LOCALAPPDATA% 会被文件系统虚拟化,但随后拉起的 Python 子进程不会继承这层重定向。
+const engineRoot = resolveEngineRoot({
+  override: process.env.QBR_ENGINE_ROOT,
+  fallbackRoot: path.join(userData, "engine"),
+});
+// A Store/MSIX build includes one engine archive in resources/engine. Normal
+// NSIS/portable builds do not, so their existing install/update flow remains.
+const bundledEngineArchive = findBundledEngineArchive(process.resourcesPath);
 // The sidecar's page cache lives with the app profile: the second open of a
 // book is a cache hit instead of a re-OCR.
-const pdfOcr = createPdfOcr({ cacheRoot: path.join(userData, "ocr-cache") });
+const pdfOcr = createPdfOcr({
+  cacheRoot: path.join(userData, "ocr-cache"),
+  // Fresh installs have no system Python/pdf_tool; the engine bundle carries
+  // both (plus RapidOCR), so use it when the user has not configured a local
+  // checkout. The resolver is lazy so an engine installed later works too.
+  engineSidecar: () => engineOcrSettings(engineRoot),
+});
 // 本地 MinerU 常驻服务:启动时自动拉起(设置里可关),书坊里检测;退出只收自己拉起的进程。
 const mineruLocal = createMineruLocalService({ uploadDir: path.join(userData, "mineru-service") });
 // 书坊任务队列:串行执行,历史落盘(最近 20 条,不自动续跑)。W0-3+ 为各工具
@@ -149,6 +163,7 @@ registerEngineComponentRunner(workshop, { engine: engineClient });
 const engineService = createEngineService({
   engineRoot,
   installer: createEngineInstaller(),
+  bundleArchive: bundledEngineArchive,
   log,
 });
 const pdfForm = createPdfFormService({ engineService, log });
@@ -626,20 +641,38 @@ ipcMain.handle("qbr:engine:check-update", async () => {
   const update = await checkEngineUpdate({ installedVersion: status?.version || "" });
   return { ...update, installed: status?.version || "", running: status?.running === true };
 });
-ipcMain.handle("qbr:engine:start", (_event, payload = {}) => {
-  const port = Math.min(65535, Math.max(1, Number(payload?.port) || portFromUrl(payload?.engineUrl)));
+ipcMain.handle("qbr:engine:start", async (_event, payload = {}) => {
+  const requested = Number(payload?.port) || 0;
+  const port = requested
+    ? Math.min(65535, Math.max(1, requested))
+    : payload?.engineUrl
+      ? portFromUrl(payload.engineUrl)
+      : bundledEngineArchive
+        ? await findFreePort()
+        : portFromUrl("");
   return engineService.start({ port });
 });
 ipcMain.handle("qbr:engine:stop", () => engineService.stop());
 ipcMain.handle("qbr:engine:auto-start", async (_event, settings = {}) => {
   const value = settings || {};
   if (value.engineAutoStart === false) return { skipped: "disabled" };
+  try {
+    // Store builds extract the bundled archive here, before the first start.
+    // Normal builds have no archive, so prepare() is a no-op.
+    await engineService.prepare();
+  } catch (error) {
+    log("[engine] bundled engine prepare failed:", String(error?.message || error));
+    return { skipped: "failed", error: String(error?.message || error) };
+  }
   const state = await engineService.status();
-  if (!state.installed) return { skipped: "not-installed" };
-  const health = await engineClient.health(value);
+  if (!state.installed) return { skipped: "not-installed", bundled: state.bundled === true };
+  // Without a saved URL, a bundled engine should get a fresh loopback port
+  // instead of probing (or colliding with) whatever happens to use 8760.
+  const health = value.engineUrl ? await engineClient.health(value) : null;
   if (health?.ok) return { skipped: "running", detail: describeEngineHealth(health.data || {}) };
   try {
-    return await engineService.start({ port: portFromUrl(value.engineUrl) });
+    const port = value.engineUrl ? portFromUrl(value.engineUrl) : bundledEngineArchive ? await findFreePort() : portFromUrl("");
+    return await engineService.start({ port });
   } catch (error) {
     log("[engine] auto-start failed:", String(error?.message || error));
     return { skipped: "failed", error: String(error?.message || error) };

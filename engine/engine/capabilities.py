@@ -43,6 +43,11 @@ FIX_BOKO = (
     "装完在引擎配置里填 bokoPath,或让它出现在 PATH 里。"
 )
 FIX_BUNDLED_DEP = "引擎自带的 Python 里缺这个依赖:重装引擎包,或 pip 装到引擎的 Python 里。"
+FIX_OCR = (
+    "引擎里没有 OCR:扫描版 PDF 的文字层要用它。"
+    "更新到带 RapidOCR 的引擎包(设置 → 书坊 → 检查更新),"
+    "或在「本机工具」里配置 pdf_tool 目录 / 打包的 OCR 程序。"
+)
 
 
 def _has_module(name: str) -> bool:
@@ -137,6 +142,9 @@ def _probe(config: dict) -> dict:
     pymupdf_ok = _has_module("pymupdf") or _has_module("fitz")
     pillow_ok = _has_module("PIL")
     latex_ok = _has_module("latex2mathml")
+    # pdf_tool's OCR backend prefers rapidocr 3.x, then the legacy
+    # rapidocr_onnxruntime package; either one makes the text layer usable.
+    ocr_ok = _has_module("rapidocr") or _has_module("rapidocr_onnxruntime")
     docvortex_ok = bool(_which(str(config.get("docvortexPath") or ""), ["docvortex", "docvortex.exe"])) or _has_module("docvortex")
     calibre_ok = _calibre_available(config)
     boko_ok = _boko_available(config)
@@ -145,6 +153,12 @@ def _probe(config: dict) -> dict:
         "pymupdf": {"ok": pymupdf_ok, "kind": "bundled", "detail": "文字层 / 文本型提取 / 红标清理", **({} if pymupdf_ok else {"fix": FIX_BUNDLED_DEP})},
         "pillow": {"ok": pillow_ok, "kind": "bundled", "detail": "图片 → 单页 PDF", **({} if pillow_ok else {"fix": FIX_BUNDLED_DEP})},
         "latex2mathml": {"ok": latex_ok, "kind": "bundled", "detail": "LaTeX → MathML", **({} if latex_ok else {"fix": FIX_BUNDLED_DEP})},
+        "ocr": {
+            "ok": ocr_ok,
+            "kind": "bundled",
+            "detail": "扫描版 PDF 文字层(RapidOCR)",
+            **({} if ocr_ok else {"fix": FIX_OCR}),
+        },
         "pdfTool": _pdf_tool_capability(config),
         "docvortex": {
             # 能跑才算:CLI 在 PATH 上,或能 import(真装的包没有 __main__,见 kinds._docvortex_commands)

@@ -95,6 +95,20 @@ fs.writeFileSync(path.join(stubDocvortex, "docvortex", "cli.py"), [
 // 所以一律用配置指到假程序上 —— 能力与作业都可确定地断言。
 const stubBins = path.join(work, "bins");
 fs.mkdirSync(stubBins, { recursive: true });
+// PATH-visible DocVortex entry point. The embeddable engine Python ignores
+// PYTHONPATH, so the stub must be a real executable that bootstraps the module
+// itself (the same shape as the installed console_scripts entry).
+const docvortexRunner = path.join(stubBins, "docvortex-cli.py");
+fs.writeFileSync(docvortexRunner, [
+  "import sys",
+  `sys.path.insert(0, ${JSON.stringify(stubDocvortex)})`,
+  "from docvortex.cli import main",
+  "raise SystemExit(main())",
+].join("\n"), "utf8");
+fs.writeFileSync(path.join(stubBins, "docvortex.cmd"), `@"${python}" "${docvortexRunner}" %*\r\n`, "utf8");
+const docvortexSh = path.join(stubBins, "docvortex");
+fs.writeFileSync(docvortexSh, `#!/bin/sh\nexec "${python}" "${docvortexRunner}" "$@"\n`, "utf8");
+fs.chmodSync(docvortexSh, 0o755);
 const stubConvert = (name, { refuseMobi = false } = {}) => {
   const script = path.join(stubBins, `${name}-stub.py`);
   fs.writeFileSync(script, [
@@ -160,7 +174,7 @@ const child = spawn(python, ["-m", "engine", "serve", "--port", String(port), "-
   env: {
     ...process.env,
     PYTHONPATH: [engineRoot, stubDocvortex].join(path.delimiter),
-    PATH: [stubDocvortex, process.env.PATH || ""].join(path.delimiter),
+    PATH: [stubDocvortex, stubBins, process.env.PATH || ""].join(path.delimiter),
     ENGINE_CONFIG: configFile,
   },
   stdio: ["ignore", "pipe", "pipe"],
@@ -185,6 +199,7 @@ try {
   const kinds = health.data.capabilities.jobKinds || [];
   check("十类作业都在", ["text-layer", "outline", "images-to-pdf", "redact", "extract", "convert", "pdf-text", "install-component", "ebook-convert", "boko-convert"].every((kind) => kinds.includes(kind)), kinds.join(", "));
   check("能力项是 {ok, detail}", engineCapabilityRows(health.data).every((row) => typeof row.ok === "boolean" && typeof row.detail === "string"));
+  check("引擎自带 OCR", health.data.capabilities.ocr?.ok === true, String(health.data.capabilities.ocr?.detail || ""));
 
   const noToken = await client.health({ engineUrl: settings.engineUrl });
   check("不带令牌被拒", noToken.ok === false && /令牌/.test(String(noToken.error)), String(noToken.error));

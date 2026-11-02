@@ -1,7 +1,7 @@
 {
   "name": "qiaomu-reader-desktop",
   "private": true,
-  "version": "0.7.81",
+  "version": "0.7.82",
   "description": "Standalone Electron shell for UV Reader (纽扣).",
   "author": "newcoder",
   "main": "dist/main.cjs",
@@ -15,6 +15,7 @@
     "build:logo": "electron scripts/import-logo.cjs",
     "e2e": "node build.mjs && node scripts/e2e.mjs",
     "dist": "node build.mjs --production && electron-builder --config electron-builder.config.cjs --publish never",
+    "store": "node build.mjs --production && electron-builder --config electron-builder.store.cjs --publish never",
     "dist:dir": "node build.mjs --production && electron-builder --config electron-builder.config.cjs --publish never --dir",
     "test": "node --test test/*.test.mjs",
     "matrix": "node scripts/convert-matrix.mjs"

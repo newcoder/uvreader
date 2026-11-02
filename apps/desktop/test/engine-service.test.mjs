@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { clearPid, compareVersions, createEngineService, isAlive, listEngines, pickEngine, portFromUrl, readPid, writePid } from "../src/main/engine-service.js";
+import { clearPid, compareVersions, createEngineService, engineOcrPaths, engineOcrReady, engineOcrSettings, findFreePort, isAlive, listEngines, pickEngine, portFromUrl, readPid, writePid } from "../src/main/engine-service.js";
 
 const tempRoot = () => fs.mkdtempSync(path.join(os.tmpdir(), "qbr-engine-service-"));
 const makeEngine = (root, version, { token = "", manifest = {} } = {}) => {
@@ -34,6 +34,31 @@ test("listEngines only counts directories with a manifest, newest first", () => 
   assert.equal(pickEngine(path.join(root, "nope")), null);
 });
 
+test("an installed engine exposes its OCR sidecar only when RapidOCR is present", async () => {
+  const root = tempRoot();
+  const dir = makeEngine(root, "0.1.12");
+  const paths = engineOcrPaths(dir);
+  fs.mkdirSync(path.join(paths.ocrSidecarDir, "pdf_tool", "reader"), { recursive: true });
+  fs.writeFileSync(path.join(paths.ocrSidecarDir, "pdf_tool", "reader", "server.py"), "");
+  fs.mkdirSync(path.dirname(paths.ocrPython), { recursive: true });
+  fs.writeFileSync(paths.ocrPython, "");
+
+  assert.equal(engineOcrReady(dir), false, "pdf_tool alone is not enough: OCR deps are required");
+  assert.equal(engineOcrSettings(root), null);
+  const sitePackages = process.platform === "win32"
+    ? path.join(dir, "site-packages")
+    : path.join(dir, "python", "lib", "python3.12", "site-packages");
+  fs.mkdirSync(path.join(sitePackages, "rapidocr"), { recursive: true });
+  assert.equal(engineOcrReady(dir), true);
+  assert.deepEqual(engineOcrSettings(root), paths);
+
+  const service = createEngineService({ engineRoot: root, kill: () => {} });
+  const state = await service.status();
+  assert.equal(state.ocrReady, true);
+  assert.equal(state.ocrSidecarDir, paths.ocrSidecarDir);
+  assert.equal(state.ocrPython, paths.ocrPython);
+});
+
 test("pid files round-trip and isAlive reads the process table", () => {
   const root = tempRoot();
   const dir = makeEngine(root, "0.1.0");
@@ -49,6 +74,11 @@ test("pid files round-trip and isAlive reads the process table", () => {
   assert.equal(isAlive(4242, () => { throw denied; }), true, "EPERM 说明进程在,只是发不了信号");
 });
 
+test("findFreePort returns a bindable loopback port", async () => {
+  const port = await findFreePort();
+  assert.ok(Number.isInteger(port) && port > 0 && port <= 65535);
+});
+
 test("portFromUrl reads the port and falls back to 8760", () => {
   assert.equal(portFromUrl("http://127.0.0.1:8790"), 8790);
   assert.equal(portFromUrl("http://127.0.0.1"), 8760);
@@ -61,7 +91,7 @@ test("status reports what is installed and whether the recorded pid is alive", a
   const alive = new Set([4242]);
   const kill = (pid) => { if (!alive.has(pid)) throw Object.assign(new Error("gone"), { code: "ESRCH" }); };
   const service = createEngineService({ engineRoot: root, kill });
-  assert.deepEqual(await service.status(), { ok: false, installed: false, running: false, detail: "还没装书坊引擎" });
+  assert.deepEqual(await service.status(), { ok: false, installed: false, running: false, bundled: false, detail: "还没装书坊引擎" });
 
   const dir = makeEngine(root, "0.1.3", { token: "t" });
   const idle = await service.status();
@@ -161,6 +191,65 @@ test("a broken logger never breaks start or stop", async () => {
   const stopped = await service.stop();
   assert.equal(stopped.ok, true, "日志炸了也要能停止");
   assert.equal(readPid(dir), null);
+});
+
+test("a bundled archive is extracted once before the first start", async () => {
+  const root = tempRoot();
+  const archive = path.join(root, "uvreader-engine-0.2.0-win32-x64.zip");
+  fs.writeFileSync(archive, "not-a-real-zip", "utf8");
+  let extracts = 0;
+  const service = createEngineService({
+    engineRoot: path.join(root, "installed"),
+    bundleArchive: archive,
+    installer: {
+      extract: async (_archive, target) => {
+        extracts += 1;
+        fs.mkdirSync(target, { recursive: true });
+        fs.writeFileSync(path.join(target, "engine.json"), JSON.stringify({ engineVersion: "0.2.0", platform: "win32-x64" }), "utf8");
+      },
+      start: () => ({ pid: 808 }),
+      waitHealthy: async () => ({ ok: true, engineVersion: "0.2.0" }),
+    },
+    kill: () => {},
+  });
+
+  const before = await service.status();
+  assert.equal(before.bundled, true);
+  assert.equal(before.installed, false);
+  const [first, second] = await Promise.all([service.prepare(), service.prepare()]);
+  assert.equal(first.version, "0.2.0");
+  assert.equal(second.version, "0.2.0");
+  assert.equal(extracts, 1, "concurrent prepare calls share one extraction");
+  assert.equal((await service.status()).installed, true);
+
+  const started = await service.start({ port: 8766 });
+  assert.equal(started.ok, true);
+  assert.equal(started.started, true);
+  assert.equal(started.version, "0.2.0");
+  assert.equal(extracts, 1, "start reuses the prepared archive");
+});
+
+test("an older installed engine does not shadow the bundled version", async () => {
+  const root = tempRoot();
+  const installedRoot = path.join(root, "installed");
+  makeEngine(installedRoot, "0.1.9");
+  const archive = path.join(root, "uvreader-engine-0.2.0-win32-x64.zip");
+  fs.writeFileSync(archive, "not-a-real-zip", "utf8");
+  let extracts = 0;
+  const service = createEngineService({
+    engineRoot: installedRoot,
+    bundleArchive: archive,
+    installer: {
+      extract: async (_archive, target) => {
+        extracts += 1;
+        fs.mkdirSync(target, { recursive: true });
+        fs.writeFileSync(path.join(target, "engine.json"), JSON.stringify({ engineVersion: "0.2.0", platform: "win32-x64" }), "utf8");
+      },
+    },
+  });
+  const prepared = await service.prepare();
+  assert.equal(prepared.version, "0.2.0");
+  assert.equal(extracts, 1);
 });
 
 test("stop treats an already-dead pid as stopped", async () => {

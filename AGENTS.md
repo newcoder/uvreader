@@ -1,39 +1,52 @@
 # UV Reader — agent notes
 
-Standalone desktop reader (Electron) for EPUB/PDF/FB2/MOBI/AZW3/CBZ with highlights, notes and optional AI. Product name: **UV Reader / 纽扣**. UI copy, README and docs are Chinese-first. The Obsidian plugin packaging has been removed and the reader has been extracted into host-agnostic modules; only the wiring and the two adapters still touch the host API.
+Standalone Electron reader (EPUB/PDF/FB2/MOBI/AZW3/CBZ + images) with highlights, notes and optional AI. Product name **UV Reader / 纽扣**; UI copy, README and docs are Chinese-first. The Obsidian plugin packaging is gone, but the reader core still runs behind a desktop host shim.
+
+## Setup and commands
+
+- Node **>=22.19** (`pdfjs-dist` needs 22.13+, `pi-ai` 22.19+); the workshop engine additionally needs Python. Run `npm ci` first: `postinstall` applies the pdf.js sentence-period and foliate sandbox/lenient-XHTML patches, and a fresh install reverts them — do not hand-edit `node_modules`.
+- Install the shell's own deps before desktop work: `npm ci --prefix apps/desktop` (or `npm run desktop:install`; behind a blocked network set `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`). `test:desktop` imports `@earendil-works/pi-ai` from there, and `desktop:build` needs its esbuild.
+- Build/run: `npm run desktop:build` then `npm run desktop:start`. `desktop:dev` is **watch-build only** and does not launch the app (README says otherwise); run `desktop:start` separately.
+- Packaging: `desktop:dist` / `desktop:dist:dir` write `apps/desktop/release/`; `desktop:smoke:packaged` exercises the packaged app.
+- `npm test` runs `tests/*.test.mjs` (reader core). Focus one file with `node --test tests/core-config.test.mjs`, one test with `node --test --test-name-pattern="…" tests/core-config.test.mjs` (the flag must come before the file). `npm run test:shim` / `npm run test:desktop` cover the shim / shell; `node --test <file>` works for a single file there too.
+- `npm run check:i18n` checks 9 languages and also asserts exact source substrings, so copy/markup changes can fail it without dictionary edits. New UI strings need entries in `i18n-en.js`, `i18n-zh.js` and every `locales/*.js` pack; all seven packs are checked.
+- Lint exactly as CI does: `npx eslint packages/reader/src packages/host-shim apps/desktop/src apps/desktop/test apps/desktop/scripts apps/desktop/build.mjs tests scripts --max-warnings=0`. Warnings fail; `no-unused-vars` is on (use `_` prefixes).
+- `npm run desktop:e2e` builds then runs Playwright-Electron; `QBR_E2E_ONLY=workshop,library` narrows it. `npm run desktop:smoke` opens a starter book and exits 0/1. `npm run check:epub -- <book.epub>` validates an EPUB product.
+- `npm run desktop:matrix` needs real external tools and defaults to a dev-only sample outside the repo: set `QBR_MATRIX_PDF` + `QBR_MATRIX_PDF_MARKER`, `QBR_OCR_SIDECAR`, `QBR_OCR_PYTHON`; narrow with `QBR_MATRIX_ONLY=dv:docx->pdf,pdf-text->docx`; `QBR_MATRIX_MINERU=1` adds MinerU; route through an engine with `QBR_MATRIX_ENGINE_URL`/`_TOKEN` and verify via its `/v1/jobs`.
+- CI (`.github/workflows/ci.yml`): an `engine` job runs pytest + engine e2e; `verify` runs `npm ci` → `npm ci --prefix apps/desktop` → test → test:shim → test:desktop → check:i18n → eslint → build → smoke under xvfb.
+- Release: bump the root **and** `apps/desktop/package.json` versions, push `v<version>`; `scripts/check-release-tag.mjs` guards the tag. `.github/workflows/release.yml` builds Windows and macOS x64/arm64 only (no Linux). Engine releases use independent `engine-v*` tags.
 
 ## Layout
 
-- `packages/reader/src/` — 90+ modules. All of them are host-agnostic and unit-tested except:
-  - `main.js` — thin entry, `export { default } from "./wire.js"`.
-  - `wire.js` — helper functions, port assembly and the default export (the only other file importing `obsidian`).
-  - `plugin.js` / `settings-tab.js` — the Obsidian-facing adapters, built as factories (`createPlugin`, `createSettingsTab`) with the host base class injected.
-- `packages/host-shim/` — Obsidian API compatibility layer used only by `wire.js`/`plugin.js`/`settings-tab.js`.
-- `apps/desktop/` — Electron shell (main/preload/renderer) with its own `package.json` and lockfile.
-  - `src/main/ai-runtime.js` — the pi-ai provider runtime (HTTP/OpenAI-compatible, including Ollama/LM Studio). AI traffic runs in the main process; `src/preload` exposes `qbrDesktop.ai`, and `packages/reader/src/ai-pi.js` adapts the bridge to the reader's `aiExplain` contract. Reader modules must never import `@earendil-works/pi-ai` directly.
+- `packages/reader/src/` — reader core. `main.js` is a thin `export { default } from "./wire.js"`; `wire.js` is the only reader module importing `obsidian` and holds helper wiring; `plugin.js` / `settings-tab.js` are host-agnostic factories. Put new testable logic in pure modules here.
+- `packages/host-shim/` — Obsidian API compatibility layer; the desktop renderer imports `obsidian` through the esbuild alias to it.
+- `apps/desktop/src/` — `main/index.js` (IPC/services/workshop/AI), `preload/index.js` (bridge), `renderer/entry.js` (boots the shim + reader), `shared/` (pure book/format helpers). `build.mjs` emits `dist/main.cjs`, `preload.cjs`, `renderer.js`.
+- AI: `main/ai-runtime.js` bundles pi-ai in the main process; preload exposes `qbrDesktop.ai`, and `packages/reader/src/ai-pi.js` adapts it to `aiExplain`. Never import `@earendil-works/pi-ai` from reader modules.
+- `engine/` — optional Python workshop service (next section).
 
-## Commands
+## Workshop engine (`engine/`)
 
-- `npm ci` first; `postinstall` runs `patch-pdfjs.cjs` (idempotent pdf.js sentence-period fix) and `patch-foliate.cjs` (drops `allow-scripts` from foliate-js' section iframes so the sandbox is not a same-origin no-op, and makes section parsing fall back to the lenient HTML parser when a book's XHTML is malformed). Both revert on every fresh install and are re-applied by postinstall. The EPUB scrolled-mode stacking patch (`patch-foliate-scroll.cjs`) was **rolled back on 2026-10-18** — EPUB scrolling uses upstream foliate again (one section mounted at a time); the evidence chain and the reason are kept in `docs/scroll-mode-design.md`. PDF scrolling is unaffected (the reader has its own `pdf-paginator`).
-- `npm test` — reader-core tests (`node --test tests/*.test.mjs`). One file: `node --test tests/core-config.test.mjs`; one test: add `--test-name-pattern="…"`.
-- `npm run test:shim` / `npm run test:desktop` — compatibility layer / shell tests.
-- `npm run check:i18n` — dictionary, placeholder, HTML and URL parity across 9 languages plus exact-string assertions about the reader modules (`wire.js`, `plugin.js`, `settings-tab.js` and the extracted UI modules).
-- `npx eslint packages/reader/src packages/host-shim apps/desktop/src apps/desktop/test apps/desktop/scripts apps/desktop/build.mjs tests scripts --max-warnings=0` — CI treats warnings as failures; `no-unused-vars` is on (use `_` prefixes for intentionally unused args/vars).
-- `npm run desktop:install` (once; behind a blocked network set `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`), `desktop:build`, `desktop:dev`, `desktop:start`, `desktop:smoke` (boots against a starter book and exits 0/1), `desktop:e2e` (Playwright-Electron), `desktop:matrix` (conversion matrix: 10 source formats × 5 DocVortex targets + text-mode PDF × 5 + content extraction + Calibre/CBZ, each product checked for the source marker; `QBR_MATRIX_MINERU=1` adds the MinerU extraction, `QBR_MATRIX_ONLY=dv:docx->pdf,pdf-text->docx` narrows it, `QBR_MATRIX_PDF=<file>` swaps the sample). Set `QBR_MATRIX_ENGINE_URL` (+ `QBR_MATRIX_ENGINE_TOKEN`) to run the whole matrix through a workshop engine instead of the local tools; the engine's own job list (`GET /v1/jobs`) then shows what it actually did.
-- Release: push a `v<version>` tag matching the root `package.json` version; `.github/workflows/release.yml` verifies the tag, builds the three platforms and creates the GitHub Release. `scripts/check-release-tag.mjs` is the local/CI guard.
+- It is a separate FastAPI service, not part of the Electron bundle. The app talks HTTP via `apps/desktop/src/main/engine-client.js` and prefers the engine for workshop jobs, falling back to local Python/Calibre spawns; keep the fallback and `via` reporting intact.
+- Dev run: `cd engine && python -m engine serve --port 8760 [--token …]`. Run from `engine/`, otherwise the outer directory becomes a namespace package. Config lives at `ENGINE_CONFIG` or `~/.uvreader-engine/config.json`, is read once at startup (restart after manual edits), and is updated live via `PATCH /v1/config`.
+- Tests: `pip install -r engine/requirements.txt -r engine/requirements-dev.txt`, then `python -m pytest engine/tests -q`; `node scripts/engine-e2e.mjs --require` starts the real service with fake external tools (`--python` / `QBR_ENGINE_PYTHON`; without `--require` it skips when deps are missing). CI runs both.
+- Keep `engine/requirements*.txt` ASCII-only (pip decodes with the system locale on Windows). Keep `pymupdf<2`; 2.x pulls pymupdf4llm/pymupdf-layout. RapidOCR + onnxruntime are bundled for the text layer (the engine bundle is ~160 MB); `engineOcrReady` only auto-wires the engine sidecar when `rapidocr` is present, so older bundles fall back to manual settings.
+- Engine version is `engine/engine/__init__.py`; `engine/engine/engine.json` is a dev manifest (`platform: "dev"`) ignored by `/v1/health` and not packed. `engine/vendor/pdf_tool` is a pinned snapshot — refresh with `node scripts/vendor-pdf-tool.mjs --from <pdf_tool dir>`, never hand-edit.
+- Optional components install into `<bundle>/components`, not the interpreter's site-packages (Windows locks in-use packages). Bundle: `node scripts/build-engine.mjs --platform win32-x64`, then `node scripts/check-engine-bundle.mjs dist/engine --platform win32-x64`; `.github/workflows/engine.yml` publishes Windows/macOS only.
 
-CI order (`.github/workflows/ci.yml`): test → test:shim → test:desktop → check:i18n → eslint → desktop build → smoke under xvfb.
+## Constraints
 
-## Migration rules
+- The Obsidian extraction is done. Do not recreate root `main.js`/`styles.css`; build output lives in `apps/desktop/dist/`, `apps/desktop/release/` and root `dist/` (engine bundles).
+- Keep `packages/host-shim` behavior-compatible: `setViewState` must call `view.setState`; `Modal` needs a close button/backdrop/Esc stack and must not clobber `Modal.scope` (history filtering uses `filterScope`); `Setting` needs `settingEl`; components need `selectEl/toggleEl/sliderEl`; `SecretStorage.getSecret` is synchronous.
+- Do not re-add EPUB scrolled-mode section stacking: upstream foliate mounts one section at a time; rationale in `docs/scroll-mode-design.md`. PDF scrolling uses the reader's own `pdf-paginator`.
+- Generated files — do not hand-edit: `pdf-cmaps-data.js` / `pdf-wasm-data.js` (`scripts/generate-pdf-cmaps.mjs` / `generate-pdf-wasm.mjs`), `hanzi-dict-data.js` / `word-dict-data.js` (`scripts/generate-hanzi-dict.mjs`), pinned `assets/starter-books/` (`npm run build:books`), `apps/desktop/assets/icons/` and `logo.png` / `build/icon.png` (`npm run build:icons` / `build:icon`). Sliced icons are CSS masks so they take `currentColor`.
+- esbuild aliases node builtins and `localforage` to `build-stubs/empty.js`; `__PDF_WORKER_CODE__` and `__QBR_ENGINE_VIEW_TAG__` are build defines. Reader sources must not import node builtins.
+- Desktop main-process cleanup of user paths: use `removeFile` / `removeTree` from `apps/desktop/src/main/paths.js`, not `fs.rmSync` / `rmdirSync` — on Windows + non-ASCII names those silently no-op.
+- Tests and `check:i18n` read source text and assert exact substrings; grep for the string before rewording it.
 
-- The extraction is done: `main.js` is a thin entry, `wire.js` holds the helpers/wiring, and `plugin.js`/`settings-tab.js` are the adapters. Tests and `check-i18n` still assert exact substrings, so check which module owns a string before rewording it; put new testable logic in pure modules under `packages/reader/src/*.js`.
-- Keep `packages/host-shim` behavior-compatible with Obsidian: `setViewState` must call `view.setState`, `Modal` needs a close button/backdrop/Esc stack and must not clobber `Modal.scope` (history filtering uses `filterScope`), `Setting` needs `settingEl`, components need `selectEl/toggleEl/sliderEl`, and `SecretStorage.getSecret` must be synchronous.
-- Desktop builds write to `apps/desktop/dist/` (gitignored). Never recreate root `main.js`/`styles.css`; those plugin artifacts are gone.
-- `packages/reader/src/pdf-cmaps-data.js` is generated by `scripts/generate-pdf-cmaps.mjs`; `packages/reader/src/pdf-wasm-data.js` (JBIG2/OpenJPEG/QCMS/QuickJS decoders embedded for offline scan rendering) by `scripts/generate-pdf-wasm.mjs`; do not edit either.
-- `packages/reader/src/hanzi-dict-data.js` (character glosses, variants, traditional forms) and `word-dict-data.js` (gzipped idiom/word glossary) are generated by `scripts/generate-hanzi-dict.mjs`; do not edit. The word table is inflated with `DecompressionStream` on first use and pre-warmed when a book opens.
-- `assets/starter-books/` are pinned Project Gutenberg sources (sha256 in `catalog.json`, `-text -whitespace` in `.gitattributes`); regenerate with `npm run build:books`, never hand-edit.
-- `apps/desktop/assets/icons/` is generated by `scripts/slice-app-icons.mjs` from the root `uvreader_icons.png` (white background keyed to transparency); `apps/desktop/assets/logo.png` and `apps/desktop/build/icon.png` by `apps/desktop/scripts/import-logo.cjs` from `logo.jpg` (`npm run build:icon`). Do not hand-edit the outputs; the shell renders the sliced icons as CSS masks (`base.css` `.qbr-raster-icon`) so they take `currentColor`.
-- esbuild aliases node builtins and `localforage` to `build-stubs/empty.js`; `__PDF_WORKER_CODE__` and `__QBR_ENGINE_VIEW_TAG__` are build-time defines. Do not import node builtins from `packages/reader/src/`.
+## Docs
+
+- Trust `package.json`, CI workflows and code over prose. `CONTRIBUTING.md` is Obsidian-era (its `npm run build`, `src/`, and MIT references are stale).
+- `docs/` is dated design/QA history; status headers can lag the code (e.g. the engine plan still says "not started" after E1–E5).
 
 ## Product interaction preferences
 

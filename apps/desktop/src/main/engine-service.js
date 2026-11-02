@@ -5,8 +5,10 @@
 // - 令牌沿用安装时写下的 <版本>/token.txt,不存在就生成。
 import crypto from "node:crypto";
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 
+import { engineArchiveInfo } from "./engine-bundle.js";
 import { removeFile } from "./paths.js";
 
 const PID_FILE = "engine.pid";
@@ -48,6 +50,61 @@ export function pickEngine(engineRoot) {
   return listEngines(engineRoot)[0] || null;
 }
 
+// Paths the OCR sidecar needs when it runs from an installed engine bundle:
+// the bundled pdf_tool checkout plus the private interpreter.
+export function engineOcrPaths(engineDir) {
+  const base = String(engineDir || "").trim();
+  if (!base) return { ocrSidecarDir: "", ocrPython: "" };
+  return {
+    ocrSidecarDir: path.join(base, "pdf-tool"),
+    ocrPython: process.platform === "win32"
+      ? path.join(base, "python", "python.exe")
+      : path.join(base, "python", "bin", "python3"),
+  };
+}
+
+function engineSitePackages(engineDir) {
+  const dirs = [];
+  if (process.platform === "win32") {
+    dirs.push(path.join(engineDir, "site-packages"));
+    return dirs;
+  }
+  const lib = path.join(engineDir, "python", "lib");
+  try {
+    for (const entry of fs.readdirSync(lib, { withFileTypes: true })) {
+      if (entry.isDirectory() && /^python3\.\d+$/.test(entry.name)) {
+        dirs.push(path.join(lib, entry.name, "site-packages"));
+      }
+    }
+  } catch { /* not an engine bundle */ }
+  return dirs;
+}
+
+// The OCR sidecar is only usable when the engine ships both the pdf_tool
+// checkout and a RapidOCR backend. Older engine bundles have pdf_tool but no
+// OCR deps; they should fall back to the manual settings with a clear hint
+// instead of spawning a Python that will fail on `import rapidocr`.
+export function engineOcrReady(engineDir) {
+  const paths = engineOcrPaths(engineDir);
+  if (!paths.ocrSidecarDir || !paths.ocrPython) return false;
+  if (!fs.existsSync(path.join(paths.ocrSidecarDir, "pdf_tool", "reader", "server.py"))) return false;
+  if (!fs.existsSync(paths.ocrPython)) return false;
+  // OCR is bundled in the interpreter's site-packages. Components/ is not on
+  // the sidecar's sys.path (only the engine process adds it), so do not treat a
+  // rapidocr installed there as ready.
+  return engineSitePackages(engineDir).some((dir) =>
+    fs.existsSync(path.join(dir, "rapidocr")) || fs.existsSync(path.join(dir, "rapidocr_onnxruntime")));
+}
+
+// Resolve the newest installed engine's bundled OCR sidecar, if it is ready.
+// Used by pdf-ocr as a fallback when the user has not configured a local
+// pdf_tool checkout (the common case on a fresh machine).
+export function engineOcrSettings(engineRoot) {
+  const engine = pickEngine(engineRoot);
+  if (!engine || !engineOcrReady(engine.dir)) return null;
+  return engineOcrPaths(engine.dir);
+}
+
 export function readPid(engineDir) {
   try {
     const info = JSON.parse(fs.readFileSync(path.join(engineDir, PID_FILE), "utf8"));
@@ -77,6 +134,19 @@ export function isAlive(pid, kill = process.kill) {
   }
 }
 
+export function findFreePort(host = "127.0.0.1") {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    server.once("error", reject);
+    server.listen(0, host, () => {
+      const address = server.address();
+      const port = typeof address === "object" && address ? address.port : 0;
+      server.close(() => (port ? resolve(port) : reject(new Error("无法分配空闲端口"))));
+    });
+  });
+}
+
 export function portFromUrl(url, fallback = 8760) {
   try {
     const port = Number(new URL(String(url || "")).port);
@@ -87,35 +157,74 @@ export function portFromUrl(url, fallback = 8760) {
   }
 }
 
-export function createEngineService({ engineRoot = "", installer = null, tokenBytes = 24, log = () => {}, kill = process.kill } = {}) {
+export function createEngineService({ engineRoot = "", installer = null, bundleArchive = "", tokenBytes = 24, log = () => {}, kill = process.kill } = {}) {
   // 主进程把日志函数当参数传进来;传错了(比如引用了不存在的变量)不能让**启停**跟着失败。
   const logSafe = (...args) => {
     try {
       log(...args);
     } catch { /* logging must never break start/stop */ }
   };
+  let preparing = null;
+  const bundled = Boolean(bundleArchive);
+
+  // A Store build ships the engine zip inside resources/engine. Extract it
+  // once into the writable engine root before the first start. A normal build
+  // has no archive and keeps the existing install/update flow unchanged.
+  async function prepare() {
+    const installed = pickEngine(engineRoot);
+    const bundledInfo = bundleArchive ? engineArchiveInfo(bundleArchive) : null;
+    // An already-newer external engine is fine; an older one should not shadow
+    // the engine that shipped with this Store build.
+    if (installed && (!bundledInfo || compareVersions(installed.version, bundledInfo.version) >= 0)) return installed;
+    if (!bundleArchive || !fs.existsSync(bundleArchive)) return installed;
+    if (!installer?.extract) throw new Error("内置引擎包存在,但当前引擎服务没有配置解压器");
+    if (preparing) return preparing;
+    preparing = (async () => {
+      if (!bundledInfo) throw new Error(`内置引擎包文件名无法识别:${path.basename(bundleArchive)}`);
+      const target = path.join(engineRoot, bundledInfo.version);
+      if (!fs.existsSync(path.join(target, "engine.json"))) {
+        logSafe("[engine-service] extracting bundled engine", bundleArchive, target);
+        await installer.extract(bundleArchive, target);
+      }
+      return pickEngine(engineRoot);
+    })().finally(() => { preparing = null; });
+    return preparing;
+  }
+
   async function status() {
     const engine = pickEngine(engineRoot);
-    if (!engine) return { ok: false, installed: false, running: false, detail: "还没装书坊引擎" };
+    if (!engine) {
+      return {
+        ok: false,
+        installed: false,
+        running: false,
+        bundled,
+        detail: bundled ? "内置书坊引擎准备中" : "还没装书坊引擎",
+      };
+    }
     const info = readPid(engine.dir);
     const running = Boolean(info && isAlive(info.pid, kill));
+    const ocr = engineOcrReady(engine.dir) ? engineOcrPaths(engine.dir) : null;
     return {
       ok: true,
       installed: true,
       running,
+      bundled,
       version: engine.version,
       platform: engine.platform,
       dir: engine.dir,
       pid: running ? info.pid : 0,
       port: running ? info.port : 0,
+      ocrReady: Boolean(ocr),
+      ...(ocr || {}),
       detail: running ? `运行中 · ${engine.version} · 端口 ${info.port}` : `未运行 · ${engine.version}`,
     };
   }
 
   async function start({ port = 8760 } = {}) {
     if (!installer?.start) throw new Error("引擎服务没有配置启动器");
-    const engine = pickEngine(engineRoot);
-    if (!engine) throw new Error("还没装书坊引擎:先点上面的「下载并安装引擎」");
+    const engine = await prepare();
+    if (!engine) throw new Error(bundled ? "内置书坊引擎准备失败:引擎包不存在或无法解压" : "还没装书坊引擎:先点上面的「下载并安装引擎」");
     const current = await status();
     if (current.running) return { ...current, started: false };
     const tokenFile = path.join(engine.dir, "token.txt");
@@ -140,6 +249,7 @@ export function createEngineService({ engineRoot = "", installer = null, tokenBy
       installed: true,
       running: true,
       started: true,
+      bundled,
       version: engine.version,
       platform: engine.platform,
       dir: engine.dir,
@@ -174,5 +284,5 @@ export function createEngineService({ engineRoot = "", installer = null, tokenBy
     return { ok: true, installed: true, running: false, version: engine.version, pid: info.pid };
   }
 
-  return { status, start, stop };
+  return { status, start, stop, prepare };
 }

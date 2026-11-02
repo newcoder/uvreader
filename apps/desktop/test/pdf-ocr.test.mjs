@@ -160,6 +160,48 @@ test("ocrCommand resolves an exe, a pdf_tool checkout, or reports what is missin
   assert.deepEqual(ocrCommand({ ocrSidecarExe: exe }).command, exe);
 });
 
+test("ocrCommand falls back to an installed engine's bundled pdf_tool", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-ocr-engine-"));
+  fs.mkdirSync(path.join(root, "pdf_tool", "reader"), { recursive: true });
+  fs.writeFileSync(path.join(root, "pdf_tool", "reader", "server.py"), "");
+  const python = path.join(root, process.platform === "win32" ? "python.exe" : "python3");
+  fs.writeFileSync(python, "");
+  const engineSidecar = { ocrSidecarDir: root, ocrPython: python };
+
+  const resolved = ocrCommand({}, { engineSidecar });
+  assert.equal(resolved.command, python);
+  assert.deepEqual(resolved.args, ["-m", "pdf_tool.reader"]);
+  assert.equal(resolved.cwd, root);
+
+  // A user-configured local checkout always wins over the engine fallback.
+  const local = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-ocr-local-"));
+  fs.mkdirSync(path.join(local, "pdf_tool", "reader"), { recursive: true });
+  fs.writeFileSync(path.join(local, "pdf_tool", "reader", "server.py"), "");
+  const chosen = ocrCommand({ ocrSidecarDir: local }, { engineSidecar });
+  assert.equal(chosen.cwd, local);
+  assert.equal(chosen.command, "python");
+
+  // A stale local folder must not block the ready engine fallback.
+  const stale = ocrCommand({ ocrSidecarDir: path.join(os.tmpdir(), "qbr-ocr-missing") }, { engineSidecar });
+  assert.equal(stale.cwd, root);
+  assert.equal(stale.command, python);
+});
+
+test("the engine sidecar fallback reaches the sidecar protocol", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-ocr-engine-spawn-"));
+  fs.mkdirSync(path.join(root, "pdf_tool", "reader"), { recursive: true });
+  fs.writeFileSync(path.join(root, "pdf_tool", "reader", "server.py"), "");
+  const python = path.join(root, process.platform === "win32" ? "python.exe" : "python3");
+  fs.writeFileSync(python, "");
+  const ocr = createPdfOcr({
+    spawnImpl: fakeSpawn(writeSidecar("engine-ok", OK_SIDECAR)),
+    engineSidecar: () => ({ ocrSidecarDir: root, ocrPython: python }),
+  });
+  const result = await ocr.probe({}, 3000);
+  assert.equal(result.ok, true);
+  assert.equal(result.detail, "fake-reader");
+});
+
 test("resolveOcrOutput keeps generated files inside the vault", () => {
   const vault = path.join(os.tmpdir(), "qbr-vault");
   assert.equal(resolveOcrOutput(vault, path.join(vault, "a", "b.pdf")), path.join(vault, "a", "b.pdf"));

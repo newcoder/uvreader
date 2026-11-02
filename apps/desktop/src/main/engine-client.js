@@ -14,6 +14,7 @@ export function describeEngineHealth(health = {}) {
   const version = String(health.engineVersion || "").trim() || "未知版本";
   const capabilities = health.capabilities || {};
   const labels = {
+    ocr: "OCR",
     pdfTool: "pdf_tool",
     docvortex: "DocVortex",
     mineru: "MinerU",
@@ -31,12 +32,13 @@ export function describeEngineHealth(health = {}) {
 // kind/optional 由引擎上报(自带 / 另外装 / 可选),fix 是「不可用时具体怎么补」。
 export function engineCapabilityRows(health = {}) {
   const capabilities = health?.capabilities || {};
-  const order = ["python", "pymupdf", "pillow", "latex2mathml", "pdfTool", "docvortex", "mineru", "calibre", "boko"];
+  const order = ["python", "pymupdf", "pillow", "latex2mathml", "ocr", "pdfTool", "docvortex", "mineru", "calibre", "boko"];
   const labels = {
     python: "Python",
     pymupdf: "PyMuPDF(文字层 / 文本型提取)",
     pillow: "Pillow(图片 → PDF)",
     latex2mathml: "latex2mathml(公式)",
+    ocr: "RapidOCR(扫描版 PDF 文字层)",
     pdfTool: "pdf_tool(PDF → Doc JSON)",
     docvortex: "DocVortex(文档互转)",
     mineru: "MinerU(OCR / 公式)",
@@ -62,7 +64,7 @@ export function engineCapabilityRows(health = {}) {
 // 「引擎包里有什么、什么还要另外装」——设置页如实说明用,文案不夸大。
 export function engineComponentSummary(health = {}) {
   const rows = engineCapabilityRows(health);
-  const names = { python: "Python", pymupdf: "PyMuPDF", pillow: "Pillow", latex2mathml: "latex2mathml", pdfTool: "pdf_tool", docvortex: "DocVortex", mineru: "MinerU", calibre: "Calibre", boko: "boko" };
+  const names = { python: "Python", pymupdf: "PyMuPDF", pillow: "Pillow", latex2mathml: "latex2mathml", ocr: "RapidOCR", pdfTool: "pdf_tool", docvortex: "DocVortex", mineru: "MinerU", calibre: "Calibre", boko: "boko" };
   const pick = (list) => list.map((row) => names[row.key] || row.label);
   return {
     bundled: pick(rows.filter((row) => row.kind === "bundled")),

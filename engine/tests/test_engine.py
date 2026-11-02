@@ -73,6 +73,9 @@ def test_health_requires_the_token(client):
     assert "text-layer" in capabilities["jobKinds"]
     assert "outline" in capabilities["jobKinds"]
     assert "images-to-pdf" in capabilities["jobKinds"]
+    assert capabilities["ocr"]["ok"] is True, "引擎包必须带 RapidOCR,扫描版文字层才能开箱可用"
+    assert capabilities["ocr"]["kind"] == "bundled"
+    assert "RapidOCR" in capabilities["ocr"]["detail"]
     assert "detail" in capabilities["pdfTool"], "能力项给 {ok, detail}"
 
 

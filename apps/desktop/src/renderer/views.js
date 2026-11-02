@@ -435,6 +435,7 @@ export function createSettingsView(leaf, options) {
     const ocrCard = root.createDiv("qbr-workshop-card");
     ocrCard.createEl("h3", { text: "扫描版 PDF 文字层" });
     ocrCard.createDiv({ cls: "qbr-workshop-hint", text: "本地 OCR sidecar(pdf_tool/reader/server.py)给扫描页加一层看不见的文字:阅读器里能选中 / 搜索 / 划线,原件不变。" });
+    ocrCard.createDiv({ cls: "qbr-workshop-hint", text: "装了书坊引擎后会自动使用引擎自带的 OCR;旧版引擎不含 OCR 时,在下面的「书坊引擎」里检查更新。" });
     const autoRow = ocrCard.createDiv("qbr-workshop-row");
     const autoLabel = autoRow.createEl("label", { cls: "qbr-workshop-opt" });
     const autoInput = autoLabel.createEl("input", { attr: { type: "checkbox" } });
@@ -458,6 +459,25 @@ export function createSettingsView(leaf, options) {
     const ocrProbe = ocrTools.createEl("button", { text: "检测文字层链路" });
     const ocrStatus = ocrTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
     ocrProbe.addEventListener("click", () => void runProbe(ocrStatus, "", () => bridge?.probe?.ocr(settings)));
+    // An installed engine carries pdf_tool + RapidOCR; fill the local rows so
+    // the reader's OCR path sees a configured sidecar without manual copying.
+    const applyEngineOcrPaths = (result, { force = false } = {}) => {
+      const dir = String(result?.ocrSidecarDir || "").trim();
+      const python = String(result?.ocrPython || "").trim();
+      if (!dir || !python) return false;
+      const currentDir = sidecarDir.value.trim();
+      const currentPython = pythonInput.value.trim();
+      // The two engine paths are a pair; do not mix the engine's Python with a
+      // manually configured checkout (or vice versa).
+      const manual = currentDir || String(settings.ocrSidecarExe || "").trim()
+        || (currentPython && currentPython !== "python");
+      if (!force && manual) return false;
+      sidecarDir.value = dir;
+      persist("ocrSidecarDir", dir);
+      pythonInput.value = python;
+      persist("ocrPython", python);
+      return true;
+    };
 
     // 3. 本地 MinerU(公式优先 / 内容提取共用)
     const mineruCard = root.createDiv("qbr-workshop-card");
@@ -565,7 +585,7 @@ export function createSettingsView(leaf, options) {
     //    E1 只做探测/状态;搬能力(E2)与一键安装(E3)见 docs/workshop-engine-plan.md。
     const engineCard = root.createDiv("qbr-workshop-card");
     engineCard.createEl("h3", { text: "书坊引擎(后台能力)" });
-    engineCard.createDiv({ cls: "qbr-workshop-hint", text: "把 Python / pdf_tool / DocVortex / 文字层这些后台能力做成一个可独立部署的本地服务;装上引擎后,下面那些路径都不用自己配。" });
+    const engineIntro = engineCard.createDiv({ cls: "qbr-workshop-hint", text: "把 Python / pdf_tool / OCR / DocVortex 这些后台能力做成一个可独立部署的本地服务;装上引擎后,下面那些路径都不用自己配。" });
     // 引擎进程:状态 + 启动/停止 + 启动应用时自动开启。
     // 引擎是独立服务,应用重启不会自动带起它 —— 这里给显式入口;停只停应用自己起的(pid 记录)。
     const engineServiceRow = engineCard.createDiv("qbr-workshop-row");
@@ -578,11 +598,20 @@ export function createSettingsView(leaf, options) {
     engineAutoLabel.createSpan({ text: "启动应用时自动开启书坊引擎(引擎没装就什么都不做)" });
     engineAuto.addEventListener("change", () => persist("engineAutoStart", engineAuto.checked));
     let engineState = null;
+    let engineBundled = false;
     let syncEngineInstallButtons = () => {};
     const renderEngineService = (state) => {
       if (!state) return;
       engineState = state;
-      engineServiceStatus.setText(String(state.detail || (state.installed ? (state.running ? "运行中" : "未运行") : "未安装")));
+      engineBundled = state.bundled === true;
+      if (engineBundled) {
+        engineIntro.setText("书坊引擎随 UV Reader 一起安装,由应用在后台管理;不需要单独下载或填写地址。");
+      }
+      applyEngineOcrPaths(state);
+      const ocrNote = state.installed === true
+        ? (state.ocrReady ? " · OCR 已就绪" : " · 当前引擎不含 OCR")
+        : "";
+      engineServiceStatus.setText(`${String(state.detail || (state.installed ? (state.running ? "运行中" : "未运行") : "未安装"))}${ocrNote}`);
       engineStartBtn.disabled = state.installed !== true || state.running === true;
       engineStopBtn.disabled = state.running !== true;
       syncEngineInstallButtons();
@@ -647,6 +676,11 @@ export function createSettingsView(leaf, options) {
       engineInstallBtn.disabled = blocked;
       engineInstallLocalBtn.disabled = blocked;
       engineUpdateBtn.disabled = engineInstallBusy;
+      // A bundled Store build has no external install/update surface. Keep the
+      // controls in the DOM for direct builds, but hide them for bundled ones.
+      for (const row of [engineUrlRow, engineTokenRow, engineInstallRow, engineUpdateRow, engineAutoLabel]) {
+        if (row) row.hidden = engineBundled;
+      }
       const update = engineLatest?.available === true && Boolean(engineLatest?.installed);
       engineInstallBtn.setText(update ? "下载并更新引擎" : "下载并安装引擎");
     };
@@ -660,10 +694,11 @@ export function createSettingsView(leaf, options) {
         persist("engineToken", result.engineToken);
         engineToken.value = result.engineToken;
       }
+      applyEngineOcrPaths(result, { force: true });
       engineLatest = result.version
         ? { ok: true, installed: String(result.version), latest: String(result.version), available: false }
         : null;
-      engineInstallStatus.setText(`引擎 ${result.version || ""} 已装好并启动 ✓`);
+      engineInstallStatus.setText(`引擎 ${result.version || ""} 已装好并启动 ✓${result.ocrReady ? " · OCR 已就绪" : " · 不含 OCR"}`);
       engineUpdateStatus.setText(result.version ? `当前引擎 ${result.version}` : "");
       syncInstallButtons();
       void refreshEngineService();
