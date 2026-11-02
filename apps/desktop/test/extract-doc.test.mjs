@@ -788,6 +788,58 @@ test("collectUpstreamTocEntries reads pdf_tool's toc pages", () => {
   assert.deepEqual(collectUpstreamTocEntries(path.join(dir, "不存在.json")), [], "读不到就是空数组");
 });
 
+test("collectUpstreamTocEntries recovers MinerU index blocks the Doc JSON dropped", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-mineru-index-toc-"));
+  const docPath = path.join(dir, "书_doc.json");
+  fs.writeFileSync(docPath, JSON.stringify({
+    schema_version: 1,
+    pages: [{ page: 19, blocks: [{ type: "heading", level: 2, text: "目录" }] }],
+  }), "utf8");
+  const mineru = path.join(dir, "mineru");
+  fs.mkdirSync(mineru);
+  fs.writeFileSync(path.join(mineru, "content_list.json"), JSON.stringify([
+    { type: "index", page_idx: 18, list_items: [
+      "- 第二版前言 …… 1",
+      "- 第一章 内务府 …… 1",
+      "- 八旗与包衣 …… 4",
+      "- 第二章 北京与苏州 …… 47",
+    ] },
+    { type: "index", page_idx: 19, list_items: ["- 上等阶层 …… 51"] },
+    { type: "index", page_idx: 300, list_items: ["- 索引 A …… 350"] },
+  ]), "utf8");
+  const entries = collectUpstreamTocEntries(docPath);
+  assert.deepEqual(entries.map((entry) => entry.label), [
+    "第二版前言", "第一章 内务府", "八旗与包衣", "第二章 北京与苏州", "上等阶层",
+  ]);
+  assert.deepEqual(entries.map((entry) => entry.page), [1, 1, 4, 47, 51]);
+  assert.deepEqual(entries.map((entry) => entry.level), [1, 1, 2, 1, 2], "章后未编号条目按节处理");
+  assert.equal(entries[2].key, "八旗与包衣");
+  assert.ok(!entries.some((entry) => entry.label.includes("索引")), "书末索引不能冒充目录");
+});
+
+test("collectUpstreamTocEntries prefers pdf_tool toc_entries over the MinerU fallback", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-upstream-priority-"));
+  const docPath = path.join(dir, "书_doc.json");
+  fs.writeFileSync(docPath, JSON.stringify({
+    schema_version: 1,
+    pages: [{ page: 21, page_role: "toc", toc_entries: [
+      { title: "第七章 曹家的没落", page: 283, level: 1 },
+      { title: "曹家的没落", page: 305, level: 2 },
+    ] }],
+  }), "utf8");
+  const mineru = path.join(dir, "mineru");
+  fs.mkdirSync(mineru);
+  fs.writeFileSync(path.join(mineru, "content_list.json"), JSON.stringify([
+    { type: "index", page_idx: 20, list_items: [
+      "- 第一章 内务府 …… 1",
+      "- 曹家的没落 …… 305",
+    ] },
+  ]), "utf8");
+  const entries = collectUpstreamTocEntries(docPath);
+  assert.deepEqual(entries.map((entry) => entry.label), ["第七章 曹家的没落", "曹家的没落"]);
+  assert.deepEqual(entries.map((entry) => entry.level), [1, 2], "上游同名章/节不能被兜底合并吃掉");
+});
+
 test("collectUpstreamTocEntries accepts pdf_tool's delivered shape", () => {
   // pdf_tool de0fc7f 交付的形状:doc.pages[i].page_role = "toc" + toc_entries{title,page,level}。
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-upstream-shape-"));

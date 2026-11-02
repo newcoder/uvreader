@@ -1185,6 +1185,8 @@ html.qbr-split-dragging .qiaomu-reader-relayouting .qiaomu-reader-area { filter:
 .qiaomu-reader-ai-doc-row:disabled { opacity: .48; cursor: default; }
 .qiaomu-reader-ai-doc-number { flex: 0 0 auto; min-width: 18px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .qiaomu-reader-ai-doc-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qiaomu-reader-ai-doc-tip { position: fixed; z-index: 1000; max-width: 300px; padding: 6px 9px; border: 1px solid var(--background-modifier-border); border-radius: 7px; background: var(--background-secondary); color: var(--text-normal); box-shadow: 0 6px 20px rgba(0, 0, 0, .18); font-size: var(--font-ui-smaller); line-height: 1.45; text-align: left; pointer-events: none; opacity: 0; transform: translateY(-2px); transition: opacity .12s ease, transform .12s ease; }
+.qiaomu-reader-ai-doc-tip.is-visible { opacity: 1; transform: none; }
 .qiaomu-reader-ai-doc-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .qiaomu-reader-ai-doc-action { flex: 0 0 auto; }
 .qiaomu-reader-ai-workshop-hint { margin: 4px 0 8px; color: var(--text-faint); font-size: var(--font-ui-smaller); line-height: 1.45; }

@@ -1867,6 +1867,12 @@ function aiToolState(view, plugin, options = {}) {
   const prepareWorkshopTask = (title) => {
     const plan = buildWorkshopPlan(title);
     if (!plan?.ok) return plan;
+    // These paths run through pdf_tool, which removes watermarks, headers,
+    // footers and page numbers before the model sees the document. A raw text
+    // layer full of repeated province names is not a recognition failure.
+    if (format === "pdf" && ["quiz-llm-export", "quiz-export", "extract"].includes(plan.kind)) {
+      plan.cleanupNote = "水印、页眉页脚和页码会在提取时自动清理；文字层里重复的省份/机构名不影响题目识别。";
+    }
     plan.preparedAt = Date.now();
     plan.preparedUserTurns = userTurns();
     plan.sourcePath = view.file.path;
@@ -3995,7 +4001,6 @@ const AiChatView = createAiChatView({
   setIcon,
   AI_CHAT_VIEW_TYPE,
   AiChatHistoryModal,
-  ReadSettingsModal,
   ReaderView,
   aiChatTitle,
   aiConfig,
@@ -4015,7 +4020,6 @@ const AiChatView = createAiChatView({
   normalizeAiTurnLocation,
   normalizeToolTurnContent,
   openAiAttachMenu,
-  openPluginAiSettings,
   pickAiAttachments,
   prepareAiTools,
   qiaomuReaderTranslate,

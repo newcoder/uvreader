@@ -160,8 +160,9 @@ def convert(pdf, *, mode: str = "auto", pages=None, blocks_path=None, client=Non
     cancelled：可调用（返回 True=取消，仅本地 MinerU 后端支持）；取消时抛
     `pdf_tool.mineru.MineruCancelled`（宿主据此标记「已取消」而非失败）。
     footnotes：MinerU 模式下是否保留 `page_footnote` 脚注块（默认 True）。
-    structure：是否补结构信息——目录页 `page_role`/`toc_entries` 与跨页续行
-    `continuation`（默认 True，见 `extract/structure.py`）。
+    structure：是否补**推断**结构信息——文本目录页 `page_role`/`toc_entries` 与
+    跨页续行 `continuation`（默认 True，见 `extract/structure.py`）。MinerU 源
+    `index` 目录在 `blocks_to_doc` 阶段直接保留，不受该开关影响。
     """
     pdf = Path(pdf)
     if mode not in MODES:

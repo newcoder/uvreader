@@ -8,10 +8,10 @@ import { isBookFile } from "../shared/books.js";
 import { iconResolver, rasterIconMarkup } from "./icons.js";
 import { protectLatexDelimiters, renderMathIn, restoreLatexDelimiters } from "./math.js";
 import { isBlockedHref, sanitizeHtml } from "./sanitize.js";
+import { decorateWikilinks } from "./wikilinks.js";
 import { createHomeView, createNoteView, createSettingsView, createTocView, createWorkshopView } from "./views.js";
 import { createQuizView } from "./quiz-view.js";
 import { createQuizListView } from "./quiz-list-view.js";
-import { openWorkshopCapabilitiesModal } from "./workshop-capabilities-view.js";
 import { workshopCapabilitiesFor } from "../shared/workshop-capabilities.js";
 
 const bridge = window.qbrDesktop || { paths: {} };
@@ -116,8 +116,10 @@ async function boot() {
     vaultName: "UV Reader",
     fetchImpl: (url, options) => window.fetch(url, options),
     iconResolver,
-    renderMarkdown: (markdown, element) => {
+    renderMarkdown: (markdown, element, context = {}) => {
+      element.setAttribute("data-qbr-source", String(context?.sourcePath || ""));
       element.innerHTML = renderMarkdown(markdown);
+      decorateWikilinks(element);
       renderMathIn(element);
     },
     secrets: bridge.secrets || null,
@@ -131,6 +133,12 @@ async function boot() {
       lastSeenVersion: __QBR_VERSION__,
       bookNotesFolder: "notes",
       dataFolder: "plugin",
+      // Local MinerU is CLI-first: no address or port to fill in. The program
+      // is discovered automatically; the optional HTTP service stays off until
+      // the user explicitly enables it.
+      mineruLocalExe: "",
+      mineruLocalUrl: "",
+      mineruLocalAutoStart: false,
     },
   });
   const plugin = new QiaomuBookReader(app, {
@@ -146,9 +154,13 @@ async function boot() {
   // 冒烟测试不拉服务(免得起 GPU 模型拖慢启动自检)。
   // 带上 sidecar python / 目录:找不到程序时会按它们的同目录 / .venv 布局自动找 mineru-kit。
   const mineruSettings = () => ({
-    exe: String(plugin.settings?.mineruLocalExe || ""),
-    url: String(plugin.settings?.mineruLocalUrl || ""),
-    autoStart: plugin.settings?.mineruLocalAutoStart !== false,
+    mineruLocalExe: String(plugin.settings?.mineruLocalExe || ""),
+    mineruLocalUrl: String(plugin.settings?.mineruLocalUrl || ""),
+    // CLI-first: the local API service is opt-in and only starts when the user
+    // has actually configured a service address. Idle MinerU models cost
+    // several hundred MB, so an empty address must not launch a server.
+    autoStart: Boolean(String(plugin.settings?.mineruLocalUrl || "").trim())
+      && plugin.settings?.mineruLocalAutoStart === true,
     ocrPython: String(plugin.settings?.ocrPython || ""),
     ocrSidecarDir: String(plugin.settings?.ocrSidecarDir || ""),
   });
@@ -379,6 +391,7 @@ async function boot() {
   app.viewFactories.set(NOTE_VIEW, (leaf) => createNoteView(leaf, {
     app,
     renderMarkdown,
+    decorate: decorateWikilinks,
     openPath: bridge.openPath,
   }));
   app.viewFactories.set(SETTINGS_VIEW, (leaf) => createSettingsView(leaf, { plugin }));
@@ -422,29 +435,6 @@ async function boot() {
   };
 
   plugin.workshopCapabilities = ({ extension = "", readerView = null } = {}) => workshopCapabilitiesFor({ extension, readerView });
-  plugin.openWorkshopCapabilities = ({ extension = "", readerView = null, inAi = false } = {}) => {
-    if (!inAi && plugin.settings?.workshopEnabled === false) return;
-    openWorkshopCapabilitiesModal(app, {
-      extension,
-      readerView,
-      actionLabel: inAi ? "问 AI" : "去书坊",
-      lead: inAi
-        ? "点一下，我会直接在对话里和你确认参数；不会自动开始，也不会跳转页面。"
-        : "这些操作会用于当前文档，不会自动开始；选择后会先确认参数。",
-      onPick: (capability) => {
-        if (capability.action === "export-toc" && readerView
-          && (typeof readerView.exportNavigationCopy === "function" || typeof readerView.exportEpubWithToc === "function")) {
-          const exportAction = readerView.exportNavigationCopy || readerView.exportEpubWithToc;
-          void exportAction.call(readerView);
-        } else if (inAi) {
-          const prompt = capability.prompt || `我想${capability.title}。`;
-          void plugin.askAiPrompt?.(prompt);
-        } else {
-          void openWorkshopCapability(capability);
-        }
-      },
-    });
-  };
   plugin.openWorkshopCapability = (capability) => openWorkshopCapability(capability);
 
   bridge.workshop?.onOpenTask?.((taskId) => {
@@ -671,6 +661,22 @@ async function boot() {
     await leaf.setViewState({ type: NOTE_VIEW, state: { path: note.path } });
     return leaf;
   };
+
+  // [[wikilinks]] in reading notes become ordinary anchors during rendering;
+  // resolve them through the same note lookup instead of letting "#" navigate.
+  document.addEventListener("click", (event) => {
+    const anchor = event.target?.closest?.("a.qbr-wikilink[data-wikilink]");
+    if (!anchor) return;
+    event.preventDefault();
+    const target = String(anchor.getAttribute("data-wikilink") || "").trim();
+    if (!target) return;
+    const sourcePath = String(anchor.closest?.("[data-qbr-source]")?.getAttribute("data-qbr-source") || "");
+    void Promise.resolve(app.workspace.openLinkText?.(target, sourcePath, "tab"))
+      .then((opened) => {
+        if (opened === false) showError(`找不到笔记：${target}`);
+      })
+      .catch((error) => showError(`无法打开笔记：${String(error?.message || error)}`));
+  });
 
   app.qbrDesktopOpenToc = async (readerView) => {
     const existing = app.workspace.getLeavesOfType(TOC_VIEW)[0];

@@ -686,6 +686,7 @@ export function createAiRender({
     head.createSpan({ cls: "qiaomu-reader-ai-preview-title", text: "确认任务" });
     const body = card.createDiv("qiaomu-reader-ai-preview-body");
     if (preview.summary) body.createDiv({ cls: "qiaomu-reader-ai-preview-summary", text: preview.summary });
+    if (preview.note) body.createDiv({ cls: "qiaomu-reader-ai-preview-summary", text: preview.note });
     const facts = card.createDiv("qiaomu-reader-ai-preview-facts");
     const fact = (label, value) => {
       if (!value) return;

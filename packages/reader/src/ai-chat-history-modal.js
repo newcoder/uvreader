@@ -10,47 +10,37 @@ export function createAiChatHistoryModal({
   constructor(app, chat) {
     super(app);
     this.chat = chat;
-    this.filterScope = chat.bookFile?.path ? "book" : "all";
   }
   onOpen() {
     const c = this.contentEl;
     c.empty();
     this.modalEl.addClass("qiaomu-reader-ai-history-modal");
+    const bookPath = this.chat.bookFile?.path || "";
     const head = c.createDiv("qiaomu-reader-ai-history-head");
     head.createEl("h3", { text: qiaomuReaderTranslate("chat-history") });
-    const clearBook = this.filterScope === "book" && !!this.chat.bookFile?.path;
-    const clear = head.createEl("button", { text: qiaomuReaderTranslate(clearBook ? "clear-this-book-s-history" : "clear-all-history") });
-    clear.addEventListener("click", () => {
-      if (this.chat.busy) return;
-      const bookPath = this.chat.bookFile?.path || "";
-      new ConfirmModal(this.app, {
-        title: qiaomuReaderTranslate(clearBook ? "clear-this-book-s-history" : "clear-all-history"),
-        body: clearBook
-          ? qiaomuReaderTranslate("clear-the-chat-history-for-0", this.chat.bookFile.basename)
-          : qiaomuReaderTranslate("clear-all-chat-history"),
-        okText: qiaomuReaderTranslate("clear"),
-        cancelText: qiaomuReaderTranslate("cancel"),
-        onYes: async () => {
-          await this.chat._removeHistory((item) => !clearBook || item.bookPath === bookPath);
-          this.onOpen();
-        },
-      }).open();
-    });
-    const allItems = normalizeAiChatHistory(this.chat.plugin.settings.aiChatHistory);
-    if (this.chat.bookFile?.path) {
-      const scopes = c.createDiv("qiaomu-reader-ai-history-scopes");
-      for (const [id, label] of [["book", qiaomuReaderTranslate("this-book")], ["all", qiaomuReaderTranslate("all-2")]]) {
-        const button = scopes.createEl("button", { text: label });
-        button.toggleClass("is-active", this.filterScope === id);
-        button.addEventListener("click", () => {
-          this.filterScope = id;
-          this.onOpen();
-        });
-      }
+    if (bookPath) {
+      const clear = head.createEl("button", { text: qiaomuReaderTranslate("clear-this-book-s-history") });
+      clear.addEventListener("click", () => {
+        if (this.chat.busy) return;
+        new ConfirmModal(this.app, {
+          title: qiaomuReaderTranslate("clear-this-book-s-history"),
+          body: qiaomuReaderTranslate("clear-the-chat-history-for-0", this.chat.bookFile.basename),
+          okText: qiaomuReaderTranslate("clear"),
+          cancelText: qiaomuReaderTranslate("cancel"),
+          onYes: async () => {
+            await this.chat._removeHistory((item) => item.bookPath === bookPath);
+            this.onOpen();
+          },
+        }).open();
+      });
     }
-    const items = this.filterScope === "book" && this.chat.bookFile?.path
-      ? allItems.filter((item) => item.bookPath === this.chat.bookFile.path)
-      : allItems;
+    const allItems = normalizeAiChatHistory(this.chat.plugin.settings.aiChatHistory);
+    // Conversations carry their book's context and page links. Listing another
+    // book's sessions here would load them into this book's reader, so history
+    // is scoped to the open book; switch books to see that book's sessions.
+    const items = bookPath
+      ? allItems.filter((item) => item.bookPath === bookPath)
+      : [];
     const list = c.createDiv("qiaomu-reader-ai-history-list");
     const query = c.createEl("input", { cls: "qiaomu-reader-ai-history-search", attr: { type: "search", placeholder: qiaomuReaderTranslate("search-conversation-titles-or-books"), "aria-label": qiaomuReaderTranslate("search-conversation-titles-or-books") } });
     c.insertBefore(query, list);
@@ -69,7 +59,7 @@ export function createAiChatHistoryModal({
       const open = row.createEl("button", { cls: "qiaomu-reader-ai-history-open" });
       open.createDiv({ cls: "qiaomu-reader-ai-history-title", text: item.title });
       const when = item.updatedAt ? new Date(item.updatedAt).toLocaleString(qiaomuReaderLocale()) : "";
-      open.createDiv({ cls: "qiaomu-reader-ai-history-meta", text: [item.book, when].filter(Boolean).join(" · ") });
+      open.createDiv({ cls: "qiaomu-reader-ai-history-meta", text: when });
       open.addEventListener("click", () => {
         if (this.chat.busy) return;
         this.chat.loadSession(item);

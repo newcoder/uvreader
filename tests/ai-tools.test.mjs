@@ -79,7 +79,8 @@ test("read_pages explains empty and noisy pages instead of handing over noise", 
     ],
   });
   const result = await tools.run("read_pages", { start: 26, count: 2 });
-  assert.match(result.text, /【第 26 页】\n（此页文字层质量较差/);
+  assert.match(result.text, /【第 26 页】\n（此页文字层以重复水印/);
+  assert.match(result.text, /不要据此判断题目无法识别/);
   assert.match(result.text, /【第 27 页】\n（此页没有可提取的文字/);
 });
 
@@ -130,7 +131,7 @@ test("read_pages attaches the page image when the text layer is broken", async (
   });
   const result = await seeing.run("read_pages", { start: 26, count: 2 });
   assert.deepEqual(rendered, [26], "only the broken page is rasterised");
-  assert.match(result.text, /【第 26 页】\n（此页文字层质量较差[\s\S]*已附上页面图片）/, "the note says the image is attached");
+  assert.match(result.text, /【第 26 页】\n（此页文字层以重复水印[\s\S]*已附上页面图片）/, "the note says the image is attached");
   assert.equal(result.images.length, 1);
   assert.equal(result.blocks.filter((block) => block.type === "image").length, 1);
 
@@ -139,7 +140,7 @@ test("read_pages attaches the page image when the text layer is broken", async (
     readPages: () => [{ page: 26, text: noise }],
   });
   const blindResult = await blind.run("read_pages", { start: 26, count: 1 });
-  assert.match(blindResult.text, /发页面截图/);
+  assert.match(blindResult.text, /页面截图/);
   assert.equal(blindResult.images.length, 0);
 });
 
@@ -273,6 +274,7 @@ test("workshop options stay outcome-first and never leak implementation names", 
   assert.match(options.text, /把文档做成可作答的答题页/);
   assert.match(options.text, /把文档转成 Markdown/);
   assert.match(options.text, /可以直接开始/);
+  assert.match(options.text, /水印/);
   assert.doesNotMatch(options.text, /DocVortex|OCR|文字层|payload/i);
   assert.equal(tools.definitions.some((tool) => tool.name === "get_workshop_options"), true);
 });
@@ -286,6 +288,7 @@ test("preparing a workshop task returns a preview without starting work", async 
         ok: true,
         title: "制作可作答的答题页",
         summary: "识别题目并生成答题页。",
+        cleanupNote: "水印、页眉页脚和页码会在提取时自动清理；重复的省份/机构名不影响题目识别。",
         sourceLabel: "paper.pdf",
         outputLabel: "原文件旁的新答题页",
       }),
@@ -297,6 +300,7 @@ test("preparing a workshop task returns a preview without starting work", async 
   });
   const prepared = await tools.run("prepare_workshop_task", { operation: "把文档做成可作答的答题页" });
   assert.match(prepared.text, /准备开始/);
+  assert.match(prepared.text, /水印、页眉页脚和页码会在提取时自动清理/);
   assert.match(prepared.text, /还没有开始/);
   assert.equal(prepared.confirmation.operation, "把文档做成可作答的答题页");
   assert.equal(prepared.confirmation.label, "确认开始");
@@ -305,6 +309,7 @@ test("preparing a workshop task returns a preview without starting work", async 
     summary: "识别题目并生成答题页。",
     source: "paper.pdf",
     output: "原文件旁的新答题页",
+    note: "水印、页眉页脚和页码会在提取时自动清理；重复的省份/机构名不影响题目识别。",
   });
   assert.equal(started, 0);
 });

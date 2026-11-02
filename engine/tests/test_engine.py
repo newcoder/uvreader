@@ -241,6 +241,39 @@ def test_extract_job_runs_pdf_tool_from_the_config(client, tmp_path, monkeypatch
     assert "pdf_tool" in failed["error"]
 
 
+def test_extract_prefers_local_cli_over_a_cloud_token(client, tmp_path):
+    pdf_tool_dir = tmp_path / "auto_chat_local_first"
+    script_dir = pdf_tool_dir / "pdf_tool"
+    script_dir.mkdir(parents=True)
+    (script_dir / "pdf_to_doc.py").write_text(
+        "import json, os, sys\n"
+        "out = sys.argv[sys.argv.index('--out-dir') + 1]\n"
+        "open(out + '/book_doc.json', 'w', encoding='utf-8').write('{}')\n"
+        "open(out + '/trace.json', 'w', encoding='utf-8').write(json.dumps({\n"
+        "  'args': sys.argv,\n"
+        "  'env': {key: os.environ.get(key, '') for key in "
+        "['MINERU_LOCAL_URL', 'MINERU_LOCAL_CMD', 'MINERU_TOKEN']},\n"
+        "}))\n",
+        encoding="utf-8",
+    )
+    pdf = make_pdf(tmp_path / "book.pdf")
+    client.patch("/v1/config", headers=AUTH, json={"patch": {
+        "pdfToolDir": str(pdf_tool_dir),
+        "mineruLocalExe": sys.executable,
+        "mineruToken": "cloud-token",
+    }})
+    out_dir = tmp_path / "extract-local-first"
+    job = wait_for(client, submit(client, "extract", {
+        "source": str(pdf), "outDir": str(out_dir), "model": "vlm",
+    }))
+    assert job["status"] == "done", job.get("error")
+    trace = json.loads((out_dir / "trace.json").read_text(encoding="utf-8"))
+    assert trace["args"][trace["args"].index("--mineru-source") + 1] == "local"
+    assert trace["env"]["MINERU_LOCAL_CMD"] == sys.executable
+    assert trace["env"]["MINERU_LOCAL_URL"] == ""
+    assert trace["env"]["MINERU_TOKEN"] == "cloud-token"
+
+
 def test_jobs_are_listed_for_manual_checks(client, tmp_path):
     pdf = make_pdf(tmp_path / "listed.pdf")
     first = submit(client, "outline", {"source": str(pdf)})
@@ -333,6 +366,21 @@ def test_config_exposes_defaults_and_detected_values(client, tmp_path):
 
 
 # ── 可选组件(install-component)─────────────────────────────────────
+
+def test_a_working_local_mineru_cli_is_reported_available():
+    from engine.capabilities import _mineru_capability
+
+    capability = _mineru_capability({"mineruLocalExe": sys.executable})
+    assert capability["ok"] is True
+    assert capability["mode"] == "local-cli"
+
+    fallback = _mineru_capability({
+        "mineruLocalUrl": "http://127.0.0.1:1",
+        "mineruLocalExe": sys.executable,
+    })
+    assert fallback["ok"] is True
+    assert fallback["mode"] == "local-cli"
+
 
 def test_capabilities_say_what_is_bundled_and_what_is_not(client):
     capabilities = client.get("/v1/health", headers=AUTH).json()["capabilities"]

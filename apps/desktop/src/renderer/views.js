@@ -181,12 +181,19 @@ export function createHomeView(leaf, options) {
 }
 
 export function createNoteView(leaf, options) {
-  const { app, renderMarkdown, openPath } = options;
+  const { app, renderMarkdown, openPath, decorate } = options;
 
   class NoteView extends ItemView {
     constructor(hostLeaf) {
       super(hostLeaf);
       this.file = null;
+      this.editing = false;
+      this._editor = null;
+      this._saveStatus = null;
+      this._saveTimer = 0;
+      this._saveChain = Promise.resolve(true);
+      this._dirty = false;
+      this._lastSaved = "";
     }
 
     getViewType() {
@@ -202,47 +209,226 @@ export function createNoteView(leaf, options) {
     }
 
     async setState(state) {
+      const nextPath = String(state?.path || "");
+      const samePath = nextPath && this.file?.path === nextPath;
+      if (samePath && this.editing) return;
+      if (!samePath) {
+        if (this.editing) await this._flushSave();
+        this.editing = false;
+        this._editor = null;
+        this._saveStatus = null;
+        this._dirty = false;
+      }
       this.state = state;
-      if (state?.path) {
-        const file = app.vault.getAbstractFileByPath(state.path);
+      if (nextPath) {
+        const file = app.vault.getAbstractFileByPath(nextPath);
         if (file) this.file = file;
       }
+      // setViewState() opens a new view before applying its state. Render
+      // after the file is known, otherwise the panel stays blank until the user
+      // presses refresh (and opens blank again the next time).
+      await this.render();
     }
 
     async onOpen() {
       this.contentEl.addClass("qbr-note-panel");
-      await this.render();
+      if (this.file) await this.render();
     }
 
     async onClose() {
+      await this._flushSave();
       this.contentEl.empty();
+    }
+
+    _scheduleSave() {
+      const win = this.contentEl?.ownerDocument?.defaultView;
+      if (!win?.setTimeout) return;
+      if (this._saveTimer) win.clearTimeout(this._saveTimer);
+      this._saveTimer = win.setTimeout(() => {
+        this._saveTimer = 0;
+        void this._saveEditor();
+      }, 800);
+    }
+
+    _setSaveStatus(text, isError = false) {
+      if (!this._saveStatus) return;
+      this._saveStatus.setText(text);
+      this._saveStatus.classList.toggle("is-error", isError);
+    }
+
+    _saveEditor() {
+      const run = () => this._saveLatest();
+      this._saveChain = this._saveChain.then(run, run);
+      return this._saveChain;
+    }
+
+    async _saveLatest() {
+      if (!this.editing || !this.file || !this._editor) return true;
+      const value = String(this._editor.value ?? "");
+      if (!this._dirty && value === this._lastSaved) return true;
+      this._setSaveStatus("保存中…");
+      try {
+        await app.vault.modify(this.file, value);
+        this._lastSaved = value;
+        if (String(this._editor.value ?? "") === value) this._dirty = false;
+        this._setSaveStatus(this._dirty ? "未保存" : "已保存");
+        return true;
+      } catch (error) {
+        this._setSaveStatus(`保存失败：${String(error?.message || error)}`, true);
+        return false;
+      }
+    }
+
+    async _flushSave() {
+      const win = this.contentEl?.ownerDocument?.defaultView;
+      if (this._saveTimer && win?.clearTimeout) win.clearTimeout(this._saveTimer);
+      this._saveTimer = 0;
+      return this._saveEditor();
+    }
+
+    _editorChanged() {
+      if (!this._editor) return;
+      this._dirty = String(this._editor.value ?? "") !== this._lastSaved;
+      this._setSaveStatus(this._dirty ? "未保存" : "已保存");
+      this._scheduleSave();
+    }
+
+    _wrapSelection(before, after = before, placeholder = "文本") {
+      const editor = this._editor;
+      if (!editor) return;
+      const start = editor.selectionStart ?? 0;
+      const end = editor.selectionEnd ?? start;
+      const value = String(editor.value ?? "");
+      const selected = value.slice(start, end) || placeholder;
+      editor.value = `${value.slice(0, start)}${before}${selected}${after}${value.slice(end)}`;
+      const from = start + before.length;
+      editor.setSelectionRange(from, from + selected.length);
+      editor.focus();
+      this._editorChanged();
+    }
+
+    _prefixLine(prefix) {
+      const editor = this._editor;
+      if (!editor) return;
+      const start = editor.selectionStart ?? 0;
+      const end = editor.selectionEnd ?? start;
+      const value = String(editor.value ?? "");
+      const lineStart = value.lastIndexOf("\n", Math.max(0, start - 1)) + 1;
+      editor.value = `${value.slice(0, lineStart)}${prefix}${value.slice(lineStart)}`;
+      editor.setSelectionRange(start + prefix.length, end + prefix.length);
+      editor.focus();
+      this._editorChanged();
+    }
+
+    _insertLink() {
+      const editor = this._editor;
+      if (!editor) return;
+      const start = editor.selectionStart ?? 0;
+      const end = editor.selectionEnd ?? start;
+      const value = String(editor.value ?? "");
+      const selected = value.slice(start, end) || "链接文字";
+      const inserted = `[${selected}](https://)`;
+      editor.value = `${value.slice(0, start)}${inserted}${value.slice(end)}`;
+      const urlStart = start + selected.length + 3;
+      editor.setSelectionRange(urlStart, urlStart + 8);
+      editor.focus();
+      this._editorChanged();
+    }
+
+    async toggleEditing() {
+      if (this.editing) {
+        const saved = await this._flushSave();
+        if (!saved) return;
+        this.editing = false;
+      } else {
+        this.editing = true;
+      }
+      await this.render();
     }
 
     async render() {
       const host = this.contentEl;
       host.empty();
+      this._editor = null;
+      this._saveStatus = null;
       const head = host.createDiv("qbr-note-head");
       head.createDiv({ cls: "qbr-note-title", text: this.file?.basename || "阅读笔记" });
       const actions = head.createDiv("qbr-note-actions");
-      const refresh = actions.createEl("button", { text: "刷新" });
-      refresh.addEventListener("click", () => void this.render());
-      if (openPath) {
-        const external = actions.createEl("button", { text: "在文件中打开" });
-        external.addEventListener("click", () => void openPath(this.file?.path || ""));
+      if (this.file) {
+        const toggle = actions.createEl("button", {
+          cls: "qbr-note-edit",
+          text: this.editing ? "预览" : "编辑",
+          attr: { type: "button" },
+        });
+        toggle.addEventListener("click", () => { void this.toggleEditing(); });
       }
-      const close = actions.createEl("button", { text: "关闭" });
-      close.addEventListener("click", () => this.leaf.detach());
+      if (this.file && !this.editing) {
+        const refresh = actions.createEl("button", { text: "刷新", attr: { type: "button" } });
+        refresh.addEventListener("click", () => void this.render());
+      }
+      if (openPath) {
+        const external = actions.createEl("button", { text: "在文件中打开", attr: { type: "button" } });
+        external.addEventListener("click", () => {
+          void (async () => {
+            await this._flushSave();
+            void openPath(this.file?.path || "");
+          })();
+        });
+      }
+      const close = actions.createEl("button", { text: "关闭", attr: { type: "button" } });
+      close.addEventListener("click", () => {
+        void (async () => {
+          const saved = await this._flushSave();
+          if (saved) this.leaf.detach();
+        })();
+      });
       const body = host.createDiv("qbr-note-body");
       if (!this.file) {
         body.createDiv({ cls: "qbr-note-empty", text: "这本书还没有阅读笔记。" });
         return;
       }
+      let data = "";
       try {
-        const data = await app.vault.read(this.file);
-        body.innerHTML = renderMarkdown(data);
+        data = await app.vault.read(this.file);
       } catch (error) {
         body.createDiv({ cls: "qbr-note-empty", text: String(error?.message || error) });
+        return;
       }
+      if (!this.editing) {
+        body.setAttribute("data-qbr-source", this.file.path || "");
+        body.innerHTML = renderMarkdown(data);
+        decorate?.(body);
+        return;
+      }
+      body.addClass("qbr-note-body-editing");
+      const toolbar = body.createDiv("qbr-note-editor-toolbar");
+      const tool = (text, label, fn) => {
+        const button = toolbar.createEl("button", { cls: "qbr-note-tool", text, attr: { type: "button", "aria-label": label } });
+        button.addEventListener("click", fn);
+      };
+      tool("加粗", "加粗", () => this._wrapSelection("**"));
+      tool("斜体", "斜体", () => this._wrapSelection("*"));
+      tool("标题", "标题", () => this._prefixLine("## "));
+      tool("引用", "引用", () => this._prefixLine("> "));
+      tool("列表", "列表", () => this._prefixLine("- "));
+      tool("链接", "插入链接", () => this._insertLink());
+      this._saveStatus = toolbar.createSpan({ cls: "qbr-note-save-status", text: "已保存" });
+      const editor = body.createEl("textarea", {
+        cls: "qbr-note-editor",
+        attr: { "aria-label": "笔记正文", spellcheck: "false" },
+      });
+      editor.value = data;
+      this._editor = editor;
+      this._lastSaved = data;
+      this._dirty = false;
+      editor.addEventListener("input", () => this._editorChanged());
+      editor.addEventListener("blur", () => { void this._flushSave(); });
+      editor.addEventListener("keydown", (event) => {
+        if ((event.ctrlKey || event.metaKey) && String(event.key || "").toLowerCase() === "s") {
+          event.preventDefault();
+          void this._flushSave();
+        }
+      });
     }
   }
 
@@ -490,21 +676,25 @@ export function createSettingsView(leaf, options) {
     const tokenInput = tokenRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "云端 token;留空用环境变量 MINERU_API_KEY" } });
     tokenInput.value = String(settings.mineruToken || "");
     bind(tokenInput, "mineruToken", "MinerU 凭据已保存;新任务生效。");
-    const localRow = mineruCard.createDiv("qbr-workshop-row");
-    localRow.createSpan({ cls: "qbr-workshop-hint", text: "本地 MinerU 服务" });
-    const localInput = localRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "如 http://127.0.0.1:8123;留空走云端" } });
-    localInput.value = String(settings.mineruLocalUrl || "");
-    bind(localInput, "mineruLocalUrl", "本地 MinerU 服务地址已保存;新任务生效。");
+    mineruCard.createDiv({ cls: "qbr-workshop-hint", text: "本地 MinerU 默认直接使用本机程序，程序路径会自动查找；地址和端口通常不用填。" });
     const exeRow = mineruCard.createDiv("qbr-workshop-row");
     exeRow.createSpan({ cls: "qbr-workshop-hint", text: "本地 MinerU 程序" });
     const exeInput = exeRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空自动查找(常见位置 / MINERU_LOCAL_CMD / 同目录 python);也可手填完整路径" } });
     exeInput.value = String(settings.mineruLocalExe || "");
     bind(exeInput, "mineruLocalExe", "本地 MinerU 程序已保存。");
-    const autoStartRow = mineruCard.createDiv("qbr-workshop-row");
+    const serviceDetails = mineruCard.createEl("details", { cls: "qbr-mineru-service-advanced" });
+    serviceDetails.createEl("summary", { text: "高级：使用本地 MinerU 常驻服务（可选）" });
+    serviceDetails.createDiv({ cls: "qbr-workshop-hint", text: "服务地址留空时自动使用 http://127.0.0.1:8123；只有改端口或连接其它机器时才需要填写。常驻服务默认关闭，频繁批量提取时再开。" });
+    const localRow = serviceDetails.createDiv("qbr-workshop-row");
+    localRow.createSpan({ cls: "qbr-workshop-hint", text: "服务地址（可选）" });
+    const localInput = localRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空 = http://127.0.0.1:8123" } });
+    localInput.value = String(settings.mineruLocalUrl || "");
+    bind(localInput, "mineruLocalUrl", "本地 MinerU 服务地址已保存;新任务生效。");
+    const autoStartRow = serviceDetails.createDiv("qbr-workshop-row");
     const autoStartLabel = autoStartRow.createEl("label", { cls: "qbr-workshop-opt" });
     const autoStartInput = autoStartLabel.createEl("input", { attr: { type: "checkbox" } });
-    autoStartInput.checked = settings.mineruLocalAutoStart !== false;
-    autoStartLabel.createSpan({ text: "启动应用时自动开启本地 MinerU 服务(退出时只关自己拉起的那个)" });
+    autoStartInput.checked = settings.mineruLocalAutoStart === true;
+    autoStartLabel.createSpan({ text: "启动应用时自动开启常驻服务（需要先填服务地址，默认关闭）" });
     autoStartInput.addEventListener("change", () => {
       persist("mineruLocalAutoStart", Boolean(autoStartInput.checked));
       save("自动开启设置已保存。");
@@ -514,15 +704,15 @@ export function createSettingsView(leaf, options) {
     // 以输入框当前值为准(用户可能打完路径没失焦就点检测),先落盘再传给主进程。
     const mineruSettings = () => {
       const live = {
-        exe: exeInput.value.trim(),
-        url: localInput.value.trim(),
+        mineruLocalExe: exeInput.value.trim(),
+        mineruLocalUrl: localInput.value.trim(),
         autoStart: Boolean(autoStartInput.checked),
         ocrPython: pythonInput.value.trim(),
         ocrSidecarDir: sidecarDir.value.trim(),
       };
       if (plugin?.settings) {
-        plugin.settings.mineruLocalExe = live.exe;
-        plugin.settings.mineruLocalUrl = live.url;
+        plugin.settings.mineruLocalExe = live.mineruLocalExe;
+        plugin.settings.mineruLocalUrl = live.mineruLocalUrl;
         plugin.settings.mineruLocalAutoStart = live.autoStart;
         plugin.settings.ocrPython = live.ocrPython;
         plugin.settings.ocrSidecarDir = live.ocrSidecarDir;
@@ -536,8 +726,19 @@ export function createSettingsView(leaf, options) {
         return;
       }
       mineruStatus.setText(start ? "启动中…" : "检测中…");
+      const startingUrl = start ? (localInput.value.trim() || "http://127.0.0.1:8123") : "";
       try {
-        const result = start ? await bridge.mineru.ensure(mineruSettings()) : await bridge.mineru.status(mineruSettings());
+        const result = start
+          ? await bridge.mineru.ensure({ ...mineruSettings(), mineruLocalUrl: startingUrl, autoStart: true })
+          : await bridge.mineru.status(mineruSettings());
+        if (start && result?.status === "running") {
+          // Only persist the managed default after the service actually answers.
+          const liveUrl = String(result.url || startingUrl).trim();
+          if (liveUrl && localInput.value.trim() !== liveUrl) {
+            localInput.value = liveUrl;
+            persist("mineruLocalUrl", liveUrl);
+          }
+        }
         const tried = Array.isArray(result?.tried) && result.tried.length ? `(已试:${result.tried.slice(0, 4).join("、")})` : "";
         mineruStatus.setText(`${describeMineruStatus(result)}${tried}`);
       } catch (error) {
@@ -1237,14 +1438,6 @@ export function createWorkshopView(leaf, options) {
       const toggle = head.createEl("button", { cls: "qbr-workshop-toggle", attr: { type: "button", "aria-label": "收起工具栏" } });
       toggle.insertAdjacentHTML("afterbegin", iconResolver("navigator"));
       toggle.addEventListener("click", () => this.toggleRail());
-      if (typeof plugin?.openWorkshopCapabilities === "function") {
-        const capabilities = head.createEl("button", {
-          cls: "qbr-workshop-toggle qbr-workshop-capabilities-open",
-          text: "能做什么",
-          attr: { type: "button" },
-        });
-        capabilities.addEventListener("click", () => plugin.openWorkshopCapabilities({ inAi: true }));
-      }
       head.createDiv({ cls: "qbr-workshop-lead", text: "文档处理 · 格式转换 · 电子书制作;产物默认回到书库。" });
 
       const body = root.createDiv("qbr-workshop-body");

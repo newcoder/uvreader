@@ -192,6 +192,16 @@ test("saving an AI response keeps the answer as the note body", () => {
   assert.ok(note.indexOf("AI 的结论") < note.indexOf("用户选中的原文"));
 });
 
+test("an AI answer note keeps its time, source and origin above the body", () => {
+  const meta = "> 时间：2026-11-02 16:30 · 来源：[[测试书籍]] · AI 回复";
+  const note = composeAiAnswerNote({
+    answer: "AI 的结论",
+    attribution: "— 来自 [[测试书籍]]",
+    meta,
+  });
+  assert.ok(note.startsWith(`${meta}\n\nAI 的结论`));
+});
+
 test("PDF extraction renders every page image and overlays PDF.js text instead of reflowing it", () => {
   const source = fs.readFileSync(new URL("../packages/reader/src/wire.js", import.meta.url), "utf8");
   const pdfSource = fs.readFileSync(new URL("../packages/reader/src/pdf-document.js", import.meta.url), "utf8");
@@ -487,6 +497,8 @@ test("AI prompt and context are Chinese-first", () => {
   const aiSource = source.slice(start, end);
   assert.match(aiSource, /你是一名克制、准确的阅读助手/);
   assert.match(aiSource, /书名：《/);
+  assert.match(aiSource, /水印或页面装饰/);
+  assert.match(aiSource, /不要因为这类重复文字就判断题目无法识别/);
   assert.doesNotMatch(aiSource, /Из книги|Фрагмент|Перевод|По словам/);
 });
 
@@ -571,7 +583,9 @@ test("desktop AI chat keeps per-book threads and structured document or selectio
   assert.match(noteTitleSource, /qiaomuReaderTranslate\(asAnswer \? "save-to-note" : "create-note"\)/);
   assert.match(fs.readFileSync(new URL("../packages/reader/src/book-notes.js", import.meta.url), "utf8"), /bookLinkHeading: translate\("ai-reading-notes"\)/);
   assert.doesNotMatch(source, /extra: "\\n\\n" \+ answer/);
-  assert.match(chatViewSource, /new ReadSettingsModal\(this\.app, this\.readerView, "ai"\)\.open\(\)/);
+  assert.doesNotMatch(chatViewSource, /ReadSettingsModal|_settingsButton/);
+  assert.match(viewSource, /trayButton\("sliders", "reading-settings"/);
+  assert.match(viewSource, /trayButton\("file-text", "the-book-note"/);
   assert.match(aiPiSource, /aiMessages\(text, plugin\.settings, turns, book\)/);
   assert.match(css, /\.qiaomu-reader-ai-sidebar \{[^}]*height: 100%;[^}]*display: flex;[^}]*overflow: hidden/s);
   assert.match(css, /\.qiaomu-reader-ai-sidebar \.qiaomu-reader-ai-log \{ min-height: 0; max-height: none; \}/);
@@ -615,9 +629,10 @@ test("desktop AI chat keeps per-book threads and structured document or selectio
   assert.match(viewSource, /readerAiPanelContext\(this\)/);
   assert.doesNotMatch(source, /qiaomu-reader-pdf-note-btn|createNoteFromPdfPage|pdfNoteBtn/);
   assert.doesNotMatch(source, /bar\.createDiv\(\{ cls: "qiaomu-reader-ai-composer-hint"/);
-  assert.match(historySource, /\[\["book", qiaomuReaderTranslate\("this-book"\)\], \["all", qiaomuReaderTranslate\("all-2"\)\]\]/);
-  assert.match(historySource, /clear-all-chat-history/);
-  assert.match(historySource, /this\.chat\._removeHistory\(\(item\) => !clearBook \|\| item\.bookPath === bookPath\)/);
+  assert.match(historySource, /const items = bookPath\s*\? allItems\.filter\(\(item\) => item\.bookPath === bookPath\)\s*: \[\]/);
+  assert.doesNotMatch(historySource, /\[\["book", qiaomuReaderTranslate\("this-book"\)\]/);
+  assert.match(historySource, /clear-this-book-s-history/);
+  assert.match(historySource, /this\.chat\._removeHistory\(\(item\) => item\.bookPath === bookPath\)/);
   assert.match(historySource, /new ConfirmModal\(this\.app, \{/);
   assert.doesNotMatch(source, /window\.confirm\(/);
   assert.match(css, /\.qiaomu-reader-ai-composer \{/);
@@ -822,7 +837,8 @@ test("reading settings split reading and AI assistance without exposing secrets"
   assert.match(modalSource, /lineRange\.addEventListener\("input"[\s\S]*this\._apply\(true\)/);
   assert.match(modalSource, /lineRange\.addEventListener\("change"[\s\S]*this\._apply\(true\)/);
   assert.doesNotMatch(modalSource, /const quick = c\.createDiv\("qiaomu-reader-rs-quick"\)/);
-  assert.match(chatViewSource, /new ReadSettingsModal\(this\.app, this\.readerView, "ai"\)\.open\(\)/);
+  assert.doesNotMatch(chatViewSource, /ReadSettingsModal|_settingsButton/);
+  assert.match(viewSource, /trayButton\("sliders", "reading-settings"/);
   assert.match(css, /\.qiaomu-reader-rs-tabs \{/);
   assert.match(css, /\.qiaomu-reader-rs-ai-card \{/);
 });

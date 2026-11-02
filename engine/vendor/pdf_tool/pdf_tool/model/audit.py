@@ -1,4 +1,4 @@
-"""Doc 模型的分元素审计：ID / 页覆盖 / 表格 / 代码 / 公式 / 图片。
+"""Doc 模型的分元素审计：ID / 页覆盖 / 目录 / 表格 / 代码 / 公式 / 图片。
 
 与抽取流水线的 stats 审计（`extract/audit.py`、`extract/pdf_doc_pipeline.py` 的 stats）
 不同：这里只针对规范 Doc 的结构质量，纯离线、不调模型。
@@ -94,8 +94,28 @@ def audit_doc(doc: dict, *, base: Path | None = None,
                 if not p.exists():
                     image_missing.append(f"{bid}({src})")
 
+    toc_pages: list[int] = []
+    toc_entries = 0
+    toc_entries_unpaged = 0
+    toc_empty: list[int] = []
+    toc_bad_levels: list[str] = []
     for pg in doc.get("pages") or []:
-        if not pg.get("blocks"):
+        if pg.get("page_role") == "toc":
+            toc_pages.append(pg.get("page"))
+            entries = pg.get("toc_entries") or []
+            toc_entries += len(entries)
+            if not entries:
+                toc_empty.append(pg.get("page"))
+            for e in entries:
+                if not isinstance(e, dict):
+                    continue
+                if not e.get("page"):
+                    toc_entries_unpaged += 1
+                level = e.get("level")
+                if level not in (1, 2, 3, 4):
+                    toc_bad_levels.append(
+                        f"第 {pg.get('page')} 页 {e.get('title')!r}: level={level}")
+        if not pg.get("blocks") and pg.get("page_role") != "toc":
             empty_pages.append(pg.get("page"))
 
     if dup_ids:
@@ -114,6 +134,12 @@ def audit_doc(doc: dict, *, base: Path | None = None,
         warnings.append(f"空标题: {heading_bad}")
     if empty_pages:
         warnings.append(f"空页: {empty_pages}")
+    if toc_empty:
+        warnings.append(f"目录页无条目: {toc_empty}")
+    if toc_entries_unpaged:
+        warnings.append(f"目录条目缺少印刷页码: {toc_entries_unpaged} 条")
+    if toc_bad_levels:
+        warnings.append("目录层级异常: " + "; ".join(toc_bad_levels[:8]))
 
     dropped_images = (doc.get("source") or {}).get("furniture_images") or []
     if dropped_images:
@@ -127,6 +153,10 @@ def audit_doc(doc: dict, *, base: Path | None = None,
             for d in figure_overlaps))
 
     stats = doc_stats(doc)
+    stats.update({"toc_pages": toc_pages, "toc_entries": toc_entries,
+                  "toc_entries_unpaged": toc_entries_unpaged})
     return {"ok": not issues, "issues": issues, "warnings": warnings,
             "empty_pages": empty_pages, "dup_ids": sorted(set(dup_ids)),
+            "toc_pages": toc_pages, "toc_entries": toc_entries,
+            "toc_entries_unpaged": toc_entries_unpaged,
             "stats": stats}

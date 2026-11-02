@@ -73,7 +73,7 @@ export const AI_TOOL_DEFINITIONS = Object.freeze([
   },
   {
     name: "prepare_workshop_task",
-    description: "根据读者在对话里选好的文档操作，检查当前文档和参数并返回确认信息；不会开始任务，也不会打开任何页面。确认信息下方会出现「确认开始」按钮，请让读者点击按钮，不要要求读者输入确认。回复读者时说“参数已准备好”，不要使用“预览”这个词。",
+    description: "根据读者在对话里选好的文档操作，检查当前文档和参数并返回确认信息；不会开始任务，也不会打开任何页面。确认信息下方会出现「确认开始」按钮，请让读者点击按钮，不要要求读者输入确认。回复读者时说“参数已准备好”，不要使用“预览”这个词。PDF 提取会自动清理水印、页眉页脚和页码；文字层里重复出现的省份/机构名不是判断题目无法识别的理由。",
     parameters: {
       type: "object",
       properties: { operation: { type: "string", description: "get_workshop_options 返回的能力名称。" } },
@@ -209,7 +209,7 @@ export function createAiTools({ state = {}, maxChars = AI_TOOL_LIMITS.resultChar
           if (quality === "empty") {
             return `【第 ${entry.page} 页】\n（此页没有可提取的文字，可能是扫描图片${attachedPage === entry.page ? "；已附上页面图片" : "；可以让读者发页面截图"}）`;
           }
-          return `【第 ${entry.page} 页】\n（此页文字层质量较差，内容可能不完整——公式、图表或扫描页${attachedPage === entry.page ? "；已附上页面图片" : "；必要时让读者发页面截图"}）\n${String(entry.text || "").trim()}`;
+          return `【第 ${entry.page} 页】\n（此页文字层以重复水印、公式字形或扫描噪声为主；书坊提取会先清理水印，不要据此判断题目无法识别。${attachedPage === entry.page ? "已附上页面图片" : "必要时可附上页面截图"}）\n${String(entry.text || "").trim()}`;
         }).join("\n\n");
         return { text, images };
       }
@@ -253,6 +253,9 @@ export function createAiTools({ state = {}, maxChars = AI_TOOL_LIMITS.resultChar
       const options = state.workshopOptions() || [];
       if (!options.length) return "当前这个文档暂时没有可以执行的文档操作。";
       const lines = [`当前文档：${String(state.format || "未知格式").toUpperCase()}`];
+      if (String(state.format || "").toLowerCase() === "pdf") {
+        lines.push("说明：提取时会自动清理水印、页眉页脚和页码；重复的省份/机构名不代表题目无法识别。");
+      }
       for (const item of options) {
         const fit = item.recommended ? "（适合当前文档）" : "";
         const start = item.startable ? "；可以直接开始" : "；需要在对话里继续确认";
@@ -270,6 +273,7 @@ export function createAiTools({ state = {}, maxChars = AI_TOOL_LIMITS.resultChar
         text: [
           `准备开始：${plan.title}`,
           plan.summary,
+          plan.cleanupNote,
           `来源：${plan.sourceLabel}`,
           `结果：${plan.outputLabel}`,
           "还没有开始，也不会修改原文件。",
@@ -281,6 +285,7 @@ export function createAiTools({ state = {}, maxChars = AI_TOOL_LIMITS.resultChar
           summary: plan.summary,
           source: plan.sourceLabel,
           output: plan.outputLabel,
+          ...(plan.cleanupNote ? { note: plan.cleanupNote } : {}),
         },
       };
     },

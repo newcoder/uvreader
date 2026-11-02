@@ -5,8 +5,95 @@ import { shouldFollowContext } from "./reader-experience.js";
 import { svgIcon } from "./reader-icons.js";
 
 export function createAiChatView({
-  ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, AiChatHistoryModal, ReadSettingsModal, ReaderView, aiChatTitle, aiConfig, aiConnectionErrorMessage, aiSetupState, aiTurnsHaveDocumentContext, bindAiAttachmentIntake, bindAiSlashPrompts, bindReaderAiComposer, bookNoteLinkFor, captureAiScreenshot, clearAiSource, createAiChatLog, newAiSessionKey, normalizeAiChatHistory, normalizeAiTurnContext, normalizeAiTurnLocation, normalizeToolTurnContent, openAiAttachMenu, openPluginAiSettings, pickAiAttachments, prepareAiTools, qiaomuReaderTranslate, readerAiPanelContext, readerDefaultAiContext, readerHud, renderAiComposerPrompts, renderAiContextQuote, renderAiHeadMeta, renderAiMarkdown, renderAiUserTurn, renderAiWorkshopPreview, stripAiAttachmentData, testAndEnableAi,
+  ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, AiChatHistoryModal, ReaderView, aiChatTitle, aiConfig, aiConnectionErrorMessage, aiSetupState, aiTurnsHaveDocumentContext, bindAiAttachmentIntake, bindAiSlashPrompts, bindReaderAiComposer, bookNoteLinkFor, captureAiScreenshot, clearAiSource, createAiChatLog, newAiSessionKey, normalizeAiChatHistory, normalizeAiTurnContext, normalizeAiTurnLocation, normalizeToolTurnContent, openAiAttachMenu, pickAiAttachments, prepareAiTools, qiaomuReaderTranslate, readerAiPanelContext, readerDefaultAiContext, readerHud, renderAiComposerPrompts, renderAiContextQuote, renderAiHeadMeta, renderAiMarkdown, renderAiUserTurn, renderAiWorkshopPreview, stripAiAttachmentData, testAndEnableAi,
 }) {
+  const DOC_TOOL_TIP_DELAY_MS = 1600;
+  let docToolTipId = 0;
+
+  function clearDocToolTip(chat) {
+    if (chat._docToolTipTimer) {
+      const view = chat._docToolTipRow?.ownerDocument?.defaultView;
+      view?.clearTimeout?.(chat._docToolTipTimer);
+      chat._docToolTipTimer = 0;
+    }
+    const row = chat._docToolTipRow;
+    const tip = chat._docToolTip;
+    if (row && tip && row.getAttribute?.("aria-describedby") === tip.id) row.removeAttribute("aria-describedby");
+    if (tip) {
+      if (typeof tip.remove === "function") tip.remove();
+      else tip.parentElement?.removeChild?.(tip);
+    }
+    chat._docToolTip = null;
+    chat._docToolTipRow = null;
+  }
+
+  function disposeDocToolTips(chat) {
+    clearDocToolTip(chat);
+    if (!chat._docToolTipDismiss) return;
+    const doc = chat.contentEl?.ownerDocument;
+    doc?.removeEventListener?.("scroll", chat._docToolTipDismiss, true);
+    doc?.defaultView?.removeEventListener?.("resize", chat._docToolTipDismiss);
+    chat._docToolTipDismiss = null;
+    chat._docToolTipDismissBound = false;
+  }
+
+  function docToolTipText(capability = {}) {
+    const text = String(capability.tip || capability.summary || capability.cue || "").trim();
+    return text.length > 120 ? `${text.slice(0, 118)}…` : text;
+  }
+
+  function placeDocToolTip(tip, row) {
+    const rect = row.getBoundingClientRect?.() || { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0 };
+    const view = row.ownerDocument?.defaultView;
+    const width = Number(view?.innerWidth) || 1024;
+    const height = Number(view?.innerHeight) || 768;
+    const margin = 12;
+    tip.style.maxWidth = `${Math.min(300, Math.max(180, width - margin * 2))}px`;
+    tip.style.left = `${margin}px`;
+    tip.style.top = `${margin}px`;
+    const box = tip.getBoundingClientRect?.() || { width: 0, height: 0 };
+    let left = rect.left + rect.width / 2 - box.width / 2;
+    left = Math.max(margin, Math.min(left, width - box.width - margin));
+    let top = rect.bottom + 8;
+    if (top + box.height > height - margin) {
+      const above = rect.top - box.height - 8;
+      top = above >= margin ? above : Math.max(margin, height - box.height - margin);
+    }
+    tip.style.left = `${Math.round(left)}px`;
+    tip.style.top = `${Math.round(top)}px`;
+  }
+
+  function showDocToolTip(chat, row, text) {
+    const doc = row.ownerDocument;
+    if (!doc?.body) return;
+    clearDocToolTip(chat);
+    const tip = doc.createElement("div");
+    tip.className = "qiaomu-reader-ai-doc-tip";
+    tip.id = `qiaomu-reader-ai-doc-tip-${++docToolTipId}`;
+    tip.setAttribute("role", "tooltip");
+    tip.textContent = text;
+    doc.body.appendChild(tip);
+    placeDocToolTip(tip, row);
+    row.setAttribute("aria-describedby", tip.id);
+    chat._docToolTip = tip;
+    chat._docToolTipRow = row;
+    tip.classList.add("is-visible");
+  }
+
+  function scheduleDocToolTip(chat, row, text) {
+    clearDocToolTip(chat);
+    const view = row.ownerDocument?.defaultView;
+    if (!view?.setTimeout) return;
+    const configured = Number(chat._docToolTipDelayMs);
+    const delay = Number.isFinite(configured) ? Math.max(0, configured) : DOC_TOOL_TIP_DELAY_MS;
+    chat._docToolTipRow = row;
+    chat._docToolTipTimer = view.setTimeout(() => {
+      chat._docToolTipTimer = 0;
+      if (!row.isConnected || chat._docToolTipRow !== row) return;
+      showDocToolTip(chat, row, text);
+    }, delay);
+  }
+
   return class AiChatView extends ItemView {
   constructor(leaf, plugin) {
     super(leaf);
@@ -58,16 +145,8 @@ export function createAiChatView({
     const context = target ? readerAiPanelContext(target) : null;
     if (context) this.setContext(context, { focusInput: false, silent: true });
   }
-  _settingsButton(head) {
-    const settings = head.createEl("button", { cls: "qiaomu-reader-ai-prompt-settings" });
-    svgIcon(settings, "sliders");
-    settings.setAttribute("aria-label", qiaomuReaderTranslate("ai-reading-settings"));
-    settings.addEventListener("click", () => {
-      if (this.readerView) new ReadSettingsModal(this.app, this.readerView, "ai").open();
-      else openPluginAiSettings(this.app, this.plugin);
-    });
-  }
   _renderHead(c) {
+    clearDocToolTip(this);
     const head = c.createDiv("qiaomu-reader-ai-head");
     const headText = head.createDiv("qiaomu-reader-ai-headtext");
     headText.createDiv({ cls: "qiaomu-reader-ai-title", text: this._title() });
@@ -84,18 +163,6 @@ export function createAiChatView({
       iconButton("plus", qiaomuReaderTranslate("new-chat"), () => this._newChat()),
       iconButton("history", qiaomuReaderTranslate("chat-history"), () => new AiChatHistoryModal(this.app, this).open()),
     ];
-    if (!this._isQuizContext() && typeof this.plugin?.openWorkshopCapabilities === "function") {
-      this.sessionButtons.unshift(iconButton("layout-grid", "我能对文档做什么", () => {
-        this.plugin.openWorkshopCapabilities({
-          extension: this.bookFile?.extension || "",
-          readerView: this.readerView,
-          inAi: true,
-        });
-      }));
-    }
-    // The study companion has no separate settings of its own; its empty
-    // settings entry only led to a blank page.
-    if (!this._isQuizContext()) this._settingsButton(actions);
     iconButton("x", qiaomuReaderTranslate("close"), () => {
       void this.plugin._rememberCompanion(false);
       this.leaf.detach();
@@ -178,8 +245,29 @@ export function createAiChatView({
     this._scroll();
     return true;
   }
+  _bindDocumentToolTip(row, capability) {
+    const text = docToolTipText(capability);
+    if (!text) return;
+    row.setAttribute("data-tip", text);
+    row.addEventListener("mouseenter", () => scheduleDocToolTip(this, row, text));
+    row.addEventListener("mouseleave", () => clearDocToolTip(this));
+    row.addEventListener("focus", () => showDocToolTip(this, row, text));
+    row.addEventListener("blur", () => clearDocToolTip(this));
+    row.addEventListener("click", () => clearDocToolTip(this));
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") clearDocToolTip(this);
+    });
+    if (this._docToolTipDismissBound) return;
+    this._docToolTipDismissBound = true;
+    const doc = row.ownerDocument;
+    this._docToolTipDismiss = () => clearDocToolTip(this);
+    doc?.addEventListener?.("scroll", this._docToolTipDismiss, true);
+    doc?.defaultView?.addEventListener?.("resize", this._docToolTipDismiss);
+  }
+
   _renderWorkshopDiscovery(host, suppliedCapabilities = null) {
     if (!host || this._isQuizContext() || typeof this.plugin?.workshopCapabilities !== "function") return;
+    clearDocToolTip(this);
     const rawCapabilities = Array.isArray(suppliedCapabilities) ? suppliedCapabilities : this.plugin.workshopCapabilities({
       extension: this.bookFile?.extension || "",
       readerView: this.readerView,
@@ -190,7 +278,7 @@ export function createAiChatView({
     if (!capabilities.length) return;
     const section = host.createDiv("qiaomu-reader-ai-workshop");
     const head = section.createDiv("qiaomu-reader-ai-workshop-head");
-    head.createDiv({ cls: "qiaomu-reader-ai-workshop-title", text: "我能对文档做什么" });
+    head.createDiv({ cls: "qiaomu-reader-ai-workshop-title", text: "文档工具" });
     const recommended = capabilities.filter((capability) => capability.recommended && capability.primary);
     const baseCapabilities = recommended.length ? recommended : capabilities;
     const extraCapabilities = capabilities.filter((capability) => !baseCapabilities.includes(capability));
@@ -220,6 +308,7 @@ export function createAiChatView({
       action.disabled = Boolean(this.busy);
       action.createSpan({ cls: "qiaomu-reader-ai-doc-number", text: `${item.number}.` });
       action.createSpan({ cls: "qiaomu-reader-ai-doc-title", text: item.capability.title });
+      this._bindDocumentToolTip(action, item.capability);
       action.addEventListener("click", () => { void this._runDocumentTool(item); });
       return action;
     };
@@ -231,6 +320,7 @@ export function createAiChatView({
       more.disabled = Boolean(this.busy);
       more.addEventListener("click", () => {
         if (this.busy) return;
+        clearDocToolTip(this);
         if (expanded) {
           for (const row of extraRows) row.remove();
           extraRows = [];
@@ -851,6 +941,7 @@ export function createAiChatView({
   // thread; closing the leaf remains an explicit Obsidian action.
   close() {}
   async onClose() {
+    disposeDocToolTips(this);
     this.plugin._companionWasVisible = false;
     // An explicit close means "don't auto-open the companion"; a route change
     // (home, library) must not change that preference.

@@ -246,12 +246,14 @@ test("a prepared task ends the reply with a visible preview and one-click confir
       summary: "用 AI 识别题目和选项，生成可作答、交卷后自动判分的页面。",
       source: "2026江苏",
       output: "2026江苏.AI答题页.html",
+      note: "水印、页眉页脚和页码会在提取时自动清理；重复的省份/机构名不影响题目识别。",
     },
     confirmation: { operation: "把文档做成答题页", label: "确认开始" },
   }, owner);
   assert.match(card.textContent, /确认任务/);
   assert.match(card.textContent, /2026江苏/);
   assert.match(card.textContent, /2026江苏\.AI答题页\.html/);
+  assert.match(card.textContent, /水印、页眉页脚和页码会在提取时自动清理/);
   const button = card.querySelector(".qiaomu-reader-ai-preview-confirm");
   assert.ok(button, "the preview must offer a direct confirmation button");
   assert.equal(button.textContent, "确认开始");

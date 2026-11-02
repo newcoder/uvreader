@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { webcrypto } from "node:crypto";
 import test from "node:test";
 
 import { createNotePaths } from "../packages/reader/src/note-paths.js";
@@ -100,23 +101,57 @@ test("renderManagedReadingHighlights sorts and labels the quotes section", () =>
     app: { vault: { getName: () => "Vault" } },
     settings: { quoteBacklinks: false },
   };
-  const out = notes.renderManagedReadingHighlights(plugin, { path: "a.epub" }, [
-    { text: "second", block: 5, chapter: "Ch 2" },
+  const out = notes.renderManagedReadingHighlights(plugin, { path: "a.epub", basename: "Book" }, [
+    { text: "second", block: 5, chapter: "Ch 2", created: new Date(2026, 10, 2, 16, 30).getTime() },
     { text: "first", block: 1 },
   ]);
   assert.match(out, /^quotes/);
   assert.ok(out.indexOf("first") < out.indexOf("second"));
   assert.match(out, /\*\*Ch 2\*\*/);
+  assert.match(out, /> note-meta-time：2026-11-02 16:30 · note-meta-source：\[\[Book\]\] · note-meta-manual/);
 });
 
 test("composeExcerptQuote handles selections and AI answers", () => {
   const { notes } = setup();
   const app = { plugins: { plugins: { "qiaomu-reader": { settings: { exportColors: true } } } } };
-  const selection = notes.composeExcerptQuote(app, { color: "yellow", extra: "\n\nnote" }, "line one\nline two", "\n\nfrom book", "");
-  assert.match(selection, /<mark style="background:#ff0">line one\n&gt; line two<\/mark>/);
-  const answer = notes.composeExcerptQuote(app, { noteKind: "ai-answer", noteBody: "The answer", sourceText: "The source" }, "ignored", "from book", "");
+  const selection = notes.composeExcerptQuote(app, { color: "yellow", extra: "\n\nnote", meta: "> META" }, "line one\nline two", "\n\nfrom book", "");
+  assert.match(selection, /^> META\n\n> <mark style="background:#ff0">line one\n&gt; line two<\/mark>/);
+  const answer = notes.composeExcerptQuote(app, { noteKind: "ai-answer", noteBody: "The answer", sourceText: "The source", meta: "> AI META" }, "ignored", "from book", "");
+  assert.match(answer, /^> AI META\n\nThe answer/);
   assert.match(answer, /The answer/);
   assert.match(answer, /The source/);
+});
+
+test("an appended AI answer records time, source and origin once", async () => {
+  const { notes } = setup();
+  const note = new TFile("notes/Book.md");
+  let text = "# Book\n";
+  const app = {
+    metadataCache: { getFileCache: () => ({ frontmatter: {} }) },
+    vault: {
+      getAbstractFileByPath: (path) => (path === note.path ? note : null),
+      process: async (_file, fn) => { text = await fn(text); return text; },
+    },
+  };
+  const plugin = { app, settings: { bookNoteLinks: { "books/a.epub": note.path } } };
+  const bookFile = new TFile("books/a.epub");
+  bookFile.extension = "epub";
+  bookFile.basename = "Book";
+  const previousWindow = globalThis.window;
+  globalThis.window = { crypto: webcrypto };
+  try {
+    const first = await notes.appendAnswerToBookNote(app, plugin, bookFile, "The answer", "Title", { label: "第 3 页", page: "3", kind: "page" });
+    assert.equal(first, note);
+    assert.match(text, /## Title/);
+    assert.match(text, /note-meta-time：\d{4}-\d{2}-\d{2} \d{2}:\d{2}/);
+    assert.match(text, /note-meta-source：\[\[Book\]\] · 第 3 页/);
+    assert.match(text, /ai-reply/);
+    const before = text;
+    await notes.appendAnswerToBookNote(app, plugin, bookFile, "The answer", "Title", { label: "第 3 页", page: "3", kind: "page" });
+    assert.equal(text, before, "the same answer is not appended twice");
+  } finally {
+    globalThis.window = previousWindow;
+  }
 });
 
 test("cmpVer and whatsNewSince compare dotted versions", () => {

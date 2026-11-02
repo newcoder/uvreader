@@ -177,6 +177,37 @@ test("a chapter is used by at most one entry", () => {
   assert.deepEqual(plan.dropped, ["第一章 起点(重复条)"]);
 });
 
+test("a parent TOC entry without its own chapter attaches to its first child", () => {
+  const chapters = [
+    { title: "附录一 原丝的价格" },
+    { title: "附录二 江苏米价" },
+  ];
+  const tocEntries = [
+    { label: "附录", key: "附录", page: 325, level: 1 },
+    { label: "附录一 原丝的价格", key: "附录一原丝的价格", page: 327, level: 2 },
+    { label: "附录二 江苏米价", key: "附录二江苏米价", page: 329, level: 2 },
+  ];
+  const plan = buildNavPlan({ chapters, tocEntries });
+  assert.deepEqual(plan.items.map((item) => [item.title, item.chapterIndex, item.level]), [
+    ["附录", 0, 1],
+    ["附录一 原丝的价格", 0, 2],
+    ["附录二 江苏米价", 1, 2],
+  ], "父条目挂到第一个子条目的章节,不丢父级");
+  assert.deepEqual(plan.dropped, []);
+});
+
+test("a dropped front-matter entry does not attach to a later section", () => {
+  const chapters = [{ title: "第一章 内务府" }, { title: "八旗与包衣" }];
+  const tocEntries = [
+    { label: "致谢", key: "致谢", page: 1, level: 1 },
+    { label: "第一章 内务府", key: "内务府", page: 1, level: 1 },
+    { label: "八旗与包衣", key: "八旗与包衣", page: 4, level: 2 },
+  ];
+  const plan = buildNavPlan({ chapters, tocEntries });
+  assert.deepEqual(plan.dropped, ["致谢"], "父级补齐只能看直接子级,不能跳到后面章节的小节");
+  assert.ok(!plan.items.some((item) => item.title === "致谢"));
+});
+
 test("pageFirst lets an exact PDF page claim a chapter whose title was split", () => {
   // 上游把「第4章 电磁学」拆成了「第」;大纲页码是精确的 PDF 页 → 以页码认领。
   const chapters = [{ title: "第" }, { title: "4.1 静电场" }, { title: "第5章 光学" }];

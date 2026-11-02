@@ -376,6 +376,43 @@ export class Workspace extends Events {
     return this.leaves.filter((leaf) => leaf.view?.getViewType?.() === type);
   }
 
+  // Obsidian's openLinkText is used by the AI answer actions. Resolve the
+  // common link forms (path, .md path, [[wikilink]], basename, relative link)
+  // and hand notes to the desktop note panel when the host provides one.
+  resolveLinktext(linktext, sourcePath = "") {
+    const raw = String(linktext || "").trim()
+      .replace(/^\[\[|\]\]$/g, "")
+      .split("|")[0]
+      .split("#")[0]
+      .trim();
+    if (!raw) return null;
+    const vault = this.app?.vault;
+    if (!vault?.getAbstractFileByPath) return null;
+    const source = String(sourcePath || "");
+    const dir = source.includes("/") ? source.slice(0, source.lastIndexOf("/")) : "";
+    const candidates = [raw, `${raw}.md`];
+    if (dir && !raw.includes("/")) candidates.unshift(`${dir}/${raw}`, `${dir}/${raw}.md`);
+    for (const candidate of candidates) {
+      const file = vault.getAbstractFileByPath(candidate);
+      if (file?.extension === "md") return file;
+    }
+    const base = raw.split("/").pop()?.replace(/\.md$/i, "") || raw;
+    return vault.getFiles?.().find((file) => file.extension === "md"
+      && (file.basename === base || file.path.endsWith(`/${raw}`) || file.path.endsWith(`/${raw}.md`))) || null;
+  }
+
+  async openLinkText(linktext, sourcePath = "", _newLeaf = false) {
+    const file = this.resolveLinktext(linktext, sourcePath);
+    if (!file) return false;
+    if (typeof this.app?.qbrDesktopOpenNote === "function") {
+      await this.app.qbrDesktopOpenNote(file);
+      return true;
+    }
+    const leaf = this.getLeaf();
+    await leaf.openFile(file);
+    return true;
+  }
+
   getLeaf(_type = "tab") {
     const leaf = new WorkspaceLeaf(this, { right: false });
     this.leaves.push(leaf);

@@ -103,10 +103,13 @@ test("draft stays durable while sending; a new follow-up survives older completi
 test("AI append preserves Markdown and existing prose, deduplicates by full answer and book", async () => {
   const answer = "## 核心观点\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n- [ ] 保留任务";
   const marker = await aiAnswerMarker("book.epub", answer, webcrypto);
-  const result = appendAiAnswer("# 用户笔记\n\n不能覆盖", { title: "标题", answer, marker });
+  const meta = "> 时间：2026-11-02 16:30 · 来源：[[书]] · AI 回复";
+  const result = appendAiAnswer("# 用户笔记\n\n不能覆盖", { title: "标题", answer, marker, meta });
   assert.ok(result.startsWith("# 用户笔记\n\n不能覆盖"));
   assert.ok(result.includes(answer));
-  assert.equal(appendAiAnswer(result, { title: "另一个标题", answer, marker }), result);
+  assert.ok(result.includes(meta));
+  assert.ok(result.indexOf(marker) < result.indexOf(meta));
+  assert.equal(appendAiAnswer(result, { title: "另一个标题", answer, marker, meta }), result);
   assert.notEqual(await aiAnswerMarker("other.epub", answer, webcrypto), marker);
   assert.notEqual(await aiAnswerMarker("book.epub", answer + "。", webcrypto), marker);
 });
@@ -124,7 +127,7 @@ test("bookmarks normalize durable text and PDF anchors without keeping DOM refer
   assert.deepEqual(marks[0].anchor, { block: 4, offset: 2, pct: .5, pdfPage: 7 });
 });
 
-test("history filtering never replaces Obsidian Modal's keyboard scope", () => {
+test("history stays scoped to the open book without replacing Obsidian Modal's keyboard scope", () => {
   const keyboardScope = { handleKey() {} };
   const Modal = class { constructor() { this.scope = keyboardScope; } };
   // The history modal lives in its own module: build it through its factory.
@@ -134,7 +137,8 @@ test("history filtering never replaces Obsidian Modal's keyboard scope", () => {
   const History = vm.runInNewContext(`${historyFactory}\ncreateAiChatHistoryModal(${historyPortExpr})`, { Modal });
   const modal = new History({}, { bookFile: { path: "book.epub" } });
   assert.equal(modal.scope, keyboardScope);
-  assert.equal(modal.filterScope, "book");
+  assert.equal(modal.chat.bookFile.path, "book.epub");
+  assert.doesNotMatch(historySource, /filterScope|qiaomuReaderTranslate\("all-2"\)/);
 });
 
 test("real search controller handles IME, wraps hits, preserves one return point and restores focus", () => {

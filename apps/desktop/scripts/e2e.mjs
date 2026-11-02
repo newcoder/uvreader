@@ -576,7 +576,7 @@ async function runEbookScenario() {
         })(),
       };
     });
-    if (tray.labels.includes("本书阅读笔记")) throw new Error("the note button is still in the tray");
+    if (!tray.labels.includes("本书阅读笔记")) throw new Error("the reading-note button is missing from the tray");
     if (tray.labels.includes("重置计时器")) throw new Error("the reset-timer button is still in the tray");
     if (!tray.hasBox) throw new Error("the toolbar search box is missing");
     if (!tray.boxBeforeSearch) throw new Error("the search button should follow its box");
@@ -701,6 +701,7 @@ async function runEbookScenario() {
       const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0].view;
       const plugin = view.plugin;
       const note = await plugin.createBookNote(view.file, view.file.basename, "notes");
+      await plugin.app.vault.modify(note, "# 阅读笔记\n\nE2E-NOTE-BODY");
       await plugin.app.qbrDesktopOpenNote?.(note, plugin);
     });
     await page.waitForSelector(".qbr-note-panel", { timeout: 15_000 });
@@ -708,7 +709,9 @@ async function runEbookScenario() {
       const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view;
       const note = window.__qbrApp.workspace.getLeavesOfType("qbr-note")[0]?.view;
       const body = note?.contentEl?.querySelector(".qbr-note-body");
-      return view && !view.containerEl.hidden && note && !note.containerEl.hidden && body ? (body.textContent || "").length : 0;
+      if (!view || view.containerEl.hidden || !note || note.containerEl.hidden || !body) return "";
+      if (body.querySelector(".qbr-note-empty")) return "";
+      return (body.textContent || "").includes("E2E-NOTE-BODY") ? body.textContent.length : "";
     }), 15_000);
     console.log("epub: note panel opens beside the reader", notePanel, "chars");
     await page.evaluate(() => {
@@ -716,6 +719,90 @@ async function runEbookScenario() {
       note?.view?.contentEl?.querySelector(".qbr-note-actions button:last-child")?.click();
     });
     await waitFor("note panel closed", () => page.evaluate(() => !window.__qbrApp.workspace.getLeavesOfType("qbr-note").length), 8_000);
+
+    // The main tray owns the reading-note entry now. Reopening must render the
+    // existing file immediately, not the empty placeholder until refresh.
+    const noteButtonReady = await page.evaluate(() => {
+      const top = document.querySelector(".qiaomu-reader-top");
+      const nameOf = (el) => {
+        const id = el.getAttribute("aria-labelledby");
+        const label = id ? el.ownerDocument.getElementById(id) : null;
+        return (label?.textContent || el.getAttribute("aria-label") || "").trim();
+      };
+      const buttons = [...top.querySelectorAll(".qiaomu-reader-ibtn")];
+      const labels = buttons.map(nameOf);
+      const button = buttons.find((el) => nameOf(el).includes("阅读笔记"));
+      button?.click();
+      return { found: Boolean(button), labels };
+    });
+    if (!noteButtonReady.found) {
+      throw new Error(`the reading-note tray button is missing: ${JSON.stringify(noteButtonReady.labels)}`);
+    }
+    await page.waitForSelector(".qbr-note-panel", { timeout: 15_000 });
+    const noteReopened = await waitFor("note panel reopened with content", () => page.evaluate(() => {
+      const note = window.__qbrApp.workspace.getLeavesOfType("qbr-note")[0]?.view;
+      const body = note?.contentEl?.querySelector(".qbr-note-body");
+      if (!body || body.querySelector(".qbr-note-empty")) return "";
+      return (body.textContent || "").includes("E2E-NOTE-BODY") ? "ok" : "";
+    }), 15_000);
+    console.log("epub: reading-note tray button reopened", noteReopened);
+    const editStarted = await page.evaluate(() => {
+      const button = [...document.querySelectorAll(".qbr-note-actions button")]
+        .find((item) => item.textContent === "编辑");
+      button?.click();
+      return Boolean(button);
+    });
+    if (!editStarted) throw new Error("the note editor entry is missing");
+    await page.waitForSelector(".qbr-note-editor", { timeout: 10_000 });
+    await page.evaluate(() => {
+      const editor = document.querySelector(".qbr-note-editor");
+      editor.value = `${editor.value}\n\nEDITOR-MARKER`;
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await waitFor("note autosaved", () => page.evaluate(
+      () => document.querySelector(".qbr-note-save-status")?.textContent === "已保存" ? "ok" : ""), 10_000);
+    await page.evaluate(() => {
+      const button = [...document.querySelectorAll(".qbr-note-actions button")]
+        .find((item) => item.textContent === "预览");
+      button?.click();
+    });
+    const previewed = await waitFor("note preview after editing", () => page.evaluate(
+      () => (document.querySelector(".qbr-note-body")?.textContent || "").includes("EDITOR-MARKER") ? "ok" : ""), 10_000);
+    console.log("epub: note editor autosaved and previewed", previewed);
+    await page.evaluate(() => {
+      const note = window.__qbrApp.workspace.getLeavesOfType("qbr-note")[0];
+      note?.view?.contentEl?.querySelector(".qbr-note-actions button:last-child")?.click();
+    });
+    await waitFor("note panel closed again", () => page.evaluate(() => !window.__qbrApp.workspace.getLeavesOfType("qbr-note").length), 8_000);
+
+    // A standalone note is linked from the reading note with [[...]]. In the
+    // desktop app that link must open the standalone note in the note panel.
+    const standalone = await page.evaluate(async () => {
+      const plugin = window.__qbrPlugin;
+      const reader = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view;
+      const notePath = plugin.settings.bookNoteLinks?.[reader?.file?.path] || "";
+      const note = plugin.app.vault.getAbstractFileByPath(notePath);
+      if (!note) return { error: `book note is missing: ${notePath}` };
+      const target = await plugin.app.vault.create("notes/Standalone.md", "# Standalone\n\nSTANDALONE-BODY");
+      await plugin.app.vault.process(note, (text) => `${text.replace(/\s*$/, "")}\n\n- [[${target.basename}]]\n`);
+      await plugin.app.qbrDesktopOpenNote?.(note, plugin);
+      return { note: note.path, target: target.path };
+    });
+    if (standalone.error) throw new Error(standalone.error);
+    await page.waitForSelector("a.qbr-wikilink[data-wikilink='Standalone']", { timeout: 15_000 });
+    await page.click("a.qbr-wikilink[data-wikilink='Standalone']");
+    const standaloneOpened = await waitFor("standalone note opened from wikilink", () => page.evaluate(() => {
+      const note = window.__qbrApp.workspace.getLeavesOfType("qbr-note")[0]?.view;
+      const body = note?.contentEl?.querySelector(".qbr-note-body");
+      if (!body || body.querySelector(".qbr-note-empty")) return "";
+      return (body.textContent || "").includes("STANDALONE-BODY") ? body.textContent.length : "";
+    }), 15_000);
+    console.log("epub: standalone wikilink opened", standaloneOpened, "chars", standalone.target);
+    await page.evaluate(() => {
+      const note = window.__qbrApp.workspace.getLeavesOfType("qbr-note")[0];
+      note?.view?.contentEl?.querySelector(".qbr-note-actions button:last-child")?.click();
+    });
+    await waitFor("standalone note closed", () => page.evaluate(() => !window.__qbrApp.workspace.getLeavesOfType("qbr-note").length), 8_000);
 
     const selected = await selectPassage(page);
     console.log("epub: selected", selected.slice(0, 40));
@@ -919,7 +1006,13 @@ async function runEbookScenario() {
       const text = fs.readFileSync(notePath, "utf8");
       return text.includes(needle) ? text : "";
     }, 20_000);
-    console.log("epub: note updated", note.length, "bytes");
+    if (!/时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(note)) {
+      throw new Error(`the reading note has no timestamp: ${note.slice(0, 240)}`);
+    }
+    if (!note.includes("来源：[[") || !note.includes("手动输入")) {
+      throw new Error(`the reading note has no source/origin: ${note.slice(0, 240)}`);
+    }
+    console.log("epub: note updated", note.length, "bytes", "with time/source/origin");
 
     const beforeLibrary = await page.evaluate(() => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view?.file?.path || "");
     await page.evaluate(() => {

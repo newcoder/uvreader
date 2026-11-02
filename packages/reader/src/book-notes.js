@@ -4,6 +4,7 @@
 
 import { composeAiAnswerNote } from "./ai-note.js";
 import { suggestAiNoteTitle } from "./ai-note-title.js";
+import { noteMetaLine as buildNoteMetaLine } from "./note-meta.js";
 import { aiAnswerMarker, appendAiAnswer } from "./reading-workflow.js";
 import { appendReadingNoteExcerpts, migrateAndReplaceReadingHighlights, replaceManagedReadingHighlights } from "./reading-note.js";
 import { highlightBacklink } from "./highlight-navigation.js";
@@ -60,6 +61,23 @@ export function createBookNotes({
     return app.vault.modify(file, reshaped(await app.vault.read(file)));
   }
 
+  function noteSource(bookFile) {
+    return bookFile?.basename ? `[[${bookFile.basename}]]` : "";
+  }
+
+  function contextDetail(context) {
+    const label = String(context?.label || "").trim();
+    const page = String(context?.page || "").trim();
+    if (label && page && !label.includes(page)) return `${label} · ${translate("page-0", page)}`;
+    return label || (page ? translate("page-0", page) : "");
+  }
+
+  // Every appended entry says when it was added, which book it came from and
+  // whether a person or the AI wrote it.
+  function noteMetaLine(parts) {
+    return buildNoteMetaLine({ translate, ...parts });
+  }
+
   function promptForNoteTitle(app, plugin, fragment, bookFile, kind) {
     return new Promise((resolve) => {
       new (getNoteTitleModal())(app, plugin, fragment, bookFile, resolve, { kind }).open();
@@ -80,6 +98,8 @@ export function createBookNotes({
   }
 
   function composeExcerptQuote(app, parts, excerpt, source, tagLine) {
+    const meta = String(parts.meta || "").trim();
+    const metaBlock = meta ? `${meta}\n\n` : "";
     if (parts.noteKind === "ai-answer") {
       return composeAiAnswerNote({
         answer: String(parts.noteBody || "").trim(),
@@ -87,11 +107,12 @@ export function createBookNotes({
         attribution: source.trim(),
         sourceHeading: translate("original"),
         tagLine,
+        meta,
       });
     }
     const blockQuoted = excerpt.replace(/\n/g, "\n> ");
     const marked = parts.color ? hlMark(app, blockQuoted, parts.color) : blockQuoted;
-    return `${tagLine}> ${marked}${parts.extra}${source}`;
+    return `${tagLine}${metaBlock}> ${marked}${parts.extra}${source}`;
   }
 
   async function renderNoteTemplate(app, templateFile, filename) {
@@ -129,6 +150,16 @@ export function createBookNotes({
   async function createNoteFromSelection(app, plugin, selText, bookFile, opts = {}) {
     const say = (text, ...rest) => new Notice(translate(text, ...rest));
     const { open = true, silent = false, reserved = null, color = null, extra = "", noteKind = "selection", noteBody = "", sourceText = "", bookLinkHeading = "", openMode = null, openBackground = false } = opts;
+    const createdAt = Number(opts.createdAt) || Number(opts.hl?.created) || Date.now();
+    const detail = noteKind === "ai-answer"
+      ? contextDetail(opts.context)
+      : [opts.hl?.chapter, opts.hl?.page ? translate("page-0", opts.hl.page) : ""].filter(Boolean).join(" · ");
+    const meta = noteMetaLine({
+      created: createdAt,
+      source: noteSource(bookFile),
+      detail,
+      origin: noteKind === "ai-answer" ? translate("ai-reply") : translate("note-meta-manual"),
+    });
     const excerpt = flattenSelectionText(selText);
     if (!excerpt) {
       if (!silent) say("empty-highlight");
@@ -147,7 +178,7 @@ export function createBookNotes({
         tagChoices = chosen.tags || [];
       } else {
         if (noteKind === "ai-answer") {
-          return appendAnswerToBookNote(app, plugin, bookFile, noteBody, chosen.title || chosenTitle);
+          return appendAnswerToBookNote(app, plugin, bookFile, noteBody, chosen.title || chosenTitle, opts.context);
         }
         const hlInfo = opts.hl && typeof opts.hl === "object" ? opts.hl : {};
         await exportHighlightsToBookNote(app, plugin, bookFile, [
@@ -169,7 +200,7 @@ export function createBookNotes({
       ? bookNoteLinkFor(plugin, bookFile) || bookFile.basename
       : "";
     const source = bookFile ? translate("from-0", linkName) : "";
-    const quote = composeExcerptQuote(app, { color, extra, noteKind, noteBody, sourceText }, excerpt, source, tagPrefix(tagChoices));
+    const quote = composeExcerptQuote(app, { color, extra, noteKind, noteBody, sourceText, meta }, excerpt, source, tagPrefix(tagChoices));
     try {
       const targetFolder = await resolveNotesFolder(app, folderChoice);
       const made = await createTemplatedNote(app, bookFile, targetFolder, filename, folderChoice, quote);
@@ -193,16 +224,17 @@ export function createBookNotes({
     }
     const normalizedContext = normalizeAiTurnContext(context);
     const title = suggestAiNoteTitle(cleanAnswer, { fallback: translate("ai-reply") });
-    if (opts.toBookNote) return appendAnswerToBookNote(app, plugin, bookFile, cleanAnswer, title);
+    if (opts.toBookNote) return appendAnswerToBookNote(app, plugin, bookFile, cleanAnswer, title, normalizedContext);
     return createNoteFromSelection(app, plugin, title, bookFile, {
       ...opts,
       noteKind: "ai-answer",
       noteBody: cleanAnswer,
       sourceText: normalizedContext?.text || "",
+      context: normalizedContext,
       bookLinkHeading: translate("ai-reading-notes"),
     });
   }
-  async function appendAnswerToBookNote(app, plugin, bookFile, answer, title) {
+  async function appendAnswerToBookNote(app, plugin, bookFile, answer, title, context = null) {
     if (!bookFile) return null;
     try {
       let note = resolveBookNote(app, bookNoteLinkFor(plugin, bookFile));
@@ -216,7 +248,13 @@ export function createBookNotes({
       }
       if (!(note instanceof TFile) || isUnsafeReadingNote(app, note)) throw new Error("Unsafe book note target");
       const marker = await aiAnswerMarker(bookFile.path, answer);
-      await app.vault.process(note, (text) => appendAiAnswer(text, { title: sanitizeNoteTitle(title), answer, marker }));
+      const meta = noteMetaLine({
+        created: Date.now(),
+        source: noteSource(bookFile),
+        detail: contextDetail(context),
+        origin: translate("ai-reply"),
+      });
+      await app.vault.process(note, (text) => appendAiAnswer(text, { title: sanitizeNoteTitle(title), answer, marker, meta }));
       new Notice(translate("ai-reply-appended-to-the-book-note"));
       return note;
     } catch (error) {
@@ -417,7 +455,12 @@ export function createBookNotes({
         ? `\n\n**${translate("comment-on-a-highlight")}：** ${String(hl.comment).replace(/\n/g, "\n\n")}`
         : "";
       const chapter = hl.chapter ? `**${hl.chapter}**\n\n` : "";
-      return `${chapter}> ${hlMark(plugin.app, clean, hl.color)}${where}${comment}`;
+      const meta = noteMetaLine({
+        created: hl.created,
+        source: noteSource(bookFile),
+        origin: translate("note-meta-manual"),
+      });
+      return `${chapter}${meta ? `${meta}\n\n` : ""}> ${hlMark(plugin.app, clean, hl.color)}${where}${comment}`;
     });
     return `${translate("quotes")}\n\n${rows.join("\n\n")}`;
   }
@@ -452,7 +495,7 @@ export function createBookNotes({
     const reserved = /* @__PURE__ */ new Set();
     let ok = 0, fail = 0;
     for (const hl of highlights) {
-      const f = await createNoteFromSelection(app, plugin, hl.text, bookFile, { open: false, silent: true, reserved, extra: hlCommentMd(hl), color: hl.color });
+      const f = await createNoteFromSelection(app, plugin, hl.text, bookFile, { open: false, silent: true, reserved, extra: hlCommentMd(hl), color: hl.color, hl, createdAt: hl.created });
       if (f) ok++;
       else fail++;
     }
@@ -484,7 +527,12 @@ export function createBookNotes({
       const comment = hl.comment
         ? `\n\n**${translate("comment-on-a-highlight")}：** ${hl.comment.replace(/\n/g, "\n\n")}`
         : "";
-      group.lines.push(`> ${hlMark(app, clean, hl.color)}${where}${comment}`);
+      const meta = noteMetaLine({
+        created: hl.created,
+        source: noteSource(bookFile),
+        origin: translate("note-meta-manual"),
+      });
+      group.lines.push(`${meta ? `${meta}\n\n` : ""}> ${hlMark(app, clean, hl.color)}${where}${comment}`);
     }
     return grouped;
   }

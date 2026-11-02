@@ -128,9 +128,14 @@ def _mineru_capability(config: dict) -> dict:
             with urllib.request.urlopen(request, timeout=2) as response:  # noqa: S310 —— 只连本机/用户配的地址
                 body = response.read(2000).decode("utf-8", "ignore")
             return {**base, "ok": True, "detail": f"本地服务在跑:{url}", "mode": "local", "body": body[:200]}
-        except Exception as exc:  # noqa: BLE001 —— 连不上就退到云端/未配置
+        except Exception as exc:  # noqa: BLE001 —— 连不上就退到云端/本地 CLI/未配置
             if token:
                 return {**base, "ok": True, "detail": f"本地服务连不上({exc.__class__.__name__}),有云端 token", "mode": "cloud"}
+            if local_exe:
+                from .mineru import local_kit_problem
+
+                if not local_kit_problem(local_exe):
+                    return {**base, "ok": True, "detail": f"本地服务连不上({exc.__class__.__name__}),改用本机程序", "mode": "local-cli"}
             return {**base, "ok": False, "detail": f"本地服务连不上:{url}", "fix": FIX_MINERU}
     if token:
         return {**base, "ok": True, "detail": "云端 token 已配置", "mode": "cloud"}
@@ -140,6 +145,9 @@ def _mineru_capability(config: dict) -> dict:
         problem = local_kit_problem(local_exe)
         if problem:
             return {**base, "ok": False, "detail": f"本机程序无法启动:{problem}", "fix": FIX_MINERU}
+        # A working local CLI is a valid MinerU backend even when no HTTP
+        # service address and no cloud token are configured.
+        return {**base, "ok": True, "detail": "本机程序可用（本地 CLI）", "mode": "local-cli"}
     return {**base, "ok": False, "fix": FIX_MINERU}
 
 

@@ -10,7 +10,7 @@ import path from "node:path";
 import { EXTRACT_MODES, IMAGE_INPUTS, extractionKind } from "../shared/extract-formats.js";
 import { textSourceKind } from "../shared/workshop-formats.js";
 import { joinContinuationLines, joinSplitCodeFences, splitMarkdownChapters, stripCodeLineNumbers, unwrapProseFences } from "../shared/markdown-fix.js";
-import { tocKey, tocLevel } from "../shared/printed-toc.js";
+import { parsePrintedTocEntries, tocKey, tocLevel } from "../shared/printed-toc.js";
 import { blocksFromDoc, blocksToMarkdown, cleanFootnoteText } from "./formula-html.js";
 import { rewriteHtmlMath } from "./html-math.js";
 import { buildTextDoc, createPdfTextReader, writeTextProducts } from "./pdf-text.js";
@@ -138,8 +138,99 @@ export function appendFootnotes(markdown, notes) {
   return `${text.replace(/\s*$/, "")}\n\n## 注释\n\n${body}\n`;
 }
 
+// MinerU keeps a printed contents page as a structured `index` block in
+// content_list.json, but pdf_tool's Doc JSON conversion currently drops that
+// block type. Read the index blocks directly so a scanned book's own TOC is
+// still available as an upstream source. This is generic: root and chunked
+// content lists, `index` and `list/sub_type=toc` shapes.
+function mineruContentListFiles(workDir) {
+  const mineru = path.join(String(workDir || ""), "mineru");
+  const files = [];
+  const root = path.join(mineru, "content_list.json");
+  if (fs.existsSync(root)) files.push(root);
+  const chunks = path.join(mineru, "chunks");
+  try {
+    for (const entry of fs.readdirSync(chunks, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const candidate = path.join(chunks, entry.name, "content_list.json");
+      if (fs.existsSync(candidate)) files.push(candidate);
+    }
+  } catch { /* no chunked MinerU output */ }
+  return files;
+}
+
+function collectMineruTocEntries(workDir) {
+  const indexBlocks = [];
+  for (const file of mineruContentListFiles(workDir)) {
+    let blocks;
+    try {
+      blocks = JSON.parse(fs.readFileSync(file, "utf8"));
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(blocks)) continue;
+    for (const block of blocks) {
+      const type = String(block?.type || "").toLowerCase();
+      const subType = String(block?.sub_type || block?.subtype || "").toLowerCase();
+      if (type !== "index" && !(type === "list" && /(?:toc|contents|目录)/i.test(subType))) continue;
+      const lines = [];
+      for (const item of Array.isArray(block?.list_items) ? block.list_items : []) {
+        const raw = typeof item === "string" ? item : String(item?.text || item?.title || "");
+        const clean = raw.replace(/^\s*[-*•]\s*/, "").trim();
+        if (clean) lines.push(clean);
+      }
+      if (lines.length) {
+        const pageIdx = Number(block?.page_idx);
+        indexBlocks.push({ pageIdx: Number.isFinite(pageIdx) ? pageIdx : NaN, lines });
+      }
+    }
+  }
+  if (!indexBlocks.length) return [];
+  // A book can also have an alphabetical back-of-book index. Keep the earliest
+  // consecutive index cluster (the printed contents pages) and ignore later
+  // index blocks unless the upstream gives no page positions at all.
+  const paged = indexBlocks.filter((block) => Number.isFinite(block.pageIdx));
+  let selected = indexBlocks;
+  if (paged.length) {
+    const sorted = [...paged].sort((left, right) => left.pageIdx - right.pageIdx);
+    const clusters = [];
+    let current = [];
+    for (const block of sorted) {
+      if (!current.length || block.pageIdx - current[current.length - 1].pageIdx <= 5) current.push(block);
+      else {
+        clusters.push(current);
+        current = [block];
+      }
+    }
+    if (current.length) clusters.push(current);
+    selected = clusters[0] || [];
+  }
+  const lines = selected.flatMap((block) => block.lines);
+  if (!lines.length) return [];
+  const entries = parsePrintedTocEntries(lines.join("\n"));
+  // MinerU's index items are normally flat. Once a chapter-level entry has
+  // appeared, unnumbered following entries are its sections; numbered entries
+  // keep their own depth. Preface/appendix entries stay top-level.
+  const chapterRe = /^第\s*[0-9〇零一二三四五六七八九十百]{1,4}\s*[章节篇卷部讲]/;
+  let afterChapter = false;
+  return entries.map((entry) => {
+    const label = String(entry.label || "").trim();
+    const chapter = chapterRe.test(label) || /^(?:chapter|part)\s+/i.test(label);
+    if (chapter) {
+      afterChapter = true;
+      return { ...entry, level: 1 };
+    }
+    if (/^(?:附录|参考书目|参考文献|索引|后记|译后记|出版说明|致谢|前言|序)(?:\s|$)/.test(label)) {
+      afterChapter = false;
+      return { ...entry, level: 1 };
+    }
+    return { ...entry, level: afterChapter ? 2 : entry.level || 1 };
+  });
+}
+
 // 上游(pdf_tool)给的目录条目:Doc JSON 里带 page_role:"toc" 的页 + toc_entries。
-// 有就用它(比我们从 md 文本兜底解析准),没有返回空数组。
+// 有上游条目就直接用;只有上游没有 toc_entries 时,才读 MinerU content_list 的 index
+// 兜底(上游修好前/旧产物)。不要先合并兜底再按 key 去重,否则同名章/节会被吃掉。
 export function collectUpstreamTocEntries(docPath) {
   try {
     if (!docPath || !fs.existsSync(docPath)) return [];
@@ -159,7 +250,10 @@ export function collectUpstreamTocEntries(docPath) {
         });
       }
     }
-    return entries;
+    // pdf_tool 现在会直接产出页级 toc_entries;它比从 content_list 兜底解析准,
+    // 也保留同名章/节。只有旧产物完全没有 toc_entries 时才走 MinerU 兜底。
+    if (entries.length) return entries;
+    return collectMineruTocEntries(path.dirname(docPath));
   } catch {
     return [];
   }

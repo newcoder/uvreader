@@ -10,6 +10,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import time
+import urllib.request
 from pathlib import Path
 
 _CHECK_TTL_SECONDS = 60
@@ -79,3 +80,17 @@ def local_kit_problem(exe: str, *, timeout: float = 15.0) -> str:
 
 def usable_local_kit(exe: str) -> bool:
     return bool(str(exe or "").strip()) and not local_kit_problem(exe)
+
+
+def local_service_healthy(url: str, *, timeout: float = 2.0) -> bool:
+    """Probe a configured MinerU HTTP service; loopback must ignore proxies."""
+    value = str(url or "").strip().rstrip("/")
+    if not value:
+        return False
+    try:
+        request = urllib.request.Request(value + "/v1/health", method="GET")
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(request, timeout=timeout) as response:  # noqa: S310
+            return 200 <= int(getattr(response, "status", 0)) < 300
+    except Exception:  # noqa: BLE001
+        return False

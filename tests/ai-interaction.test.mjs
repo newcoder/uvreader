@@ -923,18 +923,43 @@ test("mobile modal renders a real answer without Component methods and unloads r
   win.close(); window.close();
 });
 
-test("the study companion hides the empty settings entry", () => {
-  const { chat } = sidebarHarness();
-  chat.readerView = { getViewType: () => "qbr-quiz" };
-  chat.contentEl.empty();
-  chat._renderHead(chat.contentEl);
-  assert.equal(chat.contentEl.querySelector('[aria-label="ai-quiz-settings"]'), null);
-  assert.ok(chat.contentEl.querySelector('[aria-label="close"]'));
-
+test("the AI companion header keeps only session actions and close", () => {
+  const { chat, files } = sidebarHarness();
+  chat.bookFile = files.get("a.epub");
   chat.readerView = { getViewType: () => "qiaomu-reader" };
   chat.contentEl.empty();
   chat._renderHead(chat.contentEl);
-  assert.ok(chat.contentEl.querySelector('[aria-label="ai-reading-settings"]'));
+  const labels = [...chat.contentEl.querySelectorAll(".qiaomu-reader-ai-head-actions button")]
+    .map((button) => button.getAttribute("aria-label"));
+  assert.deepEqual(labels, ["new-chat", "chat-history", "close"]);
+  assert.equal(chat.contentEl.querySelector('[aria-label="the-book-note"]'), null);
+  assert.equal(chat.contentEl.querySelector('[aria-label="ai-reading-settings"]'), null);
+});
+
+test("document tools explain each action in a short bubble after a brief hover", async () => {
+  const { chat } = sidebarHarness();
+  chat._docToolTipDelayMs = 10;
+  chat.bookFile = { extension: "pdf" };
+  chat.plugin.workshopCapabilities = () => [{
+    id: "convert-word",
+    title: "把文档转成 Word",
+    summary: "生成一份 Word 文档，保留原文档不动。",
+    prompt: "我想把这个文档转成 Word。",
+    recommended: true,
+    primary: true,
+  }];
+  chat._renderWorkshopDiscovery(chat.contentEl);
+  const row = chat.contentEl.querySelector(".qiaomu-reader-ai-doc-row");
+  const view = row.ownerDocument.defaultView;
+  row.dispatchEvent(new view.MouseEvent("mouseenter"));
+  assert.equal(row.getAttribute("data-tip"), "生成一份 Word 文档，保留原文档不动。");
+  assert.equal(row.ownerDocument.querySelector(".qiaomu-reader-ai-doc-tip"), null, "not immediately");
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  const tip = row.ownerDocument.querySelector(".qiaomu-reader-ai-doc-tip");
+  assert.equal(tip?.textContent, "生成一份 Word 文档，保留原文档不动。");
+  assert.equal(tip?.getAttribute("role"), "tooltip");
+  row.dispatchEvent(new view.MouseEvent("mouseleave"));
+  assert.equal(row.ownerDocument.querySelector(".qiaomu-reader-ai-doc-tip"), null);
 });
 
 test("the export-toc document tool runs the reader action without sending an AI turn", () => {
@@ -1001,7 +1026,8 @@ test("document shortcuts send directly from the AI conversation", () => {
   const buttons = [...host.querySelectorAll(".qiaomu-reader-ai-doc-row")];
   assert.equal(buttons.length, 1);
   assert.match(buttons[0].textContent, /^1\.\s*把文档转成 Word$/);
-  assert.doesNotMatch(host.textContent, /书坊还能做什么|和 AI 说|适合当前书/);
+  assert.match(host.textContent, /文档工具/);
+  assert.doesNotMatch(host.textContent, /我能对文档做什么|书坊还能做什么|和 AI 说|适合当前书/);
   buttons[0].click();
   assert.deepEqual(sent, ["我想把这个文档转成 Word。"]);
 });
@@ -1009,7 +1035,6 @@ test("document shortcuts send directly from the AI conversation", () => {
 test("More expands every document action inline without a modal", () => {
   const { chat } = sidebarHarness();
   const sent = [];
-  let openedModal = 0;
   chat._send = (text) => { sent.push(text); return true; };
   chat._scroll = () => {};
   chat.busy = false;
@@ -1040,7 +1065,6 @@ test("More expands every document action inline without a modal", () => {
       hidden: false,
     },
   ];
-  chat.plugin.openWorkshopCapabilities = () => { openedModal += 1; };
   chat.log = chat.contentEl;
   chat._showDocumentTools();
   const rows = () => [...chat.contentEl.querySelectorAll(".qiaomu-reader-ai-doc-row")];
@@ -1051,7 +1075,6 @@ test("More expands every document action inline without a modal", () => {
   assert.equal(rows().length, 3);
   assert.match(chat.contentEl.textContent, /制作电子书/);
   assert.equal(chat._documentTools.items.length, 3);
-  assert.equal(openedModal, 0, "more expands inline instead of opening the modal");
   chat._useDocumentToolNumber("2");
   assert.deepEqual(sent, ["制作电子书"]);
   more.click();
@@ -1077,7 +1100,7 @@ test("the 文档工具 command renders the current document shortcuts", () => {
   chat.log = chat.contentEl;
   assert.equal(chat._showDocumentTools(), true);
   assert.match(chat.contentEl.textContent, /文档工具/);
-  assert.match(chat.contentEl.textContent, /我能对文档做什么/);
+  assert.doesNotMatch(chat.contentEl.textContent, /我能对文档做什么/);
   assert.match(chat.contentEl.textContent, /输入编号/);
   const action = chat.contentEl.querySelector(".qiaomu-reader-ai-doc-row");
   assert.match(action?.textContent, /^1\.\s*把文档转成 Word$/);

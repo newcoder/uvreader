@@ -448,17 +448,25 @@ export function buildNavPlan({ chapters = [], tocEntries = [], pages = [], minSi
     assigned[entryIndex] = index;
     used.add(index);
   };
-  if (orderFallback) {
-    // 章级条目在正文里常常没有自己的章节(上游把「第N章 …」的标题吃掉了):指向它
-    // **下面第一节**所在的章节 —— 那正是这一章的起点(点「第1章」落到 1.1,而不是 1.5)。
-    for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
-      if (assigned[entryIndex] >= 0) continue;
-      const own = Number(entries[entryIndex].level) || 1;
-      const next = entries.findIndex((entry, index) => index > entryIndex
-        && (Number(entry.level) || 1) === own + 1
-        && assigned[index] >= 0);
-      if (next >= 0) assigned[entryIndex] = assigned[next];
+  // 章级/父级条目在正文里常常没有自己的章节(上游把「第N章 …」或「附录」的标题吃掉,
+  // 或标题所在页没有正文):指向它**下面第一节**所在的章节 —— 那正是这一章的起点
+  // (点「第1章」落到 1.1,而不是 1.5;点「附录」落到附录一)。不补父级的话,父条目会
+  // 被丢弃,子条目就成了无父级的 2 级。
+  for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
+    if (assigned[entryIndex] >= 0) continue;
+    const own = Number(entries[entryIndex].level) || 1;
+    let next = -1;
+    for (let index = entryIndex + 1; index < entries.length; index += 1) {
+      const level = Number(entries[index].level) || 1;
+      if (level <= own) break; // 下一个同级/上级条目:不是这个父条目的子级
+      if (level === own + 1 && assigned[index] >= 0) {
+        next = index;
+        break;
+      }
     }
+    if (next >= 0) assigned[entryIndex] = assigned[next];
+  }
+  if (orderFallback) {
     // 其余对不上的条目:**在相邻两个锚点之间的间隙里**落位(前一条已对齐的目录 →
     // 后一条已对齐的目录之间的那些章节),再按页码/相对位置挑最近的。这样它只会
     // 落在「它本来就该在的那一段」,不会跑到书的另一头。

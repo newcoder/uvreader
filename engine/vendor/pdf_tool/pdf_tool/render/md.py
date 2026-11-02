@@ -95,6 +95,9 @@ def render_md_blocks(blocks: list[dict], *, anchors: bool = True,
     cur_page = 0
     prev_anchor_page = 0  # 上一行若是锚点，这里是它的页号；否则 0
     for b in blocks:
+        # 内部结构块：目录已写入 Doc 页级 toc_entries；书末索引不进正文
+        if b.get("type") in ("toc", "index"):
+            continue
         page = page_of(b.get("position")) if anchors else 0
         want_anchor = False
         if page:
@@ -205,6 +208,8 @@ def render_html_blocks(blocks: list[dict]) -> str:
     out: list[str] = []
     for b in blocks:
         t = b.get("type")
+        if t in ("toc", "index"):  # 内部结构块，不渲染正文
+            continue
         if t == "heading":
             level = min(max(int(b.get("level") or 2), 1), 6)
             out.append(f"<h{level}>{_md_inline(as_text(b.get('text')))}</h{level}>")

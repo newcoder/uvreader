@@ -4,6 +4,8 @@
 - **只做「要看页面才知道的」判断**：目录页的版式特征（条目行密度 + 点线 + 页码单调）
   与页边界（上一页最后一个正文块未收句 + 本页第一个正文块是文字）在这里完成；
   书级策略（导航来源、去重、校验、打包）留给 reader；
+- **目录来源优先**：MinerU `index` 目录已由 `blocks_to_doc()` 写成页级
+  `toc_entries`；这些页不再走文本行推断，避免两种来源互相覆盖；
 - **保守优先**：宁可漏判（reader 侧有兜底），不可误判（假标题进目录 / 错误合并）。
 
 产出（就地写进 Doc）：
@@ -18,6 +20,8 @@ from __future__ import annotations
 import itertools
 import logging
 import re
+
+from pdf_tool.core import toc as toc_mod
 
 log = logging.getLogger("qb.structure")
 
@@ -452,6 +456,60 @@ def levels_from_geometry(entries, lines) -> bool:
     return True
 
 
+def _norm_toc_entries(entries) -> list[dict]:
+    """把内部 toc 条目收敛成 Doc 契约 `{title, page, level}`。"""
+    return toc_mod.normalize_entries(entries)
+
+
+def _consume_source_toc(pages, stats) -> set[int]:
+    """消费 content_list 产出的内部 `toc` 块 → 页级 `page_role`/`toc_entries`。
+
+    - 条目来自 MinerU `index` 块（`source="mineru-index"`），按页保留；
+    - 消费后移除内部 `toc` 块，Doc 最终只留页级结构；
+    - 已有 `toc_entries` 的页按幂等处理（重复 annotate 不重复计数）；
+    - 返回源目录页集合，供后续文本目录推断跳过这些页。
+    """
+    source_pages: set[int] = set()
+    for pg in pages:
+        blocks = pg.get("blocks") or []
+        toc_blocks = [b for b in blocks
+                      if isinstance(b, dict) and b.get("type") == "toc"]
+        existing = pg.get("toc_entries") or []
+        if not toc_blocks and not existing:
+            continue
+
+        entries: list[dict] = []
+        source = str(pg.get("toc_level_source") or "numbering")
+        if toc_blocks:
+            for b in toc_blocks:
+                if b.get("source"):
+                    source = str(b["source"])
+                entries.extend(b.get("entries") or [])
+            pg["blocks"] = [b for b in blocks
+                            if not (isinstance(b, dict) and b.get("type") == "toc")]
+        if not entries and existing:
+            entries = list(existing)
+        if not entries:
+            continue
+
+        if entries and not any(isinstance(e.get("level"), int) for e in entries):
+            toc_mod.infer_levels(entries)
+        entries = _norm_toc_entries(entries)
+        if not entries:
+            continue
+
+        page_no = int(pg.get("page") or 0)
+        pg["page_role"] = "toc"
+        pg["toc_entries"] = entries
+        pg["toc_level_source"] = source
+        source_pages.add(page_no)
+        stats["toc_pages"].append(pg.get("page"))
+        stats["toc_entries"] += len(entries)
+        stats["toc_entries_unpaged"] += sum(1 for e in entries if not e.get("page"))
+        stats["toc_levels"][source] = stats["toc_levels"].get(source, 0) + 1
+    return source_pages
+
+
 def annotate_doc(doc: dict, *, line_provider=None, printed_pages: dict | None = None) -> dict:
     """就地给 Doc 补目录页 / 跨页续行 / 印刷页码；返回统计。
 
@@ -460,8 +518,9 @@ def annotate_doc(doc: dict, *, line_provider=None, printed_pages: dict | None = 
     printed_pages：可选 `{PDF 页号: 印刷页码}`（来自 MinerU 的 `page_number` 家具项，
     reader 2026-10-15 R1）——逐页写入 `page["printed_page"]`。
     """
-    stats: dict = {"toc_pages": [], "toc_entries": 0, "continuations": 0,
-                   "toc_levels": {"geometry": 0, "numbering": 0},
+    stats: dict = {"toc_pages": [], "toc_entries": 0, "toc_entries_unpaged": 0,
+                   "continuations": 0,
+                   "toc_levels": {"geometry": 0, "numbering": 0, "mineru-index": 0},
                    "printed_pages": 0, "printed_interpolated": 0,
                    "heading_demoted": 0, "titles_merged": 0, "page_roles": {}}
     pages = doc.get("pages") or []
@@ -477,7 +536,12 @@ def annotate_doc(doc: dict, *, line_provider=None, printed_pages: dict | None = 
         stats["printed_pages"] = sum(1 for pg in pages
                                      if pg.get("printed_page") is not None)
 
-    for pg in pages:  # ① 目录页
+    source_toc_pages = _consume_source_toc(pages, stats)  # MinerU index 目录（优先）
+    for pg in pages:  # ① 文本目录页（没有源 index 目录时才推断）
+        if int(pg.get("page") or 0) in source_toc_pages:
+            continue
+        if pg.get("toc_entries"):
+            continue
         lines = [ln for b in (pg.get("blocks") or [])
                  if b.get("type") in ("text", "heading")
                  for ln in str(b.get("text") or "").splitlines() if ln.strip()]

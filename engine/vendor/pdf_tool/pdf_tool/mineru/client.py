@@ -3,7 +3,8 @@
 
 - 标准 API（v4）：申请上传链接 → PUT 上传 → 轮询 → 下载 zip（full.md/images/content_list）
 - content_list → blocks：text_level→heading、equation→equation（LaTeX + 裁剪图）、
-  image→image（caption 进 alt）、table→table（HTML→行列）；页眉/页脚/页码等页面装饰跳过
+  image→image（caption 进 alt）、table→table（HTML→行列）；页眉/页脚/页码等页面装饰跳过；
+  `index`（印刷目录）→ 内部 `toc` 块（书末索引/无法区分时 → `index` 块）
 - 公式裁剪：按 bbox（0-1000 归一化）从 origin.pdf 裁出公式图，供重排 PDF 使用
 """
 from __future__ import annotations
@@ -23,6 +24,7 @@ from pathlib import Path
 
 import requests
 
+from pdf_tool.core import toc as toc_mod
 from pdf_tool.core.mathfix import normalize_math_delims
 from pdf_tool.mineru import MineruCancelled
 
@@ -712,7 +714,7 @@ def reflow_text_blocks(blocks: list[dict], client, prompt: str, *,
     """
     from pdf_tool.extract.doc_mode import split_doc_text
 
-    keep_types = ("image", "table", "equation", "page_footnote")
+    keep_types = ("image", "table", "equation", "page_footnote", "toc", "index")
     keep = [b for b in blocks if b.get("type") in keep_types]
     text = build_merged_text(blocks)
     if not text.strip():
@@ -1122,29 +1124,125 @@ def _text_similarity(a: str, b: str) -> float:
     return difflib.SequenceMatcher(None, norm(a), norm(b)).ratio()
 
 
+def _is_toc_index_item(it: dict) -> bool:
+    """MinerU 目录项：`type=index`，或 `type=list` 且 sub_type 明确是目录。"""
+    t = it.get("type")
+    if t == "index":
+        return True
+    if t == "list":
+        sub = str(it.get("sub_type") or "").lower()
+        return any(k in sub for k in ("toc", "contents", "目录"))
+    return False
+
+
+def _index_list_items(it: dict) -> list:
+    """取 index/list 的原始条目：兼容 v1 `list_items` 与 v2 `content.list_items`。"""
+    raw = it.get("list_items")
+    if raw is None:
+        content = it.get("content")
+        if isinstance(content, dict):
+            raw = content.get("list_items")
+            if raw is None:
+                raw = content.get("text")
+        elif isinstance(content, str):
+            raw = content
+    if raw is None:
+        raw = it.get("text")
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, dict):
+        return [raw]
+    if isinstance(raw, str):
+        return [ln for ln in raw.splitlines() if ln.strip()] or [raw]
+    return []
+
+
+def _scan_index_blocks(items: list[dict], total_pages: int) -> tuple[dict[int, dict], dict]:
+    """预扫描目录/索引块：解析条目、分组、选目录组、整组推断层级。
+
+    返回 `({item 下标: {page, entries, role}}, stats)`；role 为 `toc` 或 `index`。
+    非目录组的条目仍保留在 Doc 中（`index` 块），但不写 `toc_entries`。
+    """
+    found: list[dict] = []
+    for i, it in enumerate(items):
+        if not isinstance(it, dict) or not _is_toc_index_item(it):
+            continue
+        page = int(it.get("page_idx") or 0) + 1
+        raw_items = _index_list_items(it)
+        entries: list[dict] = []
+        dropped = 0
+        for raw in raw_items:
+            entry = toc_mod.parse_index_item(raw)
+            if entry is None:
+                dropped += 1
+            else:
+                entries.append(entry)
+        found.append({"idx": i, "page": page, "entries": entries,
+                      "dropped": dropped})
+
+    stats = {"index_blocks": len(found), "index_toc_blocks": 0,
+             "index_back_blocks": 0, "index_entries": 0,
+             "index_entries_unpaged": 0, "index_items_dropped": 0}
+    if not found:
+        return {}, stats
+
+    groups = toc_mod.classify_index_groups(found, total_pages)
+    toc_group = next((g for g in groups if g.get("is_toc")), None)
+    if toc_group:
+        # 跨页目录必须整组推断，否则每页第一条小节会被判成一级
+        toc_mod.infer_levels(toc_group["entries"])
+    for b in found:
+        b["entries"] = toc_mod.normalize_entries(b["entries"])
+
+    info: dict[int, dict] = {}
+    for g in groups:
+        for b in g["blocks"]:
+            role = "toc" if g.get("is_toc") and b.get("entries") else "index"
+            info[b["idx"]] = {**b, "role": role}
+    stats["index_entries"] = sum(len(b["entries"]) for b in found)
+    stats["index_entries_unpaged"] = sum(
+        1 for b in found for e in b["entries"] if not e.get("page"))
+    stats["index_items_dropped"] = sum(int(b["dropped"]) for b in found)
+    stats["index_toc_blocks"] = sum(1 for b in info.values() if b["role"] == "toc")
+    stats["index_back_blocks"] = len(info) - stats["index_toc_blocks"]
+    return info, stats
+
+
 def content_list_to_blocks(items: list[dict], *, base: Path,
                            eq_images: dict[int, str] | None = None,
                            image_prefix: str = "",
                            footnotes: bool = True,
-                           pdf: Path | None = None) -> tuple[list[dict], dict]:
+                           pdf: Path | None = None,
+                           page_count: int | None = None) -> tuple[list[dict], dict]:
     """MinerU content_list → blocks（含 position=Page N；跳过页眉页脚等）。
 
     image_prefix：图片路径前缀（如 `mineru`），使相对路径能对上解压目录。
     footnotes：是否保留 `page_footnote` 脚注块（默认 True；False 时与页眉/页脚/页码
     一起计入 skipped_furniture）——不需要脚注的消费方（旧行为）可关闭。
+    page_count：源 PDF 总页数；用于书前目录/书末索引的位置判定（不给时按
+    max(page_idx)+1 估算）。
 
     页眉/页脚图片：若某 image/chart 的 bbox 与**其它页**的 header/footer/page_number/
     aside_text 块重合，按家具丢弃（reader 2026-10-21：CSP2020 最后一页 logo 被
     MinerU 误判成 image）。`page_footnote` 是正文脚注，不参与该判定。
+
+    `type:"index"`（以及 sub_type 为 toc/contents 的 `list`）不再当家具：解析成
+    内部 `toc` 块（书前目录）或 `index` 块（书末索引/无法区分）。`blocks_to_doc()`
+    把 `toc` 块写成页级 `page_role`/`toc_entries`；`annotate_doc()` 只做统计与兜底。
     """
     eq_images = eq_images or {}
     prefix = f"{image_prefix.strip('/')}/" if image_prefix else ""
+    total_pages = int(page_count or 0)
+    if not total_pages:
+        total_pages = max((int(it.get("page_idx") or 0) for it in items
+                           if isinstance(it, dict)), default=-1) + 1
+    index_info, index_stats = _scan_index_blocks(items, total_pages)
     blocks: list[dict] = []
     stats = {"items": len(items), "skipped_furniture": 0, "footnotes": 0,
              "equations": 0, "tables": 0, "images": 0, "headings": 0, "codes": 0,
              "charts": 0, "images_dropped": 0, "furniture_images": [],
              "figure_text_removed": 0, "figure_text_overlap": 0,
-             "figure_text_overlaps": []}
+             "figure_text_overlaps": [], **index_stats}
     # 先收集「家具类型块」的 bbox（跨页重复页眉/页脚的位置）
     furniture_boxes: list[tuple[int, list[float]]] = []
     for it in items:
@@ -1235,6 +1333,13 @@ def content_list_to_blocks(items: list[dict], *, base: Path,
         t = it.get("type")
         page = int(it.get("page_idx") or 0) + 1
         pos = f"Page {page}"
+        if i in index_info:
+            info = index_info[i]
+            kind = "toc" if info.get("role") == "toc" else "index"
+            blocks.append({"type": kind, "position": pos,
+                           "entries": info.get("entries") or [],
+                           "source": "mineru-index"})
+            continue
         if t == "text":
             raw = text_fixes.get(i, it.get("text") or "")
             text = raw.strip()
@@ -1592,7 +1697,8 @@ def parse_to_blocks(client, pdf: Path, out_dir: Path, *, max_pages: int = 200,
                                      image_prefix="mineru")
     blocks, stats = content_list_to_blocks(parsed["items"], base=out_dir,
                                            eq_images=eq_images, image_prefix="mineru",
-                                           footnotes=footnotes, pdf=pdf)
+                                           footnotes=footnotes, pdf=pdf,
+                                           page_count=parsed["pages"])
     # 选择题缺选项：原页 OCR 补回 / 标记不完整（reader 2026-10-21；先于缝合，bbox 用完即清）
     blocks, ostats = repair_missing_options(blocks, pdf=pdf)
     stats = {**stats, **ostats}

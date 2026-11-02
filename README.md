@@ -127,10 +127,10 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 
 - 支持 HTTP OpenAI 兼容服务（DeepSeek、Kimi、通义千问、智谱 GLM、MiniMax、OpenRouter、OpenAI 等），也支持本地 OpenAI 兼容端点（Ollama、llama.cpp、LM Studio）。
 - **AI 助读**：选中文本解释、总结、追问、翻译，读取书籍上下文；可以自定义提示词和回复语言。
-- **AI 伴读**：AI 对话会记录提问时所在的书籍位置，点击位置标签即可回到书内；支持整页截图或框选截图提问，并结合当前书籍上下文继续追问。
+- **AI 伴读**：AI 对话会记录提问时所在的书籍位置，点击位置标签即可回到书内；支持整页截图或框选截图提问，并结合当前书籍上下文继续追问。顶部只保留新建对话、本书历史对话和关闭；阅读笔记改在阅读器主工具栏打开，历史对话也只列出当前这本书的会话，避免把别的书的上下文带进来。
 - **AI 书坊**：推断元数据、生成封面文案、建议分章规则、按块做最小文本清理、在成书时生成中英 / 英中双语对照。
 - **AI 书库整理**：按用户确认的标签范围给书库批量打标签，可限定当前筛选、保留已有标签，并撤销上一次整理。
-- **文档工具**：伴读侧栏的「文档工具」现在会列出制作电子书、翻译、双语 / 左右对照、文白对照和简繁转换等成书能力；选择后先确认参数，不会自动开始。
+- **文档工具**：伴读侧栏的「文档工具」会在对话里带编号列出当前文档可做的操作，鼠标停留可看简短说明；选择后先确认参数，不会自动开始，也不再弹出单独的「我能对文档做什么」窗口。
 - **AI 答题页**：生成答案、解析和整页交互 HTML（实验功能）。
 - 不配置 AI 时，阅读、标注、笔记、转换、成书全部照常工作；AI 请求只在用户主动操作时发生。
 
@@ -159,7 +159,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 
 **OCR 或格式转换提示缺少组件怎么办？**
 
-pdf_tool、MinerU、DocVortex、Calibre 等是可选外部工具；在「设置 → 书坊」里配置或探测即可。缺少组件只影响对应工具，不影响阅读已有书籍。
+pdf_tool、MinerU、DocVortex、Calibre 等是可选外部工具；在「设置 → 书坊」里配置或探测即可。缺少组件只影响对应工具，不影响阅读已有书籍。本地 MinerU 默认自动查找程序并直接走本机 CLI，不需要填写地址或端口；常驻服务是高级选项，点「启动服务」时会自动使用 `http://127.0.0.1:8123`。
 
 **网络搜书下载的内容可以直接使用吗？**
 
@@ -167,7 +167,14 @@ pdf_tool、MinerU、DocVortex、Calibre 等是可选外部工具；在「设置 
 
 **阅读笔记在哪里？**
 
-每本书可以关联一篇普通 Markdown 阅读笔记，笔记和书籍数据默认保存在本机；可在设置中调整笔记文件夹。
+每本书可以关联一篇普通 Markdown 阅读笔记，笔记和书籍数据默认保存在本机；可在设置中调整笔记文件夹。打开笔记面板后可点「编辑」直接写 Markdown，内容会自动保存；需要复杂排版或批量整理时，用「在文件中打开」交给系统默认 Markdown 工具。
+
+**「保存为独立笔记」和「追加到本书阅读笔记」有什么区别？**
+
+- **保存为独立笔记**：新建一篇 Markdown 笔记，可以改标题、文件夹和标签；本书阅读笔记里只留下指向它的链接。
+- **追加到本书阅读笔记**：把内容直接写入本书已关联的那一篇阅读笔记，不新建文件。
+- 一本书可以有一篇关联阅读笔记，也可以有很多篇独立笔记；每条 AI 或手动记录都会带上时间、来源，以及「AI 回复 / 手动输入」标记。
+- 桌面版会识别阅读笔记里的 `[[独立笔记]]` 链接，点击后直接在右侧笔记面板打开，不依赖 Obsidian。
 
 ## 从源码运行
 
@@ -305,7 +312,7 @@ Keys use OS credential storage. Cloud AI, Google Translate and MinerU cloud OCR 
 
 **What if OCR or conversion reports a missing component?**
 
-pdf_tool, MinerU, DocVortex and Calibre are optional external tools. Configure or probe them in Workshop settings; a missing tool affects only that feature, not reading.
+pdf_tool, MinerU, DocVortex and Calibre are optional external tools. Configure or probe them in Workshop settings; a missing tool affects only that feature, not reading. Local MinerU discovers the executable and uses the local CLI by default, so no address or port is required. The resident service is an advanced option and uses `http://127.0.0.1:8123` when started.
 
 **Are books found online free to use?**
 

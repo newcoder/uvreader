@@ -40,7 +40,8 @@ def main() -> int:
     ap.add_argument("--no-footnotes", action="store_true",
                     help="mode=mineru：不保留脚注块（page_footnote）；默认保留")
     ap.add_argument("--no-structure", action="store_true",
-                    help="不补结构信息（目录页 page_role/toc_entries 与跨页续行 continuation）")
+                    help="不补推断结构（文本目录 page_role/toc_entries、跨页续行 "
+                         "continuation）；MinerU 源 index 目录仍保留")
     ap.add_argument("--force", action="store_true")
     args = ap.parse_args()
 

@@ -673,12 +673,34 @@ body.qbr-reading #app-nav {
   font-size: var(--font-ui-small);
 }
 
+.qbr-mineru-service-advanced {
+  margin: 8px 0;
+}
+
+.qbr-mineru-service-advanced > summary {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  cursor: pointer;
+}
+
+.qbr-mineru-service-advanced[open] > summary {
+  margin-bottom: 8px;
+}
+
+.qbr-note-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .qbr-note-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 12px;
+  flex: 0 0 auto;
 }
 
 .qbr-note-title {
@@ -700,9 +722,64 @@ body.qbr-reading #app-nav {
 }
 
 .qbr-note-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   font-size: 14px;
   line-height: 1.7;
   word-break: break-word;
+}
+
+.qbr-note-body-editing {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.qbr-note-editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 8px;
+  flex: 0 0 auto;
+}
+
+.qbr-note-tool {
+  padding: 2px 8px;
+  font-size: var(--font-ui-smaller);
+}
+
+.qbr-note-save-status {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.qbr-note-save-status.is-error {
+  color: var(--text-error);
+}
+
+.qbr-note-editor {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 180px;
+  box-sizing: border-box;
+  resize: none;
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.65;
+  tab-size: 2;
+}
+
+.qbr-note-editor:focus {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
 }
 
 .qbr-note-body h1,
@@ -726,6 +803,17 @@ body.qbr-reading #app-nav {
 
 .qbr-note-body a {
   color: var(--text-accent);
+}
+
+.qbr-wikilink {
+  color: var(--text-accent);
+  text-decoration: none;
+  border-bottom: 1px dotted color-mix(in srgb, var(--text-accent) 55%, transparent);
+  cursor: pointer;
+}
+
+.qbr-wikilink:hover {
+  text-decoration: underline;
 }
 
 .qbr-note-empty {
@@ -944,14 +1032,6 @@ body .view-content.qiaomu-reader-view .qiaomu-reader-pdf-zoom-control {
 .qbr-workshop-toggle:hover {
   background: var(--background-modifier-hover);
   color: var(--text-normal);
-}
-
-.qbr-workshop-capabilities-open {
-  right: 60px;
-  width: auto;
-  padding: 0 10px;
-  font: inherit;
-  font-size: 12px;
 }
 
 .qbr-workshop-body {
@@ -1629,20 +1709,4 @@ body .view-content.qiaomu-reader-view .qiaomu-reader-pdf-zoom-control {
 @media (max-width:640px) {
   .qbr-quiz-list-item { align-items:flex-start; flex-direction:column; }
   .qbr-quiz-list-item-actions { align-self:flex-start; }
-}
-
-/* ── 书坊能力目录 ───────────────────────────────────────────────────── */
-.qbr-capability-modal { max-width: 760px; }
-.qbr-capability-lead { margin: 0 0 16px; color: var(--text-muted); font-size: 13px; line-height: 1.65; }
-.qbr-capability-group { margin: 18px 0 8px; font-size: 13px; }
-.qbr-capability-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.qbr-capability-card { display: flex; flex-direction: column; gap: 5px; padding: 12px; border: 1px solid var(--background-modifier-border); border-radius: 9px; background: var(--background-secondary); }
-.qbr-capability-title { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-weight: 600; font-size: 13px; }
-.qbr-capability-badge { padding: 1px 7px; border-radius: 999px; color: var(--color-green,#15803d); background: color-mix(in srgb,var(--color-green,#15803d) 13%,transparent); font-size: 10px; font-weight: 500; }
-.qbr-capability-summary { color: var(--text-normal); font-size: 12px; line-height: 1.55; }
-.qbr-capability-cue { color: var(--text-faint); font-size: 11px; line-height: 1.5; }
-.qbr-capability-open { align-self: flex-start; margin-top: 3px; padding: 3px 10px; border: 1px solid var(--background-modifier-border); border-radius: 6px; background: transparent; color: var(--text-accent); font: inherit; font-size: 12px; cursor: pointer; }
-.qbr-capability-open:hover { border-color: var(--text-accent); background: color-mix(in srgb,var(--text-accent) 8%,transparent); }
-@media (max-width:640px) {
-  .qbr-capability-grid { grid-template-columns: 1fr; }
 }

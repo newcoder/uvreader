@@ -86,6 +86,25 @@ test("MarkdownView renders the file content", async () => {
   }
 });
 
+test("openLinkText resolves note links and opens them through the host note panel", async () => {
+  const env = setupHost();
+  try {
+    const app = createApp({ workspaceEl: document.body });
+    const note = await app.vault.create("notes/reading.md", "# Note\n\nbody");
+    let opened = null;
+    app.qbrDesktopOpenNote = async (file) => { opened = file; return {}; };
+    assert.equal(await app.workspace.openLinkText("[[reading]]", "notes/source.md", "tab"), true);
+    assert.equal(opened, note);
+    opened = null;
+    assert.equal(await app.workspace.openLinkText("notes/reading.md", "", "tab"), true);
+    assert.equal(opened, note);
+    delete app.qbrDesktopOpenNote;
+    assert.equal(await app.workspace.openLinkText("notes/reading.md"), true);
+  } finally {
+    env.cleanup();
+  }
+});
+
 test("getRightLeaf reuses the existing sidebar leaf", async () => {
   const env = setupHost();
   try {

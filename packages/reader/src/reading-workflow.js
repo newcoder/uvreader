@@ -4,12 +4,13 @@ export async function aiAnswerMarker(bookPath, answer, crypto = window.crypto) {
   return `<!-- qiaomu-ai-answer:${Array.from(new Uint8Array(digest), (v) => v.toString(16).padStart(2, "0")).join("")} -->`;
 }
 
-export function appendAiAnswer(existing, { title, answer, marker }) {
+export function appendAiAnswer(existing, { title, answer, marker, meta = "" }) {
   if (existing.includes(marker)) return existing;
   const heading = String(title || "").replace(/[\r\n]+/g, " ").trim();
   const ownHeading = /^#{1,6}\s+([^\n]+)(?:\n|$)/.exec(answer.trim())?.[1].trim();
   const section = ownHeading === heading ? "" : `## ${heading}\n\n`;
-  return `${existing.replace(/\s*$/, "")}\n\n${section}${marker}\n\n${answer.trim()}\n`;
+  const metaLine = String(meta || "").trim();
+  return `${existing.replace(/\s*$/, "")}\n\n${section}${marker}\n\n${metaLine ? `${metaLine}\n\n` : ""}${answer.trim()}\n`;
 }
 
 export function verifiedQuotes(answer, sources) {

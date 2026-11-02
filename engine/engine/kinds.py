@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 from .jobs import Job, report_progress
-from .mineru import local_kit_problem
+from .mineru import local_kit_problem, local_service_healthy
 
 # ── LaTeX → MathML(同步接口)──────────────────────────────────────────
 
@@ -275,22 +275,19 @@ def run_extract(job: Job) -> dict:
     python = str(job.args.get("python") or config.get("python") or "").strip() or sys.executable
     mode = str(job.args.get("mode") or "mineru").strip() or "mineru"
     formats = str(job.args.get("formats") or "json").strip() or "json"
-    args = [str(script), "--pdf", source, "--mode", mode, "--formats", formats, "--out-dir", out_dir]
     model = str(job.args.get("model") or config.get("mineruModel") or "").strip()
-    if model:
-        args.extend(["--mineru-model", model])
-    mineru_source = str(job.args.get("mineruSource") or "").strip()
-    if mineru_source and mineru_source != "auto":
-        args.extend(["--mineru-source", mineru_source])
     pages = str(job.args.get("pages") or "").strip()
-    if pages:
-        args.extend(["--pages", pages])
-    env = dict(os.environ)
-    # 与应用的约定一致:地址 / 令牌 / 本地程序走环境;中文报错按 UTF-8 出来。
-    env["MINERU_LOCAL_URL"] = str(config.get("mineruLocalUrl") or "")
-    if str(config.get("mineruToken") or "").strip():
-        env["MINERU_TOKEN"] = str(config["mineruToken"])
+    requested_source = str(job.args.get("mineruSource") or "").strip().lower()
+    token = str(config.get("mineruToken") or "").strip()
+    configured_url = str(config.get("mineruLocalUrl") or "").strip()
     local_exe = str(config.get("mineruLocalExe") or "").strip()
+
+    # Local-first: a working local service/CLI must win over a cloud token in
+    # auto mode. Cloud is used only when it was requested explicitly or when no
+    # local MinerU is available. A dead local service is not handed to
+    # pdf_tool; the verified CLI remains usable instead.
+    local_url_ok = bool(configured_url) and local_service_healthy(configured_url)
+    local_exe_ok = False
     if local_exe:
         problem = local_kit_problem(local_exe)
         if problem:
@@ -300,9 +297,34 @@ def run_extract(job: Job) -> dict:
                 "ignoring unusable mineruLocalExe %s: %s", local_exe, problem
             )
         else:
-            env["MINERU_LOCAL_CMD"] = local_exe
+            local_exe_ok = True
+
+    if requested_source in ("local", "cloud"):
+        effective_source = requested_source
+    elif local_url_ok or local_exe_ok:
+        effective_source = "local"
+    elif token:
+        effective_source = "cloud"
+    else:
+        effective_source = ""
+
+    env = dict(os.environ)
+    # 与应用的约定一致:地址 / 令牌 / 本地程序走环境;中文报错按 UTF-8 出来。
+    env["MINERU_LOCAL_URL"] = configured_url if local_url_ok else ""
+    if token:
+        env["MINERU_TOKEN"] = token
+    if local_exe_ok:
+        env["MINERU_LOCAL_CMD"] = local_exe
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
+
+    args = [str(script), "--pdf", source, "--mode", mode, "--formats", formats, "--out-dir", out_dir]
+    if model:
+        args.extend(["--mineru-model", model])
+    if effective_source:
+        args.extend(["--mineru-source", effective_source])
+    if pages:
+        args.extend(["--pages", pages])
     code, output = run_process(job, python, args, cwd=str(config.get("pdfToolDir") or "").strip() or None,
                                env=env, timeout=float(job.args.get("timeoutMs") or 1800_000) / 1000.0,
                                label="pdf_tool 提取中…")
