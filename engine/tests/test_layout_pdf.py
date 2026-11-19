@@ -203,6 +203,42 @@ class LayoutJobTest(unittest.TestCase):
         finally:
             check.close()
 
+    def test_run_layout_pdf_does_not_copy_the_full_outline_into_a_subset(self):
+        import pymupdf
+
+        work = tempfile.mkdtemp(prefix="qbr-layout-subset-")
+        source = os.path.join(work, "text.pdf")
+        document = pymupdf.open()
+        for index in range(4):
+            page = document.new_page(width=400, height=600)
+            page.insert_text((30, 80), f"第{index + 1}页的文字版正文，保留原样。" * 4, fontsize=12)
+        document.set_toc([[1, "第一章", 1], [1, "第二章", 4]])
+        document.save(source)
+        document.close()
+
+        layout_path = os.path.join(work, "layout.json")
+        with open(layout_path, "w", encoding="utf-8") as handle:
+            json.dump({"pages": [{"page": page, "blocks": []} for page in (2, 3)]}, handle)
+
+        output = os.path.join(work, "out.pdf")
+        job = Job(id="test", kind="layout-pdf", args={
+            "source": source,
+            "out": output,
+            "layout": layout_path,
+            "pages": "2-3",
+        })
+        with mock.patch.object(layout_pdf, "RapidOcr", lambda: FakeOcr([])):
+            result = layout_pdf.run_layout_pdf(job)
+        self.assertEqual(result["pages"], 2)
+        self.assertEqual(result["native"], 2)
+        self.assertEqual(result["toc"], 0)
+        check = pymupdf.open(output)
+        try:
+            self.assertEqual(check.page_count, 2)
+            self.assertEqual(check.get_toc(), [])
+        finally:
+            check.close()
+
     def test_run_layout_pdf_rejects_partial_layout_for_full_run(self):
         import pymupdf
 

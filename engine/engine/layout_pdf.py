@@ -706,9 +706,11 @@ def run_layout_pdf(job) -> dict:
                 continue
             if title and 1 <= page <= output.page_count:
                 toc_rows.append([level, title, page])
-        if not toc_rows:
+        if not toc_rows and not str(job.args.get("pages") or "").strip():
             # The source may already carry a proper outline (born-digital
             # books). Never drop it just because no printed TOC was extracted.
+            # Subset runs must not copy it: its page numbers refer to the whole
+            # book, not to the extracted slice.
             for level, title, page in document.get_toc(simple=True):
                 if 1 <= int(page or 0) <= output.page_count and str(title or "").strip():
                     toc_rows.append([min(3, max(1, int(level or 1))), str(title).strip(), int(page)])
