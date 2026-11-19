@@ -42,7 +42,16 @@ class LayoutHelpersTest(unittest.TestCase):
     def test_clean_text_removes_superscript_spacing(self):
         self.assertEqual(layout_pdf.clean_text("消息^{①} ？"), "消息①？")
         self.assertEqual(layout_pdf.clean_text("银蒜^{②} 押帘"), "银蒜②押帘")
-        self.assertEqual(layout_pdf.clean_text("图解 纳兰词"), "图解 纳兰词")
+
+    def test_clean_text_drops_ocr_spaces_between_cjk_glyphs(self):
+        # MinerU separates phrases with spaces; drawn at the OCR box width they
+        # push the last glyph past a panel or the page edge.
+        self.assertEqual(layout_pdf.clean_text("名为《侧帽集》， 后更名为《饮"), "名为《侧帽集》，后更名为《饮")
+        self.assertEqual(layout_pdf.clean_text("纳 兰 性 德"), "纳兰性德")
+        self.assertEqual(layout_pdf.clean_text("● 词在康熙时复兴的原因"), "词在康熙时复兴的原因")
+        # Latin words and numbers keep their spacing.
+        self.assertEqual(layout_pdf.clean_text("共 349 首，风格清新"), "共 349 首，风格清新")
+        self.assertEqual(layout_pdf.clean_text("Machine Learning 入门"), "Machine Learning 入门")
 
     def test_align_lines_takes_characters_from_mineru(self):
         lines = [
@@ -105,6 +114,24 @@ class LayoutHelpersTest(unittest.TestCase):
         background, spread = layout_pdf.ring_background(image, [40, 40, 160, 60])
         self.assertLess(spread, 1.0)
         self.assertTrue((background > 200).all() or (background < 220).all())
+
+    def test_rect_background_finds_the_bar_under_a_heading(self):
+        import numpy as np
+
+        patch = np.full((60, 600, 3), (130, 69, 42), dtype=np.uint8)
+        patch[:, 100:280] = (250, 250, 250)  # white title glyphs on the bar
+        background, share = layout_pdf.rect_background(patch)
+        self.assertGreaterEqual(share, 0.5)
+        self.assertTrue(np.allclose(background, [130, 69, 42], atol=2))
+
+    def test_rect_background_rejects_a_mixed_box(self):
+        import numpy as np
+
+        patch = np.zeros((60, 600, 3), dtype=np.uint8)
+        patch[:, :300] = (250, 250, 250)
+        patch[:, 300:] = (20, 90, 200)
+        background, _share = layout_pdf.rect_background(patch)
+        self.assertIsNone(background)
 
     def test_pick_font_returns_an_existing_path_or_builtin(self):
         path, name = layout_pdf.pick_font("")

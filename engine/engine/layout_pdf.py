@@ -34,6 +34,17 @@ MAX_ANGLE = 5.0
 JPEG_QUALITY = 70
 SKIP_BLOCK_TYPES = {"image", "table"}
 MIXED_BACKGROUND_STD = 15.0
+# Text over artwork is kept as raster: a flat fill leaves bands across the
+# picture. Background pixels inside the line box stay below this on paper.
+TEXTURE_STD = 12.0
+# Background samples stay close to the line box: a wider ring reaches the
+# neighbouring line on tight leading and makes a plain page look "mixed", which
+# used to leave every other paragraph as unscanned raster.
+BACKGROUND_PAD = 2
+# Headings on a colour bar fill their band, so the ring straddles the bar edge.
+# For those blocks the dominant colour inside the line box is the background.
+TITLE_KINDS = {"doc_title", "paragraph_title", "header", "footer"}
+CJK_RANGES = r"\u3400-\u4dbf\u4e00-\u9fff\u3000-\u303f\uff00-\uffef"
 
 
 # ── small pure helpers (unit-testable, no heavy imports) ────────────────────
@@ -69,6 +80,14 @@ def clean_text(text: str) -> str:
     value = re.sub(r"\s*([\u2460-\u2473\u24ea-\u24ff])\s*", r"\1", value)
     value = re.sub(r"\s+([，。！？；：、）》」』】])", r"\1", value)
     value = re.sub(r"([（《「『【])\s+", r"\1", value)
+    # MinerU separates some runs with spaces ("集， 名", "《纳兰词》 的"), which
+    # pushes a line past its OCR box. Drop spaces only between CJK characters;
+    # Latin words, numbers and code keeps its spacing.
+    value = re.sub(rf"(?<=[{CJK_RANGES}])[ \t\u00a0]+(?=[{CJK_RANGES}])", "", value)
+    value = re.sub(r"[ \t]{2,}", " ", value)
+    # Bullets belong to the printed page, not to the OCR line box: MinerU often
+    # keeps the bullet while the box starts after it, which drew "●●".
+    value = re.sub(r"^[\u25cf\u25cb\u25c6\u25c7\u25a0\u25a1\u25aa\u25ab\u2022]+[ \t]*", "", value)
     return value.strip()
 
 
@@ -251,11 +270,14 @@ def text_mask(subimage, background):
     import numpy as np
 
     distance = np.sqrt(((subimage.astype(np.float32) - background.astype(np.float32)) ** 2).sum(axis=2))
-    if float(distance.max()) < 25:
+    if float(distance.max()) < 18:
         return None, distance
     distance8 = np.clip(distance, 0, 255).astype(np.uint8)
     threshold, _ = cv2.threshold(distance8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    threshold = max(30, int(threshold))
+    # Keep the anti-aliased fringe: a higher cut-off leaves a grey ghost of the
+    # printed glyph under the new text, which reads as "the scan was not
+    # replaced" at normal zoom.
+    threshold = max(14, int(threshold * 0.45))
     mask = (distance > threshold).astype(np.uint8)
     count, labels, stats, _ = cv2.connectedComponentsWithStats(mask, 8)
     height, width = subimage.shape[:2]
@@ -266,6 +288,28 @@ def text_mask(subimage, background):
         if area <= 0.45 * width * height and box_height <= height * 0.95:
             keep[labels == index] = 1
     return keep, distance
+
+
+def rect_background(patch) -> tuple[object, float]:
+    """Dominant colour inside a line box and the share of pixels it covers.
+
+    Headings printed on a colour bar fill the bar, so the ring around the box
+    mixes the bar with the page and looks "mixed". Their own box is almost
+    entirely one colour; use that when it is a clear majority.
+    """
+    import cv2
+    import numpy as np
+
+    if patch is None or patch.size == 0:
+        return None, 0.0
+    luminance = patch.astype(np.int16).mean(axis=2).astype(np.uint8)
+    threshold, _ = cv2.threshold(luminance, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    dark = luminance <= threshold
+    for group in (dark, ~dark):
+        share = float(group.mean())
+        if share >= 0.55:
+            return np.median(patch[group], axis=0), share
+    return None, 0.0
 
 
 def pick_font(preferred: str = "") -> tuple[str, str]:
@@ -385,7 +429,9 @@ def _draw_text(page, font, fontfile: str, item: dict, zoom: float, fallback=None
     unit = chosen.text_length(text, 1.0)
     size = rect_height * 0.95
     if unit > 0:
-        size = min(size, rect_width * 1.02 / unit)
+        # 0.99 keeps the last glyph inside the OCR box; 1.02 used to push the
+        # line past a panel border and clip it at the page edge.
+        size = min(size, rect_width * 0.99 / unit)
     size = max(4.0, size)
     descender = -chosen.descender * size
     baseline = y1 - descender * 0.55
@@ -405,11 +451,14 @@ def _draw_text(page, font, fontfile: str, item: dict, zoom: float, fallback=None
 
 
 def process_page(page, blocks: list[dict], ocr, font, fontfile: str, dpi: float,
-                 cache_dir: str | Path, source_mtime: float, fallback=None) -> dict:
+                 cache_dir: str | Path, source_mtime: float, fallback=None,
+                 replace: bool = True) -> dict:
     """Build one output page.
 
     Returns ``{"image": bytes|None, "items": [...], "visible": int}``.
     ``image`` is the cleaned JPEG; ``None`` means keep the original pixels.
+    ``replace=False`` keeps the artwork (book covers) and only adds the
+    invisible text layer used for search.
     """
     import fitz
     import numpy as np
@@ -426,6 +475,13 @@ def process_page(page, blocks: list[dict], ocr, font, fontfile: str, dpi: float,
     items = choose_lines(blocks, lines, pixmap.width, pixmap.height)
     if not items:
         return {"image": None, "items": [], "visible": 0}
+    for item in items:
+        item["text"] = clean_text(item.get("text") or "")
+    if not replace:
+        for item in items:
+            item["visible"] = False
+            item["color"] = (0.0, 0.0, 0.0)
+        return {"image": None, "items": items, "visible": 0}
 
     clean = image.copy()
     visible = 0
@@ -438,25 +494,41 @@ def process_page(page, blocks: list[dict], ocr, font, fontfile: str, dpi: float,
             item["visible"] = False
             item["color"] = (0.0, 0.0, 0.0)
             continue
-        background, spread = ring_background(image, item["rect"])
+        background, spread = ring_background(image, item["rect"], pad=BACKGROUND_PAD)
         if background is None:
             item["visible"] = False
             item["color"] = (0.0, 0.0, 0.0)
             continue
         if spread > MIXED_BACKGROUND_STD:
-            # The box crosses two backgrounds (title bar + page). Keeping the
-            # original pixels is far better than guessing a fill colour.
-            item["visible"] = False
-            item["color"] = (0.0, 0.0, 0.0)
-            continue
+            # A heading on a colour bar fills its band, so the ring also sees
+            # the page beyond the bar. Its own box is still one flat colour.
+            candidate, share = rect_background(image[y0:y1, x0:x1])
+            if item.get("kind") in TITLE_KINDS and candidate is not None and share >= 0.55:
+                background = candidate
+            else:
+                # The box really crosses two backgrounds (artwork or a rule).
+                # Keeping the original pixels is better than guessing a fill.
+                item["visible"] = False
+                item["color"] = (0.0, 0.0, 0.0)
+                continue
         mask, distance = text_mask(subimage, background)
         if mask is None or int(mask.sum()) < 8:
             item["visible"] = False
             item["color"] = (0.0, 0.0, 0.0)
             continue
+        # Text printed over an illustration has a structured background. Filling
+        # the glyphs with one colour leaves visible bands across the artwork, so
+        # keep those lines as raster instead of smearing the picture.
+        halo = cv2_dilate(mask, size=11)
+        remaining = subimage[halo == 0]
+        texture = float(np.mean(np.std(remaining.astype(np.float32), axis=0))) if len(remaining) >= 50 else 0.0
+        if texture > TEXTURE_STD:
+            item["visible"] = False
+            item["color"] = (0.0, 0.0, 0.0)
+            continue
         flat = subimage.reshape(-1, 3)
         flat_distance = distance.reshape(-1)
-        top = max(1, int(len(flat_distance) * 0.05))
+        top = max(1, int(len(flat_distance) * 0.08))
         indexes = np.argsort(flat_distance)[-top:]
         item["color"] = tuple((np.median(flat[indexes], axis=0) / 255.0).tolist())
         mask = cv2_dilate(mask)
@@ -470,11 +542,11 @@ def process_page(page, blocks: list[dict], ocr, font, fontfile: str, dpi: float,
     return {"image": buffer.getvalue(), "items": items, "visible": visible}
 
 
-def cv2_dilate(mask):
+def cv2_dilate(mask, size: int = 7):
     import cv2
     import numpy as np
 
-    return cv2.dilate(mask, np.ones((5, 5), np.uint8), iterations=1)
+    return cv2.dilate(mask, np.ones((size, size), np.uint8), iterations=1)
 
 
 # ── engine job ─────────────────────────────────────────────────────────────
@@ -547,6 +619,10 @@ def run_layout_pdf(job) -> dict:
         source_mtime = Path(source).stat().st_mtime
         replaced = 0
         kept = 0
+        # The cover and back cover are artwork: retypesetting their display
+        # lettering in SimSun (and MinerU's block order for it) looks broken.
+        # Keep the pixels and add only the invisible search text.
+        artwork_pages = {1, total_pages} if total_pages >= 3 else set()
         report_progress(job, done=0, total=len(pages), label="保留版式重排…")
         for index, page_number in enumerate(pages, start=1):
             if job.cancelled():
@@ -556,7 +632,8 @@ def run_layout_pdf(job) -> dict:
             result = {"image": None, "items": [], "visible": 0}
             if blocks:
                 result = process_page(
-                    page, blocks, ocr, font, fontfile, dpi, cache_dir, source_mtime, fallback
+                    page, blocks, ocr, font, fontfile, dpi, cache_dir, source_mtime, fallback,
+                    replace=page_number not in artwork_pages,
                 )
             if result["image"] is None:
                 output.insert_pdf(document, from_page=page_number - 1, to_page=page_number - 1)
