@@ -133,6 +133,29 @@ class LayoutHelpersTest(unittest.TestCase):
         background, _share = layout_pdf.rect_background(patch)
         self.assertIsNone(background)
 
+    def test_page_has_native_text_skips_born_digital_pages(self):
+        import io
+
+        import pymupdf
+        from PIL import Image
+
+        document = pymupdf.open()
+        text_page = document.new_page(width=400, height=600)
+        text_page.insert_text((30, 80), "这是文字版的一整段正文，应该原样保留。" * 4, fontsize=12)
+        self.assertTrue(layout_pdf.page_has_native_text(text_page))
+
+        image = Image.new("RGB", (200, 300), "white")
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        scan_page = document.new_page(width=400, height=600)
+        scan_page.insert_image(scan_page.rect, stream=buffer.getvalue())
+        self.assertFalse(layout_pdf.page_has_native_text(scan_page))
+        # A scan with an invisible OCR layer is still a scan: the covering image
+        # is the tell, so it must go through the repaint path.
+        scan_page.insert_text((30, 80), "扫描页上的不可见文字层" * 4, fontsize=12, render_mode=3)
+        self.assertFalse(layout_pdf.page_has_native_text(scan_page))
+        document.close()
+
     def test_pick_font_returns_an_existing_path_or_builtin(self):
         path, name = layout_pdf.pick_font("")
         if path:
@@ -142,6 +165,44 @@ class LayoutHelpersTest(unittest.TestCase):
 
 
 class LayoutJobTest(unittest.TestCase):
+    def test_run_layout_pdf_keeps_a_born_digital_book_and_its_outline(self):
+        import pymupdf
+
+        work = tempfile.mkdtemp(prefix="qbr-layout-native-")
+        source = os.path.join(work, "text.pdf")
+        document = pymupdf.open()
+        expected = []
+        for index in range(3):
+            page = document.new_page(width=400, height=600)
+            page.insert_text((30, 80), f"第{index + 1}页的文字版正文，保留原样。" * 4, fontsize=12)
+            expected.append(page.get_text().strip()[:10])
+        document.set_toc([[1, "第一章", 1], [1, "第二章", 2]])
+        document.save(source)
+        document.close()
+
+        layout_path = os.path.join(work, "layout.json")
+        with open(layout_path, "w", encoding="utf-8") as handle:
+            json.dump({"pages": [{"page": page, "blocks": []} for page in (1, 2, 3)]}, handle)
+
+        output = os.path.join(work, "out.pdf")
+        job = Job(id="test", kind="layout-pdf", args={
+            "source": source,
+            "out": output,
+            "layout": layout_path,
+            "pages": "",
+        })
+        with mock.patch.object(layout_pdf, "RapidOcr", lambda: FakeOcr([])):
+            result = layout_pdf.run_layout_pdf(job)
+        self.assertEqual(result["native"], 3)
+        self.assertEqual(result["replaced"], 0)
+        self.assertEqual(result["toc"], 2)
+        check = pymupdf.open(output)
+        try:
+            self.assertIn(expected[0], check[0].get_text())
+            self.assertEqual(check.get_toc(simple=True), [[1, "第一章", 1], [1, "第二章", 2]])
+        finally:
+            check.close()
+
     def test_run_layout_pdf_rejects_partial_layout_for_full_run(self):
         import pymupdf
 

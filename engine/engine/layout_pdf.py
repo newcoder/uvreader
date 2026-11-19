@@ -37,6 +37,12 @@ MIXED_BACKGROUND_STD = 15.0
 # Text over artwork is kept as raster: a flat fill leaves bands across the
 # picture. Background pixels inside the line box stay below this on paper.
 TEXTURE_STD = 12.0
+# A page with real text and no page-covering image is born-digital: keep its
+# vector text instead of rasterising it. Title pages may hold only a few
+# characters, so the per-page check accepts any real text; the host's
+# whole-book preflight uses a higher bar (40 chars) before skipping MinerU.
+NATIVE_TEXT_CHARS = 4
+NATIVE_IMAGE_COVER = 0.6
 # Background samples stay close to the line box: a wider ring reaches the
 # neighbouring line on tight leading and makes a plain page look "mixed", which
 # used to leave every other paragraph as unscanned raster.
@@ -288,6 +294,31 @@ def text_mask(subimage, background):
         if area <= 0.45 * width * height and box_height <= height * 0.95:
             keep[labels == index] = 1
     return keep, distance
+
+
+def page_has_native_text(page, min_chars: int = NATIVE_TEXT_CHARS) -> bool:
+    """True when the page already carries real, selectable text.
+
+    Scanned pages may have an invisible OCR layer too; a page-covering image is
+    the tell. Those still go through the repaint path so the glyphs become
+    crisp.
+    """
+    try:
+        text = page.get_text().strip()
+    except Exception:  # noqa: BLE001 - a broken text layer is not native
+        return False
+    if len(text) < min_chars:
+        return False
+    area = abs(float(page.rect.width) * float(page.rect.height)) or 1.0
+    covered = 0.0
+    try:
+        for info in page.get_image_info():
+            bbox = info.get("bbox") or ()
+            if len(bbox) == 4:
+                covered += max(0.0, float(bbox[2]) - float(bbox[0])) * max(0.0, float(bbox[3]) - float(bbox[1]))
+    except Exception:  # noqa: BLE001 - no image info means no covering image
+        covered = 0.0
+    return covered / area <= NATIVE_IMAGE_COVER
 
 
 def rect_background(patch) -> tuple[object, float]:
@@ -619,6 +650,7 @@ def run_layout_pdf(job) -> dict:
         source_mtime = Path(source).stat().st_mtime
         replaced = 0
         kept = 0
+        native = 0
         # The cover and back cover are artwork: retypesetting their display
         # lettering in SimSun (and MinerU's block order for it) looks broken.
         # Keep the pixels and add only the invisible search text.
@@ -628,6 +660,17 @@ def run_layout_pdf(job) -> dict:
             if job.cancelled():
                 raise RuntimeError("已取消")
             page = document[page_number - 1]
+            # A born-digital page already has real, selectable text. Rasterising
+            # it and painting OCR text over the scan is a strict downgrade, so
+            # copy the vector page untouched.
+            if page_has_native_text(page):
+                output.insert_pdf(document, from_page=page_number - 1, to_page=page_number - 1)
+                native += 1
+                report_progress(
+                    job, done=index, total=len(pages),
+                    label=f"保留版式重排 {index}/{len(pages)} 页",
+                )
+                continue
             blocks = layout.get(page_number) or []
             result = {"image": None, "items": [], "visible": 0}
             if blocks:
@@ -663,6 +706,12 @@ def run_layout_pdf(job) -> dict:
                 continue
             if title and 1 <= page <= output.page_count:
                 toc_rows.append([level, title, page])
+        if not toc_rows:
+            # The source may already carry a proper outline (born-digital
+            # books). Never drop it just because no printed TOC was extracted.
+            for level, title, page in document.get_toc(simple=True):
+                if 1 <= int(page or 0) <= output.page_count and str(title or "").strip():
+                    toc_rows.append([min(3, max(1, int(level or 1))), str(title).strip(), int(page)])
         if toc_rows:
             try:
                 output.set_toc(toc_rows)
@@ -680,6 +729,7 @@ def run_layout_pdf(job) -> dict:
         "pages": len(pages),
         "replaced": replaced,
         "kept": kept,
+        "native": native,
         "toc": len(toc_rows),
         "bytes": Path(target).stat().st_size if Path(target).exists() else 0,
         "font": fontfile or "built-in china-s",

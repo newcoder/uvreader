@@ -179,7 +179,7 @@ export function findLayoutCache(cacheRoot, source, pageCount = 0, requestedPages
 
 // The text-layer job exists on every engine version; its output length is the
 // PDF page count. It is a cheap preflight for choosing a layout cache.
-async function sourcePageCount(engine, settings, source, signal) {
+async function sourceTextPages(engine, settings, source, signal) {
   const target = path.join(os.tmpdir(), `qbr-layout-pages-${process.pid}-${Date.now().toString(36)}.json`);
   try {
     const ran = await engine.runJob(settings, "text-layer", { source, out: target }, {
@@ -187,16 +187,20 @@ async function sourcePageCount(engine, settings, source, signal) {
       timeoutMs: 120_000,
       intervalMs: 500,
     });
-    if (!ran.ok) return 0;
+    if (!ran.ok) return { count: 0, native: 0 };
     const pages = JSON.parse(fs.readFileSync(target, "utf8"));
-    return Array.isArray(pages) ? pages.length : 0;
+    if (!Array.isArray(pages)) return { count: 0, native: 0 };
+    // A page with real text and no page-covering image is born-digital; the
+    // engine keeps those vector pages, and a fully digital book needs no
+    // MinerU run at all.
+    const native = pages.filter((text) => String(text || "").trim().length >= 40).length;
+    return { count: pages.length, native };
   } catch {
-    return 0;
+    return { count: 0, native: 0 };
   } finally {
     try { removeFile(target); } catch { /* temp file */ }
   }
 }
-
 function engineError(error) {
   const text = String(error || "");
   if (/未知.*作业|unknown.*job|layout-pdf/i.test(text) && /未知|unknown|400/i.test(text)) {
@@ -251,7 +255,40 @@ export function registerLayoutRunner(workshop, {
     // applied to this PDF. Subset runs only accept a cache that has every
     // requested page.
     let pageCount = 0;
-    if (!pages) pageCount = await sourcePageCount(engine, settings, source, signal);
+    let nativePages = 0;
+    if (!pages) {
+      const preflight = await sourceTextPages(engine, settings, source, signal);
+      pageCount = preflight.count;
+      nativePages = preflight.native;
+      // A born-digital book is already perfect: the repaint path would only
+      // rasterise its vector text (and MinerU would waste half an hour on it).
+      if (pageCount > 0 && nativePages >= Math.ceil(pageCount * 0.8)) {
+        if (path.resolve(out) !== path.resolve(source)) {
+          fs.mkdirSync(path.dirname(out), { recursive: true });
+          fs.copyFileSync(source, out);
+        }
+        let tocCount = 0;
+        try {
+          const outline = await engine.runJob(settings, "outline", { source }, { signal, timeoutMs: 60_000 });
+          tocCount = Number(outline?.result?.count || 0);
+        } catch { /* the copy keeps the original outline anyway */ }
+        report({ label: "已是文字版 PDF，原样保留" });
+        log("layout chain: born-digital pdf, copied as-is", pageCount, "pages");
+        return {
+          output: out,
+          detail: `PDF · 已是文字版 · 原样保留${tocCount ? ` · 目录 ${tocCount} 条` : ""} · ${path.basename(out)}`,
+          via: "native",
+          result: {
+            pages: pageCount,
+            native: pageCount,
+            replaced: 0,
+            kept: 0,
+            toc: tocCount,
+            copied: true,
+          },
+        };
+      }
+    }
     if (signal?.aborted) throw new Error("任务已取消");
     const requestedPages = requestedPageNumbers(pages);
 
@@ -371,11 +408,12 @@ export function registerLayoutRunner(workshop, {
       }
     }
 
+    const nativePart = Number(stats.native || 0) > 0 ? ` · 文字版原样保留 ${stats.native} 页` : "";
     return {
       output: out,
       detail: toc.entries.length
-        ? `PDF · 保留版式 · 目录 ${toc.entries.length} 条${tocReliable ? "" : "（偏移不确定）"}${figureInfo.count ? ` · 插图 ${figureInfo.count} 处` : ""} · ${path.basename(out)}`
-        : `PDF · 保留版式 · ${figureInfo.count ? `插图 ${figureInfo.count} 处 · ` : ""}${path.basename(out)}`,
+        ? `PDF · 保留版式 · 目录 ${toc.entries.length} 条${tocReliable ? "" : "（偏移不确定）"}${figureInfo.count ? ` · 插图 ${figureInfo.count} 处` : ""}${nativePart} · ${path.basename(out)}`
+        : `PDF · 保留版式 · ${figureInfo.count ? `插图 ${figureInfo.count} 处 · ` : ""}${nativePart ? `${nativePart.replace(/^ · /, "")} · ` : ""}${path.basename(out)}`,
       via: "engine",
       result: {
         ...stats,
