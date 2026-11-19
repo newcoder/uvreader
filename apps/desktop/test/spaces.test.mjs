@@ -56,6 +56,20 @@ test("import copies a source into books and never modifies the original", async 
   assert.equal(listed.books[0].path, imported.path);
 });
 
+test("import copies the layout figure sidecar next to the book", async () => {
+  const { root, service } = setup();
+  const source = path.join(root, "扫描.pdf");
+  fs.writeFileSync(source, "%PDF-1.4 layout");
+  fs.writeFileSync(path.join(root, "扫描.figures.json"), JSON.stringify({ figures: [{ page: 2, bbox: [0.1, 0.2, 0.5, 0.6] }] }));
+  const space = service.create({ name: "阅读", type: "reading" });
+  const result = await service.importFiles(space.id, [source]);
+  assert.equal(result.imported.length, 1);
+  const target = result.imported[0].path;
+  const sidecar = target.replace(/\.pdf$/i, ".figures.json");
+  assert.equal(fs.existsSync(sidecar), true);
+  assert.equal(JSON.parse(fs.readFileSync(sidecar, "utf8")).figures.length, 1);
+});
+
 test("the same content is reused instead of copied twice", async () => {
   const { root, service } = setup();
   const source = path.join(root, "same.epub");

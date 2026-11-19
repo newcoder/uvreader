@@ -63,6 +63,23 @@ test("form XObject matrices nest with the current transform", () => {
   ]);
 });
 
+test("a page-covering image is not treated as a figure box", () => {
+  // A scanned page (or a layout-preserved page) is one image across the page.
+  // Restoring it "unfiltered" would cover the reading-theme filter.
+  const boxes = pdfImageBoxesFromOps(
+    [OPS.transform, OPS.paintImageXObject],
+    [[600, 0, 0, 800, 0, 0], ["page", 600, 800]],
+    { ops: OPS, viewport },
+  );
+  assert.deepEqual(boxes, []);
+  const plate = pdfImageBoxesFromOps(
+    [OPS.transform, OPS.paintImageXObject],
+    [[500, 0, 0, 600, 40, 80], ["plate", 500, 600]],
+    { ops: OPS, viewport },
+  );
+  assert.equal(plate.length, 1, "a real illustration still keeps its box");
+});
+
 test("duplicate boxes are collapsed and unsupported input is ignored", () => {
   const boxes = pdfImageBoxesFromOps(
     [OPS.transform, OPS.paintImageXObject, OPS.paintImageXObject],

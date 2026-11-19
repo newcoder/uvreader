@@ -515,6 +515,17 @@ export function createSpaceService({ libraryRoot, registryPath, userData = "" } 
           await fs.promises.rm(target, { force: true });
           throw new Error("复制校验失败，已清理不完整文件");
         }
+        // Layout-preserved PDFs keep their illustration boxes in a sidecar next
+        // to the file. Without it the reader falls back to "page image boxes"
+        // and would cover the whole page, hiding the reading-theme filter.
+        if (/\.pdf$/i.test(file)) {
+          const sidecar = `${file.replace(/\.pdf$/i, "")}.figures.json`;
+          if (fs.existsSync(sidecar)) {
+            try {
+              await fs.promises.copyFile(sidecar, `${target.replace(/\.pdf$/i, "")}.figures.json`);
+            } catch { /* the PDF still imports; hotspots are optional */ }
+          }
+        }
         const source = {
           id: sourceId(),
           name: path.basename(target),

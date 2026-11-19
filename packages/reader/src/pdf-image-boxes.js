@@ -49,6 +49,10 @@ export function pdfImageBoxesFromOps(fnArray, argsArray, options = {}) {
     viewport,
     minSide = 0.025,
     minArea = 0.0015,
+    // A box that covers the page is the page raster itself (scanned pages and
+    // layout-preserved PDFs), not an illustration. Restoring it "unfiltered"
+    // would paint the whole page over the reading-theme filter.
+    maxArea = 0.9,
     maxBoxes = 80,
   } = options;
   if (!ops || !viewport?.convertToViewportPoint || !Array.isArray(fnArray)) return [];
@@ -82,6 +86,7 @@ export function pdfImageBoxesFromOps(fnArray, argsArray, options = {}) {
     const boxWidth = x1 - x0;
     const boxHeight = y1 - y0;
     if (boxWidth < minSide || boxHeight < minSide || boxWidth * boxHeight < minArea) return;
+    if (boxWidth * boxHeight >= maxArea) return;
     const key = [x0, y0, x1, y1].map((value) => value.toFixed(4)).join(",");
     if (seen.has(key)) return;
     seen.add(key);
