@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { clearMineruCaches, createMineruLocalService, mineruKitCandidates, mineruKitProblem, mineruServiceUrl, mineruStartArgs, resolveMineruKit, servicePort } from "../src/main/mineru-local.js";
+import { clearMineruCaches, createMineruLocalService, mineruKitCandidates, mineruKitProblem, mineruServiceUrl, mineruStartArgs, resolveLocalBackend, resolveMineruKit, servicePort } from "../src/main/mineru-local.js";
 
 function fakeChild() {
   const child = new EventEmitter();
@@ -219,4 +219,19 @@ test("a started service that dies is reported as stopped with the tail", async (
   assert.equal(result.status, "stopped");
   assert.match(String(result.detail), /退出码 1/);
   assert.match(String(result.detail), /cuda out of memory/);
+});
+
+test("an explicit cloud request ignores a configured local MinerU", async () => {
+  const backend = await resolveLocalBackend({
+    mineruSource: "cloud",
+    mineruLocalUrl: "http://127.0.0.1:8123",
+    mineruLocalExe: "C:/mineru/mineru-kit.exe",
+  }, {
+    probe: false,
+    readEnv: () => "",
+    exists: () => false,
+  });
+  assert.equal(backend.wantLocal, false);
+  assert.equal(backend.url, "");
+  assert.equal(backend.exe, "");
 });

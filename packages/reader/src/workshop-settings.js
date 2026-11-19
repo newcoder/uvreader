@@ -22,6 +22,8 @@ export function formulaTaskSettings(settings = {}) {
     mineruLocalUrl: String(settings.mineruLocalUrl || ""),
     mineruLocalExe: String(settings.mineruLocalExe || ""),
     mineruLocalAutoStart: settings.mineruLocalAutoStart !== false,
+    ocrScannedPdf: settings.ocrScannedPdf !== false,
+    ocrHybrid: settings.ocrHybrid === true,
     engineUrl: String(settings.engineUrl || ""),
     engineToken: String(settings.engineToken || ""),
   };

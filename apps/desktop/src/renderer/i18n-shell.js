@@ -168,6 +168,8 @@ const EN = {
   "MinerU 凭据": "MinerU credentials",
   "本地 MinerU 默认直接使用本机程序，程序路径会自动查找；地址和端口通常不用填。": "Local MinerU uses the local program by default; its path is detected automatically, so the URL and port usually do not need to be filled in.",
   "本地 MinerU 程序": "Local MinerU program",
+  "本地 MinerU(不出网)": "Local MinerU (offline)",
+  "仅 PDF 生效；云端 MinerU 需要凭据，本地 MinerU 需要可用的服务或程序。": "PDF only. Cloud MinerU needs credentials; local MinerU needs a running service or program.",
   "高级：使用本地 MinerU 常驻服务（可选）": "Advanced: use a local MinerU service (optional)",
   "服务地址留空时自动使用 http://127.0.0.1:8123；只有改端口或连接其它机器时才需要填写。常驻服务默认关闭，频繁批量提取时再开。": "Leave the service URL empty to use http://127.0.0.1:8123 automatically. Fill it in only to change the port or connect to another machine. The service is off by default; enable it for frequent batch extraction.",
   "服务地址（可选）": "Service URL (optional)",

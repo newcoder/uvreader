@@ -201,7 +201,9 @@ export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000,
         source,
         outDir: workDir,
         model: String(settings.mineruModel || "").trim() || "vlm",
-        mineruSource: String(settings.mineruSource || "") === "local" ? "local" : "",
+        mineruSource: ["local", "cloud"].includes(String(settings.mineruSource || "").trim().toLowerCase())
+          ? String(settings.mineruSource || "").trim().toLowerCase()
+          : "",
         pages,
       }, { signal, onProgress: (progress) => report?.({ label: progress.label || "书稿引擎解析中…" }) });
       if (ran.cancelled) {
@@ -239,7 +241,9 @@ export function createFormulaChain({ spawnImpl = spawn, timeoutMs = 30 * 60_000,
         outDir: workDir,
         model: String(settings.mineruModel || "").trim() || "vlm",
         pages,
-        mineruSource: backend.wantLocal ? "local" : "",
+        mineruSource: backend.wantLocal
+          ? "local"
+          : String(settings.mineruSource || "").trim().toLowerCase() === "cloud" ? "cloud" : "",
       });
       // 凭据 / 本地地址走子进程环境而不是命令行:不在进程列表里暴露。
       // MINERU_LOCAL_URL 显式给(可能为空):把父进程继承来的地址挡掉,免得 pdf_tool 去连一个死地址。

@@ -1327,7 +1327,9 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     const polish = buildPolishMarkdown({
       title,
       chapters: bookChapters.map((chapter) => ({ title: chapter.title, text: chapter.text })),
-      stripBold: settings.ocrScannedPdf === true,
+      stripBold: /\.pdf$/i.test(source)
+        && settings.ocrScannedPdf === true
+        && String(settings.extractMode || "auto") !== "text",
     });
     const tocIssues = auditNavItems(navItems, bookChapters);
     polish.report.summary.tocIssues = tocIssues.length;

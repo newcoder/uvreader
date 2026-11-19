@@ -23,6 +23,8 @@ test("the workshop owns one formula/OCR settings shape", () => {
   assert.equal(formula.ocrSidecarDir, "D:/sidecar");
   assert.equal(formula.mineruToken, "token");
   assert.equal(formula.mineruLocalAutoStart, false);
+  assert.equal(formula.ocrScannedPdf, true);
+  assert.equal(formula.ocrHybrid, false);
   assert.equal(formula.engineUrl, "http://127.0.0.1:9000");
 });
 

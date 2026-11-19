@@ -2062,6 +2062,28 @@ export function createWorkshopView(leaf, options) {
       this._bookRefresh.checked = false;
       refreshRow.createSpan({ text: t("忽略缓存重新提取(PDF / Office 会重跑上游,较慢;上游更新过提取行为时才需要)") });
 
+      // PDF 提取方式:云端 MinerU / 本地 MinerU / 文本型 / 自动。选择只作用于
+      // 本次成书,不改变设置里的全局默认值。
+      const extractModeRow = sourceStep.createDiv("qbr-workshop-row");
+      extractModeRow.createSpan({ cls: "qbr-workshop-hint", text: t("解析方式") });
+      this._bookExtractMode = extractModeRow.createEl("select", { cls: "qbr-workshop-select" });
+      for (const [value, label] of [
+        ["auto", t("自动(有 MinerU 用 MinerU,否则文本 / 扫描视觉)")],
+        ["mineru", t("MinerU 云端(公式 LaTeX、表格 HTML)")],
+        ["mineru-local", t("本地 MinerU(不出网)")],
+        ["text", t("文本型 PDF(本地取文本,不跑 OCR;无公式)")],
+      ]) {
+        this._bookExtractMode.createEl("option", { attr: { value }, text: label });
+      }
+      const savedBookExtractMode = localStorage.getItem("qbr-workshop-book-extract-mode");
+      this._bookExtractMode.value = ["auto", "mineru", "mineru-local", "text"].includes(savedBookExtractMode)
+        ? savedBookExtractMode
+        : "auto";
+      this._bookExtractMode.addEventListener("change", () => {
+        localStorage.setItem("qbr-workshop-book-extract-mode", String(this._bookExtractMode.value));
+      });
+      extractModeRow.createSpan({ cls: "qbr-workshop-hint", text: t("仅 PDF 生效；云端 MinerU 需要凭据，本地 MinerU 需要可用的服务或程序。") });
+
       // ② 目录(自动分章,可编辑)
       const chapterStep = this.bookStep(controls, "2", t("目录"), t("自动分章"));
       this._bookChaptersHost = chapterStep.createDiv("qbr-workshop-chapters");
@@ -3403,7 +3425,12 @@ export function createWorkshopView(leaf, options) {
           title: translation.mode === "none" ? t("生成电子书") : scriptMode ? t("生成简繁转换电子书") : translation.mode === "translated" ? t("生成译文电子书") : t("生成双语电子书"),
           detail: `${rel}${translation.mode === "none" ? "" : scriptMode ? t(" · 简繁转换") : translation.mode === "translated" ? t(" · 仅译文") : t(" · {0}对照", (translation.mode === "side" ? t("左右") : t("上下")))}`,
           payload: {
-            settings: this.formulaSettings(),
+            settings: (() => {
+              const selected = String(this._bookExtractMode?.value || "auto");
+              const extractMode = selected === "mineru-local" ? "mineru" : selected;
+              const mineruSource = selected === "mineru-local" ? "local" : selected === "mineru" ? "cloud" : "";
+              return { ...this.formulaSettings(), extractMode, mineruSource };
+            })(),
             source: rel,
             title: state.title,
             author: state.author,

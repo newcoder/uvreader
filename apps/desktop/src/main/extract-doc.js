@@ -548,6 +548,15 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
     const stem = path.basename(source).replace(/\.[^.]+$/, "");
     const mergedPath = path.join(workDir, "merged.md");
     const docCandidates = [path.join(workDir, `${stem}_doc.json`), path.join(workDir, `${stem}.json`)];
+    const extractModeKey = `${String(settings.extractMode || "auto").trim() || "auto"}:${String(settings.mineruSource || "").trim().toLowerCase()}`;
+    const extractModeMark = path.join(workDir, "extract-mode.txt");
+    let cachedExtractMode = "";
+    try {
+      cachedExtractMode = fs.readFileSync(extractModeMark, "utf8").trim();
+    } catch { /* 老缓存没有解析方式标记 */ }
+    const explicitMode = !/^auto:?$/i.test(extractModeKey);
+    const modeStale = explicitMode && cachedExtractMode !== extractModeKey;
+    if (modeStale) log("extract: parsing mode changed, ignoring cached markdown", `${cachedExtractMode || "(default)"} -> ${extractModeKey}`);
     const fresh = (file) => {
       try {
         return fs.existsSync(file) && fs.statSync(file).mtimeMs >= fs.statSync(source).mtimeMs - 1000;
@@ -574,7 +583,7 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
     if (engineStale) log("extract: engine changed, ignoring cached markdown", `${cachedVersion || "(none)"} -> ${engineVersion || "local"}`, engineVersion ? "" : "(health unavailable)");
     const mergeStale = readMergeVersion(workDir) !== MERGE_VERSION;
     if (mergeStale && !refresh) log("extract: merge version changed, rebuilding cached markdown", `${readMergeVersion(workDir)} -> ${MERGE_VERSION}`);
-    if (!refresh && !engineStale && !mergeStale && fresh(mergedPath) && docCandidates.some(fresh)) {
+    if (!refresh && !engineStale && !mergeStale && !modeStale && fresh(mergedPath) && docCandidates.some(fresh)) {
       log("extract: reuse cached merged markdown", mergedPath);
       const cachedRaw = fs.readFileSync(mergedPath, "utf8");
       // 老缓存里没有脚注(上游 Doc JSON 丢了这个类型):复用顺手补上,缓存自愈。
@@ -586,7 +595,7 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
       return { ok: true, markdown: cachedText, path: mergedPath, tocEntries: collectUpstreamTocEntries(docCandidates.find(fresh)), headerImages: collectHeaderImages(workDir) };
     }
     // refresh = 忽略缓存重新提取:连 Doc JSON 也不复用,真的再跑一次上游。
-    const cachedDoc = refresh || engineStale ? undefined : docCandidates.find(fresh);
+    const cachedDoc = refresh || engineStale || modeStale ? undefined : docCandidates.find(fresh);
     if (!cachedDoc) {
       // 引擎优先(可独立部署):pdf_tool 与 MinerU 凭据都在引擎侧配置;失败再回退本机 checkout。
       const viaEngine = engine && String(settings.engineUrl || "").trim()
@@ -596,7 +605,9 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
           mode: String(settings.extractMode || "auto"),
           formats: "json,md,html",
           model: String(settings.mineruModel || "").trim() || "vlm",
-          mineruSource: String(settings.mineruSource || "") === "local" ? "local" : "",
+          mineruSource: ["local", "cloud"].includes(String(settings.mineruSource || "").trim().toLowerCase())
+            ? String(settings.mineruSource || "").trim().toLowerCase()
+            : "",
           refresh: refresh === true,
         }, { signal, onProgress: (progress) => report?.({ label: progress.label || "书稿引擎解析中…" }) })
         : null;
@@ -610,7 +621,14 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
         if (viaEngine?.cancelled) return { ok: false, cancelled: true, error: "任务已取消" };
         if (viaEngine) log("extract: engine failed, falling back to local pdf_tool", viaEngine.error);
         // 交给 pdf_tool 前先去掉页眉页脚 / 页码 / 水印。
-        const args = pdfToolArgs(target.script, { source, outDir: workDir, model: String(settings.mineruModel || "").trim() || "vlm" });
+        const backend = await resolveLocalBackend(settings);
+        const requestedSource = String(settings.mineruSource || "").trim().toLowerCase();
+        const args = pdfToolArgs(target.script, {
+          source,
+          outDir: workDir,
+          model: String(settings.mineruModel || "").trim() || "vlm",
+          mineruSource: backend.wantLocal ? "local" : requestedSource === "cloud" ? "cloud" : "",
+        });
         const modeIndex = args.indexOf("--mode");
         if (modeIndex >= 0) args[modeIndex + 1] = String(settings.extractMode || "auto");
         const formatsIndex = args.indexOf("--formats");
@@ -619,7 +637,9 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
         if (refresh) args.push("--force");
         const token = String(settings.mineruToken || "").trim()
           || String(process.env.MINERU_API_KEY || process.env.MINERU_TOKEN || "").trim();
-        const backend = await resolveLocalBackend(settings);
+        if (requestedSource === "cloud" && !token) {
+          return { ok: false, error: "使用云端 MinerU 需要凭据：请先在「设置 → 书坊 → MinerU 凭据」中填写，或改用本地 MinerU。" };
+        }
         // MINERU_LOCAL_URL 显式给(可能空):挡掉父进程继承来的死地址。
         const env = { PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8", MINERU_LOCAL_URL: backend.url };
         if (token) env.MINERU_API_KEY = token;
@@ -640,6 +660,9 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
     } else {
       log("extract: reuse cached doc json", cachedDoc);
     }
+    try {
+      fs.writeFileSync(extractModeMark, extractModeKey, "utf8");
+    } catch { /* 标记写不了不影响提取 */ }
     const files = adoptPdfToolOutputs(workDir, stem, { renameAssets: false });
     if (!files.md) return { ok: false, error: "提取完成但没有找到 Markdown 产物" };
     // 文字层互补:正文逐字取 PDF 文字层(补 MinerU 丢的字),公式仍是 LaTeX。

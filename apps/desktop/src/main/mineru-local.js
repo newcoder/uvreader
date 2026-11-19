@@ -204,14 +204,18 @@ export function resolveMineruLocalUrl(settings = {}, { env = process.env, readEn
 // 程序路径始终给(helper 靠它找 venv python;服务没起来时是 CLI 的入口)。
 export async function resolveLocalBackend(settings = {}, { fetchImpl = (...args) => fetch(...args), env = process.env, exists = fs.existsSync, readEnv = () => "", probe = true } = {}) {
   const configured = resolveMineruLocalUrl(settings, { env, readEnv });
-  const wantLocal = String(settings.mineruSource || "").trim() === "local" || Boolean(configured);
-  const candidate = configured || (wantLocal ? `http://127.0.0.1:${DEFAULT_MINERU_PORT}` : "");
+  const requested = String(settings.mineruSource || "").trim().toLowerCase();
+  // An explicit cloud request must ignore a configured local service; otherwise
+  // the local-first default silently overrides the user's per-task choice.
+  const forceCloud = requested === "cloud";
+  const wantLocal = !forceCloud && (requested === "local" || Boolean(configured));
+  const candidate = forceCloud ? "" : (configured || (wantLocal ? `http://127.0.0.1:${DEFAULT_MINERU_PORT}` : ""));
   const health = probe && candidate ? await probeMineruService(candidate, { fetchImpl }) : { ok: false };
   // Never hand pdf_tool a copied venv whose Python is gone: it fails with an
   // opaque exit 103 and hides the cloud/text fallback.
-  const exe = resolveMineruKit(settings, { env, exists, validate: true });
+  const exe = forceCloud ? "" : resolveMineruKit(settings, { env, exists, validate: true });
   const configuredExe = String(settings.mineruLocalExe || "").trim();
-  const exeProblem = !exe && configuredExe ? mineruKitProblem(configuredExe, { exists }) : "";
+  const exeProblem = !forceCloud && !exe && configuredExe ? mineruKitProblem(configuredExe, { exists }) : "";
   return {
     wantLocal,
     url: health.ok ? candidate : "",
