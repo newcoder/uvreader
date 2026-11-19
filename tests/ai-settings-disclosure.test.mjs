@@ -63,6 +63,29 @@ test("provider setup exposes choices and keeps tests and prompts folded", () => 
   assert.equal(host.querySelectorAll("details[open]").length, 0);
 });
 
+test("the service picker groups OpenCode Go and Gemini and drops retired presets", () => {
+  const { host } = setup("deepseek");
+  const select = host.querySelector("select");
+  const values = [...select.options].map((option) => option.value);
+  assert.ok(values.includes("opencode-go"));
+  assert.ok(values.includes("gemini"));
+  for (const id of ["minimax", "siliconflow", "doubao"]) {
+    assert.equal(values.includes(id), false, `${id} must not remain in the picker`);
+  }
+  const groups = [...select.querySelectorAll("optgroup")];
+  const aggregators = groups.find((group) => group.label === "model-aggregators");
+  const international = groups.find((group) => group.label === "international-providers");
+  assert.ok(aggregators);
+  assert.ok(international);
+  assert.ok([...aggregators.querySelectorAll("option")].some((option) => option.value === "opencode-go"));
+  assert.ok([...international.querySelectorAll("option")].some((option) => option.value === "gemini"));
+});
+
+test("OpenCode Go exposes the thinking toggle", () => {
+  const { host } = setup("opencode-go");
+  assert.ok(host.querySelector("._aiThinkingRow"), "the advanced section keeps the thinking control for OpenCode Go");
+});
+
 test("missing cloud keys are visible; saved keys and built-in endpoints are folded", () => {
   assert.equal(folded(setup("deepseek").host.querySelector("._aiSecretRow")), false);
   const { host } = setup("deepseek", "", "saved-secret");

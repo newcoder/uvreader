@@ -10,6 +10,11 @@ export const AI_TOOL_LIMITS = Object.freeze({
   searchHits: 8,
 });
 
+const READER_TOOL_NAMES = new Set([
+  "get_reading_position", "get_book_outline", "read_page_image", "read_pages",
+  "search_book", "list_highlights", "toc_scan", "toc_build", "toc_apply",
+]);
+
 export const AI_TOOL_DEFINITIONS = Object.freeze([
   {
     name: "get_reading_position",
@@ -54,6 +59,29 @@ export const AI_TOOL_DEFINITIONS = Object.freeze([
         limit: { type: "number", description: "最多返回条数，默认 6，最多 8。" },
       },
       required: ["query"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "web_search",
+    description: "联网搜索网页。用于最新信息、外部事实、作者/书籍新版、书评、网络搜书等书外信息；书内内容先调用 search_book，不要用网页搜索替代原文。query 支持 site:、after:、before:、lang: 等搜索语法。回答外部信息时必须引用结果里的 URL。",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "搜索词，支持 site:/after:/before:/lang: 等语法。" },
+        count: { type: "number", description: "最多返回条数，默认 5，最多 8。" },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "read_url",
+    description: "抓取一个公开网页的 Markdown 正文。搜索引擎结果摘要不够时再用；只用于 http/https 网页，不能读取需要登录或带用户名密码的地址。",
+    parameters: {
+      type: "object",
+      properties: { url: { type: "string", description: "要读取的公开网页 URL。" } },
+      required: ["url"],
       additionalProperties: false,
     },
   },
@@ -119,7 +147,7 @@ export const AI_TOOL_DEFINITIONS = Object.freeze([
   },
   {
     name: "toc_scan",
-    description: "只读检查当前 PDF/EPUB/AZW3 的目录情况（已有大纲条目数、前置目录页等），用于回答“目录为什么不能跳转/不完整”。PDF 制作目录时不要读取正文页、不要发送无关截图；EPUB/AZW3 会自动匹配标题，不需要询问页码。",
+    description: "只读检查当前 PDF/EPUB/AZW3 的目录情况（已有大纲条目数、前置目录页等），用于回答“目录为什么不能跳转/不完整”。PDF 制作目录时不要读取正文页、不要发送无关截图；扫描会返回连续的目录页范围，制作目录时必须把整段范围传给 toc_build。EPUB/AZW3 会自动匹配标题，不需要询问页码。",
     parameters: { type: "object", properties: {}, additionalProperties: false },
   },
   {
@@ -128,7 +156,7 @@ export const AI_TOOL_DEFINITIONS = Object.freeze([
     parameters: {
       type: "object",
       properties: {
-        pages: { type: "string", description: "PDF 读者确认的目录页，如 \"6\" 或 \"6-7\"；EPUB 可省略。" },
+        pages: { type: "string", description: "PDF 读者确认的目录页，如 \"3-17\"；目录通常连续多页，toc_scan 给出范围时要整段传入，不要只传其中一两页，否则只能生成一部分目录。EPUB 可省略。" },
         offset: { type: "number", description: "PDF 印刷页码到 PDF 页码的偏移；读者不知道时留空，由标题搜索推断。EPUB 忽略。" },
         mode: { type: "string", enum: ["merge", "replace"], description: "merge 保留原有条目并补充，replace 整体替换。" },
       },
@@ -230,6 +258,37 @@ export function createAiTools({ state = {}, maxChars = AI_TOOL_LIMITS.resultChar
         const where = hit.label || (hit.page ? `第 ${hit.page} 页` : "位置未知");
         return `${index + 1}. ${where}：${String(hit.snippet || "").trim()}`;
       }).join("\n");
+    },
+    async web_search(args = {}) {
+      const query = String(args.query ?? "").trim();
+      if (!query) return "请提供搜索关键词。";
+      if (typeof state.webSearch !== "function") {
+        return "当前没有可用的联网搜索。需要先在设置里配置 DeepSeek Search Key。";
+      }
+      const count = boundedNumber(args.count, 5, 1, 8);
+      const report = await state.webSearch(query, {
+        count,
+        oriQuestion: String(state.webSearchQuestion || "").slice(0, 128),
+      });
+      if (report?.ok === false) return `联网搜索失败：${report.error || "未知原因"}`;
+      const results = Array.isArray(report?.results) ? report.results.slice(0, count) : [];
+      if (!results.length) return `没有找到与「${query}」相关的网页。`;
+      return results.map((item, index) => {
+        const meta = [item.siteName, item.date, item.authority >= 3 ? "权威来源" : ""].filter(Boolean).join("｜");
+        return `[${index + 1}] ${item.title}${meta ? `（${meta}）` : ""}\n${item.url}\n${String(item.summary || item.snippet || "").trim()}`;
+      }).join("\n\n");
+    },
+    async read_url(args = {}) {
+      const url = String(args.url ?? "").trim();
+      if (!url) return "请提供网页 URL。";
+      if (typeof state.webFetch !== "function") {
+        return "当前没有可用的网页抓取。需要先在设置里配置 DeepSeek Search Key。";
+      }
+      const page = await state.webFetch(url);
+      if (page?.ok === false) return `网页读取失败：${page.error || "未知原因"}`;
+      const content = String(page?.content || "").trim();
+      if (!content) return `没能读取 ${url} 的正文。`;
+      return `标题：${page.title || url}\nURL：${page.url || url}\n\n${content.slice(0, 8000)}`;
     },
     async read_page_image(args = {}) {
       if (!state.canSeeImages) return "当前模型不支持图片：可以让读者发页面截图，或换一个支持图片的模型。";
@@ -355,6 +414,8 @@ export function createAiTools({ state = {}, maxChars = AI_TOOL_LIMITS.resultChar
     // The image tool is only offered when the model can actually see images.
     definitions: AI_TOOL_DEFINITIONS
       .filter((tool) => tool.name !== "read_page_image" || state.canSeeImages === true)
+      .filter((tool) => !["web_search", "read_url"].includes(tool.name) || state.hasWebSearch === true)
+      .filter((tool) => state.hasReader !== false || !READER_TOOL_NAMES.has(tool.name))
       .filter((tool) => !["get_workshop_options", "prepare_workshop_task", "start_workshop_task"].includes(tool.name) || state.hasWorkshop === true)
       .map(({ name, description, parameters }) => ({ name, description, parameters })),
     async run(name, args) {

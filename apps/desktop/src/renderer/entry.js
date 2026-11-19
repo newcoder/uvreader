@@ -5,11 +5,15 @@ import QiaomuBookReader from "../../../../packages/reader/src/main.js";
 import { READER_THEMES, migrateReaderTheme } from "../../../../packages/reader/src/reader-themes.js";
 import { setIconProvider } from "../../../../packages/reader/src/reader-icons.js";
 import { isBookFile } from "../shared/books.js";
+import { DESKTOP_DATA_DEFAULTS } from "../shared/desktop-defaults.js";
+import { engineOcrPathUpdate } from "../shared/engine-ocr-paths.js";
 import { iconResolver, rasterIconMarkup } from "./icons.js";
 import { protectLatexDelimiters, renderMathIn, restoreLatexDelimiters } from "./math.js";
 import { isBlockedHref, sanitizeHtml } from "./sanitize.js";
 import { decorateWikilinks } from "./wikilinks.js";
-import { createHomeView, createNoteView, createSettingsView, createTocView, createWorkshopView } from "./views.js";
+import { createNoteView, createSettingsView, createTocView, createWorkshopView } from "./views.js";
+import { createSpacesView } from "./space-view.js";
+import { createPolishView } from "./polish-view.js";
 import { createQuizView } from "./quiz-view.js";
 import { createQuizListView } from "./quiz-list-view.js";
 import { workshopCapabilitiesFor } from "../shared/workshop-capabilities.js";
@@ -22,8 +26,11 @@ const NOTE_VIEW = "qbr-note";
 const TOC_VIEW = "qbr-toc";
 const SETTINGS_VIEW = "qbr-settings";
 const WORKSHOP_VIEW = "qbr-workshop";
+const POLISH_VIEW = "qbr-polish";
 const QUIZ_VIEW = "qbr-quiz";
 const QUIZ_LIST_VIEW = "qbr-quiz-list";
+const AI_CHAT_VIEW = "qiaomu-book-reader-ai-chat";
+let lastShellRoute = "library";
 
 function renderMarkdown(markdown) {
   const protectedSource = protectLatexDelimiters(markdown);
@@ -53,8 +60,7 @@ function showError(message) {
 }
 
 // The AI sidebar, home page and settings should use the same palette as the
-// book page instead of the shell's default dark theme. Reading themes that
-// simply reference the host variables (auto) are left to the shell defaults.
+// book page instead of the shell's default dark theme.
 const READING_THEME_MAP = [
   ["--background-primary", "--qiaomu-reader-bg"],
   ["--background-primary-alt", "--qiaomu-reader-ui"],
@@ -128,17 +134,8 @@ async function boot() {
   const app = createApp({
     workspaceEl: document.getElementById("workspace"),
     dataDefaults: {
-      onboarded: true,
-      language: "zh",
+      ...DESKTOP_DATA_DEFAULTS,
       lastSeenVersion: __QBR_VERSION__,
-      bookNotesFolder: "notes",
-      dataFolder: "plugin",
-      // Local MinerU is CLI-first: no address or port to fill in. The program
-      // is discovered automatically; the optional HTTP service stays off until
-      // the user explicitly enables it.
-      mineruLocalExe: "",
-      mineruLocalUrl: "",
-      mineruLocalAutoStart: false,
     },
   });
   const plugin = new QiaomuBookReader(app, {
@@ -184,19 +181,10 @@ async function boot() {
   // 装好的引擎自带 pdf_tool + RapidOCR:本机 OCR 路径为空时自动回填,阅读器
   // 打开扫描件才知道要生成文字层。用户手填的路径不覆盖。
   const applyEngineOcrPaths = (state) => {
-    const dir = String(state?.ocrSidecarDir || "").trim();
-    const python = String(state?.ocrPython || "").trim();
-    if (!dir || !python) return false;
-    const currentDir = String(plugin.settings?.ocrSidecarDir || "").trim();
-    const currentPython = String(plugin.settings?.ocrPython || "").trim();
-    const currentExe = String(plugin.settings?.ocrSidecarExe || "").trim();
-    // "python" is the built-in placeholder meaning "PATH python"; treat it as
-    // unset so the engine's private interpreter can take over. The engine paths
-    // are a pair, so a manual dir/exe/python always wins as a whole.
-    if (currentDir || currentExe || (currentPython && currentPython !== "python")) return false;
-    plugin.settings.ocrSidecarDir = dir;
-    plugin.settings.ocrPython = python;
-    void plugin.saveAll?.();
+    const patch = engineOcrPathUpdate(plugin.settings, state);
+    if (!patch) return false;
+    Object.assign(plugin.settings, patch);
+    void (typeof plugin.saveSettings === "function" ? plugin.saveSettings() : plugin.saveAll?.());
     return true;
   };
 
@@ -229,7 +217,7 @@ async function boot() {
             plugin.settings.engineToken = token;
             changed = true;
           }
-          if (changed) void plugin.saveAll?.();
+          if (changed) void (typeof plugin.saveSettings === "function" ? plugin.saveSettings() : plugin.saveAll?.());
           console.log(`[qbr] workshop engine running ${result.engineUrl} v${result.version || "?"}`);
         } else if (result?.skipped === "failed") {
           console.log(`[qbr] workshop engine not started: ${String(result.error || "").slice(0, 120)}`);
@@ -264,7 +252,7 @@ async function boot() {
   const themeFromSettings = () => {
     const settings = plugin.settings || {};
     if (settings.einkMode === true) return READER_THEMES.eink;
-    return READER_THEMES[migrateReaderTheme(settings.theme)] || READER_THEMES.auto;
+    return READER_THEMES[migrateReaderTheme(settings.theme)] || READER_THEMES.paper;
   };
 
   async function waitForReaderReady(timeoutMs = 30_000) {
@@ -286,8 +274,21 @@ async function boot() {
   async function openBook(filePath) {
     if (!filePath) return false;
     if (!isBookFile(filePath)) {
-      showError(`不支持的格式：${filePath}\n支持：epub、pdf、fb2、fbz、mobi、azw、azw3、cbz、png、jpg、jpeg、webp、gif、bmp`);
-      return false;
+      // Anything the reader cannot render is handed to the OS, just like
+      // double-clicking the file in Explorer/Finder. Missing associations or
+      // missing files surface the shell error instead of a format complaint.
+      if (typeof bridge.openPath !== "function") {
+        showError(`当前环境不能打开文件：${filePath}`);
+        return false;
+      }
+      try {
+        const failure = await bridge.openPath(filePath);
+        if (failure) showError(`无法打开文件：${filePath}\n${failure}`);
+        return !failure;
+      } catch (error) {
+        showError(`无法打开文件：${filePath}\n${error?.message || error}`);
+        return false;
+      }
     }
     const normalized = String(filePath).replace(/\\/g, "/");
     const name = normalized.split("/").pop() || normalized;
@@ -350,18 +351,22 @@ async function boot() {
     return root ? `${root}/${path.replace(/^\/+/, "")}` : path;
   }
 
-  async function openQuiz(filePath) {
+  async function openQuiz(filePath, options = {}) {
     if (!filePath) return false;
     const leaf = app.workspace.getLeaf("tab");
     await leaf.setViewState({
       type: QUIZ_VIEW,
-      state: { path: absoluteQuizPath(filePath) },
+      state: {
+        path: absoluteQuizPath(filePath),
+        origin: options.origin || "",
+        spaceId: options.spaceId || "",
+      },
       active: true,
     });
     await app.workspace.revealLeaf(leaf);
     return true;
   }
-  window.qbrOpenQuiz = (filePath) => void openQuiz(filePath);
+  window.qbrOpenQuiz = (filePath, options) => void openQuiz(filePath, options);
 
   async function openQuizList() {
     const existing = app.workspace.getLeavesOfType(QUIZ_LIST_VIEW)[0];
@@ -377,12 +382,48 @@ async function boot() {
   }
   window.qbrOpenQuizList = () => openQuizList();
 
+  window.qbrReturnToSpace = async (spaceId) => {
+    const view = await showOwnView(HOME_VIEW);
+    if (spaceId && typeof view?.select === "function") view.select(spaceId);
+    if (view?.leaf) {
+      app.workspace.setActiveLeaf?.(view.leaf);
+      await app.workspace.revealLeaf?.(view.leaf);
+    }
+    return true;
+  };
+
+  async function openChat(chatId) {
+    const id = String(chatId || "");
+    if (!id) return false;
+    const record = (plugin.settings.aiChatHistory || []).find((chat) => chat?.id === id);
+    if (!record) return false;
+    // A chat belongs to a book/document. Open that document first so the
+    // companion has the right reading context; if the file is not readable by
+    // the reader, openBook hands it to the system app and the chat still opens.
+    const bookPath = String(record.bookPath || "").trim();
+    if (bookPath) {
+      try {
+        await openBook(bookPath);
+      } catch (error) {
+        console.warn("UV Reader: could not open the chat's book", error);
+      }
+    }
+    await plugin.openAiChat();
+    const leaf = app.workspace.getLeavesOfType(AI_CHAT_VIEW)[0];
+    const view = leaf?.view;
+    if (!view || typeof view.loadSession !== "function") return false;
+    view.loadSession(record, { focusInput: false, skipPersist: true });
+    await app.workspace.revealLeaf(leaf);
+    return true;
+  }
+  window.qbrOpenChat = (chatId) => void openChat(chatId);
+
   async function pickAndOpen() {
     const filePath = await bridge.openBookDialog?.();
     if (filePath) await openBook(filePath);
   }
 
-  app.viewFactories.set(HOME_VIEW, (leaf) => createHomeView(leaf, {
+  app.viewFactories.set(HOME_VIEW, (leaf) => createSpacesView(leaf, {
     app,
     plugin,
     onOpenBook: (filePath) => void openBook(filePath),
@@ -397,6 +438,7 @@ async function boot() {
   app.viewFactories.set(SETTINGS_VIEW, (leaf) => createSettingsView(leaf, { plugin }));
   app.viewFactories.set(TOC_VIEW, (leaf) => createTocView(leaf, { app }));
   app.viewFactories.set(WORKSHOP_VIEW, (leaf) => createWorkshopView(leaf, { app, plugin }));
+  app.viewFactories.set(POLISH_VIEW, (leaf) => createPolishView(leaf, { app, plugin, renderMarkdown }));
   app.viewFactories.set(QUIZ_VIEW, (leaf) => createQuizView(leaf, { app, plugin }));
   app.viewFactories.set(QUIZ_LIST_VIEW, (leaf) => createQuizListView(leaf, { app, plugin }));
 
@@ -411,14 +453,15 @@ async function boot() {
     return leaf.view;
   }
 
-  async function openWorkshopCapability(capability) {
+  async function openWorkshopCapability(capability, options = {}) {
     if (!capability) return false;
     if (capability.action === "ai-prompt" && typeof plugin.primeAiPrompt === "function") {
       return plugin.primeAiPrompt(capability.prompt || capability.title || "");
     }
     if (plugin.settings?.workshopEnabled === false) return false;
+    plugin.closeReadingCompanion?.();
     const view = await showOwnView(WORKSHOP_VIEW);
-    if (typeof view?.openCapability === "function") view.openCapability(capability);
+    if (typeof view?.openCapability === "function") view.openCapability(capability, options);
     else view?.selectTool?.(capability.tool || "tasks");
     return true;
   }
@@ -427,10 +470,38 @@ async function boot() {
   // navigate and preselect an outcome; starting work still happens in workshop.
   window.qbrOpenWorkshop = async (target = "tasks", options = {}) => {
     if (plugin.settings?.workshopEnabled === false) return false;
+    // 书坊不是阅读场景；进入时关掉 AI 伴读，避免右侧栏占宽或抢焦点。
+    plugin.closeReadingCompanion?.();
     const view = await showOwnView(WORKSHOP_VIEW);
     if (options?.taskId && typeof view?.focusTask === "function") view.focusTask(String(options.taskId));
-    else if (target && typeof target === "object") await openWorkshopCapability(target);
+    else if (target && typeof target === "object") await openWorkshopCapability(target, options);
     else view?.selectTool?.(String(target || "tasks"));
+    // 读者/书库的异步布局可能在打开书坊后又把 active leaf 抢回去；
+    // 打开完成后再显式激活一次，确保用户看到的是书坊而不是后台标签。
+    if (view?.leaf) {
+      app.workspace.setActiveLeaf?.(view.leaf);
+      await app.workspace.revealLeaf?.(view.leaf);
+    }
+    return true;
+  };
+
+  // 精修工作区是持久面板；manifestPath 来自 book-build 结果或精修列表。
+  window.qbrOpenPolish = async (state = {}) => {
+    const manifestPath = String(state?.manifestPath || "");
+    if (!manifestPath) return false;
+    if (plugin.settings?.workshopEnabled === false) return false;
+    // 精修不是阅读场景：AI 伴读如果开着就关掉，再收起右侧栏让出宽度。
+    plugin.closeReadingCompanion?.();
+    const view = await showOwnView(POLISH_VIEW);
+    await view?.setState?.({ manifestPath });
+    // 精修是写作视图：收起右侧阅读/AI 侧栏，把宽度让给正文和预览。
+    try { plugin.app.workspace.rightSplit?.collapse?.(); } catch { /* host without splits */ }
+    // 读者视图/书库的异步布局可能在打开精修后又抢回 active leaf；打开完成后
+    // 再显式激活一次，避免工作区留在后台标签里。
+    if (view?.leaf) {
+      app.workspace.setActiveLeaf?.(view.leaf);
+      await app.workspace.revealLeaf?.(view.leaf);
+    }
     return true;
   };
 
@@ -467,6 +538,14 @@ async function boot() {
       console.warn("[qbr] could not place the task card in the AI conversation", error);
     }
     const output = String(task.output || "").replace(/\\/g, "/").split("/").filter(Boolean).pop() || "";
+    // Task runners write through the main process, so the vault's in-memory
+    // file list may not notice the new product. Refresh the space view so a
+    // finished quiz/translation/ebook appears without restarting the app.
+    try {
+      for (const leaf of app.workspace.getLeavesOfType(HOME_VIEW)) void leaf?.view?.refresh?.();
+    } catch (error) {
+      console.warn("[qbr] could not refresh the reading space after a task", error);
+    }
     const message = task.status === "done"
       ? `处理完成：${task.title || "任务"}${output ? `（${output}）` : ""}`
       : `处理未完成：${task.title || "任务"}，可在任务里查看原因。`;
@@ -514,6 +593,7 @@ async function boot() {
   window.addEventListener("beforeunload", () => window.clearInterval(workshopPoll), { once: true });
 
   async function showRoute(route) {
+    if (route) lastShellRoute = route;
     // The AI companion is part of the reading session; any route away from the
     // reader closes its sidebar without touching the saved preference.
     plugin.closeReadingCompanion?.();
@@ -533,6 +613,31 @@ async function boot() {
   }
 
   const navButtons = [...document.querySelectorAll("[data-route]")];
+  const navLabelKeys = { home: "space-nav", library: "library-nav", workshop: "workshop-nav", settings: "settings" };
+  function syncShellLanguage() {
+    for (const button of navButtons) {
+      const label = plugin.translate?.(navLabelKeys[button.dataset.route]);
+      if (!label) continue;
+      button.setAttribute("aria-label", label);
+      const span = button.querySelector(".qbr-nav-label");
+      if (span) span.textContent = label;
+    }
+    const setTitle = (selector, key) => {
+      const el = document.querySelector(selector);
+      if (el) el.textContent = plugin.translate?.(key) || el.textContent;
+    };
+    setTitle(".qbr-space-side .qiaomu-reader-lib-side-title", "space-nav");
+    setTitle(".qbr-workshop-side .qiaomu-reader-lib-side-title", "workshop-nav");
+    setTitle(".qiaomu-reader-lib-as-view .qiaomu-reader-lib-side-title", "library-nav");
+    for (const type of [HOME_VIEW, WORKSHOP_VIEW]) {
+      const view = app.workspace.getLeavesOfType(type)[0]?.view;
+      if (view && typeof view.render === "function") view.render();
+    }
+  }
+  window.addEventListener("qiaomu-reader-language-changed", syncShellLanguage);
+  plugin.navigateBackFromReader = () => {
+    void showRoute(lastShellRoute);
+  };
   for (const button of navButtons) {
     // The three page glyphs are the shell's inline icons: an open book with a
     // sparkle for 悦空间, three books for 书库 and a book with a wand for 书坊
@@ -541,6 +646,7 @@ async function boot() {
     if (markup) button.insertAdjacentHTML("afterbegin", markup);
     button.addEventListener("click", () => void showRoute(button.dataset.route));
   }
+  syncShellLanguage();
 
   let observedReaderEl = null;
   let themeObserver = null;
@@ -553,9 +659,9 @@ async function boot() {
     const readVar = (variable) => (source
       ? source.style.getPropertyValue(variable)
       : String(fromSettings?.[THEME_VAR_KEY[variable]] || ""));
-    // A value that is empty (reader not styled yet) or a var() reference
-    // (theme "auto") means "no override": drop what an earlier theme set on
-    // the shell instead of leaving stale colours behind.
+    // A value that is empty (reader not styled yet) means "no override": drop
+    // what an earlier theme set on the shell instead of leaving stale colours
+    // behind.
     const body = document.body.style;
     const applyVar = (target, value) => {
       if (value && !value.startsWith("var(")) body.setProperty(target, value);
@@ -650,6 +756,7 @@ async function boot() {
       : type === SETTINGS_VIEW ? "settings"
         : type === WORKSHOP_VIEW ? "workshop"
           : type === HOME_VIEW || type === QUIZ_LIST_VIEW ? "home" : "";
+    if (route) lastShellRoute = route;
     for (const button of navButtons) button.classList.toggle("is-active", button.dataset.route === route);
   }
   app.workspace.on("active-leaf-change", syncChrome);

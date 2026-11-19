@@ -45,8 +45,14 @@ export function looksLikeMath(tex) {
   // CJK is only allowed inside an explicit wrapper the model wrote.
   if (cjk && !/\\[a-zA-Z]*(?:text|mathrm|operatorname)/.test(value)) return false;
   if (latex) return true;
-  // A bare formula is a single symbol ("$x$", "$n$"), not a word or a price.
-  return /^[a-zA-Z]$/.test(value);
+  // Bare formulas are single symbols or numbers, optionally followed by
+  // sentence punctuation ("$l,$", "$2$", "$d.$"). Requiring the whole token
+  // keeps prices and prose such as "$5 到 $10" as text.
+  const core = value.replace(/[,.;:，。；：]+$/u, "").trim();
+  if (/^[a-zA-Z]$/.test(core)) return true;
+  if (/^\d+(?:\.\d+)?$/.test(core)) return true;
+  if (/^[\u0370-\u03ff]$/u.test(core)) return true;
+  return false;
 }
 
 export function mathSegments(text) {

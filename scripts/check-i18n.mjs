@@ -102,15 +102,6 @@ if (!source.includes("BUNDLED_FONT_FAMILIES.zhuque")) {
   errors.push("The offline Zhuque Fangsong font is missing");
 }
 
-if (!bookNotesSource.includes('function backlinkLabel() { return "↩"; }')) {
-  errors.push("Reading-note backlinks are not rendered as a quiet icon-only link");
-}
-if (!pluginSource.includes('registerObsidianProtocolHandler("qiaomu-book-reader"')) {
-  errors.push("Qiaomu reading-note backlinks are missing");
-}
-if (!pluginSource.includes("iconBacklinksMigrated") || !pluginSource.includes("await syncHighlightsToReadingNote(this.app, this, bookPath, items)")) {
-  errors.push("Existing managed reading notes are not migrated to icon-only backlinks on upgrade");
-}
 if (source.includes('.setName(qiaomuReaderTranslate("wording-of-that-link"))')) {
   errors.push("The retired text-label setting for reading-note backlinks is still visible");
 }
@@ -246,6 +237,24 @@ for (const [language, dictionary] of Object.entries(UI_TRANSLATIONS)) {
 if (errors.length) {
   console.error(errors.join("\n"));
   process.exit(1);
+}
+
+const i18nFiles = [
+  "../packages/reader/src/i18n-zh.js",
+  "../packages/reader/src/i18n-en.js",
+  ...(await fs.readdir(new URL("../packages/reader/src/locales/", import.meta.url)))
+    .filter((name) => name.endsWith(".js"))
+    .map((name) => `../packages/reader/src/locales/${name}`),
+];
+for (const relative of i18nFiles) {
+  const text = await fs.readFile(new URL(relative, import.meta.url), "utf8");
+  const seen = new Set();
+  for (const line of text.split(/\r?\n/)) {
+    const match = line.match(/^\s*"((?:[^"\\]|\\.)*)"\s*:/);
+    if (!match) continue;
+    if (seen.has(match[1])) errors.push(`${relative}: duplicate i18n key ${match[1]}`);
+    seen.add(match[1]);
+  }
 }
 
 console.log(`i18n OK: ${Object.keys(english).length} keys; Simplified Chinese and ${Object.keys(UI_TRANSLATIONS).length} bundled language packs checked.`);

@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { adoptPdfToolOutputs, appendFootnotes, collectContinuations, collectHeaderImages, collectPageFootnotes, collectUpstreamTocEntries, extractionKind, extractMarkdown, mergePdfMarkdown, patchMarkdownCaptions, registerExtractRunners, splitMarkdownChapters } from "../src/main/extract-doc.js";
+import { adoptPdfToolOutputs, appendFootnotes, collectContinuations, collectHeaderImages, collectPageFootnotes, collectUpstreamTocEntries, extractionKind, extractMarkdown, MERGE_VERSION, mergePdfMarkdown, patchMarkdownCaptions, registerExtractRunners, splitMarkdownChapters } from "../src/main/extract-doc.js";
 import { unwrapProseFences } from "../src/shared/markdown-fix.js";
 import { createWorkshopQueue } from "../src/main/workshop.js";
 import { waitForTask } from "./wait-for-task.mjs";
@@ -411,6 +411,7 @@ test("extractMarkdown reuses the cached merged markdown for the same PDF", async
   fs.mkdirSync(workDir, { recursive: true });
   fs.writeFileSync(path.join(workDir, "论文_doc.json"), JSON.stringify({ schema_version: 1, pages: [] }));
   fs.writeFileSync(path.join(workDir, "merged.md"), "# 缓存的合并稿\n\n正文 $x$。");
+  fs.writeFileSync(path.join(workDir, "merge-version.txt"), String(MERGE_VERSION));
   const { spawnImpl, calls } = fakeSpawn(() => {});
   const result = await extractMarkdown(source, {
     kind: "pdf",
@@ -741,6 +742,7 @@ test("extractMarkdown refresh bypasses the cached merged markdown", async () => 
   fs.mkdirSync(workDir, { recursive: true });
   fs.writeFileSync(path.join(workDir, "论文_doc.json"), JSON.stringify({ schema_version: 1, pages: [] }));
   fs.writeFileSync(path.join(workDir, "merged.md"), "# 缓存的合并稿\n\n正文 $x$。");
+  fs.writeFileSync(path.join(workDir, "merge-version.txt"), String(MERGE_VERSION));
 
   const { spawnImpl, calls } = fakeSpawn((call, child) => {
     // 假 pdf_tool:把这次「新提取」的产物写出来。
@@ -815,6 +817,45 @@ test("collectUpstreamTocEntries recovers MinerU index blocks the Doc JSON droppe
   assert.deepEqual(entries.map((entry) => entry.level), [1, 1, 2, 1, 2], "章后未编号条目按节处理");
   assert.equal(entries[2].key, "八旗与包衣");
   assert.ok(!entries.some((entry) => entry.label.includes("索引")), "书末索引不能冒充目录");
+});
+
+test("collectUpstreamTocEntries keeps 结局/注释 as top-level entries", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-mineru-index-backmatter-"));
+  const docPath = path.join(dir, "书_doc.json");
+  fs.writeFileSync(docPath, JSON.stringify({
+    schema_version: 1,
+    pages: [{ page: 14, blocks: [{ type: "heading", level: 2, text: "目录" }] }],
+  }), "utf8");
+  const mineru = path.join(dir, "mineru");
+  fs.mkdirSync(mineru);
+  fs.writeFileSync(path.join(mineru, "content_list.json"), JSON.stringify([
+    { type: "index", page_idx: 13, list_items: [
+      "- 第一章 观察者 …… 1",
+      "- 小人物 …… 3",
+      "- 结局 审判 …… 107",
+      "- 注释 …… 115",
+      "- 参考书目 …… 139",
+    ] },
+  ]), "utf8");
+  const entries = collectUpstreamTocEntries(docPath);
+  assert.deepEqual(entries.map((entry) => entry.label), ["第一章 观察者", "小人物", "结局 审判", "注释", "参考书目"]);
+  assert.deepEqual(entries.map((entry) => entry.level), [1, 2, 1, 1, 1], "结局和注释是正文后的独立部分，不能挂在上一章下面");
+});
+
+test("collectUpstreamTocEntries promotes back matter even when upstream marks it level 2", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-upstream-backmatter-"));
+  const docPath = path.join(dir, "书_doc.json");
+  fs.writeFileSync(docPath, JSON.stringify({
+    schema_version: 1,
+    pages: [{ page: 14, page_role: "toc", toc_entries: [
+      { title: "第五 私奔的女人", page: 79, level: 1 },
+      { title: "结局 审判", page: 107, level: 2 },
+      { title: "注释", page: 115, level: 2 },
+      { title: "参考书目", page: 139, level: 1 },
+    ] }],
+  }), "utf8");
+  const entries = collectUpstreamTocEntries(docPath);
+  assert.deepEqual(entries.map((entry) => entry.level), [1, 1, 1, 1]);
 });
 
 test("collectUpstreamTocEntries prefers pdf_tool toc_entries over the MinerU fallback", () => {

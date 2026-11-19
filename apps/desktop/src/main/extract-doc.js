@@ -9,7 +9,7 @@ import path from "node:path";
 
 import { EXTRACT_MODES, IMAGE_INPUTS, extractionKind } from "../shared/extract-formats.js";
 import { textSourceKind } from "../shared/workshop-formats.js";
-import { joinContinuationLines, joinSplitCodeFences, splitMarkdownChapters, stripCodeLineNumbers, unwrapProseFences } from "../shared/markdown-fix.js";
+import { joinContinuationLines, joinSplitCodeFences, repairMissingParallelSymbols, splitMarkdownChapters, stripCodeLineNumbers, unwrapProseFences } from "../shared/markdown-fix.js";
 import { parsePrintedTocEntries, tocKey, tocLevel } from "../shared/printed-toc.js";
 import { blocksFromDoc, blocksToMarkdown, cleanFootnoteText } from "./formula-html.js";
 import { rewriteHtmlMath } from "./html-math.js";
@@ -143,6 +143,8 @@ export function appendFootnotes(markdown, notes) {
 // block type. Read the index blocks directly so a scanned book's own TOC is
 // still available as an upstream source. This is generic: root and chunked
 // content lists, `index` and `list/sub_type=toc` shapes.
+const TOC_BACK_MATTER_RE = /^(?:附录|参考书目|参考文献|索引|后记|译后记|出版说明|致谢|前言|序|结局|尾声|结语|结束语|终章|注释|尾注|脚注|章注)(?:\s|$|[:：])/;
+
 function mineruContentListFiles(workDir) {
   const mineru = path.join(String(workDir || ""), "mineru");
   const files = [];
@@ -220,7 +222,7 @@ function collectMineruTocEntries(workDir) {
       afterChapter = true;
       return { ...entry, level: 1 };
     }
-    if (/^(?:附录|参考书目|参考文献|索引|后记|译后记|出版说明|致谢|前言|序)(?:\s|$)/.test(label)) {
+    if (TOC_BACK_MATTER_RE.test(label)) {
       afterChapter = false;
       return { ...entry, level: 1 };
     }
@@ -246,14 +248,23 @@ export function collectUpstreamTocEntries(docPath) {
           label,
           key: tocKey(label),
           page: Number(item?.page) || 0,
-          level: Number(item?.level) > 0 ? Math.min(Number(item.level), 3) : tocLevel(label),
+          // 印刷目录里「结局/注释/参考书目」是正文后的独立部分；即使上游把
+          // 它们标成 level 2，也不要挂到上一章下面。
+          level: TOC_BACK_MATTER_RE.test(label) ? 1 : (Number(item?.level) > 0 ? Math.min(Number(item.level), 3) : tocLevel(label)),
         });
       }
     }
     // pdf_tool 现在会直接产出页级 toc_entries;它比从 content_list 兜底解析准,
     // 也保留同名章/节。只有旧产物完全没有 toc_entries 时才走 MinerU 兜底。
-    if (entries.length) return entries;
-    return collectMineruTocEntries(path.dirname(docPath));
+    const mineruEntries = collectMineruTocEntries(path.dirname(docPath));
+    if (entries.length) {
+      // 有些扫描书的上游 toc_entries 只有“封面/书名/版权/目录/正文”几条通用项,
+      // 真正的章节目录在 MinerU 的 index 块里；这时用 index 兜底。
+      const chapterLike = (list) => list.some((entry) => /^第\s*[0-9０-９〇零一二三四五六七八九十百]{1,4}\s*[章节篇卷部讲]|^(?:chapter|part)\s+/i.test(String(entry?.label || "")));
+      if (!chapterLike(entries) && chapterLike(mineruEntries) && mineruEntries.length > entries.length) return mineruEntries;
+      return entries;
+    }
+    return mineruEntries;
   } catch {
     return [];
   }
@@ -427,6 +438,23 @@ export function runExtractCommand(command, args, { cwd, env, signal, timeoutMs =
 // 提取产物的复用标记(MinerU 慢且计费):源文件 + 模式 + 模型一致才复用。
 // 文本型再多比一个产物版本:提取器行为变了(如新增图的裁剪)就别复用旧产物。
 const EXTRACT_VERSION = 2;
+// Bump when the text-layer merge behavior changes; old merged.md caches must be
+// rebuilt once, otherwise a fix is invisible for files already extracted.
+export const MERGE_VERSION = 1;
+
+function readMergeVersion(workDir) {
+  try {
+    return Number(fs.readFileSync(path.join(workDir, "merge-version.txt"), "utf8")) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeMergeVersion(workDir) {
+  try {
+    fs.writeFileSync(path.join(workDir, "merge-version.txt"), String(MERGE_VERSION), "utf8");
+  } catch { /* the cache marker is optional */ }
+}
 
 export function extractMarkPath(cacheRoot, source) {
   const root = String(cacheRoot || "");
@@ -504,6 +532,7 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
     let cleaned = unwrapProseFences(text);
     cleaned = joinSplitCodeFences(cleaned);
     cleaned = stripCodeLineNumbers(cleaned);
+    cleaned = repairMissingParallelSymbols(cleaned);
     return cleaned;
   };
   const readMarkdown = (file) => {
@@ -543,7 +572,9 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
     const engineStale = Boolean(engine && String(settings.engineUrl || "").trim())
       && (engineVersion ? cachedVersion !== engineVersion : cachedVersion !== "local");
     if (engineStale) log("extract: engine changed, ignoring cached markdown", `${cachedVersion || "(none)"} -> ${engineVersion || "local"}`, engineVersion ? "" : "(health unavailable)");
-    if (!refresh && !engineStale && fresh(mergedPath) && docCandidates.some(fresh)) {
+    const mergeStale = readMergeVersion(workDir) !== MERGE_VERSION;
+    if (mergeStale && !refresh) log("extract: merge version changed, rebuilding cached markdown", `${readMergeVersion(workDir)} -> ${MERGE_VERSION}`);
+    if (!refresh && !engineStale && !mergeStale && fresh(mergedPath) && docCandidates.some(fresh)) {
       log("extract: reuse cached merged markdown", mergedPath);
       const cachedRaw = fs.readFileSync(mergedPath, "utf8");
       // 老缓存里没有脚注(上游 Doc JSON 丢了这个类型):复用顺手补上,缓存自愈。
@@ -566,6 +597,7 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
           formats: "json,md,html",
           model: String(settings.mineruModel || "").trim() || "vlm",
           mineruSource: String(settings.mineruSource || "") === "local" ? "local" : "",
+          refresh: refresh === true,
         }, { signal, onProgress: (progress) => report?.({ label: progress.label || "书稿引擎解析中…" }) })
         : null;
       if (viaEngine?.ok) {
@@ -584,6 +616,7 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
         const formatsIndex = args.indexOf("--formats");
         if (formatsIndex >= 0) args[formatsIndex + 1] = "json,md,html";
         else args.push("--formats", "json,md,html");
+        if (refresh) args.push("--force");
         const token = String(settings.mineruToken || "").trim()
           || String(process.env.MINERU_API_KEY || process.env.MINERU_TOKEN || "").trim();
         const backend = await resolveLocalBackend(settings);
@@ -627,12 +660,14 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
       // R2:上游标了 continuation 的半句接回上一段。
       withNotes = joinContinuationLines(withNotes, collectContinuations(files.json || cachedDoc));
       fs.writeFileSync(mergedPath, withNotes, "utf8");
+      writeMergeVersion(workDir);
       return { ok: true, markdown: withNotes, path: mergedPath, tocEntries: collectUpstreamTocEntries(files.json || cachedDoc), headerImages: collectHeaderImages(workDir) };
     }
     const raw = readMarkdown(files.md);
     // 没有文字层可合并时,也要把这次的结果写回 merged.md:否则下次会命中上一版遗留的合并稿。
     try {
       fs.writeFileSync(mergedPath, raw, "utf8");
+      writeMergeVersion(workDir);
     } catch { /* 写不了缓存不影响本次结果 */ }
     return { ok: true, markdown: raw, path: files.md, tocEntries: collectUpstreamTocEntries(files.json || cachedDoc), headerImages: collectHeaderImages(workDir) };
   }
@@ -751,6 +786,7 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", ca
         formats: "json,md,html",
         model,
         mineruSource: String(settings.mineruSource || "") === "local" ? "local" : "",
+        refresh: payload?.refresh === true,
       }, { signal, onProgress: (progress) => report?.({ label: progress.label || "书稿引擎解析中…" }) });
     }
     if (viaEngine?.ok) {
@@ -767,6 +803,7 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", ca
       const formatsIndex = args.indexOf("--formats");
       if (formatsIndex >= 0) args[formatsIndex + 1] = "json,md,html";
       else args.push("--formats", "json,md,html");
+      if (payload?.refresh === true) args.push("--force");
       // 凭据 / 本地后端走子进程环境:MINERU_LOCAL_URL 显式给(可能空),挡掉父进程继承来的死地址;
       // PYTHONUTF8/PYTHONIOENCODING 让 pdf_tool(Python)的中文报错按 UTF-8 出来,不在书坊里乱码。
       const token = String(settings.mineruToken || "").trim();

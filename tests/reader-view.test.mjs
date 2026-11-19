@@ -46,6 +46,31 @@ test("view identity and state come from the reader constants and the open file",
   assert.equal(view.bookHtml, "");
 });
 
+test("setState reloads the same book when its file was replaced on disk", async () => {
+  class FakeTFile {}
+  const { ReaderView } = build({ TFile: FakeTFile });
+  const view = new ReaderView({}, { settings: {} });
+  const openFile = new FakeTFile();
+  openFile.path = "Books/A.epub";
+  openFile.stat = { mtime: 1, size: 10 };
+  const freshFile = new FakeTFile();
+  freshFile.path = "Books/A.epub";
+  freshFile.stat = { mtime: 1, size: 10 };
+  view.file = openFile;
+  view.bookHtml = "<p>old</p>";
+  view._openedFileStamp = { mtime: 1, size: 10 };
+  view.app = { vault: { getAbstractFileByPath: () => freshFile } };
+  let opened = 0;
+  view.openFile = async () => { opened += 1; };
+
+  await view.setState({ path: openFile.path });
+  assert.equal(opened, 0, "an unchanged file keeps the open book");
+
+  freshFile.stat = { mtime: 2, size: 11 };
+  await view.setState({ path: openFile.path });
+  assert.equal(opened, 1, "a rebuilt library copy is re-read");
+});
+
 function sizedView() {
   const { ReaderView } = build();
   const view = new ReaderView({}, { settings: {} });
@@ -159,6 +184,28 @@ test("the toolbar sync mirrors the companion, the highlights dock and the TOC pa
   }
 });
 
+test("a PDF chapter click during the first layout is applied after the book opens", async () => {
+  const { ReaderView } = build({ readerIsPdf: (view) => view.file?.extension === "pdf" });
+  const view = new ReaderView({}, { settings: {} });
+  const lazy = {};
+  view.file = { path: "Books/book.pdf", extension: "pdf" };
+  view.bookHtml = "<div></div>";
+  view._pdfLazy = lazy;
+  view._openingBook = {};
+  view.pager = { total: 0 };
+  await view._jumpToBlock(346);
+  assert.deepEqual(view._pendingPdfJump, {
+    block: 346, flash: true, path: "Books/book.pdf", lazy,
+  }, "the click is held until the pager exists");
+  view._openingBook = null;
+  view.pager.total = 369;
+  let applied = null;
+  view._jumpToBlock = (block, flash) => { applied = { block, flash }; };
+  view._flushPendingPdfJump();
+  assert.deepEqual(applied, { block: 346, flash: true });
+  assert.equal(view._pendingPdfJump, null);
+});
+
 test("a PDF highlight whose page is not rendered still jumps to its page", () => {
   // 锚点找不回来(目标页已被按需渲染收回去)时,不再只弹「找不到」。
   const { ReaderView } = build({ resolveHighlightAnchor: () => null });
@@ -170,8 +217,9 @@ test("a PDF highlight whose page is not rendered still jumps to its page", () =>
     total: 12,
     currentBlockIndex: () => 0,
     // 按需渲染把远处的页收回去之后,flow 里已经没有目标页的文本层,
-    // 锚点找不回来——这时按 block→页 的关系直接跳。
+    // 锚点找不回来——这时按 block→页→spread 的关系直接跳。
     flow: { querySelectorAll: () => [] },
+    spreadForBlock: (block) => block,
     jumpTo: (spread) => { view.jumped = spread; return [spread, 12]; },
   };
   view._pdfLazy = true;

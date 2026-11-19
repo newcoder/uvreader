@@ -5,16 +5,48 @@
 const CODE_HINT_RE = /(?:^\s{4,}\S|=>|\b(?:function|const|let|var|import|export|class|def|return|print|console\.|#include|public\s|private\s)\b|[{};]\s*$|\bself\b|\bdef\b)/m;
 const CODE_CHAR_RE = /[{}[\]()<>;=]/g;
 
+// Geometry OCR often drops the parallel glyph between a run of two-letter
+// segment names: "AB EF RS CD" should read "AB∥EF∥RS∥CD". Keep the repair
+// conservative: three or more adjacent segment labels, no punctuation between
+// them, and never inside code or math.
+export function repairMissingParallelSymbols(markdown) {
+  const protectedParts = [];
+  const protect = (value) => {
+    const token = `\uE000QBR${protectedParts.length}\uE000`;
+    protectedParts.push(value);
+    return token;
+  };
+  let text = String(markdown || "");
+  text = text.replace(
+    /```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`|\$\$[\s\S]*?\$\$|\$[^$\n]*\$|\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]/g,
+    protect,
+  );
+  text = text.replace(
+    /(?<![\p{L}\p{N}])([A-Z]{2})(?:[ \t]*(?:\n[ \t]*)?([A-Z]{2})){2,}(?![\p{L}\p{N}])/gu,
+    (full) => (full.match(/[A-Z]{2}/g) || []).join("∥"),
+  );
+  for (let index = 0; index < protectedParts.length; index += 1) {
+    text = text.split(`\uE000QBR${index}\uE000`).join(protectedParts[index]);
+  }
+  return text;
+}
+
 // 判定:够长 + 去掉公式后没有代码 / LaTeX 特征 + 有句子和足够多的词。
 export function looksLikeProseBlock(text) {
   const value = String(text || "").trim();
   if (value.length < 40) return false;
-  // 先把 $…$ 公式摘掉:LaTeX 的花括号、反斜杠不是「代码」证据。
-  const prose = value.replace(/\$\$[\s\S]+?\$\$|\$[^$\n]+?\$/g, " ").replace(/\s+/g, " ").trim();
+  // 先把 $…$ 公式、HTML 上标和选项标记摘掉:LaTeX 的花括号、`<sup>` 和
+  // `(A) (B)` 都不是「代码」证据。否则带选项的题干会被误判成代码块。
+  const prose = value
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\$\$[\s\S]+?\$\$|\$[^$\n]+?\$/g, " ")
+    .replace(/[(（]\s*[A-DＡ-Ｄ]?\s*[)）]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   if (prose.length < 20) return false;
   if (CODE_HINT_RE.test(prose)) return false;
   if (/\\[a-zA-Z]{2,}/.test(prose)) return false;
-  if ((prose.match(CODE_CHAR_RE) || []).length / prose.length > 0.02) return false;
+  if ((prose.match(CODE_CHAR_RE) || []).length / prose.length > 0.03) return false;
   const sentences = (prose.match(/[.!?。;](?:\s+|$)/g) || []).length;
   const cjk = (prose.match(/[\u4e00-\u9fff]/g) || []).length;
   const words = (prose.match(/\s+/g) || []).length + Math.floor(cjk / 2);

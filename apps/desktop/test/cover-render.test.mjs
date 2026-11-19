@@ -109,7 +109,15 @@ test("resolveCover picks image, auto and template sources", async () => {
   const image = await resolveCover({ payload: { cover: { mode: "image", imagePath: "D:/covers/a.png", fit: "cover" } }, loadImage });
   assert.equal(image.data.toString(), "img:D:/covers/a.png");
   assert.equal(image.mediaType, "image/jpeg");
+  assert.equal(image.fileName, "cover.jpg");
   assert.equal(image.fit, "cover");
+
+  const png = await resolveCover({
+    payload: { cover: { mode: "image", imagePath: "D:/covers/b.png" } },
+    loadImage: async () => ({ data: Buffer.from("png-bytes"), mediaType: "image/png" }),
+  });
+  assert.equal(png.fileName, "cover.png", "the cover file extension follows the media type");
+  assert.equal(png.mediaType, "image/png");
 
   const auto = await resolveCover({
     payload: { cover: { mode: "auto" } },

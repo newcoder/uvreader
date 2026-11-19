@@ -40,6 +40,9 @@ const ICONS = {
   "file-plus": '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M12 12v6"/>',
   "folder-open": '<path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/>',
   "external-link": '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+  image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+  code: '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>',
+  braces: '<path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5a2 2 0 0 0 2 2h1"/><path d="M16 3h1a2 2 0 0 1 2 2v5a2 2 0 0 0 2 2 2 2 0 0 0-2 2v5a2 2 0 0 1-2 2h-1"/>',
   info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
   copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
   "download": '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
@@ -56,9 +59,9 @@ const ICONS = {
   "arrow-down": '<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>',
   "bookmark-plus": '<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h7"/><path d="M16 3h5"/><path d="M18.5.5v5"/>',
   // 书坊三页导航图标(设计见 docs/workshop.md §2.1 / docs/page-logos.html)。
-  "reading-space": '<path d="M12 8.6C10.4 7.2 8.3 6.4 6.1 6.4H4.2v11.2h1.9c2.2 0 4.3.8 5.9 2.1 1.6-1.3 3.7-2.1 5.9-2.1h1.9V6.4h-1.9c-2.2 0-4.3.8-5.9 2.2Z"/><path d="M12 8.6v11.1"/><path d="M18.9 2.2l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" fill="currentColor" stroke="none"/>',
+  "reading-space": '<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
   books: '<rect x="4.3" y="4.6" width="3.3" height="14.8" rx="0.8"/><rect x="9.3" y="4.6" width="3.3" height="14.8" rx="0.8"/><path d="M15.1 5.5l3.2.85-3.75 14.2-3.2-.85z"/>',
-  workshop: '<path d="M11 10.2C9.6 9 7.8 8.3 5.9 8.3H4.2v9.4h1.7c1.9 0 3.7.7 5.1 1.9 1.4-1.2 3.2-1.9 5.1-1.9h1.7V8.3h-1.7c-1.9 0-3.7.7-5.1 1.9Z"/><path d="M11 10.2v9.3"/><path d="M13.4 20.2l5.6-5.6"/><path d="M20.9 9.1l.65 1.65 1.65.65-1.65.65-.65 1.65-.65-1.65-1.65-.65 1.65-.65z" fill="currentColor" stroke="none"/>',
+  workshop: '<path d="M3.5 15.5c1.8-1.1 3.6-1.1 5.4 0 1.8-1.1 3.6-1.1 5.4 0V8.2c-1.8-1.1-3.6-1.1-5.4 0-1.8-1.1-3.6-1.1-5.4 0z"/><path d="M8.9 8.2v7.3"/><circle cx="17.8" cy="5.8" r="2.3"/><path d="M17.8 2.6v1.1M17.8 7.9v1.1M14.6 5.8h1.1M19.9 5.8h1.1M15.6 3.6l.8.8M19.2 7.2l.8.8M15.6 8l.8-.8M19.2 4.4l.8-.8"/>',
 };
 
 const FALLBACK = ICONS["book-open"];

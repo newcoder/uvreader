@@ -131,6 +131,13 @@ test("pdfTextLooksUnreadable detects single-character token dumps", () => {
   assert.equal(pdfTextLooksUnreadable(broken), true);
 });
 
+test("a printed TOC full of dot leaders is readable, not a broken text layer", () => {
+  const toc = Array.from({ length: 40 }, (_, i) => ({
+    str: `${i + 1} Introduction to topic number ${i + 1} . . . . . . . . . . . . ${(i + 1) * 10}`,
+  }));
+  assert.equal(pdfTextLooksUnreadable(toc), false);
+});
+
 test("readerSearchTexts reads block text in document order", () => {
   const win = dom("<p>one</p><h1>two</h1><p>three</p>");
   assert.deepEqual(readerSearchTexts(win.document.body), ["one", "two", "three"]);

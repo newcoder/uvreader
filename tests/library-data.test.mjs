@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createLibraryData, existingVaultBookPath, freeBookPath, groupLibChips, IMPORT_MIME_EXT, isInsideVaultPath, mergeBookTags, pickLibraryFolder, removeBookTagEntries, renameBookTagEntries, vaultBookPaths, vaultOnlyRecord } from "../packages/reader/src/library-data.js";
+import { createLibraryData, existingVaultBookPath, freeBookPath, groupLibChips, IMPORT_MIME_EXT, isInsideVaultPath, isIntermediateAssetPath, mergeBookTags, pickLibraryFolder, removeBookTagEntries, renameBookTagEntries, vaultBookPaths, vaultOnlyRecord } from "../packages/reader/src/library-data.js";
 
 const normalize = (p) => String(p == null ? "" : p).trim()
   .replace(/\\/g, "/").replace(/\/+/g, "/").replace(/^\/+|\/+$/g, "");
@@ -26,6 +26,18 @@ test("bookStatusOf maps progress onto new/reading/done", () => {
   assert.equal(data.bookStatusOf({ lastRead: 1, percent: 42 }), "reading");
   assert.equal(data.bookStatusOf({ lastRead: 1, percent: 98 }), "done");
   assert.equal(data.bookStatusOf({ lastRead: 1, percent: 100 }), "done");
+});
+
+test("space files and generated image assets stay out of the library", () => {
+  assert.equal(isIntermediateAssetPath("Spaces/读书/books/a.epub"), true);
+  assert.equal(isIntermediateAssetPath("_attachments/fonts/a.ttf"), true);
+  assert.equal(isIntermediateAssetPath("CSP2019.assets/images/a.png", { image: true }), true);
+  assert.equal(isIntermediateAssetPath("Spaces/读书/exports/images/page_0_equation_1.jpg", { image: true }), true);
+  assert.equal(isIntermediateAssetPath("Books/covers/equations/a.jpg", { image: true }), true);
+  assert.equal(isIntermediateAssetPath("Books/cover.png", { image: true }), false);
+  assert.equal(isIntermediateAssetPath("Books/示例/a.epub"), false);
+  assert.equal(isIntermediateAssetPath("notes/a.png", { image: true }), false);
+  assert.equal(isIntermediateAssetPath("", { image: true }), false);
 });
 
 test("buildLibChips tallies statuses, tags and folders in display order", () => {

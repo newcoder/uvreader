@@ -59,6 +59,6 @@ reader 侧已经做的兜底(不改上游也能用):我们从 `*_content_list.js
 ## 复现
 
 - 源:`D:\Users\rayni\Downloads\数学在科学和社会中的作用 (冯·诺伊曼 …).pdf`
-- 中间产物:`%APPDATA%\qiaomu-reader-desktop\book-cache\work\_Von_Neumann_John_z-library.sk_1lib.sk_z-9c1e91d4\extract\`
+- 中间产物:`%APPDATA%\uvreader-desktop\book-cache\work\_Von_Neumann_John_z-library.sk_1lib.sk_z-9c1e91d4\extract\`
   - `mineru/chunks/*/<hash>_content_list.json` ← 脚注在这里(共 51 条)
   - `<书名>.json` ← Doc JSON,脚注已被丢掉

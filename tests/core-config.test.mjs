@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 
-import { AI_PROVIDERS, aiProviderFor, buildAiRequestBody, buildAiRequestOptions, classifyAiHttpStatus, normalizeAiBase } from "../packages/reader/src/ai-providers.js";
-import { READER_THEMES, READER_THEME_CHOICES, migrateReaderTheme } from "../packages/reader/src/reader-themes.js";
+import { AI_PROVIDERS, aiProviderFor, buildAiRequestBody, buildAiRequestOptions, classifyAiHttpStatus, migrateRetiredAiProvider, normalizeAiBase } from "../packages/reader/src/ai-providers.js";
+import { READER_THEMES, READER_THEME_CHOICES, migrateReaderTheme, pdfPageFilterSpec } from "../packages/reader/src/reader-themes.js";
 import { composeAiAnswerNote } from "../packages/reader/src/ai-note.js";
 import { deriveAiSetupState } from "../packages/reader/src/ai-setup-state.js";
 import { isChineseSourceText, translateUiText } from "../packages/reader/src/i18n-runtime.js";
@@ -406,12 +406,66 @@ function contrast(a, b) {
 
 test("AI presets contain supported providers and reject unknown services", () => {
   assert.equal(aiProviderFor("unknown-provider"), null);
-  for (const id of ["deepseek", "kimi", "qwen", "zhipu", "minimax", "siliconflow", "doubao", "openrouter", "openai", "ollama", "lmstudio", "custom"]) {
+  for (const id of ["deepseek", "kimi", "qwen", "zhipu", "opencode-go", "openrouter", "openai", "gemini", "ollama", "lmstudio", "custom"]) {
     assert.ok(AI_PROVIDERS[id], `missing provider: ${id}`);
   }
+  for (const id of ["minimax", "siliconflow", "doubao"]) {
+    assert.equal(AI_PROVIDERS[id], undefined, `retired provider still in the picker: ${id}`);
+  }
+  assert.equal(AI_PROVIDERS["opencode-go"].base, "https://opencode.ai/inference/go/openai/v1");
+  assert.equal(AI_PROVIDERS["opencode-go"].category, "aggregator");
+  assert.equal(AI_PROVIDERS["opencode-go"].model, "deepseek-v4.1-flash");
+  assert.equal(AI_PROVIDERS["opencode-go"].supportsThinking, true);
+  assert.equal(AI_PROVIDERS["opencode-go"].thinkingLevelMap.off, "none");
+  assert.equal(AI_PROVIDERS["opencode-go"].thinkingLevelMap.medium, "high");
+  assert.equal(AI_PROVIDERS.gemini.base, "https://generativelanguage.googleapis.com/v1beta/openai");
+  assert.equal(AI_PROVIDERS.gemini.category, "international");
+  assert.ok(AI_PROVIDERS.gemini.models.includes("gemini-3.8-flash"));
   assert.equal(AI_PROVIDERS.ollama.base, "http://localhost:11434/v1");
   assert.equal(AI_PROVIDERS.lmstudio.base, "http://localhost:1234/v1");
   assert.equal(normalizeAiBase(" https://example.com/v1/// "), "https://example.com/v1");
+});
+
+test("removed AI presets migrate to a custom OpenAI-compatible endpoint", () => {
+  const settings = {
+    aiProvider: "siliconflow",
+    aiEnabled: true,
+    aiNeedsVerification: false,
+    aiBases: { siliconflow: "https://proxy.example.com/v1" },
+    aiModels: { siliconflow: "Qwen/Qwen3-8B" },
+    aiSecrets: { siliconflow: "secret-1" },
+    aiThinking: { siliconflow: false },
+    aiCapabilities: { siliconflow: { vision: true } },
+  };
+  assert.equal(migrateRetiredAiProvider(settings), true);
+  assert.equal(settings.aiProvider, "custom");
+  assert.equal(settings.aiBases.custom, "https://proxy.example.com/v1");
+  assert.equal(settings.aiModels.custom, "Qwen/Qwen3-8B");
+  assert.equal(settings.aiSecrets.custom, "secret-1");
+  assert.equal(settings.aiBases.siliconflow, undefined);
+  assert.equal(settings.aiModels.siliconflow, undefined);
+  assert.equal(settings.aiSecrets.siliconflow, undefined);
+  assert.equal(settings.aiThinking.siliconflow, undefined);
+  assert.equal(settings.aiCapabilities.siliconflow, undefined);
+  assert.equal(settings.aiEnabled, false);
+  assert.equal(settings.aiNeedsVerification, true);
+  assert.equal(migrateRetiredAiProvider(settings), false, "the migrated provider is stable");
+
+  const minimax = { aiProvider: "minimax", aiBases: {}, aiModels: {}, aiSecrets: {} };
+  assert.equal(migrateRetiredAiProvider(minimax), true);
+  assert.equal(minimax.aiBases.custom, "https://api.minimax.cn/v1");
+  assert.equal(minimax.aiModels.custom, "MiniMax-M3");
+
+  const existing = {
+    aiProvider: "doubao",
+    aiBases: { custom: "https://mine.example.com/v1" },
+    aiModels: { custom: "my-model" },
+    aiSecrets: { custom: "my-key" },
+  };
+  assert.equal(migrateRetiredAiProvider(existing), true);
+  assert.equal(existing.aiBases.custom, "https://mine.example.com/v1");
+  assert.equal(existing.aiModels.custom, "my-model");
+  assert.equal(existing.aiSecrets.custom, "my-key");
 });
 
 test("AI HTTP failures distinguish a rejected key from a refused request", () => {
@@ -443,7 +497,7 @@ test("AI setup state separates configuration readiness from toolbar visibility",
 test("DeepSeek requests keep thinking separate and make connection checks short", () => {
   const messages = [{ role: "user", content: "请只回答：连接成功" }];
   const testBody = buildAiRequestBody("deepseek", "deepseek-v4-flash", messages, { connectionTest: true });
-  assert.equal(testBody.max_tokens, 16);
+  assert.equal(testBody.max_tokens, 512);
   assert.deepEqual(testBody.thinking, { type: "disabled" });
 
   const normalBody = buildAiRequestBody("deepseek", "deepseek-v4-flash", messages);
@@ -466,16 +520,46 @@ test("HTTP AI requests actually send the configured bearer key", () => {
 });
 
 test("reading themes migrate legacy names and meet WCAG AA contrast", () => {
+  assert.equal(migrateReaderTheme("auto"), "night");
   assert.equal(migrateReaderTheme("light"), "paper");
   assert.equal(migrateReaderTheme("sepia"), "warm");
   assert.equal(migrateReaderTheme("dark"), "night");
   assert.equal(migrateReaderTheme("eink"), "moon");
-  assert.deepEqual(READER_THEME_CHOICES, ["auto", "paper", "warm", "celadon", "moon", "night"]);
+  assert.equal(migrateReaderTheme("unknown-theme"), "paper");
+  assert.deepEqual(READER_THEME_CHOICES, [
+    "white",
+    "paper",
+    "warm",
+    "celadon",
+    "moon",
+    "night",
+    "warm-night",
+    "slate-night",
+  ]);
   assert.ok(READER_THEMES.eink, "e-ink device mode keeps its internal high-contrast palette");
-  for (const id of READER_THEME_CHOICES.filter((name) => name !== "auto")) {
+  for (const id of READER_THEME_CHOICES) {
     const theme = READER_THEMES[id];
     assert.ok(contrast(theme.bg, theme.text) >= 4.5, `${id} contrast is too low`);
   }
+});
+
+test("PDF page filters map paper and ink onto the panel and text colours", () => {
+  const night = pdfPageFilterSpec({ theme: "night" });
+  assert.equal(night.id, "night");
+  assert.equal(night.levels.slope, 1.3158);
+  assert.equal(night.levels.intercept, -0.1579);
+  // Each channel maps ink (0) to the theme text and paper (1) to the panel bg.
+  const text = READER_THEMES.night.text.match(/[0-9a-f]{2}/gi).map((value) => parseInt(value, 16));
+  const panel = READER_THEMES.night.ui.match(/[0-9a-f]{2}/gi).map((value) => parseInt(value, 16));
+  night.channels.forEach((channel, index) => {
+    assert.ok(Math.abs(channel.intercept - text[index] / 255) < 1e-9);
+    assert.ok(Math.abs(channel.slope + channel.intercept - panel[index] / 255) < 1e-9);
+  });
+  assert.equal(pdfPageFilterSpec({ theme: "night", einkMode: true }), null);
+  assert.equal(pdfPageFilterSpec("eink"), null);
+  assert.equal(pdfPageFilterSpec("auto").id, "night");
+  assert.equal(pdfPageFilterSpec("not-a-theme").id, "paper");
+  assert.notDeepEqual(pdfPageFilterSpec({ theme: "paper" }).channels, night.channels);
 });
 
 test("public README presents the standalone desktop app and preserved notices", () => {
@@ -499,6 +583,9 @@ test("AI prompt and context are Chinese-first", () => {
   assert.match(aiSource, /书名：《/);
   assert.match(aiSource, /水印或页面装饰/);
   assert.match(aiSource, /不要因为这类重复文字就判断题目无法识别/);
+  assert.match(aiSource, /prepare_workshop_task/);
+  assert.match(aiSource, /不要直接在对话里输出整篇译文/);
+  assert.match(aiSource, /标题保持「值得追问」/);
   assert.doesNotMatch(aiSource, /Из книги|Фрагмент|Перевод|По словам/);
 });
 
@@ -542,7 +629,8 @@ test("AI dialog uses built-in quick prompts and keeps reasoning separate", () =>
   assert.match(aiSource, /const DEFAULT_AI_QUICK_PROMPTS/);
   assert.doesNotMatch(source, /AiPromptLibraryModal/);
   assert.match(aiSource, /function aiQuickPrompts\(\) \{\s+return defaultAiQuickPrompts\(\);/);
-  assert.match(aiRenderSource, /button\.addEventListener\("click", \(\) => \{[\s\S]*chat\._send\(item\.prompt\)/);
+  assert.match(aiRenderSource, /button\.addEventListener\("click", \(\) => \{[\s\S]*?runAiQuickPrompt\(chat, item\)/);
+  assert.match(aiRenderSource, /function runAiQuickPrompt\(chat, item\) \{[\s\S]*?chat\._send\(item\.prompt\)/);
   assert.match(explainSource, /createEl\("details", \{ cls: "qiaomu-reader-ai-reason" \}\)/);
   assert.match(explainSource, /reasoningBox\.open = false/);
   assert.match(aiPiSource, /onDelta/);
@@ -834,7 +922,7 @@ test("reading settings split reading and AI assistance without exposing secrets"
   assert.match(modalSource, /qiaomu-reader-rs-card qiaomu-reader-rs-theme-card/);
   assert.match(modalSource, /colA\.createDiv\("qiaomu-reader-pan-sec"\)\.setText\(qiaomuReaderTranslate\("font-size"\)\)/);
   assert.match(modalSource, /createEl\("input", \{[\s\S]*type: "range"[\s\S]*min: "1\.4", max: "2\.2", step: "0\.05"/);
-  assert.match(modalSource, /lineRange\.addEventListener\("input"[\s\S]*this\._apply\(true\)/);
+  assert.match(modalSource, /lineRange\.addEventListener\("input"[\s\S]*this\._apply\(false\)/);
   assert.match(modalSource, /lineRange\.addEventListener\("change"[\s\S]*this\._apply\(true\)/);
   assert.doesNotMatch(modalSource, /const quick = c\.createDiv\("qiaomu-reader-rs-quick"\)/);
   assert.doesNotMatch(chatViewSource, /ReadSettingsModal|_settingsButton/);

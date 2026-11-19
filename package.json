@@ -1,6 +1,6 @@
 {
   "name": "uvreader",
-  "version": "0.7.89",
+  "version": "0.9.63",
   "description": "中文优先的独立桌面阅读器，支持 EPUB、PDF、FB2、MOBI、AZW3 与 CBZ，含划线、批注、阅读笔记和可选 AI 伴读。",
   "type": "module",
   "scripts": {
@@ -9,6 +9,7 @@
     "test:shim": "node --test packages/host-shim/test/*.test.mjs",
     "test:desktop": "node --test apps/desktop/test/*.test.mjs",
     "check:epub": "node apps/desktop/scripts/check-epub.mjs",
+    "check:quiz-pages": "node scripts/check-quiz-pages.mjs",
     "check:i18n": "node scripts/check-i18n.mjs",
     "build:books": "node scripts/build-starter-books.mjs",
     "desktop:install": "npm --prefix apps/desktop install",

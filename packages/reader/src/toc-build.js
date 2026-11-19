@@ -31,9 +31,13 @@ export function pageForBlock(flow, block) {
 export function pdfTextLooksUnreadable(items) {
   const text = (items || []).map((it) => typeof it.str === "string" ? it.str : "").join(" ");
   const tokens = text.split(/\s+/).filter(Boolean);
-  if (tokens.length < 30) return false;
-  const singles = tokens.filter((t) => t.length === 1).length;
-  return singles / tokens.length > 0.7;
+  // Printed TOCs are full of standalone dots and page numbers. Counting those
+  // as one-character tokens marked every dense contents page as "unreadable",
+  // so its text was dropped and the AI could only see the last readable page.
+  const meaningful = tokens.filter((token) => /[\p{L}\p{N}]/u.test(token));
+  if (meaningful.length < 30) return false;
+  const singles = meaningful.filter((token) => Array.from(token).length === 1).length;
+  return singles / meaningful.length > 0.7;
 }
 
 // PDF search corpus: one entry per page, taken from the lazy view (the initial

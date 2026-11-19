@@ -244,6 +244,7 @@ function startMockAi(options = {}) {
     sawTools: false,
     imageRequests: 0,
     lastUserText: "",
+    webSearchCalled: false,
   };
   const server = http.createServer((request, response) => {
     let body = "";
@@ -269,6 +270,7 @@ function startMockAi(options = {}) {
       // A real chat with tools: the reader marks the message, the mock asks for
       // a search, and the round after the tool result answers.
       const wantsTool = hasTools && lastRole === "user" && lastText.includes("工具") && !lastText.includes("probe_number");
+      const wantsWebSearch = hasTools && lastRole === "user" && lastText.includes("WEB SEARCH") && !lastText.includes("probe_number");
       const afterTool = hasTools && lastRole === "tool";
       if (lastRole === "user" && lastText) state.lastUserText = lastText;
       if (hasImage) { state.sawImage = true; state.imageRequests += 1; }
@@ -320,6 +322,15 @@ function startMockAi(options = {}) {
         sse([{ choices: [{ delta: { content: state.probeDigit } }] }]);
         return;
       }
+      if (wantsWebSearch) {
+        state.webSearchCalled = true;
+        sse([
+          { choices: [{ delta: { tool_calls: [{ index: 0, id: "call_web_search", type: "function", function: { name: "web_search", arguments: "" } }] } }] },
+          { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: JSON.stringify({ query: "DeepSeek V4" }) } }] } }] },
+          { choices: [{ delta: {}, finish_reason: "tool_calls" }] },
+        ]);
+        return;
+      }
       if (wantsTool) {
         sse([
           { choices: [{ delta: { tool_calls: [{ index: 0, id: "call_search", type: "function", function: { name: "search_book", arguments: "" } }] } }] },
@@ -329,7 +340,7 @@ function startMockAi(options = {}) {
         return;
       }
       if (afterTool) {
-        sse([{ choices: [{ delta: { content: "MOCK TOOL ANSWER" } }] }]);
+        sse([{ choices: [{ delta: { content: state.webSearchCalled ? "MOCK WEB SEARCH ANSWER" : "MOCK TOOL ANSWER" } }] }]);
         return;
       }
       // The probe asks for probe_number by name; the tool loop scenario marks
@@ -364,6 +375,42 @@ function startMockAi(options = {}) {
       } else {
         json({ choices: [{ message: { content: "MOCK CONNECTION OK" } }] });
       }
+    });
+  });
+  return new Promise((resolve) => {
+    server.listen(0, "127.0.0.1", () => resolve({ server, state, port: server.address().port }));
+  });
+}
+
+function startMockWebSearch() {
+  const state = { requests: 0, auth: "", path: "", body: null };
+  const server = http.createServer((request, response) => {
+    let body = "";
+    request.on("data", (chunk) => { body += chunk; });
+    request.on("end", () => {
+      state.requests += 1;
+      state.auth = request.headers.authorization || "";
+      state.path = request.url || "";
+      try { state.body = JSON.parse(body || "{}"); } catch { state.body = null; }
+      const cors = { "Access-Control-Allow-Origin": "*" };
+      if (request.url === "/v1/tools/search") {
+        response.writeHead(200, { ...cors, "Content-Type": "application/json" });
+        response.end(JSON.stringify({
+          results: [{
+            title: "DeepSeek V4 搜索测试",
+            url: "https://example.com/deepseek-v4",
+            snippet: "测试摘要",
+            summary: "这是 DeepSeek Search 的 E2E 测试结果。",
+            site_name: "Example",
+            date: "2026-01-01",
+            authority: 3,
+            rerank_score: 2.5,
+          }],
+        }));
+        return;
+      }
+      response.writeHead(404, { ...cors, "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: { message: "not found" } }));
     });
   });
   return new Promise((resolve) => {
@@ -1028,7 +1075,7 @@ async function runEbookScenario() {
       const cards = [...document.querySelectorAll(".qiaomu-reader-lib-card")];
       const titleOf = (card) => card.querySelector(".qiaomu-reader-lib-book-title")?.textContent || "";
       const target = cards.find((card) => titleOf(card) !== name) || cards[1] || cards[0];
-      target?.click();
+      target?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
     }, beforeLibrary);
     const libraryBook = await waitFor("reader switched from the library", () => page.evaluate((previous) => {
       const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view;
@@ -1309,6 +1356,52 @@ async function runPdfScenario() {
     await waitFor("pdf ready", () => readerReady(page), 30_000);
     const bookKey = await currentBookKey(page);
     console.log("pdf: reader ready");
+
+    // The page bitmap is sized from the on-screen box and the device pixel
+    // ratio (with a small supersample), and text pages use lossless PNG.
+    const raster = await waitFor("pdf high-resolution page raster", () => page.evaluate(() => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view;
+      const img = view?.pager?.flow?.querySelector('img.qiaomu-reader-pdf-lazy[data-loaded="1"]');
+      if (!img || !img.naturalWidth) return null;
+      const rect = img.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const density = img.naturalWidth / Math.max(1, rect.width);
+      if (!rect.width || density < dpr * 1.3) return null;
+      return {
+        width: img.naturalWidth,
+        css: Math.round(rect.width),
+        base: Math.round(Number.parseFloat(img.style.width) || 0),
+        zoom: view.pdfZoom,
+        area: view.areaEl?.clientWidth || 0,
+        dpr,
+        density: Number(density.toFixed(2)),
+        format: img.getAttribute("data-pdf-raster-format") || "",
+      };
+    }), 20_000);
+    if (raster.format !== "png") throw new Error(`a text PDF page should use lossless PNG: ${JSON.stringify(raster)}`);
+    console.log("pdf: page raster", raster.width + "px", "for", raster.css + "css", "@", raster.dpr + "x", raster.format,
+      `(base ${raster.base}px, zoom ${raster.zoom}, area ${raster.area}px)`);
+
+    // Zooming to the maximum must request a sharper bitmap instead of
+    // stretching the old one. Several steps are needed because the first paint
+    // may already be denser than the current box.
+    for (let step = 0; step < 8; step += 1) {
+      await page.evaluate(() => {
+        const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view;
+        view?.pdfZoomInEl?.click();
+      });
+      await sleep(80);
+    }
+    const zoomedRaster = await waitFor("pdf zoom re-rasterises the page", () => page.evaluate((before) => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view;
+      const img = view?.pager?.flow?.querySelector('img.qiaomu-reader-pdf-lazy[data-loaded="1"]');
+      if (!img || !img.naturalWidth || img.naturalWidth <= before) return null;
+      const rect = img.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const density = img.naturalWidth / Math.max(1, rect.width);
+      return density >= dpr * 1.3 ? img.naturalWidth : null;
+    }, raster.width), 20_000);
+    console.log("pdf: zoom re-raster", raster.width + "px ->", zoomedRaster + "px");
 
     // The selection popup follows the debounced selection check; retry the
     // whole step instead of assuming the first dispatch always lands.
@@ -2015,7 +2108,7 @@ async function runCapabilityScenario() {
     const pageShot = await waitFor("current page attachment", () => page.evaluate(() => {
       const leaf = window.__qbrApp.workspace.getLeavesOfType("qiaomu-book-reader-ai-chat")[0];
       const list = (leaf?.view?.attachments || []).filter((item) => item.source === "shot");
-      const wide = list.find((item) => item.width >= 400);
+      const wide = list.find((item) => item.height >= 400);
       return wide ? `${wide.width}x${wide.height}` : "";
     }), 15_000);
     console.log("current page:", pageShot);
@@ -2157,6 +2250,62 @@ async function runApiKeyScenario() {
   }
 }
 
+async function runWebSearchScenario() {
+  const mockAi = await startMockAi();
+  const mockSearch = await startMockWebSearch();
+  const aiBase = `http://127.0.0.1:${mockAi.port}/v1`;
+  const searchBase = `http://127.0.0.1:${mockSearch.port}`;
+  const { app, page, userData } = await launch(book);
+  try {
+    await page.waitForSelector(".qiaomu-reader-view", { timeout: 30_000 });
+    await waitFor("reader ready", () => readerReady(page), 30_000);
+    await page.evaluate(async ({ aiBase, searchBase }) => {
+      await window.qbrDesktop.secrets.setSecret("e2e-deepseek-key", "sk-deepseek-search");
+      const plugin = window.__qbrPlugin;
+      plugin.settings.aiProvider = "custom";
+      plugin.settings.aiBases = { ...(plugin.settings.aiBases || {}), custom: aiBase };
+      plugin.settings.aiModels = { ...(plugin.settings.aiModels || {}), custom: "mock-model" };
+      // The chat provider is not DeepSeek, but a DeepSeek provider key exists.
+      plugin.settings.aiSecrets = { ...(plugin.settings.aiSecrets || {}), deepseek: "e2e-deepseek-key" };
+      plugin.settings.aiWebSearchSecret = "";
+      plugin.settings.aiWebSearchEnabled = true;
+      plugin.settings.aiWebSearchBase = searchBase;
+      plugin.settings.aiEnabled = true;
+      plugin.settings.aiNeedsVerification = false;
+      plugin.settings.aiToolsEnabled = true;
+      if (typeof plugin.saveSettings === "function") await plugin.saveSettings();
+    }, { aiBase, searchBase });
+    await page.evaluate(() => window.__qbrPlugin.openAiChat());
+    await page.waitForSelector(".qiaomu-reader-ai-input", { timeout: 30_000 });
+    await page.fill(".qiaomu-reader-ai-input", "WEB SEARCH: DeepSeek V4 有什么更新？");
+    await page.press(".qiaomu-reader-ai-input", "Enter");
+    await waitFor("web-search answer", () => page.evaluate(() => {
+      const bubbles = [...document.querySelectorAll(".qiaomu-reader-ai-msg-ai")];
+      return bubbles.some((bubble) => bubble.textContent.includes("MOCK WEB SEARCH ANSWER")) ? "yes" : "";
+    }), 30_000);
+    if (!mockAi.state.webSearchCalled) throw new Error("the mock model did not call web_search");
+    if (mockSearch.state.requests !== 1) throw new Error(`expected one search request, saw ${mockSearch.state.requests}`);
+    if (mockSearch.state.path !== "/v1/tools/search") throw new Error(`unexpected search path: ${mockSearch.state.path}`);
+    if (mockSearch.state.auth !== "Bearer sk-deepseek-search") {
+      throw new Error(`DeepSeek provider key was not reused: ${JSON.stringify(mockSearch.state.auth)}`);
+    }
+    if (!String(mockSearch.state.body?.query || "").includes("DeepSeek V4")) {
+      throw new Error(`unexpected search body: ${JSON.stringify(mockSearch.state.body)}`);
+    }
+    const toolTitles = await page.evaluate(() => [...document.querySelectorAll(".qiaomu-reader-ai-tool-title")]
+      .map((node) => node.textContent || ""));
+    if (!toolTitles.some((title) => /联网搜索|web search/i.test(title))) {
+      throw new Error(`the web-search tool card is missing: ${JSON.stringify(toolTitles)}`);
+    }
+    console.log("web-search: auto tool call used the configured DeepSeek key");
+  } finally {
+    await app.close().catch(() => {});
+    fs.rmSync(userData, { recursive: true, force: true });
+    mockAi.server.close();
+    mockSearch.server.close();
+  }
+}
+
 async function runScrollScenario() {
   const { app, page, userData } = await launch(book, {
     seed: (dir) => {
@@ -2275,8 +2424,11 @@ async function runLibraryTabsScenario() {
     await page.evaluate(() => window.__qbrPlugin.setBookTags("Books/示例书库/Alice in Wonderland.epub", ["测试标签"]));
     await page.evaluate(() => window.__qbrPlugin.openLibrary());
     await waitFor("library modal", async () => Boolean(await page.$(".qiaomu-reader-modal-lib")), 15_000);
-    await waitFor("library tree", () => page.evaluate(() => document.querySelectorAll(".qiaomu-reader-lib-tree .qiaomu-reader-lib-node").length >= 5), 30_000);
+    await waitFor("library tree", () => page.evaluate(() => document.querySelectorAll(".qiaomu-reader-modal-lib .qiaomu-reader-lib-tree .qiaomu-reader-lib-node").length >= 5), 30_000);
     await waitFor("library grids", () => page.evaluate(() => document.querySelectorAll(".qiaomu-reader-lib-grid").length === 2), 30_000);
+    await waitFor("the default library node", () => page.evaluate(() =>
+      document.querySelector(".qiaomu-reader-modal-lib .qiaomu-reader-lib-node-on")?.dataset?.node === "all" ? "ok" : ""
+    ), 10_000);
     const state = () => page.evaluate(() => {
       const local = document.querySelector(".qiaomu-reader-lib-grid:not(.qiaomu-reader-lib-online-grid)");
       const online = document.querySelector(".qiaomu-reader-lib-online-grid");
@@ -2284,7 +2436,7 @@ async function runLibraryTabsScenario() {
       return {
         local: visible(local),
         online: visible(online),
-        on: document.querySelector(".qiaomu-reader-lib-node-on")?.dataset?.node || "",
+        on: document.querySelector(".qiaomu-reader-modal-lib .qiaomu-reader-lib-node-on")?.dataset?.node || "",
         cards: document.querySelectorAll(".qiaomu-reader-lib-card").length,
       };
     });
@@ -2308,7 +2460,7 @@ async function runLibraryTabsScenario() {
     // finished download must land in the local tree when switching back.
     const leaked = await page.evaluate(() => {
       const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader-library")[0].view;
-      const input = document.querySelector(".qiaomu-reader-lib-search-input");
+      const input = document.querySelector(".qiaomu-reader-modal-lib .qiaomu-reader-lib-search-input");
       view._onlineQuery = "zzz-not-a-book";
       input.value = "zzz-not-a-book";
       document.querySelector('.qiaomu-reader-lib-node[data-node="all"]')?.click();
@@ -2345,15 +2497,536 @@ async function runLibraryTabsScenario() {
     // Back to the local library, then collapse and expand the tree.
     await page.evaluate(() => document.querySelector('.qiaomu-reader-lib-node[data-node="all"]')?.click());
     await sleep(300);
-    await page.click(".qiaomu-reader-lib-collapse");
+    await page.click(".qiaomu-reader-modal-lib .qiaomu-reader-lib-collapse");
     await sleep(300);
-    const collapsed = await page.evaluate(() => document.querySelector(".qiaomu-reader-lib")?.classList.contains("qiaomu-reader-lib-nav-collapsed"));
+    const collapsed = await page.evaluate(() => document.querySelector(".qiaomu-reader-modal-lib .qiaomu-reader-lib")?.classList.contains("qiaomu-reader-lib-nav-collapsed"));
     if (!collapsed) throw new Error("the tree did not collapse");
-    await page.click(".qiaomu-reader-lib-navbtn");
+    await page.click(".qiaomu-reader-modal-lib .qiaomu-reader-lib-navbtn");
     await sleep(300);
-    const stillCollapsed = await page.evaluate(() => document.querySelector(".qiaomu-reader-lib")?.classList.contains("qiaomu-reader-lib-nav-collapsed"));
+    const stillCollapsed = await page.evaluate(() => document.querySelector(".qiaomu-reader-modal-lib .qiaomu-reader-lib")?.classList.contains("qiaomu-reader-lib-nav-collapsed"));
     if (stillCollapsed) throw new Error("the tree did not expand again");
     console.log("library tree: node selection, tag filtering and collapse work");
+  } finally {
+    await app.close().catch(() => {});
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+}
+
+async function runSpaceScenario() {
+  const { app, page, userData } = await launch("");
+  try {
+    await app.evaluate(({ shell }) => {
+      globalThis.__qbrExternalOpen = [];
+      shell.openPath = async (target) => {
+        globalThis.__qbrExternalOpen.push(String(target || ""));
+        return "";
+      };
+    });
+    await page.waitForSelector(".qbr-space-home", { timeout: 30_000 });
+    await page.click(".qbr-space-tree-actions .qbr-space-add");
+    await page.waitForSelector(".qbr-space-create", { timeout: 10_000 });
+    await page.fill(".qbr-space-create input", "E2E 空间");
+    await page.selectOption(".qbr-space-create select", "research");
+    await page.click(".qbr-space-create-actions .mod-cta");
+    await waitFor("the new space row", () => page.evaluate(() =>
+      [...document.querySelectorAll(".qbr-space-project-name")].some((el) => el.textContent === "E2E 空间") ? "ok" : ""
+    ), 15_000);
+    await page.waitForSelector(".qbr-space-empty-title", { timeout: 10_000 });
+    const empty = await page.textContent(".qbr-space-empty-title");
+    if (!/还没有内容/.test(empty || "")) throw new Error(`unexpected empty state: ${empty}`);
+    const importButton = await page.evaluate(() =>
+      [...document.querySelectorAll(".qbr-space-empty-actions button")].some((button) => button.textContent.includes("导入文件")));
+    if (!importButton) throw new Error("the empty space has no import button");
+
+    await page.evaluate(() => {
+      [...document.querySelectorAll(".qbr-space-empty-actions button")]
+        .find((button) => button.textContent.includes("从书库导入"))?.click();
+    });
+    await page.waitForSelector(".qbr-space-pick-list", { timeout: 10_000 });
+    await page.click(".qbr-space-pick-row input[type=checkbox]");
+    await page.click(".qbr-space-pick-actions .mod-cta");
+    await waitFor("the imported book card", () => page.evaluate(() =>
+      document.querySelector(".qbr-space-book-title")?.textContent?.trim() ? "ok" : ""
+    ), 20_000);
+    await waitFor("the space document tools bar", () => page.evaluate(() =>
+      document.querySelector(".qbr-space-tools")?.textContent?.includes("文档工具") ? "ok" : ""
+    ), 10_000);
+    await page.click(".qbr-space-tree-actions .qbr-space-collapse");
+    await page.waitForSelector(".qbr-space-home.is-tree-collapsed", { timeout: 5_000 });
+    await page.click(".qbr-space-content .qiaomu-reader-lib-navbtn");
+    await page.waitForFunction(() => !document.querySelector(".qbr-space-home")?.classList.contains("is-tree-collapsed"), null, { timeout: 5_000 });
+    console.log("space: navigation collapses and restores");
+    await page.dblclick(".qbr-space-book");
+    await waitFor("reader opened from the space", () => readerReady(page), 30_000);
+    const opened = await page.evaluate(() => window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view?.file?.path || "");
+    if (!opened.includes("Spaces/") || !opened.endsWith(".epub")) throw new Error(`unexpected space book path: ${opened}`);
+    console.log("space: created, imported a copied source and opened it", opened);
+    const readingStore = await waitFor("the space reading store", () => {
+      const root = path.join(userData, "library", "Spaces", "E2E 空间", "reading");
+      const pending = [root];
+      while (pending.length) {
+        const dir = pending.pop();
+        let entries = [];
+        try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+        for (const entry of entries) {
+          if (entry.isDirectory()) pending.push(path.join(dir, entry.name));
+          else if (entry.name === "book.json") return path.join(dir, entry.name);
+        }
+      }
+      return "";
+    }, 10_000);
+    console.log("space: reading data lives inside the space", readingStore);
+    const bookNote = await page.evaluate(async () => {
+      const plugin = window.__qbrPlugin;
+      const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view;
+      const file = view?.file;
+      if (!file) return "";
+      let note = await plugin.ensureBookNote(file);
+      if (!note) {
+        const linked = plugin.settings.bookNoteLinks?.[file.path];
+        note = linked ? window.__qbrApp.vault.getAbstractFileByPath(linked) : null;
+      }
+      return note?.path || plugin.settings.bookNoteLinks?.[file.path] || "";
+    });
+    if (!bookNote.startsWith("Spaces/E2E 空间/notes/")) throw new Error(`the book note is outside the space: ${bookNote}`);
+    console.log("space: book note lives inside the space", bookNote);
+    await page.evaluate(async () => {
+      const plugin = window.__qbrPlugin;
+      const view = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view;
+      if (!view?.file) return;
+      const chat = {
+        id: "e2e-space-chat",
+        bookPath: view.file.path,
+        title: "E2E chat",
+        turns: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      await plugin.saveAiChatRecord(chat);
+      plugin.settings.aiChatHistory = [chat, ...(plugin.settings.aiChatHistory || []).filter((item) => item.id !== chat.id)];
+      await plugin.saveAll();
+    });
+    const chatFile = await waitFor("the space chat record", () => {
+      const root = path.join(userData, "library", "Spaces", "E2E 空间", "reading");
+      const pending = [root];
+      while (pending.length) {
+        const dir = pending.pop();
+        let entries = [];
+        try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+        for (const entry of entries) {
+          if (entry.isDirectory()) pending.push(path.join(dir, entry.name));
+          else if (entry.name === "e2e-space-chat.json") return path.join(dir, entry.name);
+        }
+      }
+      return "";
+    }, 10_000);
+    console.log("space: AI chat record lives inside the space", chatFile);
+    await page.evaluate(() => {
+      document.querySelector(".qiaomu-reader-top .qiaomu-reader-ibtn")?.click();
+    });
+    await page.waitForSelector(".qbr-space-home", { timeout: 15_000 });
+    await waitFor("the reader returns to the space", () => page.evaluate(() =>
+      document.querySelector(".qbr-space-home .qiaomu-reader-lib-node-on .qbr-space-project-name")?.textContent === "E2E 空间" ? "ok" : ""
+    ), 10_000);
+    console.log("space: back from the reader returns to the reading space");
+    await page.evaluate(() => {
+      const card = [...document.querySelectorAll(".qbr-space-chat-card")]
+        .find((node) => node.querySelector(".qbr-space-book-title")?.textContent === "E2E chat");
+      card?.click();
+    });
+    const chatContext = await waitFor("the chat to open its book and companion", () => page.evaluate(() => {
+      const reader = window.__qbrApp.workspace.getLeavesOfType("qiaomu-reader")[0]?.view;
+      const chat = window.__qbrApp.workspace.getLeavesOfType("qiaomu-book-reader-ai-chat")[0]?.view;
+      if (!reader?.file?.path?.endsWith("Meditations.epub") || chat?.chatRecordId !== "e2e-space-chat") return "";
+      return JSON.stringify({ book: reader.file.path, chat: chat.chatRecordId });
+    }), 20_000);
+    console.log("space: chat opens its book and companion", chatContext);
+    await page.evaluate(() => {
+      const chatLeaf = window.__qbrApp.workspace.getLeavesOfType("qiaomu-book-reader-ai-chat")[0];
+      chatLeaf?.detach?.();
+      document.querySelector(".qiaomu-reader-top .qiaomu-reader-ibtn")?.click();
+    });
+    await page.waitForSelector(".qbr-space-home", { timeout: 15_000 });
+    await waitFor("the chat test returns to the space", () => page.evaluate(() =>
+      document.querySelector(".qbr-space-home .qiaomu-reader-lib-node-on .qbr-space-project-name")?.textContent === "E2E 空间" ? "ok" : ""
+    ), 10_000);
+    const quizFile = path.join(userData, "library", "Spaces", "E2E 空间", "quizzes", "E2E 答题页.html");
+    fs.mkdirSync(path.dirname(quizFile), { recursive: true });
+    fs.writeFileSync(quizFile, `<!doctype html><html><head><meta charset="utf-8"><script type="application/json" id="quiz-manifest">{"schema":"uvreader.quiz-page/v1","paperId":"e2e","title":"E2E 答题页","questions":[{"id":"q1","number":"1","type":"choice","stemHtml":"1+1=?","options":[{"key":"A","html":"1"},{"key":"B","html":"2"}],"answer":"B","analysisHtml":"1+1=2"}]}</script></head><body><main id="paper"><h1>E2E 答题页</h1><section class="q-card" data-quiz-id="q1"><div data-quiz-stem>1+1=?</div><button data-quiz-id="q1" data-value="A"><span class="opt-text">1</span></button><button data-quiz-id="q1" data-value="B"><span class="opt-text">2</span></button></section></main></body></html>`, "utf8");
+    const extraOutputs = [
+      ["translations", "E2E 译文.md", "# E2E 译文\n"],
+      ["extracts", "E2E 提取.md", "# E2E 提取\n"],
+      ["notes", "E2E 笔记.md", "# E2E 笔记\n"],
+      ["exports", "E2E 成品.md", "# E2E 成品\n"],
+    ];
+    for (const [folder, name, content] of extraOutputs) {
+      const file = path.join(userData, "library", "Spaces", "E2E 空间", folder, name);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, content, "utf8");
+    }
+    const docxSource = path.join(userData, "E2E 文档.docx");
+    fs.writeFileSync(docxSource, "E2E docx placeholder", "utf8");
+    await page.evaluate(async (source) => {
+      const api = window.qbrDesktop.spaces;
+      const list = await api.list();
+      const space = list.find((item) => item.name === "E2E 空间");
+      return api.importFiles(space.id, [source]);
+    }, docxSource);
+    await page.evaluate(async () => {
+      await window.__qbrApp.workspace.getLeavesOfType("qbr-home")[0]?.view?.refresh?.();
+    });
+    await waitFor("the quiz output card", () => page.evaluate(() =>
+      [...document.querySelectorAll(".qbr-space-output-card .qbr-space-book-title")].some((node) => node.textContent === "E2E 答题页.html") ? "ok" : ""
+    ), 10_000);
+    await waitFor("grouped file sections", () => page.evaluate(() => {
+      const titles = [...document.querySelectorAll(".qbr-space-file-section .qbr-space-section-title")].map((node) => node.textContent);
+      return titles.includes("源文件") && titles.includes("答题页") && titles.includes("笔记与对话") && titles.includes("其它") ? "ok" : "";
+    }), 10_000);
+    const groupCounts = await page.evaluate(() => Object.fromEntries(
+      [...document.querySelectorAll(".qbr-space-file-section")].map((section) => [
+        section.querySelector(".qbr-space-section-title")?.textContent || "",
+        Number(section.querySelector(".qbr-space-section-count")?.textContent) || 0,
+      ]),
+    ));
+    if (groupCounts["源文件"] !== 2 || groupCounts["答题页"] !== 1 || groupCounts["笔记与对话"] < 1 || groupCounts["其它"] !== 3) {
+      throw new Error(`unexpected category counts: ${JSON.stringify(groupCounts)}`);
+    }
+    const chatTitles = await page.evaluate(() =>
+      [...document.querySelectorAll(".qbr-space-chat-card .qbr-space-book-title")].map((node) => node.textContent));
+    if (!chatTitles.includes("E2E chat")) throw new Error(`the space chat is missing from 笔记与对话: ${JSON.stringify(chatTitles)}`);
+    await page.evaluate(() => {
+      const card = [...document.querySelectorAll(".qbr-space-book[data-source-path]")]
+        .find((node) => node.getAttribute("data-file-name") === "Meditations.epub");
+      card?.click();
+    });
+    await waitFor("the source selection to filter derivative categories", () => page.evaluate(() => {
+      const selected = document.querySelectorAll(".qbr-space-book[data-source-path].is-selected").length;
+      const sections = [...document.querySelectorAll(".qbr-space-file-section")]
+        .filter((section) => !section.hidden)
+        .map((section) => section.querySelector(".qbr-space-section-title")?.textContent || "");
+      const derived = [...document.querySelectorAll(".qbr-space-output-card, .qbr-space-chat-card")]
+        .filter((card) => !card.hidden && !card.closest(".qbr-space-file-section[hidden]"))
+        .map((card) => card.getAttribute("data-file-name") || "");
+      return selected === 1
+        && sections.length === 2
+        && sections.includes("源文件")
+        && sections.includes("笔记与对话")
+        && derived.includes("Meditations.md")
+        && derived.includes("E2E chat")
+        && !derived.includes("E2E 答题页.html") ? "ok" : "";
+    }), 5_000);
+    console.log("space: selecting a source filters the categories below");
+    await page.evaluate(() => {
+      const card = [...document.querySelectorAll(".qbr-space-book[data-source-path]")]
+        .find((node) => node.getAttribute("data-file-name") === "E2E 文档.docx");
+      card?.querySelector(".qbr-space-source-check")?.click();
+    });
+    await waitFor("multi-select document tools", () => page.evaluate(() => {
+      const bar = document.querySelector(".qbr-space-tools");
+      const summary = bar?.querySelector(".qbr-space-tools-summary")?.textContent || "";
+      const buttons = [...(bar?.querySelectorAll(".qbr-space-tool-btn") || [])].map((button) => button.textContent || "");
+      return summary.includes("2") && buttons.some((text) => text.includes("提取正文")) ? "ok" : "";
+    }), 5_000);
+    console.log("space: multi-select shows common document tools");
+    await page.evaluate(() => {
+      const button = [...document.querySelectorAll(".qbr-space-tools-actions .qbr-space-tool-btn")]
+        .find((item) => item.textContent?.includes("提取正文"));
+      button?.click();
+    });
+    await page.waitForSelector(".qbr-workshop-view", { timeout: 15_000 });
+    const workshopPrefill = await page.evaluate(() => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qbr-workshop")[0]?.view;
+      return {
+        tool: view?._tool || "",
+        selection: (view?._extractSelection || []).map(String),
+      };
+    });
+    if (workshopPrefill.tool !== "extract"
+      || workshopPrefill.selection.length !== 2
+      || !workshopPrefill.selection.some((path) => path.endsWith("Meditations.epub"))
+      || !workshopPrefill.selection.some((path) => path.endsWith("E2E 文档.docx"))) {
+      throw new Error(`the workshop did not receive the selected sources: ${JSON.stringify(workshopPrefill)}`);
+    }
+    console.log("space: workshop opens with every selected source", workshopPrefill.selection.length);
+    await page.evaluate(() => {
+      const leaf = window.__qbrApp.workspace.getLeavesOfType("qbr-home")[0];
+      if (leaf) window.__qbrApp.workspace.setActiveLeaf(leaf);
+    });
+    await page.evaluate(() => {
+      const card = [...document.querySelectorAll(".qbr-space-book[data-source-path]")]
+        .find((node) => node.getAttribute("data-file-name") === "E2E 文档.docx");
+      card?.querySelector(".qbr-space-source-check")?.click();
+    });
+    await waitFor("multi-select to return to one source", () => page.evaluate(() => {
+      const selected = document.querySelectorAll(".qbr-space-book.is-selected").length;
+      return selected === 1 ? "ok" : "";
+    }), 5_000);
+    await page.evaluate(() => document.querySelector(".qbr-space-main")?.click());
+    await waitFor("clicking elsewhere to clear the source selection", () => page.evaluate(() => {
+      const selected = document.querySelectorAll(".qbr-space-book.is-selected").length;
+      const hiddenSections = [...document.querySelectorAll(".qbr-space-file-section")]
+        .filter((section) => section.hidden).length;
+      return selected === 0 && hiddenSections === 0 ? "ok" : "";
+    }), 5_000);
+    await page.evaluate(() => {
+      const card = [...document.querySelectorAll(".qbr-space-book[data-source-path]")]
+        .find((node) => node.getAttribute("data-file-name") === "E2E 文档.docx");
+      card?.click();
+    });
+    await waitFor("a Word source exposes the answer-page tool", () => page.evaluate(() => {
+      const buttons = [...document.querySelectorAll(".qbr-space-tools-actions .qbr-space-tool-btn")]
+        .map((button) => button.textContent || "");
+      return buttons.some((text) => text.includes("答题页")) ? "ok" : "";
+    }), 5_000);
+    console.log("space: a Word source exposes the answer-page tool");
+    await page.evaluate(() => {
+      const button = [...document.querySelectorAll(".qbr-space-tools-actions .qbr-space-tool-btn")]
+        .find((item) => item.textContent?.includes("答题页"));
+      button?.click();
+    });
+    await page.waitForSelector(".qbr-workshop-view", { timeout: 15_000 });
+    const answerPageFormats = await page.evaluate(() => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qbr-workshop")[0]?.view;
+      return {
+        tool: view?._tool || "",
+        value: String(view?._convertFormat?.value || ""),
+        options: [...(view?._convertFormat?.options || [])].map((option) => ({
+          value: option.value,
+          label: option.textContent || "",
+        })),
+        selection: (view?._convertSelection || []).map(String),
+      };
+    });
+    if (answerPageFormats.tool !== "convert"
+      || answerPageFormats.value !== "quiz-ai"
+      || !answerPageFormats.options.some((option) => option.value === "quiz-ai" && option.label.includes("AI 答题页"))
+      || answerPageFormats.options.some((option) => option.value === "quiz-plain")
+      || !answerPageFormats.selection.some((path) => path.endsWith("E2E 文档.docx"))) {
+      throw new Error(`the answer-page formats are incomplete: ${JSON.stringify(answerPageFormats)}`);
+    }
+    console.log("space: the workshop offers only the AI answer page");
+    await page.evaluate(() => {
+      window.__qbrApp.workspace.getLeavesOfType("qbr-workshop")[0]?.detach();
+      const leaf = window.__qbrApp.workspace.getLeavesOfType("qbr-home")[0];
+      if (leaf) window.__qbrApp.workspace.setActiveLeaf(leaf);
+    });
+    await page.evaluate(() => document.querySelector(".qbr-space-main")?.click());
+    await waitFor("the Word selection clears", () => page.evaluate(() =>
+      document.querySelectorAll(".qbr-space-book.is-selected").length === 0 ? "ok" : ""), 5_000);
+    const visibleSpaceFiles = () => page.evaluate(() =>
+      [...document.querySelectorAll(".qbr-space-main .qbr-space-book")]
+        .filter((card) => getComputedStyle(card).display !== "none")
+        .map((card) => card.getAttribute("data-file-name") || ""));
+    const setSpaceSearch = (value) => page.evaluate((next) => {
+      const input = document.querySelector(".qiaomu-reader-lib-search-input");
+      if (!input) return false;
+      input.value = next;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      return true;
+    }, value);
+    await setSpaceSearch("E2E 答题页.html");
+    await waitFor("searching by filename keeps only the quiz page", async () => {
+      const files = await visibleSpaceFiles();
+      return files.length === 1 && files[0] === "E2E 答题页.html" ? "ok" : "";
+    }, 5_000);
+    await setSpaceSearch("Meditations.epub");
+    await waitFor("searching by filename keeps only the source book", async () => {
+      const files = await visibleSpaceFiles();
+      return files.length === 1 && files[0] === "Meditations.epub" ? "ok" : "";
+    }, 5_000);
+    await setSpaceSearch("不存在的文件");
+    await waitFor("a missing filename shows the empty search result", () => page.evaluate(() => {
+      const visible = [...document.querySelectorAll(".qbr-space-main .qbr-space-book")]
+        .some((card) => getComputedStyle(card).display !== "none");
+      const note = document.querySelector(".qbr-space-search-empty");
+      return !visible && note?.textContent.includes("没有匹配的文件") ? "ok" : "";
+    }), 5_000);
+    await setSpaceSearch("");
+    await waitFor("clearing the file search restores every card", async () => {
+      const files = await visibleSpaceFiles();
+      return files.includes("Meditations.epub") && files.includes("E2E 答题页.html") ? "ok" : "";
+    }, 5_000);
+    console.log("space: file search filters source books and derived documents by filename");
+    const sectionState = (title) => page.evaluate((wanted) => {
+      const section = [...document.querySelectorAll(".qbr-space-file-section")]
+        .find((node) => node.querySelector(".qbr-space-section-title")?.textContent === wanted);
+      const head = section?.querySelector(".qbr-space-section-head");
+      const body = section?.querySelector(".qbr-space-section-body");
+      return {
+        exists: Boolean(section),
+        expanded: head?.getAttribute("aria-expanded") || "",
+        display: body ? getComputedStyle(body).display : "",
+      };
+    }, title);
+    await page.evaluate(() => {
+      const section = [...document.querySelectorAll(".qbr-space-file-section")]
+        .find((node) => node.querySelector(".qbr-space-section-title")?.textContent === "答题页");
+      section?.querySelector(".qbr-space-section-head")?.click();
+    });
+    await waitFor("the quiz category collapses", async () => {
+      const state = await sectionState("答题页");
+      return state.exists && state.expanded === "false" && state.display === "none" ? "ok" : "";
+    }, 5_000);
+    await page.evaluate(async () => {
+      await window.__qbrApp.workspace.getLeavesOfType("qbr-home")[0]?.view?.refresh?.();
+    });
+    await waitFor("the collapsed category survives a refresh", async () => {
+      const state = await sectionState("答题页");
+      return state.exists && state.expanded === "false" && state.display === "none" ? "ok" : "";
+    }, 5_000);
+    await page.evaluate(() => {
+      const section = [...document.querySelectorAll(".qbr-space-file-section")]
+        .find((node) => node.querySelector(".qbr-space-section-title")?.textContent === "答题页");
+      section?.querySelector(".qbr-space-section-head")?.click();
+    });
+    await waitFor("the quiz category expands again", async () => {
+      const state = await sectionState("答题页");
+      return state.exists && state.expanded === "true" && state.display !== "none" ? "ok" : "";
+    }, 5_000);
+    console.log("space: file categories collapse and expand");
+    await page.evaluate(() => {
+      const card = [...document.querySelectorAll(".qbr-space-book")]
+        .find((node) => node.getAttribute("data-file-name") === "E2E 文档.docx");
+      card?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+    const openedExternal = await waitFor("the docx opens with the system default application", async () => {
+      const opened = await app.evaluate(() => globalThis.__qbrExternalOpen || []);
+      return opened.find((item) => item.endsWith("E2E 文档.docx")) ? opened : "";
+    }, 5_000);
+    console.log("space: docx opens in the system application", openedExternal.at(-1));
+    await page.evaluate(() => {
+      const card = [...document.querySelectorAll(".qbr-space-output-card")]
+        .find((node) => node.querySelector(".qbr-space-book-title")?.textContent === "E2E 答题页.html");
+      card?.click();
+    });
+    const quizOpened = await waitFor("the space quiz in the quiz view", () => page.evaluate(() => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qbr-quiz")[0]?.view;
+      return view?.path?.endsWith("E2E 答题页.html") ? view.path : "";
+    }), 15_000);
+    console.log("space: quiz card opens in the quiz view", quizOpened);
+    await waitFor("the quiz bridge to report its manifest", () => page.evaluate(() => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qbr-quiz")[0]?.view;
+      return view?.manifest?.questions?.length ? "ok" : "";
+    }), 10_000);
+    console.log("space: quiz bridge loaded the manifest");
+    await page.evaluate(() => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qbr-quiz")[0]?.view;
+      view?.contentEl?.querySelector('.qbr-quiz-action[aria-label="关闭答题页"]')?.click();
+    });
+    const returnedToSpace = await waitFor("the quiz close returns to its space", () => page.evaluate(() => {
+      if (window.__qbrApp.workspace.getLeavesOfType("qbr-quiz").length) return "";
+      const home = window.__qbrApp.workspace.getLeavesOfType("qbr-home")[0]?.view;
+      if (!home || home.containerEl?.hidden) return "";
+      const label = home.contentEl?.querySelector(".qiaomu-reader-lib-viewlabel")?.textContent || "";
+      return label.startsWith("E2E 空间") ? label : "";
+    }), 10_000);
+    console.log("space: quiz close returns to the space", returnedToSpace);
+    const plainQuizFile = path.join(userData, "library", "Spaces", "E2E 空间", "quizzes", "E2E 普通答题页.html");
+    fs.writeFileSync(plainQuizFile, `<!doctype html><html><head><meta charset="utf-8"><script type="application/json" id="quiz-manifest">{"schema":"uvreader.quiz-page/v1","paperId":"e2e-plain","title":"E2E 普通答题页","grading":"ai","questions":[{"id":"q1","number":"1","type":"choice","stemHtml":"1+1=?","options":[{"key":"A","html":"1"},{"key":"B","html":"2"}]}]}</script></head><body><main id="paper"><h1>E2E 普通答题页</h1><section class="q-card" data-quiz-id="q1"><div data-quiz-stem>1+1=? <math display="inline"><mtext>^ { 9 0 } 3 9 \\mathrm { Y }</mtext></math></div><button class="opt" data-quiz-id="q1" data-value="A"><span class="opt-text">1</span></button><button class="opt" data-quiz-id="q1" data-value="B"><span class="opt-text">2</span></button></section><button type="button">交卷</button></main><script>document.querySelectorAll('.opt').forEach(function(button){button.addEventListener('click',function(){document.querySelectorAll('.opt').forEach(function(other){other.classList.remove('selected')});button.classList.add('selected')})})</script></body></html>`, "utf8");
+    const plainGrading = await page.evaluate(async (file) => {
+      const plugin = window.__qbrPlugin;
+      plugin.settings.aiEnabled = true;
+      plugin.settings.aiProvider = "deepseek";
+      plugin.settings.aiModels = { ...(plugin.settings.aiModels || {}), deepseek: "deepseek-v4-flash" };
+      plugin.settings.aiBases = { ...(plugin.settings.aiBases || {}), deepseek: "https://api.deepseek.com" };
+      plugin.settings.aiThinking = { ...(plugin.settings.aiThinking || {}), deepseek: false };
+      plugin.settings.aiKey = "e2e-test-key";
+      plugin.settings.aiSecrets = {};
+      plugin.openAiChat = async () => {};
+      window.qbrDesktop.ai.stream = async (payload) => {
+        window.__qbrGradeRequests = [...(window.__qbrGradeRequests || []), payload?.messages?.at(-1)?.content || ""];
+        return {
+          ok: true,
+          answer: JSON.stringify({
+            results: [{ id: "q1", state: "correct", feedback: "E2E graded", referenceAnswer: "B" }],
+          }),
+        };
+      };
+      const list = await window.qbrDesktop.spaces.list();
+      const space = list.find((item) => item.name === "E2E 空间");
+      window.qbrOpenQuiz(file, { origin: "space", spaceId: space?.id || "" });
+      return space?.id || "";
+    }, plainQuizFile);
+    if (!plainGrading) throw new Error("the plain quiz has no space id");
+    await waitFor("the plain quiz to open", () => page.evaluate(() => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qbr-quiz")[0]?.view;
+      return view?.path?.endsWith("E2E 普通答题页.html") && view?.manifest?.grading === "ai" ? "ok" : "";
+    }), 15_000);
+    const plainFrame = page.frameLocator(".qbr-quiz-frame");
+    const repairedStem = await plainFrame.locator("[data-quiz-stem]").textContent();
+    if (!repairedStem.includes("⁹⁰₃₉Y") || repairedStem.includes("\\mathrm") || repairedStem.includes("mtext")) {
+      throw new Error(`the legacy raw LaTeX was not repaired: ${repairedStem}`);
+    }
+    console.log("space: legacy raw LaTeX repaired by the quiz bridge");
+    await plainFrame.locator('.opt[data-value="B"]').click();
+    await plainFrame.getByRole("button", { name: "交卷" }).click();
+    await waitFor("the plain quiz to be graded by AI", () => page.evaluate(() => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qbr-quiz")[0]?.view;
+      const attempt = view?.paper?.attempts?.[0];
+      return attempt?.grader === "ai" && attempt?.summary?.ai === true ? "ok" : "";
+    }), 20_000);
+    await plainFrame.locator("#qbr-ai-grade-result").waitFor({ timeout: 10_000 });
+    const gradeText = await plainFrame.locator("#qbr-ai-grade-result").textContent();
+    if (!gradeText.includes("AI 判分") || !gradeText.includes("100%") || !gradeText.includes("错误 0")) {
+      throw new Error(`the AI grade panel is incomplete: ${gradeText}`);
+    }
+    const plainAttempt = await page.evaluate(() => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qbr-quiz")[0]?.view;
+      return {
+        requests: window.__qbrGradeRequests || [],
+        attempt: view?.paper?.attempts?.[0] || null,
+        manifestAnswer: view?.manifest?.questions?.[0]?.answer,
+      };
+    });
+    if (plainAttempt.manifestAnswer !== undefined
+      || plainAttempt.attempt?.aiDetails?.[0]?.feedback !== "E2E graded"
+      || !plainAttempt.requests.some((text) => text.includes("1+1=?"))) {
+      throw new Error(`the plain quiz attempt is incomplete: ${JSON.stringify(plainAttempt)}`);
+    }
+    console.log("space: legacy plain quiz graded by AI", JSON.stringify({
+      score: plainAttempt.attempt.summary.score,
+      feedback: plainAttempt.attempt.aiDetails[0].feedback,
+    }));
+    await page.evaluate(() => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qbr-quiz")[0]?.view;
+      view?.contentEl?.querySelector('.qbr-quiz-action[aria-label="关闭答题页"]')?.click();
+    });
+    await waitFor("the plain quiz closes", () => page.evaluate(() =>
+      window.__qbrApp.workspace.getLeavesOfType("qbr-quiz").length === 0 ? "ok" : ""), 10_000);
+    const multiQuestionFile = path.join(userData, "library", "Spaces", "E2E 空间", "quizzes", "E2E 多题.AI答题页.html");
+    fs.writeFileSync(multiQuestionFile, `<!doctype html><html><head><meta charset="utf-8"><script type="application/json" id="quiz-manifest">{"schema":"uvreader.quiz-page/v1","paperId":"e2e-multi","title":"E2E 多题","questions":[{"id":"q1","number":"1","type":"choice","stemHtml":"第一题","options":[{"key":"A","html":"1"},{"key":"B","html":"2"}],"answer":"B","analysisHtml":"解析一"},{"id":"q2","number":"2","type":"true_false","stemHtml":"第二题","answer":"T","analysisHtml":"解析二"}]}</script></head><body><main id="paper"><h1>E2E 多题</h1><section class="q-card" data-quiz-id="q1"><div data-quiz-stem>第一题 <span class="temml-error">ParseError: bad formula</span></div><button data-quiz-id="q1" data-value="A"><span class="opt-text">1</span></button><button data-quiz-id="q1" data-value="B"><span class="opt-text">2</span></button><div style="height:900px"></div></section><section class="q-card" data-quiz-id="q2"><div data-quiz-stem>第二题</div></section></main></body></html>`, "utf8");
+    await page.evaluate(async () => {
+      await window.__qbrApp.workspace.getLeavesOfType("qbr-home")[0]?.view?.refresh?.();
+    });
+    await page.evaluate(({ file, spaceId }) => {
+      window.qbrOpenQuiz(file, { origin: "space", spaceId });
+    }, { file: multiQuestionFile, spaceId: plainGrading });
+    await waitFor("the multi-question AI page opens", () => page.evaluate(() => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qbr-quiz")[0]?.view;
+      return view?.path?.endsWith("E2E 多题.AI答题页.html") && view?.manifest?.questions?.length === 2 ? "ok" : "";
+    }), 15_000);
+    const multiFrame = page.frameLocator(".qbr-quiz-frame");
+    const multiText = await multiFrame.locator("body").textContent();
+    if (multiText.includes("ParseError") || multiText.includes("temml-error")) {
+      throw new Error(`the legacy Temml error was not cleaned: ${multiText.slice(0, 200)}`);
+    }
+    console.log("space: multi-question AI page cleaned its legacy Temml error");
+    await multiFrame.locator('[data-quiz-id="q2"]').evaluate((node) => node.scrollIntoView({ block: "start" }));
+    await page.waitForTimeout(120);
+    const currentQuestion = await page.evaluate(async () => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qbr-quiz")[0]?.view;
+      return view ? await view._currentQuestionId(null) : "";
+    });
+    if (currentQuestion !== "q2") {
+      throw new Error(`the quiz current question did not follow the viewport: ${currentQuestion}`);
+    }
+    console.log("space: quiz current-question follows the viewport");
+    await page.evaluate(() => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qbr-quiz")[0]?.view;
+      view?.contentEl?.querySelector('.qbr-quiz-action[aria-label="关闭答题页"]')?.click();
+    });
+    await waitFor("the multi-question page closes", () => page.evaluate(() =>
+      window.__qbrApp.workspace.getLeavesOfType("qbr-quiz").length === 0 ? "ok" : ""), 10_000);
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(userData, { recursive: true, force: true });
@@ -2368,10 +3041,28 @@ async function runHomeScenario() {
       const count = await page.evaluate(() => document.querySelectorAll(".qbr-home-card").length);
       return count ? String(count) : "";
     }, 20_000);
+    const navState = await page.evaluate(() => {
+      const button = document.querySelector(".qbr-nav-btn");
+      const label = button?.querySelector(".qbr-nav-label");
+      return {
+        collapsed: document.body.classList.contains("qbr-nav-collapsed"),
+        toggle: Boolean(document.querySelector("#qbr-nav-toggle")),
+        labelSize: label ? getComputedStyle(label).fontSize : "",
+        labelWidth: label ? label.getBoundingClientRect().width : 0,
+        direction: button ? getComputedStyle(button).flexDirection : "",
+        label: label?.textContent || "",
+      };
+    });
+    if (!navState.collapsed || navState.toggle) throw new Error(`the main navigation should stay collapsed: ${JSON.stringify(navState)}`);
+    if (!(parseFloat(navState.labelSize) > 0) || navState.direction !== "column" || navState.labelWidth <= 0) {
+      throw new Error(`the main navigation should show labels under the icons, saw ${JSON.stringify(navState)}`);
+    }
+    if (navState.label !== "悦空间") throw new Error(`unexpected main navigation label: ${navState.label}`);
+    console.log("home: main navigation labels sit under the icons");
     const clicked = await page.evaluate(() => {
       const card = [...document.querySelectorAll(".qbr-home-card")]
         .find((entry) => entry.textContent.includes("Alice in Wonderland"));
-      card?.click();
+      card?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
       return Boolean(card);
     });
     if (!clicked) throw new Error("the home page has no Alice in Wonderland card");
@@ -3908,8 +4599,184 @@ async function runPinyinScenario() {
   }
 }
 
+async function runPolishScenario() {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-polish-e2e-"));
+  const dir = path.join(userData, "book-cache", "work", "e2e-polish", "polish");
+  fs.mkdirSync(dir, { recursive: true });
+  const manifestPath = path.join(dir, "polish.json");
+  const markdownPath = path.join(dir, "polish.md");
+  const reportPath = path.join(dir, "polish-report.json");
+  const sessionPath = path.join(dir, "polish-session.json");
+  const markdown = [
+    "# 测试书",
+    "",
+    "## 第一章",
+    "",
+    "正文里有一个上标 <sup>1</sup><!-- polish:marker marker-001-001 chapter=ch-001 page=2 label=\"1\" note=note-001 -->。",
+    "",
+    "<!-- polish:note note-001 chapter=ch-001 page=2 label=\"1\" linked=true -->",
+    "1、《测试资料》，1页。",
+    "",
+    "<!-- polish:note note-002 chapter=ch-001 page=2 label=\"2\" linked=false -->",
+    "<!-- polish:point point-001 kind=note-unlinked note=note-002 page=2 -->",
+    "2、《测试资料》，2页。",
+    "",
+  ].join("\n");
+  fs.writeFileSync(markdownPath, markdown, "utf8");
+  fs.writeFileSync(path.join(dir, "polish.baseline.md"), markdown, "utf8");
+  fs.writeFileSync(manifestPath, JSON.stringify({
+    schemaVersion: 1,
+    buildId: "e2e-polish",
+    book: { title: "测试书", author: "作者", language: "zh" },
+    chapters: [{ id: "ch-001", title: "第一章", format: "markdown" }],
+    notes: [
+      { id: "note-001", chapterId: "ch-001", page: 2, label: "1", text: "1、《测试资料》，1页。", linked: true, markerId: "marker-001-001" },
+      { id: "note-002", chapterId: "ch-001", page: 2, label: "2", text: "2、《测试资料》，2页。", linked: false },
+    ],
+    markers: [{ id: "marker-001-001", chapterId: "ch-001", page: 2, label: "1", canonical: 1, noteId: "note-001" }],
+  }, null, 2), "utf8");
+  fs.writeFileSync(reportPath, JSON.stringify({
+    schemaVersion: 1,
+    summary: { notes: 2, needsReview: 1, autoAccepted: 1, unlinkedNotes: 1, repeatedReferences: 0 },
+    points: [{
+      id: "point-001",
+      kind: "note-unlinked",
+      severity: "medium",
+      chapterId: "ch-001",
+      page: 2,
+      noteId: "note-002",
+      markerId: null,
+      title: "注号 2 没有对应的正文标记",
+      reason: "本部分正文没有与该注文对应的标记",
+      suggestions: [],
+      context: { noteText: "2、《测试资料》，2页。", before: "", after: "", sharedTerms: [] },
+      status: "open",
+    }],
+  }, null, 2), "utf8");
+  fs.writeFileSync(sessionPath, JSON.stringify({
+    schemaVersion: 1,
+    buildId: "e2e-polish",
+    ui: { filter: "review", selectedPointId: "", scrollTop: 0 },
+    pointStatus: {},
+    progress: { reviewed: 0, remaining: 1, ignored: 0 },
+    files: { markdown: "polish.md", baseline: "polish.baseline.md" },
+  }, null, 2), "utf8");
+
+  const launched = await launch(path.join(repoRoot, "assets/starter-books/11.epub"), { userData });
+  try {
+    await launched.page.waitForSelector(".qiaomu-reader-view", { timeout: 30_000 });
+    await waitFor("reader ready", () => readerReady(launched.page), 30_000);
+    await waitFor("polish entry", () => launched.page.evaluate(() => typeof window.qbrOpenPolish === "function"), 15_000);
+
+    // Opening 精修 should close an already-open AI companion, not just collapse
+    // the right split and leave it running in the background.
+    await launched.page.evaluate(async () => {
+      try { await window.__qbrPlugin.openAiChat(); } catch { /* setup panel is enough */ }
+    });
+    await waitFor("companion open before polish", () => launched.page.evaluate(() => (
+      window.__qbrApp.workspace.getLeavesOfType("qiaomu-book-reader-ai-chat").length > 0
+    )), 15_000);
+
+    await launched.page.evaluate((pathValue) => window.qbrOpenPolish({ manifestPath: pathValue }), manifestPath);
+    await launched.page.waitForSelector(".qbr-polish-view .cm-editor", { timeout: 15_000 });
+    assert.equal(await launched.page.evaluate(() => (
+      window.__qbrApp.workspace.getLeavesOfType("qiaomu-book-reader-ai-chat").length
+    )), 0);
+    console.log("polish: AI companion closed on entry");
+    await launched.page.evaluate(() => {
+      const view = window.__qbrApp.workspace.getLeavesOfType("qbr-polish")[0]?.view;
+      view?.showSide?.("preview");
+    });
+    await launched.page.waitForSelector(".qbr-polish-preview-body .qbr-preview-noteref", { state: "attached", timeout: 10_000 });
+    const previewNote = await launched.page.locator(".qbr-polish-preview-body .qbr-preview-noteref").first().evaluate((node) => {
+      const parents = [];
+      let current = node;
+      while (current && parents.length < 8) {
+        const style = getComputedStyle(current);
+        parents.push({ tag: current.tagName, cls: String(current.className || ""), display: style.display, visibility: style.visibility });
+        current = current.parentElement;
+      }
+      return { text: node.textContent, color: getComputedStyle(node).color, parents };
+    });
+    if (previewNote.text !== "[1]" || previewNote.color !== "rgb(29, 78, 216)") {
+      throw new Error(`polish preview note marker is not blue [1]: ${JSON.stringify(previewNote)}`);
+    }
+    console.log("polish: preview note marker is blue [1]");
+    assert.equal(await launched.page.locator(".qbr-polish-point-row").count(), 1);
+    assert.match(await launched.page.locator(".qbr-polish-editor-pane .cm-content").textContent(), /测试书/);
+
+    // A reader tab can finish loading after the polish tab opens; make the
+    // polished tab active before interacting, like a user clicking its tab.
+    await launched.page.evaluate(() => {
+      const leaf = window.__qbrApp.workspace.getLeavesOfType("qbr-polish")[0];
+      if (!leaf) return;
+      window.__qbrApp.workspace.setActiveLeaf(leaf);
+      window.__qbrApp.workspace.revealLeaf(leaf);
+    });
+    // Points live in the right-side 检查 panel in the redesigned workspace.
+    await launched.page.locator(".qbr-polish-check-button").click({ force: true });
+    await launched.page.waitForSelector(".qbr-polish-point-row", { state: "visible", timeout: 15_000 });
+    await launched.page.locator(".qbr-polish-point-row").first().click({ force: true });
+    await launched.page.waitForSelector(".qbr-polish-detail-label", { timeout: 5000 });
+    assert.equal(await launched.page.locator(".qbr-polish-detail-label").textContent(), "2");
+    await waitFor("caret leaves the hidden comment line", () => launched.page.evaluate(() => {
+      const active = document.querySelector(".qbr-polish-editor-pane .cm-activeLine");
+      if (!active || getComputedStyle(active).display === "none") return "";
+      return active.textContent.trim().startsWith("<!-- polish:") ? "" : "ok";
+    }), 5000);
+
+    await launched.page.evaluate(() => {
+      const button = [...document.querySelectorAll(".qbr-polish-detail-actions button")]
+        .find((item) => item.textContent.includes("标记已处理"));
+      button?.click();
+    });
+    await waitFor("polish session saved", () => {
+      const session = JSON.parse(fs.readFileSync(sessionPath, "utf8"));
+      return session.pointStatus?.["point-001"]?.status === "resolved";
+    }, 8000);
+
+    await launched.page.evaluate(() => document.querySelector(".qbr-polish-editor-pane .cm-content")?.focus());
+    await launched.page.keyboard.press("Control+End");
+    await launched.page.keyboard.insertText("\n\n精修测试。");
+    await waitFor("polish autosave", () => fs.readFileSync(markdownPath, "utf8").includes("精修测试"), 8000);
+
+    // Manual renumber: select note 1 from the all-notes list and set it to 5;
+    // note 2 and the corresponding body markers should become 6.
+    await launched.page.locator('.qbr-polish-filters button[data-filter="notes"]').click({ force: true });
+    await launched.page.waitForSelector(".qbr-polish-note-row", { timeout: 5000 });
+    await launched.page.locator(".qbr-polish-note-row", { hasText: "1、《测试资料》" }).click({ force: true });
+    await waitFor("note selected", () => launched.page.evaluate(() => (
+      document.querySelector(".qbr-polish-detail-title b")?.textContent?.includes("注文 1")
+    )), 5000);
+    await launched.page.locator(".qbr-polish-detail-actions button", { hasText: "手动补号" }).click({ force: true });
+    await launched.page.locator(".qbr-polish-modal-input").fill("5");
+    await launched.page.locator(".qbr-polish-modal-actions button.mod-cta").click({ force: true });
+    await waitFor("manual renumber autosave", () => {
+      const text = fs.readFileSync(markdownPath, "utf8");
+      return /<sup>5<\/sup>/.test(text) && /5、/.test(text) && /6、/.test(text);
+    }, 8000);
+
+    // Closing the workspace now returns to 书坊 → 任务, where the persisted
+    // polish workspace can be reopened.
+    await launched.page.locator(".qbr-polish-head-actions button", { hasText: "关闭" }).click({ force: true });
+    await launched.page.waitForSelector('.qbr-workshop-panel[data-tool="tasks"]:not([hidden])', { timeout: 15_000 });
+    assert.equal(await launched.page.locator(".qbr-polish-view").count(), 0);
+    await launched.page.waitForSelector(".qbr-polish-recent-row", { timeout: 15_000 });
+    assert.match(await launched.page.locator(".qbr-polish-recent-row").first().textContent(), /测试书/);
+    assert.match(await launched.page.locator(".qbr-polish-recent-row").first().textContent(), /已处理 1/);
+    await launched.page.locator(".qbr-polish-recent-row button", { hasText: "继续精修" }).first().click();
+    await launched.page.waitForSelector(".qbr-polish-view .cm-editor", { timeout: 15_000 });
+    assert.match(await launched.page.locator(".qbr-polish-statusbar").textContent(), /待确认 0/);
+    console.log("polish: editor, check panel, autosave, session, close-to-tasks and recent entry ok");
+  } finally {
+    await launched.app.close().catch(() => {});
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+}
+
 const scenarios = [
   ["home", runHomeScenario],
+  ["space", runSpaceScenario],
   ["workshop", runWorkshopScenario],
   ["workshop-ocr", runWorkshopOcrScenario],
   ["workshop-convert", runWorkshopConvertScenario],
@@ -3927,10 +4794,12 @@ const scenarios = [
   ["pinyin", runPinyinScenario],
   ["ai", runAiScenario],
   ["api-key", runApiKeyScenario],
+  ["web-search", runWebSearchScenario],
   ["capability", runCapabilityScenario],
   ["scroll", runScrollScenario],
   ["nav", runNavScenario],
   ["toc", runTocScenario],
+  ["polish", runPolishScenario],
 ];
 const only = (process.env.QBR_E2E_ONLY || "").split(",").map((name) => name.trim()).filter(Boolean);
 

@@ -6,6 +6,8 @@ export function docvortexTaskSettings(settings = {}) {
   return {
     docvortexPath: String(settings.docvortexPath || ""),
     docvortexPython: String(settings.docvortexPython || settings.ocrPython || ""),
+    engineUrl: String(settings.engineUrl || ""),
+    engineToken: String(settings.engineToken || ""),
   };
 }
 

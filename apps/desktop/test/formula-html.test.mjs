@@ -120,6 +120,24 @@ test("a real code block keeps its caption as a paragraph above the code", () => 
   assert.match(html, /^<p>算法 1 伪代码。<\/p>\n<pre><code>def run\(cfg\):\n    return cfg<\/code><\/pre>$/);
 });
 
+test("a question mislabelled as code keeps its caption and options as prose", () => {
+  const markdown = blockToMarkdown({
+    type: "code",
+    caption: "9. 在一定条件下, 某模型训练 N 个单位的数据量需要的时间 $T=k\\log_2 N$ (单位: h)。已知训练数据量 N 从 10<sup>6</sup> 增加到 10<sup>9</sup> 时, 训练时间增加",
+    content: "20 h; 当训练数据量增加时, 训练时间增加 ( ) (A) 2 h (B) 4 h (C) 20 h (D) 40 h",
+  });
+  assert.match(markdown, /^9\. 在一定条件下/);
+  assert.match(markdown, /训练时间增加 20 h/);
+  assert.equal(markdown.includes("```"), false, "the question is not a code fence");
+});
+
+test("a real code block keeps its caption above the fence", () => {
+  assert.equal(
+    blockToMarkdown({ type: "code", caption: "算法 1 伪代码。", content: "def run(cfg):\n    return cfg" }),
+    "算法 1 伪代码。\n\n```\ndef run(cfg):\n    return cfg\n```",
+  );
+});
+
 test("tables can be emitted as their MinerU screenshot for DOCX/PDF targets", () => {
   const block = { type: "table", headers: ["a"], rows: [["1"]], image: { src: "mineru/images/t.jpg", alt: "表格" } };
   assert.match(blockToHtml(block), /^<table>/, "默认给真表格(HTML / LaTeX 目标)");

@@ -38,19 +38,21 @@ import {
   normalizeAiAttachments,
   stripAttachmentData,
 } from "./ai-attachments.js";
-import { highlightBacklink, jumpToEngineHighlight } from "./highlight-navigation.js";
+import { jumpToEngineHighlight } from "./highlight-navigation.js";
+import { spaceOutputPath } from "./space-paths.js";
 import { normalizeLocationMarks } from "./reading-workflow.js";
 import { searchableQuery, searchBookBlocks } from "./reader-search.js";
 import { DEFAULT_BOOK_SOURCES } from "./book-sources.js";
 import { captureReadingAnchor, restoreReadingAnchor, textPoint } from "./reader-experience.js";
 import { READER_BLOCK_SELECTOR } from "./pdf-page-mode.js";
 import { PDF_ZOOM_DEFAULT, PDF_ZOOM_MAX, PDF_ZOOM_MIN, clampPdfZoom, pdfZoomFromWheel, pdfZoomPercent } from "./pdf-zoom.js";
+import { PDF_RASTER_QUALITY, pdfRasterNeedsUpgrade } from "./pdf-raster.js";
 import { QIAOMU_READER_EN } from "./i18n-en.js";
 import { QIAOMU_READER_ZH_CN } from "./i18n-zh.js";
 import { translateUiText } from "./i18n-runtime.js";
 import { normalizeUiLanguage, uiLanguageMetadata } from "./i18n-languages.js";
 import { READER_THEMES, READER_THEME_CHOICES, migrateReaderTheme } from "./reader-themes.js";
-import { importedReaderFonts, readerFontStore } from "./reader-fonts.js";
+import { importedReaderFonts, listSystemFonts, readerFontStore } from "./reader-fonts.js";
 import { syncPageButtons } from "./reader-appearance.js";
 import { BUNDLED_FONT_FAMILIES, ensureBundledReaderFont } from "./bundled-fonts.js";
 import { throwIfReaderLoadAborted } from "./reader-load.js";
@@ -96,6 +98,7 @@ import { buildTocItems, chapterForBlock, pageForBlock, pdfSearchPages, readerSea
 import { createLibraryData, freeBookPath, groupLibChips, IMPORT_MIME_EXT, mergeBookTags, pickLibraryFolder, removeBookTagEntries, renameBookTagEntries } from "./library-data.js";
 import { buildAutoTagMessages, normalizeAutoTagVocabulary, parseAutoTagAnswer } from "./library-auto-tag.js";
 import { createPdfDocument } from "./pdf-document.js";
+import { pdfFigureCropRect } from "./pdf-figures.js";
 import { createAiContext } from "./ai-context.js";
 import { saveImageFromSource } from "./image-save.js";
 import { docvortexTaskSettings, formulaTaskSettings, taskAiConfig } from "./workshop-settings.js";
@@ -103,7 +106,7 @@ import { createReaderChrome } from "./reader-chrome.js";
 import { createAiRender } from "./ai-render.js";
 import { createPiTransport } from "./ai-pi.js";
 import { bookResultRelevant, buildBookFinderMessages, parseBookFinderReply } from "./book-finder.js";
-import { applyTocOffset, buildTocExtractionMessages, inferTocOffset, mergeTocEntries, parseTocExtractionReply, parseTocText, tocCandidates, validateTocEntries } from "./pdf-toc.js";
+import { applyTocOffset, bestTocPageRange, buildTocExtractionMessages, inferTocOffset, inferTocOffsetFromFooters, mergeTocEntries, parseTocExtractionReply, parseTocText, repairTocTitles, tocCandidates, tocPageRanges, tocTextFromLines, validateTocEntries } from "./pdf-toc.js";
 import { buildEpubToc, normalizeTocText } from "./epub-toc.js";
 import { createNotePaths } from "./note-paths.js";
 import { createBookNotes } from "./book-notes.js";
@@ -202,6 +205,10 @@ const {
   noteTemplatePath,
   bookNotesFolderPath,
   notesFolderPath,
+  bookNotesFolderForBook: (bookFile) => {
+    const match = /^((?:.*\/)?Spaces\/[^/]+)\//i.exec(String(bookFile?.path || "").replace(/\\/g, "/"));
+    return match ? `${match[1]}/notes` : "";
+  },
   inboxNotePath,
   resolveNotesFolder,
   resolveBookNote,
@@ -319,6 +326,7 @@ const {
   buildReaderPanels,
   attachReaderContentClick,
   attachReaderSwipeNav,
+  openImageLightbox,
 } = createReaderChrome({
   translate: qiaomuReaderTranslate,
   Menu,
@@ -372,6 +380,7 @@ const AI_CHAT_VIEW_TYPE = "qiaomu-book-reader-ai-chat";
 const {
   readerDefaultAiContext,
   readerAiPanelContext,
+  readerPageContext,
   readerSupportsAiContext,
   syncReaderAiCapability,
   renderAiHeadMeta,
@@ -440,17 +449,17 @@ const DEFAULT_SHELF = {
   readingRoot: "", storageLayout: "legacy", storageMigratedAt: 0, storageMigrationError: "",
 };
 const DEFAULT_APPEARANCE = {
-  theme: "auto", libTheme: "auto", fontSize: 18, fontFamily: "zhuque",
+  theme: "paper", fontSize: 18, fontFamily: "zhuque",
   customFontFamily: "", customFontId: "", importedFonts: [],
   pageButtonsVisibility: "hover", lineHeight: 1.8, columns: "2",
-  textAlign: "left", vAlign: "top",
+  textAlign: "left",
 };
 const DEFAULT_TRANSLATION = {
   translateEnabled: false, translateTo: "zh-CN",
 };
 const DEFAULT_LIBRARY_UI = {
   bookNoteLinks: {}, locationMarks: [], bookNotePrompted: {}, coverFits: {},
-  syncMode: "auto", libCategory: "all",
+  libCategory: "all",
 };
 const DEFAULT_READER_SESSION = {
   readerAdvOpen: false, readerHistOpen: false,
@@ -473,7 +482,7 @@ const DEFAULT_READER_SESSION = {
   // One-time data-safe migration: excerpts manually appended by older versions
   // shared the generated highlights section and could be erased by the next sync.
   manualExcerptSectionsMigrated: false,
-  figuresShownByDefault: false, einkMode: false,
+  einkMode: false,
   // Reusable image signatures for PDF forms; data URLs stay in local settings.
   pdfSignatures: [],
 };
@@ -487,6 +496,9 @@ const DEFAULT_AI = {
   // switching services cannot reuse or erase another service's configuration.
   aiSecret: "", aiKey: "", aiModel: "", aiBase: "",
   aiSecrets: {}, aiBases: {},
+  // DeepSeek Search is independent from the chat provider. The key itself
+  // lives in SecretStorage; only its secret id is stored here.
+  aiWebSearchEnabled: true, aiWebSearchSecret: "", aiWebSearchBase: "",
   // Model and reasoning choices belong to the provider, not to the global AI
   // switch. A reader can move between Codex and Claude without losing either
   // selection. aiModel remains as a migration bridge for pre-3.7 installs.
@@ -503,11 +515,6 @@ const DEFAULT_AI = {
   // answers. Read-only; the tools never write to the book.
   aiToolsEnabled: true,
   aiInto: "中文", aiSystem: "",
-  // null = use the six built-in reading prompts in the current UI language.
-  // Once edited this becomes an array of { id, name, prompt } objects. Keeping
-  // the built-ins implicit means switching interface language still translates
-  // them until the reader actually customises the library.
-  aiQuickPrompts: null,
   // Local, bounded chat snapshots for the right sidebar. They never leave the
   // vault except when the reader explicitly sends a turn to the chosen model.
   aiChatHistory: [],
@@ -523,11 +530,11 @@ const DEFAULT_READING_FLOW = {
   // the reading note. Later appends use a quiet toast; the reading-note button is
   // always available when the reader does want to open it.
   bookNoteAppendPromptSeen: false,
-  languagePicked: false, readMode: "pages", pageTurnAnimation: true,
-  progressToFrontmatter: false, quoteTemplate: "", quoteBacklinks: true,
-  quoteBacklinkLabel: "", noteOpenMode: "split", maxLineCh: 0, fitPage: false,
+  readMode: "pages", pageTurnAnimation: true,
+  progressToFrontmatter: false, quoteTemplate: "",
+  noteOpenMode: "split", fitPage: false,
   notesNextToBook: false, perDevice: false, deviceProfiles: {},
-  lastSeenVersion: "", whatsNewNote: true,
+  lastSeenVersion: "", whatsNewNote: false,
 };
 const DEFAULT = Object.assign(
   {},
@@ -555,16 +562,12 @@ function setReaderTheme(settings, id) {
   settings.theme = migrateReaderTheme(id);
 }
 function qiaomuReaderLibTheme(settings) {
-  const s = settings || {};
-  const mode = s.libTheme || "auto";
-  if (mode === "reader") return qiaomuReaderTheme(s);
-  if (s.einkMode === true) return THEMES.eink;
-  return THEMES[mode] || THEMES.auto;
+  return qiaomuReaderTheme(settings);
 }
 function qiaomuReaderTheme(settings) {
   const s = settings || {};
   if (s.einkMode === true) return THEMES.eink;
-  return THEMES[s.theme] || THEMES.auto;
+  return THEMES[migrateReaderTheme(s.theme)] || THEMES.paper;
 }
 const READER_FONTS = Object.freeze({
   custom: {
@@ -675,10 +678,21 @@ const ReaderFontPicker = class extends FuzzySuggestModal {
   }
   onChooseItem(font) { void this.choose(font); }
 };
+async function listReaderFonts(view) {
+  const bridge = globalThis.qbrDesktop;
+  if (bridge?.fonts?.list) {
+    try {
+      const fonts = await bridge.fonts.list();
+      if (Array.isArray(fonts) && fonts.length) return fonts;
+    } catch { /* desktop enumeration unavailable; fall back to the web API */ }
+  }
+  return listSystemFonts(view);
+}
 const buildCustomFontInput = createBuildCustomFontInput({
   FONTS,
   ReaderFontPicker,
   qiaomuReaderTranslate,
+  listFonts: listReaderFonts,
 });
 function buildPageButtonsSetting(host, plugin) {
   new Setting(host)
@@ -714,7 +728,7 @@ function qiaomuReaderPath(p) {
   }
 }
 const libraryData = createLibraryData({ translate: qiaomuReaderTranslate, path: qiaomuReaderPath });
-const DEVICE_KEYS = ["theme", "fontSize", "fontFamily", "customFontFamily", "customFontId", "pageButtonsVisibility", "lineHeight", "columns", "textAlign", "vAlign", "einkMode"];
+const DEVICE_KEYS = ["theme", "fontSize", "fontFamily", "customFontFamily", "customFontId", "pageButtonsVisibility", "lineHeight", "columns", "textAlign", "einkMode"];
 function qiaomuReaderDeviceKey() {
   let key = "desktop";
   try {
@@ -1594,6 +1608,8 @@ function aiToolState(view, plugin, options = {}) {
   const total = Number(pager?.total) || 0;
   const tocItems = view?.tocItems || [];
   const chat = options.chat || null;
+  const lastUserTurn = (chat?.turns || []).filter((turn) => turn.role === "user").at(-1);
+  const webSearchQuestion = typeof lastUserTurn?.content === "string" ? lastUserTurn.content : "";
   const plans = chat ? (chat._workshopPlans ||= new Map()) : new Map();
   const userTurns = () => (chat?.turns || []).filter((turn) => turn.role === "user").length;
   const blockPage = (index) => {
@@ -1625,13 +1641,44 @@ function aiToolState(view, plugin, options = {}) {
   ]);
   const docvortexSettings = () => docvortexTaskSettings(plugin?.settings || {});
   const formulaSettings = () => formulaTaskSettings(plugin?.settings || {});
-  const workshopOutputPath = (sourcePath, extension) => {
+  const workshopChoice = (key, allowed, fallback) => {
+    try {
+      const value = String(window.localStorage.getItem(key) || "");
+      return allowed.includes(value) ? value : fallback;
+    } catch { return fallback; }
+  };
+  const bookStyleSettings = (translationLayout = "stacked") => {
+    let saved = {};
+    try { saved = JSON.parse(window.localStorage.getItem("qbr-workshop-book-style") || "{}"); } catch { saved = {}; }
+    const styles = {};
+    for (const key of ["indent", "spacing"]) {
+      if (Number.isFinite(Number(saved[key]))) styles[key] = Number(saved[key]);
+    }
+    if (["left", "center"].includes(String(saved.headingAlign))) styles.headingAlign = String(saved.headingAlign);
+    styles.translationLayout = translationLayout === "side" ? "side" : "stacked";
+    const coverMode = ["template", "none", "auto", "image"].includes(String(saved.coverMode)) ? String(saved.coverMode) : "template";
+    return {
+      styles,
+      cover: {
+        mode: coverMode,
+        imagePath: coverMode === "image" ? String(saved.coverImage || "") : "",
+        subtitle: String(saved.subtitle || ""),
+        palette: String(saved.coverPalette || "warm"),
+        fit: saved.coverFit === "cover" ? "cover" : "contain",
+      },
+      tocTitle: String(saved.tocTitle || ""),
+      tocDepth: ["1", "2", "3"].includes(String(saved.tocDepth)) ? Number(saved.tocDepth) : 3,
+    };
+  };
+  const workshopOutputPath = (sourcePath, extension, category = "exports") => {
+    const exists = (candidate) => Boolean(plugin.app?.vault?.getAbstractFileByPath?.(candidate));
+    const spacePath = spaceOutputPath(sourcePath, category, extension, { exists });
+    if (spacePath) return spacePath;
     const normalized = String(sourcePath || "").replace(/\\/g, "/");
     const slash = normalized.lastIndexOf("/");
     const dir = slash >= 0 ? normalized.slice(0, slash + 1) : "";
     const name = normalized.slice(slash + 1) || "book";
     const base = name.includes(".") ? name.slice(0, name.lastIndexOf(".")) : name;
-    const exists = (candidate) => Boolean(plugin.app?.vault?.getAbstractFileByPath?.(candidate));
     let out = `${dir}${base}.${extension}`;
     for (let index = 1; exists(out); index += 1) out = `${dir}${base} (${index}).${extension}`;
     return out;
@@ -1665,7 +1712,7 @@ function aiToolState(view, plugin, options = {}) {
       if (!config?.id || !config.base || !config.model || (config.needsKey && !config.key)) {
         return { ok: false, error: "制作 AI 答题页需要先配置 AI 模型。" };
       }
-      const out = workshopOutputPath(view.file.path, "AI答题页.html");
+      const out = workshopOutputPath(view.file.path, "AI答题页.html", "quizzes");
       return {
         ok: true,
         id: capability.id,
@@ -1709,6 +1756,7 @@ function aiToolState(view, plugin, options = {}) {
     if (capability.id === "extract-text" || capability.id === "questions-and-answers") {
       const questions = capability.id === "questions-and-answers";
       const kind = questions ? "questions-extract" : format === "pdf" ? "extract-pdf" : "extract-docvortex";
+      const mode = workshopChoice("qbr-workshop-extract-mode", ["auto", "mineru", "text", "vision"], "auto");
       return {
         ok: true,
         id: capability.id,
@@ -1721,13 +1769,13 @@ function aiToolState(view, plugin, options = {}) {
         payload: {
           settings: formulaSettings(),
           source: view.file.path,
-          mode: "auto",
+          mode,
           refresh: false,
         },
       };
     }
     if (capability.id === "make-ebook") {
-      const out = workshopOutputPath(view.file.path, "epub");
+      const out = workshopOutputPath(view.file.path, "epub", "exports");
       return {
         ok: true,
         id: capability.id,
@@ -1743,8 +1791,7 @@ function aiToolState(view, plugin, options = {}) {
           out,
           title: view.file.basename,
           author: "",
-          styles: {},
-          cover: { mode: "none" },
+          ...bookStyleSettings("stacked"),
           dropPrintedToc: true,
           refresh: false,
         },
@@ -1787,8 +1834,7 @@ function aiToolState(view, plugin, options = {}) {
           source: view.file.path,
           title: "",
           author: "",
-          styles: {},
-          cover: { mode: "none" },
+          ...bookStyleSettings(bookVariant.mode === "side" ? "side" : "stacked"),
           dropPrintedToc: true,
           refresh: false,
           translation: {
@@ -1807,7 +1853,7 @@ function aiToolState(view, plugin, options = {}) {
       "convert-pdf": { format: "pdf", label: "PDF" },
     }[capability.id];
     if (conversion) {
-      const out = workshopOutputPath(view.file.path, conversion.format === "markdown" ? "md" : conversion.format);
+      const out = workshopOutputPath(view.file.path, conversion.format === "markdown" ? "md" : conversion.format, "exports");
       if (IMAGE_SOURCE_FORMATS.has(format) && conversion.format === "pdf") {
         return {
           ok: true,
@@ -1825,6 +1871,14 @@ function aiToolState(view, plugin, options = {}) {
           },
         };
       }
+      const parseMode = format === "pdf"
+        ? workshopChoice("qbr-workshop-parse", ["text", "mineru", "mineru-local", "layout"], "local")
+        : "local";
+      const useFormula = parseMode === "mineru" || parseMode === "mineru-local";
+      const useText = parseMode === "text";
+      const useLayout = parseMode === "layout" && conversion.format === "pdf";
+      const kind = useLayout ? "layout-convert" : useFormula ? "formula-convert" : useText ? "text-convert" : "docvortex-convert";
+      const settings = useFormula || useText || useLayout ? formulaSettings() : docvortexSettings();
       return {
         ok: true,
         id: capability.id,
@@ -1832,19 +1886,20 @@ function aiToolState(view, plugin, options = {}) {
         summary: capability.summary,
         sourceLabel: view.file.basename,
         outputLabel: out.split("/").pop() || `${conversion.label} 文件`,
-        kind: "docvortex-convert",
+        kind,
         detail: view.file.basename,
         payload: {
-          settings: docvortexSettings(),
+          settings,
           source: view.file.path,
           format: conversion.format,
           out,
+          ...(useFormula ? { mineruSource: parseMode === "mineru-local" ? "local" : "" } : {}),
         },
       };
     }
     if (capability.id === "convert-kindle") {
       if (format !== "epub") return { ok: false, error: "这个操作目前需要 EPUB 文件。" };
-      const out = workshopOutputPath(view.file.path, "azw3");
+      const out = workshopOutputPath(view.file.path, "azw3", "exports");
       return {
         ok: true,
         id: capability.id,
@@ -1962,8 +2017,9 @@ function aiToolState(view, plugin, options = {}) {
       ? async (page) => {
         try {
           const rendered = await view._pdfLazy?.render?.(page, docOf(view.areaEl || view.contentEl));
-          const data = String(rendered?.src || "").split(",")[1] || "";
-          return data ? { data, mimeType: "image/jpeg" } : null;
+          const src = String(rendered?.src || "");
+          const data = src.split(",")[1] || "";
+          return data ? { data, mimeType: pdfRenderMime(rendered) } : null;
         } catch {
           return null;
         }
@@ -1988,10 +2044,21 @@ function aiToolState(view, plugin, options = {}) {
       text: String(hl.text || "").slice(0, 200),
       comment: String(hl.comment || "").slice(0, 200),
     })),
-    hasWorkshop: typeof plugin?.workshopCapabilities === "function",
-    workshopOptions: typeof plugin?.workshopCapabilities === "function" ? getWorkshopOptions : null,
-    prepareWorkshopTask: typeof plugin?.workshopCapabilities === "function" ? prepareWorkshopTask : null,
-    startWorkshopTask: typeof plugin?.workshopCapabilities === "function" ? startWorkshopTask : null,
+    hasReader: Boolean(view?.file),
+    hasWorkshop: Boolean(view?.file) && typeof plugin?.workshopCapabilities === "function",
+    workshopOptions: Boolean(view?.file) && typeof plugin?.workshopCapabilities === "function" ? getWorkshopOptions : null,
+    prepareWorkshopTask: Boolean(view?.file) && typeof plugin?.workshopCapabilities === "function" ? prepareWorkshopTask : null,
+    startWorkshopTask: Boolean(view?.file) && typeof plugin?.workshopCapabilities === "function" ? startWorkshopTask : null,
+    // DeepSeek Search is independent of the chat provider. It stays hidden
+    // until a search key is configured, then the model decides when to use it.
+    hasWebSearch: Boolean(plugin?.webSearchAvailable?.()),
+    webSearchQuestion,
+    webSearch: plugin?.webSearchAvailable?.()
+      ? (query, options = {}) => plugin.searchWeb(query, options)
+      : null,
+    webFetch: plugin?.webSearchAvailable?.()
+      ? (url) => plugin.fetchWeb(url)
+      : null,
     // Online book search/download run in the main process; both stay null
     // without the desktop bridge so the tools stay hidden/refusing cleanly.
     searchBooks: plugin && typeof plugin.searchOnlineBooks === "function"
@@ -2022,11 +2089,25 @@ function aiToolState(view, plugin, options = {}) {
         const total = pdfPageCount(view);
         const pages = [];
         for (let page = 1; page <= total; page += 1) pages.push({ page, text: String(view._pdfLazy.textFor?.(page) || "") });
-        const candidates = tocCandidates(pages).slice(0, 4);
+        const candidates = tocCandidates(pages);
+        const ranges = tocPageRanges(candidates);
+        const ranked = [...ranges].sort((a, b) => b.score - a.score || b.count - a.count || a.from - b.from);
+        const best = ranked[0] || null;
+        // A book's index also has dotted leaders and page numbers, but it
+        // scores far below the real TOC run. Keep only comparable ranges so
+        // the model does not mistake the index for the contents.
+        const display = best
+          ? ranked.filter((range, index) => index === 0 || range.score >= best.score * 0.8).slice(0, 4)
+          : [];
         const lines = [`已扫描 ${total} 页；已有大纲 ${(view._pdfOutline || []).length} 条。`];
-        if (candidates.length) {
-          lines.push("目录页候选：");
-          for (const item of candidates) lines.push(`- 第 ${item.page} 页（评分 ${item.score}：${item.reason}）`);
+        if (best) {
+          lines.push("目录页候选范围（按目录特征排序；连续范围必须整段传给 toc_build）：");
+          for (const range of display) {
+            const span = range.from === range.to ? String(range.from) : `${range.from}-${range.to}`;
+            lines.push(`- 第 ${span} 页（${range.count} 页，评分 ${range.score}）`);
+          }
+          const span = best.from === best.to ? String(best.from) : `${best.from}-${best.to}`;
+          lines.push(`建议直接使用 pages="${span}"；只传其中一两页会漏掉目录的前后段。`);
         } else {
           lines.push("没有找到明确的目录页；可以直接指定页码（例如「目录在第 6 页」）。");
         }
@@ -2052,6 +2133,17 @@ function aiToolState(view, plugin, options = {}) {
       ? async ({ pages: pagesArg = "", offset: offsetArg = null, mode = "merge" } = {}) => {
         const total = pdfPageCount(view);
         const pageText = (page) => String(view._pdfLazy.textFor?.(page) || "");
+        // The text layer's item order can interleave two columns. Read the
+        // positioned lines for the few TOC pages and put the left column before
+        // the right column; the model (and the deterministic parser) then see
+        // title/page pairs in printed order.
+        const tocPageText = async (page) => {
+          try {
+            const data = await view._pdfLazy.linesFor?.(page);
+            if (data?.lines?.length) return tocTextFromLines(data.lines, { pageWidth: data.width });
+          } catch { /* fall back to the plain text layer */ }
+          return pageText(page);
+        };
         // Contract: the pages come from the reader (the model must ask first).
         // Never scan the document, never read body pages, never send a page the
         // reader did not name.
@@ -2059,12 +2151,27 @@ function aiToolState(view, plugin, options = {}) {
         if (!pages.length) {
           return { preview: "请先告诉我目录页是哪几页（例如「目录页是第 6 页」）；页码偏移如果不知道可以留空，我来推断。" };
         }
+        // A short request is easy to get from toc_scan's old "top four pages"
+        // output. Check the whole book once and warn when that request misses
+        // a larger contiguous TOC run, so the model can ask for the full range.
+        let scanRange = null;
+        if (pages.length <= 8) {
+          const allPages = [];
+          for (let page = 1; page <= total; page += 1) allPages.push({ page, text: pageText(page) });
+          scanRange = bestTocPageRange(tocCandidates(allPages));
+        }
+        const partialRange = Boolean(scanRange && (
+          pages[0] - scanRange.from > 1 || scanRange.to - pages[pages.length - 1] > 1
+        ));
         let entries = [];
         let attachedImages = 0;
         const batchSize = 6;
         for (let start = 0; start < pages.length; start += batchSize) {
           const batch = pages.slice(start, start + batchSize);
-          const candidatePages = batch.map((page) => ({ page, text: pageText(page) }));
+          const candidatePages = await Promise.all(batch.map(async (page) => ({
+            page,
+            text: await tocPageText(page),
+          })));
           // With a vision model, send the page images too: the printed page
           // beats a scrambled text layer for line order and the number columns.
           const images = {};
@@ -2072,8 +2179,9 @@ function aiToolState(view, plugin, options = {}) {
             for (const item of candidatePages) {
               try {
                 const rendered = await view._pdfLazy.render?.(item.page, docOf(view.areaEl || view.contentEl));
-                const data = String(rendered?.src || "").split(",")[1] || "";
-                if (data) images[item.page] = { data, mimeType: "image/jpeg" };
+                const src = String(rendered?.src || "");
+                const data = src.split(",")[1] || "";
+                if (data) images[item.page] = { data, mimeType: pdfRenderMime(rendered) };
               } catch { /* text-only extraction */ }
             }
           }
@@ -2097,8 +2205,33 @@ function aiToolState(view, plugin, options = {}) {
         const unitCount = (list) => new Set((Array.isArray(list) ? list : [])
           .map((item) => String(item?.title || "").match(/第[^\s单元]{1,6}单元/)?.[0])
           .filter(Boolean)).size;
-        const deterministic = pages.flatMap((page) => parseTocText(pageText(page)));
-        if (unitCount(deterministic) > unitCount(entries)) entries = deterministic;
+        const pageOrderBreaks = (list) => {
+          let previous = 0;
+          let breaks = 0;
+          for (const item of Array.isArray(list) ? list : []) {
+            const page = Math.round(Number(item?.page)) || 0;
+            if (!page) continue;
+            if (previous && page < previous - 2) breaks += 1;
+            previous = Math.max(previous, page);
+          }
+          return breaks;
+        };
+        const aiCount = entries.length;
+        const aiBreaks = pageOrderBreaks(entries);
+        const deterministic = (await Promise.all(pages.map((page) => tocPageText(page))))
+          .flatMap((text) => parseTocText(text));
+        entries = repairTocTitles(entries, deterministic);
+        let fallbackNote = "";
+        if (unitCount(deterministic) > unitCount(entries)
+          || (deterministic.length >= 20 && aiCount < deterministic.length * 0.6)
+          || (aiBreaks > 2 && deterministic.length >= aiCount * 0.8)) {
+          entries = deterministic;
+          if (aiCount > 0 && deterministic.length >= aiCount) {
+            fallbackNote = aiBreaks > 2
+              ? "提示：模型返回的条目前后页码有倒退（双栏顺序可能被打乱）；已用按栏排好的目录页文字重排。"
+              : `提示：模型只提取了 ${aiCount} 条，目录页文字能解析出 ${deterministic.length} 条；已用文字层补齐。`;
+          }
+        }
         const outline = (view._pdfOutline || []).map((item) => ({ label: item.label, page: item.page, level: item.level || 1 }));
         const verdict = inferTocOffset(tocAnchors(outline, entries));
         // When titles do not line up (scrambled text layer), align the printed
@@ -2116,7 +2249,19 @@ function aiToolState(view, plugin, options = {}) {
           }
           return inferTocOffset(pairs);
         })();
-        const inferred = verdict && verdict.agree >= 2 ? verdict : tailVerdict;
+        // No outline is common for scans. The printed page numbers in the body
+        // footers are then the anchor: majority(pdfPage - printedPage).
+        const footerVerdict = (() => {
+          if (verdict && verdict.agree >= 2) return null;
+          const bodyPages = [];
+          const from = Math.max(...pages) + 1;
+          for (let page = from; page <= total; page += 1) bodyPages.push({ page, text: pageText(page) });
+          return inferTocOffsetFromFooters(bodyPages, { tocPages: pages });
+        })();
+        const inferred = verdict && verdict.agree >= 2 ? verdict : (tailVerdict || footerVerdict);
+        const offsetSource = Number.isFinite(Number(offsetArg))
+          ? "user"
+          : (verdict && verdict.agree >= 2 ? "outline" : (tailVerdict ? "tail" : (footerVerdict ? "footer" : "")));
         const offset = Number.isFinite(Number(offsetArg)) ? Math.round(Number(offsetArg)) : (inferred ? inferred.offset : 0);
         const shifted = applyTocOffset(entries, offset);
         const report = validateTocEntries(shifted, { totalPages: total });
@@ -2125,9 +2270,11 @@ function aiToolState(view, plugin, options = {}) {
           : mergeTocEntries(outline, shifted);
         const kept = merged.filter((item) => item.sources.includes("outline") && !item.sources.includes("toc")).length;
         plugin._tocDraft = { merged, mode, offset, created: Date.now() };
+        const sourceLabel = { outline: "大纲", tail: "末页对齐", footer: "正文页脚", user: "手动指定" }[offsetSource] || "";
         const lines = [
-          `目录页：第 ${pages.join("、")} 页；提取 ${entries.length} 条；页码偏移 ${offset >= 0 ? "+" : ""}${offset}${inferred ? `（${inferred.agree}/${inferred.total} 一致）` : ""}。`,
+          `目录页：第 ${pages.join("、")} 页；提取 ${entries.length} 条；页码偏移 ${offset >= 0 ? "+" : ""}${offset}${sourceLabel ? `（来源：${sourceLabel}${inferred ? `，${inferred.agree}/${inferred.total} 一致` : ""}）` : ""}。`,
           `合并后 ${merged.length} 条，保留原有 ${kept} 条。`,
+          ...(fallbackNote ? [fallbackNote] : []),
           attachedImages
             ? `图片：已附第 ${pages.join("、")} 页（${attachedImages} 张），按图片识别。`
             : "图片：未附（模型未通过图片检测或未启用），本次仅用目录页文字。",
@@ -2136,6 +2283,11 @@ function aiToolState(view, plugin, options = {}) {
         ];
         if (merged.length > 3) lines.push("最后几条：", ...merged.slice(-3).map((item) => `- ${item.title} → 第 ${item.page || "?"} 页`));
         if (!report.ok) lines.push(`注意：${report.problems.slice(0, 4).join("；")}`);
+        if (partialRange && scanRange) {
+          const span = scanRange.from === scanRange.to ? String(scanRange.from) : `${scanRange.from}-${scanRange.to}`;
+          const requested = pages[0] === pages[pages.length - 1] ? String(pages[0]) : `${pages[0]}-${pages[pages.length - 1]}`;
+          lines.push(`注意：扫描到的目录页范围更可能是第 ${span} 页，本次只处理第 ${requested} 页，目录可能缺少前后段；如需完整目录，请用 pages="${span}" 重试。`);
+        }
         lines.push("确认生成吗？也可修正：目录页=…、偏移=…、改成替换/合并。");
         return { preview: lines.join("\n") };
       }
@@ -2270,7 +2422,8 @@ async function prepareAiTools(chat) {
   const plugin = chat?.plugin;
   if (!plugin || plugin.settings.aiToolsEnabled === false) return null;
   const view = readerViewForChat(chat);
-  if (!view?.file) return null;
+  const hasWebSearch = Boolean(plugin.webSearchAvailable?.());
+  if (!view?.file && !hasWebSearch) return null;
   const cfg = aiConfig(plugin);
   const target = { id: cfg.id, base: cfg.base, model: cfg.model };
   let capability = effectiveCapability(plugin.settings, target, "tools");
@@ -2285,7 +2438,7 @@ async function prepareAiTools(chat) {
     try { imageCapability = { state: (await detectAiCapability(plugin, "image")).state, source: "probe", at: Date.now() }; }
     catch { imageCapability = { state: "unknown", source: "probe", at: Date.now() }; }
   }
-  return createAiTools({ state: aiToolState(view, plugin, { canSeeImages: imageCapability.state === "yes", chat }) });
+  return createAiTools({ state: aiToolState(view || {}, plugin, { canSeeImages: imageCapability.state === "yes", chat }) });
 }
 
 // Whether any user turn carries an attachment; a text-only send then skips the
@@ -2779,9 +2932,8 @@ function dailyNoteProvider(app) {
 }
 function translationNoteBlock(plugin, bookFile, source, translation) {
   const original = source.text.trim().replace(/\r?\n/g, "\n> ");
-  const link = highlightBacklink(plugin.app.vault.getName(), bookFile.path, { ...source, id: undefined });
   const attribution = plugin.app.fileManager.generateMarkdownLink(bookFile, "");
-  return `> ${original}\n\n${translation.trim()}\n\n— ${attribution}${link ? ` [↩](${link})` : ""}`;
+  return `> ${original}\n\n${translation.trim()}\n\n— ${attribution}`;
 }
 function saveTranslationNote(modal, destination, translation) {
   const { plugin, app } = modal;
@@ -3276,6 +3428,11 @@ const FIGURE_LOADED_ATTR = "data-loaded";
 const FIGURE_TOO_HEAVY_SIGNAL = "qiaomu-reader-render-too-heavy";
 const FIGURE_LOAD_SPAN = 2;
 const FIGURE_DROP_SPAN = 6;
+const FIGURE_HOTSPOT_LAYER = "qiaomu-reader-pdf-figure-layer";
+const FIGURE_HOTSPOT_CLASS = "qiaomu-reader-pdf-figure-hotspot";
+const FIGURE_ORIGINAL_LAYER = "qiaomu-reader-pdf-figure-originals";
+const FIGURE_ORIGINAL_IMG = "qiaomu-reader-pdf-figure-original";
+let figureClipSeq = 0;
 
 function figureSpreadGap(img, flowRect, columnWidth, spread, vertical, viewport = null) {
   const rect = img.getBoundingClientRect();
@@ -3294,9 +3451,249 @@ function figurePageNumber(img) {
   return parseInt(img.dataset.pdfPage);
 }
 
+function pdfRenderMime(rendered) {
+  const declared = String(rendered?.mimeType || "");
+  if (declared.startsWith("image/")) return declared;
+  const src = String(rendered?.src || "");
+  if (src.startsWith("data:image/png")) return "image/png";
+  if (src.startsWith("data:image/webp")) return "image/webp";
+  return "image/jpeg";
+}
+
+// The page box measured after the reader's CSS zoom transform. getBoundingClientRect
+// is used instead of style.width because zoom is applied to the page surface.
+function figureRenderTarget(img) {
+  const rect = img.getBoundingClientRect?.() || {};
+  const cssWidth = rect.width || parseFloat(img.style.width) || parseFloat(img.getAttribute("width")) || 0;
+  const cssHeight = rect.height || parseFloat(img.style.height) || parseFloat(img.getAttribute("height")) || 0;
+  const devicePixelRatio = Number(img.ownerDocument?.defaultView?.devicePixelRatio) || 1;
+  return { cssWidth, cssHeight, devicePixelRatio };
+}
+
+// A page that is already painted still needs a new bitmap when the reader
+// zooms in (or moves to a HiDPI screen) past the resolution the canvas has.
+// Pages originally painted as JPEG before their text pass finished also get
+// repainted once as lossless PNG.
+function figureNeedsHiRes(img, lazy) {
+  if (img.getAttribute(FIGURE_LOADED_ATTR) !== "1") return false;
+  // The renderer already hit its pixel budget (or a timeout fallback): asking
+  // again would re-render the same page after every sweep.
+  if (img.getAttribute("data-pdf-raster-limited") === "1") return false;
+  const pageNumber = figurePageNumber(img);
+  const text = String(lazy?.textFor?.(pageNumber) || "").trim();
+  if (text && img.getAttribute("data-pdf-raster-format") !== "png") return true;
+  const target = figureRenderTarget(img);
+  return pdfRasterNeedsUpgrade({
+    pixelWidth: img.naturalWidth,
+    pixelHeight: img.naturalHeight,
+    cssWidth: target.cssWidth,
+    cssHeight: target.cssHeight,
+    devicePixelRatio: target.devicePixelRatio,
+    quality: PDF_RASTER_QUALITY,
+  });
+}
+
 function figureSweepReady(view, lazy) {
   return Boolean(lazy && !lazy._destroyed && !view._closed && view.pager?.flow
     && docOf(view.pager.flow).visibilityState !== "hidden");
+}
+
+// ── figure hotspots ────────────────────────────────────────────────────────
+// The sidecar lists illustration/table boxes in normalised page coordinates.
+// Hotspots are percentage-positioned on the page surface, so zoom and rerenders
+// need no geometry updates. The preview crops the existing page bitmap instead
+// of asking the engine for another copy of the image.
+function figurePagesFor(reader) {
+  if (!reader) return new Map();
+  if (reader._pdfFigurePages && reader._pdfFigurePages.source === reader._pdfFigures) {
+    return reader._pdfFigurePages.map;
+  }
+  const map = new Map();
+  for (const figure of reader._pdfFigures?.figures || []) {
+    const page = Number(figure?.page) || 0;
+    if (!page) continue;
+    if (!map.has(page)) map.set(page, []);
+    map.get(page).push(figure);
+  }
+  reader._pdfFigurePages = { source: reader._pdfFigures, map };
+  return map;
+}
+
+function clearPdfFigureLayers(surface) {
+  surface?.querySelector(`.${FIGURE_HOTSPOT_LAYER}`)?.remove();
+  surface?.querySelector(`.${FIGURE_ORIGINAL_LAYER}`)?.remove();
+}
+
+// The theme filter changes the page raster, including pictures. Paste the
+// original page bitmap back over the figure boxes with a multi-rect clip path:
+// one extra <img> per page, no image re-encoding, and illustrations keep their
+// real colours in night/warm themes.
+function renderPdfFigureOriginals(img, figures) {
+  const surface = img?.closest?.(FIGURE_SURFACE_SELECTOR);
+  const src = img?.currentSrc || img?.src || "";
+  if (!surface || !src || !figures?.length) return;
+  const doc = img.ownerDocument;
+  const ns = "http://www.w3.org/2000/svg";
+  const layer = doc.createElement("div");
+  layer.className = FIGURE_ORIGINAL_LAYER;
+  const svg = doc.createElementNS(ns, "svg");
+  svg.setAttribute("width", "0");
+  svg.setAttribute("height", "0");
+  svg.setAttribute("aria-hidden", "true");
+  const defs = doc.createElementNS(ns, "defs");
+  const clip = doc.createElementNS(ns, "clipPath");
+  const id = `qbr-figure-clip-${++figureClipSeq}`;
+  clip.setAttribute("id", id);
+  clip.setAttribute("clipPathUnits", "objectBoundingBox");
+  for (const figure of figures) {
+    const [x0, y0, x1, y1] = figure.bbox;
+    const rect = doc.createElementNS(ns, "rect");
+    rect.setAttribute("x", String(x0));
+    rect.setAttribute("y", String(y0));
+    rect.setAttribute("width", String(x1 - x0));
+    rect.setAttribute("height", String(y1 - y0));
+    clip.appendChild(rect);
+  }
+  defs.appendChild(clip);
+  svg.appendChild(defs);
+  const copy = doc.createElement("img");
+  copy.className = FIGURE_ORIGINAL_IMG;
+  copy.alt = "";
+  copy.setAttribute("draggable", "false");
+  copy.setAttribute("aria-hidden", "true");
+  copy.src = src;
+  copy.style.clipPath = `url(#${id})`;
+  copy.style.webkitClipPath = `url(#${id})`;
+  layer.appendChild(svg);
+  layer.appendChild(copy);
+  surface.appendChild(layer);
+}
+
+function pdfFigureRasterCrop(img, figure) {
+  const rect = pdfFigureCropRect(figure?.bbox, img?.naturalWidth, img?.naturalHeight, { padding: 3 });
+  if (!rect) return "";
+  try {
+    const doc = img.ownerDocument;
+    const canvas = doc.createElement("canvas");
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+    const context = canvas.getContext("2d");
+    if (!context) return "";
+    context.drawImage(img, rect.x, rect.y, rect.width, rect.height, 0, 0, rect.width, rect.height);
+    // Line art and tables stay crisp as PNG; a full-page photograph is much
+    // smaller as JPEG and is only ever shown in the lightbox.
+    return rect.width * rect.height > 1_200_000
+      ? canvas.toDataURL("image/jpeg", 0.92)
+      : canvas.toDataURL("image/png");
+  } catch (error) {
+    console.warn("UV Reader: could not crop the PDF figure", error);
+    return "";
+  }
+}
+
+async function pdfFigurePreviewSrc(reader, img, figure) {
+  const pageNumber = figurePageNumber(img);
+  const surface = img.closest(FIGURE_SURFACE_SELECTOR);
+  const width = Math.max(1200, Math.round((surface?.clientWidth || 0) * 2));
+  try {
+    const rendered = await reader?._pdfLazy?.figureImage?.(pageNumber, figure?.bbox, {
+      width,
+      doc: img.ownerDocument,
+    });
+    if (rendered) return rendered;
+  } catch (error) {
+    console.warn("UV Reader: could not render the PDF figure at high resolution", error);
+  }
+  // Fallback: crop the bitmap already on screen. The preview still opens if the
+  // page cannot be re-rendered.
+  return pdfFigureRasterCrop(img, figure);
+}
+
+// Normal PDFs have no figure sidecar. Ask PDF.js for the image XObject boxes
+// and paste the unfiltered page raster back over them, so photos and charts do
+// not turn grayscale under the theme filter.
+async function renderPdfDetectedImageOriginals(reader, img, pageNumber) {
+  const lazy = reader?._pdfLazy;
+  if (!lazy?.imageBoxesFor || reader?._pdfFigures) return;
+  if (reader.contentEl?.hasClass?.("qiaomu-reader-pdf-scanned")) return;
+  const surface = img?.closest?.(FIGURE_SURFACE_SELECTOR);
+  if (!surface) return;
+  try {
+    const boxes = await lazy.imageBoxesFor(pageNumber);
+    if (!boxes?.length) return;
+    if (reader._pdfLazy !== lazy || img.getAttribute(FIGURE_LOADED_ATTR) !== "1" || !img.hasAttribute("src")) return;
+    if (surface.querySelector(`.${FIGURE_ORIGINAL_LAYER}`)) return;
+    renderPdfFigureOriginals(img, boxes);
+  } catch (error) {
+    console.warn("UV Reader: could not restore PDF image colours", error);
+  }
+}
+
+async function attachPdfFigureToAi(reader, src, name) {  try {
+    const doc = docOf(reader?.contentEl || reader?.areaEl);
+    const img = doc.createElement("img");
+    img.setAttribute("alt", name);
+    img.src = src;
+    if (typeof img.decode === "function") await img.decode().catch(() => {});
+    return await attachImageToAi(reader, img);
+  } catch (error) {
+    console.error("UV Reader: could not attach the PDF figure", error);
+    new Notice(qiaomuReaderTranslate("could-not-attach-the-image"), 6000);
+    return false;
+  }
+}
+
+async function openPdfFigurePreview(reader, img, figure) {
+  const src = await pdfFigurePreviewSrc(reader, img, figure);
+  if (!src) return;
+  const doc = docOf(img);
+  const name = String(figure?.name || "").trim() || qiaomuReaderTranslate("illustration");
+  openImageLightbox(src, reader.app, img, {
+    doc,
+    name,
+    onSave: () => saveImageToFile(src, { name, doc }),
+    onAttach: () => attachPdfFigureToAi(reader, src, name),
+  });
+}
+
+function renderPdfFigureHotspots(reader, img, pageNumber) {
+  const surface = img?.closest?.(FIGURE_SURFACE_SELECTOR);
+  if (!surface) return;
+  clearPdfFigureLayers(surface);
+  const figures = figurePagesFor(reader).get(Number(pageNumber) || 0);
+  if (!figures?.length) return;
+  // Tables stay with the page theme (mostly paper + text); only illustrations
+  // get their original colours pasted back. A white table would otherwise be a
+  // glaring block on a night page.
+  renderPdfFigureOriginals(img, figures.filter((figure) => figure.type !== "table"));
+  const doc = img.ownerDocument;
+  const layer = doc.createElement("div");
+  layer.className = FIGURE_HOTSPOT_LAYER;
+  for (const figure of figures) {
+    const [x0, y0, x1, y1] = figure.bbox;
+    const button = doc.createElement("button");
+    button.type = "button";
+    button.className = FIGURE_HOTSPOT_CLASS;
+    button.style.left = `${x0 * 100}%`;
+    button.style.top = `${y0 * 100}%`;
+    button.style.width = `${(x1 - x0) * 100}%`;
+    button.style.height = `${(y1 - y0) * 100}%`;
+    const name = String(figure.name || "").trim() || qiaomuReaderTranslate("illustration");
+    button.setAttribute("aria-label", name);
+    // Pan/selection gestures start on pointerdown; a figure is a button, not
+    // part of the page's text drag.
+    button.addEventListener("pointerdown", (event) => event.stopPropagation());
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (button.classList.contains("qiaomu-reader-pdf-figure-busy")) return;
+      button.classList.add("qiaomu-reader-pdf-figure-busy");
+      void openPdfFigurePreview(reader, img, figure)
+        .finally(() => button.classList.remove("qiaomu-reader-pdf-figure-busy"));
+    });
+    layer.appendChild(button);
+  }
+  surface.appendChild(layer);
 }
 
 function markFigureUnavailable(img, surface, error) {
@@ -3305,6 +3702,7 @@ function markFigureUnavailable(img, surface, error) {
   const message = tooHeavy
     ? qiaomuReaderTranslate("this-page-is-too-heavy-to-draw")
     : qiaomuReaderTranslate("could-not-display-page-0", pageNumber);
+  if (typeof clearPdfFigureLayers === "function") clearPdfFigureLayers(surface);
   img.setAttribute(FIGURE_LOADED_ATTR, "skip");
   img.addClass(FIGURE_HEAVY_CLASS);
   img.alt = message;
@@ -3317,19 +3715,42 @@ function markFigureUnavailable(img, surface, error) {
 
 async function drawFigure(img, lazy, current = () => true, reader = null) {
   const surface = img.closest(FIGURE_SURFACE_SELECTOR);
+  const pageNumber = figurePageNumber(img);
+  const target = figureRenderTarget(img);
+  // Re-rendering a painted page for a new zoom keeps its positioned PDF.js
+  // text layer: rebuilding it would drop the selection, form focus and any
+  // highlight wrappers that live inside it.
+  const keepLayer = img.getAttribute(FIGURE_LOADED_ATTR) === "1"
+    && Boolean(surface?.querySelector('.qiaomu-reader-pdf-text-layer[data-pdf-layer="pdfjs"]'));
   if (surface) surface.addClass(FIGURE_RENDERING_CLASS);
   try {
-    const rendered = await lazy.render(figurePageNumber(img), img.ownerDocument);
+    const rendered = await lazy.render(pageNumber, img.ownerDocument, {
+      cssWidth: target.cssWidth,
+      cssHeight: target.cssHeight,
+      devicePixelRatio: target.devicePixelRatio,
+      withTextLayer: !keepLayer,
+      withThumbnail: true,
+    });
     if (!current()) return;
     img.src = rendered.src;
+    img._qbrThumb = rendered.thumb || img._qbrThumb || "";
+    img.setAttribute("data-pdf-raster-width", String(rendered.pixelWidth || ""));
+    img.setAttribute("data-pdf-raster-limited", rendered.limited ? "1" : "0");
+    img.setAttribute("data-pdf-raster-format", pdfRenderMime(rendered) === "image/png" ? "png" : "jpeg");
     const oldLayer = surface?.querySelector(".qiaomu-reader-pdf-text-layer");
     if (rendered.textLayer) {
       if (oldLayer) oldLayer.replaceWith(rendered.textLayer);
       else surface?.appendChild(rendered.textLayer);
     }
-    reader?._pdfForm?.mountPage?.(surface, figurePageNumber(img));
+    // Form and signature layers survive a bitmap swap; remounting on every
+    // zoom or repaint would throw away the field the reader is typing in.
+    if (!surface?.querySelector(".qiaomu-reader-pdf-form-layer, .qiaomu-reader-pdf-signature-layer")) {
+      reader?._pdfForm?.mountPage?.(surface, pageNumber);
+    }
     if (typeof img.decode === "function") await img.decode().catch(() => {});
     img.setAttribute(FIGURE_LOADED_ATTR, "1");
+    if (typeof renderPdfFigureHotspots === "function") renderPdfFigureHotspots(reader, img, pageNumber);
+    if (typeof renderPdfDetectedImageOriginals === "function") void renderPdfDetectedImageOriginals(reader, img, pageNumber);
   } catch (e) {
     if (current()) markFigureUnavailable(img, surface, e);
   } finally {
@@ -3349,7 +3770,23 @@ async function sweepReaderFigures(reader, lazy) {
     ? { top: pager.clip.getBoundingClientRect().top, height: pager.clip.clientHeight || 0 }
     : null;
   const gapOf = (img) => figureSpreadGap(img, flowRect, columnWidth, spread, vertical, viewport);
-  const current = () => !reader._closed && reader._pdfLazy === lazy && !lazy._destroyed && reader.pager === pager;
+  // Scrolling gets a wider preload window; a fast wheel/trackpad gesture can
+  // cross a page before a single full-resolution raster is ready. The pending
+  // sweep is restarted at the new position instead of finishing a stale range.
+  const loadSpan = vertical ? 4 : FIGURE_LOAD_SPAN;
+  const dropSpan = vertical ? 8 : FIGURE_DROP_SPAN;
+  const startScrollTop = vertical && pager.clip ? pager.clip.scrollTop : 0;
+  const scrollLimit = vertical
+    ? Math.max(480, (viewport?.height || pager.clip?.clientHeight || 600) * 2)
+    : 0;
+  // A large jump (TOC, page number, history) makes the pages this sweep was
+  // preloading irrelevant. Stop after the current paint so the pending sweep
+  // can draw the page the reader is actually looking at. One-spread turns do
+  // not abort: their preloads still cover the new spread.
+  const current = () => !reader._closed && reader._pdfLazy === lazy && !lazy._destroyed && reader.pager === pager
+    && (vertical
+      ? Math.abs((pager.clip?.scrollTop || 0) - startScrollTop) <= scrollLimit
+      : Math.abs(pager.spread - spread) <= FIGURE_LOAD_SPAN);
   // 最近的页优先画:跳章/跳页后先出读者眼前的页,而不是从 DOM 第一页慢慢排到那里。
   const candidates = [...flow.querySelectorAll(FIGURE_LAZY_SELECTOR)]
     .map((img) => ({ img, gap: gapOf(img) }))
@@ -3374,19 +3811,30 @@ async function sweepReaderFigures(reader, lazy) {
       });
     }
     const loadState = img.getAttribute(FIGURE_LOADED_ATTR);
-    if (gap <= FIGURE_LOAD_SPAN && loadState !== "1" && loadState !== "skip") {
+    const hiRes = gap <= loadSpan && figureNeedsHiRes(img, lazy);
+    if (gap <= loadSpan && (hiRes || (loadState !== "1" && loadState !== "skip"))) {
       await drawFigure(img, lazy, current, reader);
-    } else if (gap > FIGURE_DROP_SPAN && loadState === "1") {
-      if (img.hasAttribute("src")) img.removeAttribute("src");
+    } else if (gap > dropSpan && loadState === "1") {
+      const thumb = img._qbrThumb || "";
+      if (thumb) {
+        if (img.getAttribute("src") !== thumb) img.src = thumb;
+      } else if (img.hasAttribute("src")) {
+        img.removeAttribute("src");
+      }
+      img.removeAttribute("data-pdf-raster-width");
+      img.removeAttribute("data-pdf-raster-limited");
+      img.removeAttribute("data-pdf-raster-format");
       const surface = img.closest(FIGURE_SURFACE_SELECTOR);
+      if (typeof clearPdfFigureLayers === "function") clearPdfFigureLayers(surface);
       const layer = surface?.querySelector(".qiaomu-reader-pdf-text-layer");
       if (layer) {
         layer.textContent = lazy.textFor(figurePageNumber(img));
+        layer.removeAttribute("data-pdf-layer");
         layer.className = "qiaomu-reader-pdf-text-layer qiaomu-reader-pdf-text-placeholder";
         layer.setAttribute("data-pdf-selectable", "false");
       }
-      img.setAttribute(FIGURE_LOADED_ATTR, "0");
-    } else if (gap > FIGURE_LOAD_SPAN && loadState !== "1") {
+      img.setAttribute(FIGURE_LOADED_ATTR, thumb ? "thumb" : "0");
+    } else if (gap > loadSpan && loadState !== "1") {
       // 这一页不会被画(超出绘制窗口),但**文字**要补进占位层:查找、跨页选择、
       // 以及 DOM 级断言读的都是文字层,而占位几乎没有成本。否则页面越远越"没文字"。
       const layer = img.closest(FIGURE_SURFACE_SELECTOR)?.querySelector(".qiaomu-reader-pdf-text-layer");
@@ -4025,6 +4473,7 @@ const AiChatView = createAiChatView({
   qiaomuReaderTranslate,
   readerAiPanelContext,
   readerDefaultAiContext,
+  readerPageContext,
   readerHud,
   renderAiComposerPrompts,
   renderAiContextQuote,
@@ -4245,6 +4694,7 @@ function openPluginAiSettings(app, plugin, onReady) {
   modal = new SettingsGroupModal(app, qiaomuReaderTranslate("set-up-ai-assistance"), (body, redraw) => {
     tab._groupAi(body, redraw, {
       enableOnSuccess: true,
+      showWebSearch: false,
       onReady: (result) => {
         modal.close();
         finish(result);
@@ -4375,6 +4825,7 @@ const QiaomuBookReader = createPlugin({
   qiaomuReaderTranslate,
   readerAiPanelContext,
   readerDefaultAiContext,
+  readerPageContext,
   readerHud,
   readerSupportsAiContext,
   readerTodayKey,

@@ -29,6 +29,7 @@ export function createPiTransport({ bridge, aiConfig, aiMessages }) {
       model: cfg.model,
       thinking: options.thinking !== undefined ? options.thinking === true : cfg.thinking === true,
       supportsThinking: cfg.provider?.supportsThinking === true,
+      thinkingLevelMap: cfg.provider?.thinkingLevelMap || null,
       compat: cfg.provider?.compat || null,
       key: cfg.key || "",
       needsKey: cfg.needsKey === true,
@@ -154,7 +155,12 @@ export function createPiTransport({ bridge, aiConfig, aiMessages }) {
         requestId,
         config: runtimeConfig(cfg, { thinking: false, vision: options.vision === true }),
         messages: list,
-        options: { sessionKey: "", connectionTest: false },
+        options: {
+          sessionKey: "",
+          connectionTest: false,
+          ...(Number(options.maxTokens) > 0 ? { maxTokens: Number(options.maxTokens) } : {}),
+          ...(Number(options.timeoutMs) > 0 ? { timeoutMs: Number(options.timeoutMs) } : {}),
+        },
       }, (delta) => {
         if (typeof options.onDelta === "function") options.onDelta(delta.answer || delta.content || "");
       });

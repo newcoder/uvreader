@@ -137,7 +137,7 @@ test("chosen typography overrides MOBI paragraph alignment and author prose styl
   dom.window.close();
 });
 
-test("automatic theme resolves host colors for a separate book document and refreshes on theme changes", () => {
+test("reader text colors resolve host variables for a separate book document and refresh on changes", () => {
   const host = new JSDOM('<div style="--background-primary:#181a1b;--text-normal:#d9d7d1"></div>');
   const book = new JSDOM('<head></head><body><p>正文</p></body>');
   const root = host.window.document.querySelector("div");

@@ -127,6 +127,42 @@ test("textToHtml turns blank-line separated blocks into paragraphs", () => {
   assert.equal(textToHtml('<script>x</script>'), "<p>&lt;script&gt;x&lt;/script&gt;</p>");
 });
 
+test("contents lines are marked so their indent can follow the configured body indent", () => {
+  const html = markdownToHtml([
+    "## 戴望舒",
+    "",
+    "林泉居的故事 小思 / 74",
+    "",
+    "望舒和灾难的岁月 叶灵凤 / 78",
+    "",
+    "正文段落。",
+  ].join("\n"));
+  assert.equal((html.match(/<p class="qbr-toc-entry">/g) || []).length, 2);
+  assert.ok(html.includes('<p class="qbr-toc-entry">林泉居的故事 小思 / 74</p>'));
+  assert.ok(html.includes("<p>正文段落。</p>"));
+  assert.ok(textToHtml("林泉居的故事 小思 / 74").includes('class="qbr-toc-entry"'));
+});
+
+test("markdownToHtml does not turn underscores in image or link URLs into emphasis", () => {
+  const image = markdownToHtml("![插图](mineru/images/page_0_image_0.jpg)");
+  assert.match(image, /<img src="mineru\/images\/page_0_image_0\.jpg" alt="插图"\/>/);
+  assert.doesNotMatch(image, /<em>/);
+  const link = markdownToHtml("[资料](notes/part_1_file_2.md)");
+  assert.match(link, /<a href="notes\/part_1_file_2\.md">资料<\/a>/);
+  assert.doesNotMatch(link, /<em>/);
+});
+
+test("textToHtml keeps safe footnote anchors and escapes the rest", () => {
+  const marker = '<a id="marker-001-001" class="qbr-noteref" epub:type="noteref" href="chapter-002.xhtml#note-001"><sup>1</sup></a>';
+  const backlink = '<a id="note-001" class="qbr-backlink" epub:type="backlink" href="chapter-001.xhtml#marker-001-001">1</a>';
+  assert.equal(textToHtml(`正文${marker}`, { preserveLineBreaks: true }), `<p>正文${marker}</p>`);
+  assert.equal(textToHtml(`注释${backlink}`, { preserveLineBreaks: true }), `<p>注释${backlink}</p>`);
+  assert.equal(
+    textToHtml('<a id="x" class="qbr-noteref" href="javascript:alert(1)"><sup>1</sup></a>'),
+    '<p>&lt;a id=&quot;x&quot; class=&quot;qbr-noteref&quot; href=&quot;javascript:alert(1)&quot;&gt;&lt;sup&gt;1&lt;/sup&gt;&lt;/a&gt;</p>',
+  );
+});
+
 test("line-aligned rendering preserves single line breaks", () => {
   assert.equal(textToHtml("孤鸿海上来\n池潢不敢顾", { preserveLineBreaks: true }), "<p>孤鸿海上来<br/>池潢不敢顾</p>");
   assert.equal(markdownToHtml("孤鸿海上来\n池潢不敢顾", { preserveLineBreaks: true }), "<p>孤鸿海上来<br/>池潢不敢顾</p>");
@@ -187,6 +223,21 @@ test("markdownToHtml handles headings, lists, quotes, code and inline markup", (
   assert.match(html, /<img src="images\/a\.jpg" alt="图"\/>/);
   assert.match(html, /<a href="https:\/\/example\.com">链接<\/a>/);
   assert.match(html, /<hr\/>/);
+});
+
+test("markdownToHtml keeps safe footnote links and escapes arbitrary anchors", () => {
+  const html = markdownToHtml([
+    '<a id="marker-018-014" class="qbr-noteref" epub:type="noteref" href="chapter-021.xhtml#note-196"><sup>15</sup></a>',
+    '<a id="note-196" class="qbr-backlink" epub:type="backlink" href="chapter-018.xhtml#marker-018-014">15</a>、注释',
+  ].join("\n\n"));
+  assert.match(html, /class="qbr-noteref"/);
+  assert.match(html, /href="chapter-021\.xhtml#note-196"/);
+  assert.match(html, /<sup>15<\/sup>/);
+  assert.match(html, /class="qbr-backlink"/);
+
+  const unsafe = markdownToHtml('<a href="javascript:alert(1)" class="qbr-noteref">15</a>');
+  assert.doesNotMatch(unsafe, /<a\b/);
+  assert.match(unsafe, /&lt;a/);
 });
 
 test("markdownToHtml renders math through the renderMath callback and keeps LaTeX otherwise", () => {

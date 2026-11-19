@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { BOOK_EXTENSIONS, isBookFile } from "../shared/books.js";
+import { BOOK_EXTENSIONS, EXTERNAL_DOC_EXTENSIONS, isOpenableFile } from "../shared/books.js";
 import { WORKSHOP_PICK_EXTENSIONS } from "../shared/workshop-formats.js";
 import { createAiRuntime } from "./ai-runtime.js";
 import { createEngineClient, describeEngineHealth } from "./engine-client.js";
@@ -18,6 +18,7 @@ import { createDocvortex, registerDocvortexRunners } from "./docvortex.js";
 import { extractMarkdown, registerExtractRunners } from "./extract-doc.js";
 import { clearMineruCaches, createMineruLocalService, mineruKitProblem, resolveLocalBackend, resolveMineruKit } from "./mineru-local.js";
 import { createPdfCleaner, createPdfTextReader, registerTextConvertRunner } from "./pdf-text.js";
+import { registerLayoutRunner } from "./pdf-layout.js";
 import { createPdfFormService } from "./pdf-form.js";
 import { createFormulaChain, pdfToolScriptCommand, registerFormulaRunners, resolveMineruToken } from "./workshop-formula.js";
 import { registerBookRunners } from "./workshop-book.js";
@@ -30,15 +31,41 @@ import { registerQuestionRunners } from "./workshop-questions.js";
 import { registerQuizLlmRunner } from "./workshop-quiz-llm.js";
 import { createTextLayerReader } from "./text-layer.js";
 import { createWorkshopQueue } from "./workshop.js";
+import { copyPolishMarkdown, findPolishBundleForSource, forgetPolishNote, importPolishMarkdown, importPolishNotes, inspectPolishImport, listPolishBundles, polishWorkspaceDir, readPolishBundle, repairPolishHeadings, resolvePolishAsset, revertPolishMarkdown, savePolishInfo, savePolishMarkdown, savePolishSession } from "./polish-session.js";
+import { listSystemFonts } from "./system-fonts.js";
 import { createBookDownloads } from "./book-downloads.js";
+import { createSpaceService } from "./spaces.js";
+import { LEGACY_USER_DATA_NAME, migrateUserData } from "./user-data-migration.js";
+import { removeFile } from "./paths.js";
+import { deepseekFetch, deepseekSearch } from "./web-search.js";
 import { bookSessionReady, closeBookSession, downloadBookFile, downloadBookFileFromPage, fetchBookPage, forgetBookSession, openBookLogin, searchPdfdrive, sessionFetch } from "./book-session.js";
 
 const aiRuntime = createAiRuntime();
 const engineClient = createEngineClient();
 
-if (process.env.QBR_USER_DATA) app.setPath("userData", process.env.QBR_USER_DATA);
+const appData = app.getPath("appData");
+let userDataMigration = null;
+if (process.env.QBR_USER_DATA) {
+  app.setPath("userData", process.env.QBR_USER_DATA);
+  userDataMigration = { ok: true, mode: "override", userData: process.env.QBR_USER_DATA };
+} else {
+  try {
+    userDataMigration = migrateUserData({ appData });
+  } catch (error) {
+    // Never make the app unavailable just because moving the old folder
+    // failed (a still-running old instance, permissions, a locked file).
+    userDataMigration = {
+      ok: false,
+      mode: "failed",
+      userData: path.join(appData, LEGACY_USER_DATA_NAME),
+      error: String(error?.message || error),
+    };
+  }
+  app.setPath("userData", userDataMigration.userData);
+}
 if (process.platform === "win32") app.setAppUserModelId("com.uvreader.app");
 const userData = app.getPath("userData");
+try { fs.mkdirSync(userData, { recursive: true }); } catch { /* the app will create its own folders below */ }
 // Main-process logs (the [qbr-books] search/download lines) also land in
 // userData/qbr.log so a slow or stuck search can be inspected after the fact;
 // the file is truncated once it passes ~1 MB.
@@ -56,8 +83,22 @@ try {
 // 主进程自己的日志入口:走 console.error(上面已经接管,会同时落到 userData/qbr.log)。
 // 注意:调用方要把**这个函数**传进去(别再写 `log: (...args) => log(...)` 那种自引用)。
 const log = (...args) => console.error("[qbr]", ...args);
+if (userDataMigration && ["move", "copy", "merge", "failed"].includes(userDataMigration.mode)) {
+  log("user data migration", JSON.stringify({
+    mode: userDataMigration.mode,
+    ok: userDataMigration.ok,
+    from: userDataMigration.from,
+    to: userDataMigration.to,
+    userData,
+    rewritten: userDataMigration.rewrite?.files || 0,
+    rewriteErrors: userDataMigration.rewrite?.errors?.length || 0,
+    backup: userDataMigration.rewrite?.backupRoot || "",
+    error: userDataMigration.error || "",
+  }));
+}
 const dataRoot = path.join(userData, "data");
 const vaultRoot = path.join(userData, "library");
+const spaces = createSpaceService({ libraryRoot: vaultRoot, registryPath: path.join(userData, "spaces.json") });
 const secretsPath = path.join(userData, "secrets.json");
 // 书坊引擎装在这里:Windows 用 %LOCALAPPDATA%\UVReader\engine\<版本>(与手工部署的
 // venv/token.txt 同一个根,方便找);其他平台放应用数据目录。QBR_ENGINE_ROOT 可覆盖(测试用)。
@@ -103,12 +144,25 @@ workshop.register("probe", async ({ payload, report, signal }) => {
 registerOcrRunners(workshop, { pdfOcr, vaultRoot });
 // 文档互转(DocVortex):检测 + 转换。
 const docvortex = createDocvortex({ engine: engineClient });
-registerDocvortexRunners(workshop, { docvortex, vaultRoot, cleaner: createPdfCleaner({ engine: engineClient, pdfText: createPdfTextReader({ engine: engineClient }) }) });
+registerDocvortexRunners(workshop, {
+  docvortex,
+  vaultRoot,
+  cacheRoot: path.join(userData, "book-cache"),
+  pdfText: createPdfTextReader({ engine: engineClient }),
+  cleaner: createPdfCleaner({ engine: engineClient, pdfText: createPdfTextReader({ engine: engineClient }) }),
+});
 // 公式优先链路:pdf_tool(MinerU)→ HTML → DocVortex(真公式)。
 const formulaChain = createFormulaChain({ engine: engineClient, textLayer: createTextLayerReader({ engine: engineClient }) });
 registerFormulaRunners(workshop, {
   chain: formulaChain,
   docvortex,
+  vaultRoot,
+  cacheRoot: path.join(userData, "formula-cache"),
+});
+// 扫描版式：MinerU 版面 + RapidOCR 行框 → 引擎原位重排；只换文字，不重排页面。
+registerLayoutRunner(workshop, {
+  chain: formulaChain,
+  engine: engineClient,
   vaultRoot,
   cacheRoot: path.join(userData, "formula-cache"),
 });
@@ -255,7 +309,7 @@ function notifyWorkshopTask(task = {}) {
 }
 
 function bookFromArgv(argv) {
-  return (argv || []).find((arg) => isBookFile(arg) && fs.existsSync(arg)) || "";
+  return (argv || []).find((arg) => isOpenableFile(arg) && fs.existsSync(arg)) || "";
 }
 
 // External links are the only URLs allowed to leave the renderer: anything
@@ -434,22 +488,34 @@ async function pickAiAttachments() {
   return { ok: true, files: result.filePaths.slice(0, 4).map(readAiAttachment) };
 }
 
+async function pickSpaceFiles() {
+  const options = {
+    title: "导入文件到空间",
+    properties: ["openFile", "multiSelections"],
+    filters: [
+      { name: "书籍与文档", extensions: [...WORKSHOP_PICK_EXTENSIONS] },
+      { name: "所有文件", extensions: ["*"] },
+    ],
+  };
+  const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+  return result.canceled ? [] : result.filePaths;
+}
+
 async function openBookDialog() {
   const options = {
-    title: "打开书籍",
+    title: "打开书籍或文档",
     properties: ["openFile"],
     filters: [
       { name: "电子书", extensions: [...BOOK_EXTENSIONS] },
+      { name: "文档（用系统默认程序打开）", extensions: [...EXTERNAL_DOC_EXTENSIONS] },
       { name: "所有文件", extensions: ["*"] },
     ],
   };
   const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
   if (result.canceled || !result.filePaths.length) return "";
   const filePath = result.filePaths[0];
-  if (!isBookFile(filePath)) {
-    dialog.showErrorBox("不支持的格式", `“${path.basename(filePath)}”不是受支持的电子书格式。\n支持：${BOOK_EXTENSIONS.join("、")}`);
-    return "";
-  }
+  // The renderer decides between the reader and the OS default application;
+  // an unsupported file must not be rejected here with a format dialog.
   app.addRecentDocument(filePath);
   return filePath;
 }
@@ -594,6 +660,7 @@ function createWindow() {
 }
 
 ipcMain.handle("qbr:launch-file", () => launchFile);
+ipcMain.handle("qbr:fonts:list", () => listSystemFonts());
 ipcMain.handle("qbr:mineru:status", (_event, settings) => mineruLocal.status(settings || {}));
 ipcMain.handle("qbr:mineru:ensure", (_event, settings) => mineruLocal.ensure(settings || {}));
 ipcMain.handle("qbr:mineru:stop", () => mineruLocal.stop());
@@ -678,7 +745,16 @@ ipcMain.handle("qbr:engine:auto-start", async (_event, settings = {}) => {
   const health = value.engineUrl ? await engineClient.health(value) : null;
   if (health?.ok) {
     const synced = await syncEngineMineru(value);
-    return { skipped: "running", detail: describeEngineHealth(health.data || {}), synced };
+    // Return the configured URL/token, not the local engine's: a healthy remote
+    // engine must not be replaced by the loopback engine installed on this
+    // machine. OCR paths still come from the separate service() call.
+    return {
+      engineUrl: String(value.engineUrl || ""),
+      engineToken: String(value.engineToken || ""),
+      skipped: "running",
+      detail: describeEngineHealth(health.data || {}),
+      synced,
+    };
   }
   try {
     const port = value.engineUrl ? portFromUrl(value.engineUrl) : bundledEngineArchive ? await findFreePort() : portFromUrl("");
@@ -729,6 +805,54 @@ ipcMain.handle("qbr:mineru:clear-cache", async (_event, settings = {}) => {
   // 服务在跑时上传目录还被占着:跳过并如实告诉界面,不假装清干净了。
   if (running) return { ...clearMineruCaches([formulaCache]), skippedService: serviceDir };
   return { ...clearMineruCaches([formulaCache, serviceDir]), skippedService: "" };
+});
+ipcMain.handle("qbr:spaces:list", () => spaces.list());
+ipcMain.handle("qbr:spaces:sync", (_event, payload = {}) => spaces.sync(String(payload?.id || "")));
+ipcMain.handle("qbr:web-search:search", async (_event, payload = {}) => {
+  try {
+    return await deepseekSearch({
+      apiKey: payload?.key,
+      base: payload?.base,
+      query: payload?.query,
+      count: payload?.count,
+      oriQuestion: payload?.oriQuestion,
+      needContent: payload?.needContent === true,
+    });
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error), code: String(error?.code || "web") };
+  }
+});
+ipcMain.handle("qbr:web-search:fetch", async (_event, payload = {}) => {
+  try {
+    return await deepseekFetch({
+      apiKey: payload?.key,
+      base: payload?.base,
+      url: payload?.url,
+    });
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error), code: String(error?.code || "web") };
+  }
+});
+ipcMain.handle("qbr:spaces:create", (_event, payload = {}) => spaces.create(payload || {}));
+ipcMain.handle("qbr:spaces:import", (_event, payload = {}) => spaces.importFiles(String(payload?.spaceId || ""), payload?.filePaths || []));
+ipcMain.handle("qbr:spaces:pick-files", () => pickSpaceFiles());
+ipcMain.handle("qbr:spaces:open-folder", (_event, id) => {
+  const space = spaces.get(String(id || ""));
+  if (!space?.exists) return "";
+  return shell.openPath(space.root);
+});
+ipcMain.handle("qbr:spaces:delete-output", async (_event, payload = {}) => {
+  const id = String(payload?.spaceId || "");
+  const relativePath = String(payload?.relativePath || "");
+  return spaces.deleteOutput(id, relativePath, {
+    remove: async (file) => {
+      try {
+        await shell.trashItem(file);
+      } catch {
+        removeFile(file);
+      }
+    },
+  });
 });
 ipcMain.handle("qbr:open-book-dialog", () => openBookDialog());
 ipcMain.handle("qbr:open-path", (_event, target) => {
@@ -915,6 +1039,10 @@ ipcMain.handle("qbr:workshop:list", () => workshop.snapshot());
 ipcMain.handle("qbr:workshop:start", (_event, request = {}) => workshop.start(request || {}));
 ipcMain.handle("qbr:workshop:cancel", (_event, id) => workshop.cancel(String(id || "")));
 ipcMain.handle("qbr:workshop:retry", (_event, id) => workshop.retry(String(id || "")));
+ipcMain.handle("qbr:workshop:remove", (_event, id) => {
+  workshop.remove(String(id || ""));
+  return workshop.snapshot();
+});
 ipcMain.handle("qbr:workshop:clear", () => {
   workshop.clearHistory();
   return workshop.snapshot();
@@ -932,6 +1060,78 @@ ipcMain.handle("qbr:workshop:pick-files", async () => {
   };
   const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
   return result.canceled ? [] : result.filePaths;
+});
+
+// 精修工作区:整本书 Markdown 的读写 + 持久 session。工作区不进任务队列,
+// 只有“检查 / 重建”由 book-polish runner 执行。
+ipcMain.handle("qbr:polish:list", () => listPolishBundles(bookCacheRoot));
+ipcMain.handle("qbr:polish:load", (_event, payload = {}) => readPolishBundle(payload?.manifestPath || ""));
+ipcMain.handle("qbr:polish:save-markdown", (_event, payload = {}) => (
+  savePolishMarkdown(payload?.manifestPath || "", payload?.markdown ?? "")
+));
+ipcMain.handle("qbr:polish:save-session", (_event, payload = {}) => (
+  savePolishSession(payload?.manifestPath || "", payload?.patch || {})
+));
+ipcMain.handle("qbr:polish:forget-note", (_event, payload = {}) => (
+  forgetPolishNote(payload?.manifestPath || "", payload?.noteId || "")
+));
+ipcMain.handle("qbr:polish:revert", (_event, payload = {}) => {
+  revertPolishMarkdown(payload?.manifestPath || "");
+  return readPolishBundle(payload?.manifestPath || "");
+});
+ipcMain.handle("qbr:polish:import-notes", (_event, payload = {}) => (
+  importPolishNotes(payload?.manifestPath || "", payload?.markdown || "")
+));
+ipcMain.handle("qbr:polish:pick-import", async (_event, payload = {}) => {
+  const options = {
+    title: "导入精修 Markdown",
+    properties: ["openFile"],
+    filters: [
+      { name: "精修 Markdown", extensions: ["md", "markdown", "txt"] },
+      { name: "所有文件", extensions: ["*"] },
+    ],
+  };
+  const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+  if (result.canceled || !result.filePaths?.[0]) return null;
+  return inspectPolishImport(payload?.manifestPath || "", result.filePaths[0]);
+});
+ipcMain.handle("qbr:polish:import-markdown", (_event, payload = {}) => (
+  importPolishMarkdown(payload?.manifestPath || "", payload?.filePath || "", {
+    force: payload?.force === true,
+    currentMarkdown: payload?.markdown || "",
+  })
+));
+ipcMain.handle("qbr:polish:repair-headings", (_event, payload = {}) => (
+  repairPolishHeadings(payload?.manifestPath || "", payload?.markdown || "")
+));
+ipcMain.handle("qbr:polish:trash", async (_event, payload = {}) => {
+  const dir = polishWorkspaceDir(payload?.manifestPath || "");
+  await shell.trashItem(dir);
+  return true;
+});
+ipcMain.handle("qbr:polish:save-info", (_event, payload = {}) => (
+  savePolishInfo(payload?.manifestPath || "", payload?.info || {})
+));
+ipcMain.handle("qbr:polish:resolve-asset", (_event, payload = {}) => (
+  resolvePolishAsset(payload?.manifestPath || "", payload?.source || "")
+));
+ipcMain.handle("qbr:polish:find-by-source", (_event, payload = {}) => (
+  findPolishBundleForSource(bookCacheRoot, payload?.source || "", vaultRoot)
+));
+ipcMain.handle("qbr:polish:save-as", async (_event, payload = {}) => {
+  const manifestPath = payload?.manifestPath || "";
+  const bundle = readPolishBundle(manifestPath);
+  const title = String(bundle.manifest?.book?.title || "polish").replace(/[\\/:*?"<>|]+/g, "_");
+  const defaultPath = path.join(path.dirname(bundle.markdownPath), `${title}-精修.md`);
+  const options = {
+    title: "另存精修 Markdown",
+    defaultPath,
+    filters: [{ name: "Markdown", extensions: ["md"] }],
+  };
+  const result = mainWindow ? await dialog.showSaveDialog(mainWindow, options) : await dialog.showSaveDialog(options);
+  if (result.canceled || !result.filePath) return "";
+  copyPolishMarkdown(manifestPath, result.filePath);
+  return result.filePath;
 });
 
 const gotLock = app.requestSingleInstanceLock();

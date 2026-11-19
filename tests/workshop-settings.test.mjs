@@ -11,10 +11,13 @@ test("the workshop owns one formula/OCR settings shape", () => {
     mineruToken: "token",
     mineruLocalAutoStart: false,
     engineUrl: "http://127.0.0.1:9000",
+    engineToken: "engine-token",
   };
   assert.deepEqual(docvortexTaskSettings(settings), {
     docvortexPath: "D:/docvortex",
     docvortexPython: "python",
+    engineUrl: "http://127.0.0.1:9000",
+    engineToken: "engine-token",
   });
   const formula = formulaTaskSettings(settings);
   assert.equal(formula.ocrSidecarDir, "D:/sidecar");

@@ -16,6 +16,9 @@ function importer(options = {}) {
   const created = [];
   const folders = [];
   const reads = [];
+  const writes = [];
+  const stats = new Map();
+  const keyOf = (p) => String(p).replace(/\\/g, "/");
   const vault = {
     // The desktop shim resolves absolute paths against the real filesystem:
     // any existing file on disk looks like a vault file. `lenientLookup` models
@@ -28,12 +31,18 @@ function importer(options = {}) {
     },
     getFiles: () => [...files.values()],
     createFolder: async (p) => { folders.push(p); },
-    createBinary: async (p, _bytes) => {
+    createBinary: async (p, bytes) => {
       created.push(p);
       files.set(p, { path: p, extension: p.split(".").pop() });
+      stats.set(keyOf(p), { mtime: 1, size: bytes.length });
     },
     adapter: {
       readBinary: async (p) => { reads.push(p); return new Uint8Array([1, 2, 3]); },
+      writeBinary: async (p, bytes) => {
+        writes.push(p);
+        stats.set(keyOf(p), { mtime: 2, size: bytes.length });
+      },
+      stat: async (p) => stats.get(keyOf(p)) || null,
       getBasePath: () => options.basePath,
     },
   };
@@ -54,7 +63,7 @@ function importer(options = {}) {
     BOOK_EXTENSIONS: new Set(["epub", "pdf"]),
     qiaomuReaderTranslate: (key) => key,
   });
-  return { import: api.importBookToLibrary.bind(plugin), plugin, files, created, folders, reads };
+  return { import: api.importBookToLibrary.bind(plugin), plugin, files, created, folders, reads, writes, stats };
 }
 
 test("a path that already points at a vault book is reused instead of copied", async () => {
@@ -78,14 +87,34 @@ test("an outside book is copied in and tagged as imported", async () => {
   assert.deepEqual(h.plugin.tags.get("萤窗小语.epub"), ["auto-tag-import"]);
 });
 
-test("opening the same outside file again reuses its copy", async () => {
+test("opening the same outside file again reuses its copy when the source is unchanged", async () => {
   const h = importer();
-  const first = await h.import("C:/Users/me/Downloads/萤窗小语.epub");
+  const source = "C:/Users/me/Downloads/萤窗小语.epub";
+  h.stats.set(source, { mtime: 1, size: 3 });
+  const first = await h.import(source);
   h.reads.length = 0;
-  const second = await h.import("C:/Users/me/Downloads/萤窗小语.epub");
+  h.writes.length = 0;
+  const second = await h.import(source);
   assert.equal(second, first);
   assert.equal(h.created.length, 1, "the second open writes nothing");
   assert.equal(h.reads.length, 0, "the copy is reused without reading the source again");
+  assert.equal(h.writes.length, 0);
+});
+
+test("reopening an outside file replaces the library copy after an in-place rebuild", async () => {
+  const h = importer();
+  const source = "C:/Users/me/Downloads/萤窗小语.epub";
+  h.stats.set(source, { mtime: 1, size: 3 });
+  const first = await h.import(source);
+  h.reads.length = 0;
+  h.writes.length = 0;
+  h.stats.set(source, { mtime: 5, size: 9 });
+  const second = await h.import(source);
+  assert.equal(second, first, "the library path stays the same so reading progress and tags survive");
+  assert.equal(h.created.length, 1, "no duplicate library file");
+  assert.equal(h.reads.length, 1);
+  assert.equal(h.writes.length, 1);
+  assert.equal(h.writes[0], first);
 });
 
 test("the desktop shim's absolute lookups do not stop an outside book from being copied", async () => {
@@ -109,7 +138,7 @@ test("an absolute path under the vault root is still reused, not copied", async 
 test("reopening the library refreshes the existing tab before revealing it", async () => {
   const method = pluginSource.slice(
     pluginSource.indexOf("  async openLibrary("),
-    pluginSource.indexOf("  async openBookAt("),
+    pluginSource.indexOf("  _dataFolder("),
   );
   const openLibrary = vm.runInNewContext(`({${method}})`, { LIB_VIEW_TYPE: "qiaomu-reader-library" }).openLibrary;
   let refreshed = 0;

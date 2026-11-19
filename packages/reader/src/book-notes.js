@@ -7,7 +7,6 @@ import { suggestAiNoteTitle } from "./ai-note-title.js";
 import { noteMetaLine as buildNoteMetaLine } from "./note-meta.js";
 import { aiAnswerMarker, appendAiAnswer } from "./reading-workflow.js";
 import { appendReadingNoteExcerpts, migrateAndReplaceReadingHighlights, replaceManagedReadingHighlights } from "./reading-note.js";
-import { highlightBacklink } from "./highlight-navigation.js";
 
 export function createBookNotes({
   translate,
@@ -21,6 +20,7 @@ export function createBookNotes({
   noteTemplatePath,
   bookNotesFolderPath,
   notesFolderPath,
+  bookNotesFolderForBook = () => "",
   inboxNotePath,
   resolveNotesFolder,
   resolveBookNote,
@@ -195,6 +195,9 @@ export function createBookNotes({
       const near = path(bookFile.parent.path || "");
       if (near) folderChoice = near;
     }
+    if (!folderChoice && !besideBook) {
+      folderChoice = bookNotesFolderForBook(bookFile) || null;
+    }
     const filename = firstFreeNoteName(app, chosenTitle, folderChoice, reserved);
     const linkName = bookFile
       ? bookNoteLinkFor(plugin, bookFile) || bookFile.basename
@@ -239,7 +242,7 @@ export function createBookNotes({
     try {
       let note = resolveBookNote(app, bookNoteLinkFor(plugin, bookFile));
       if (!note) {
-        const folder = bookNotesFolderPath(app) || notesFolderPath(app) || "";
+        const folder = bookNotesFolderForBook(bookFile) || bookNotesFolderPath(app) || notesFolderPath(app) || "";
         // A coincidental filename is not consent to modify an unrelated note.
         let name = sanitizeNoteTitle(bookFile.basename), index = 2;
         const base = name;
@@ -418,20 +421,12 @@ export function createBookNotes({
     confirmDelete.open();
   }
   const QUOTE_TEMPLATE_DEFAULT = "> {text}\n\n— [[{book}]]{page}{link}";
-  // Keep the backlink useful without inserting interface prose into the reader's
-  // notes. The arrow is the complete visible label; old custom text settings are
-  // intentionally ignored so copied quotations stay clean.
-  function backlinkLabel() { return "↩"; }
   function quoteMarkdown(plugin, hl, bookFile) {
     const clean = String(hl && hl.text || "").replace(/[ \t]+/g, " ").replace(/\s*\n\s*/g, " ").trim();
     if (!clean) return "";
     const bookName = bookFile ? bookNoteLinkFor(plugin, bookFile) || bookFile.basename : "";
     const page = hl && hl.page ? translate("p-0-2", hl.page) : "";
-    let link = "";
-    const uri = highlightBacklink(plugin.app.vault.getName(), bookFile?.path, hl);
-    if (plugin.settings.quoteBacklinks !== false && uri) {
-      link = ` [${backlinkLabel()}](${uri})`;
-    }
+    const link = "";
     const commentText = hl && hl.comment ? String(hl.comment).trim() : "";
     const comment = commentText ? `\n\n**${translate("comment-on-a-highlight")}：** ${commentText.replace(/\n/g, "\n\n")}` : "";
     const tpl = plugin.settings.quoteTemplate || QUOTE_TEMPLATE_DEFAULT;
@@ -447,10 +442,6 @@ export function createBookNotes({
     const rows = list.map((hl) => {
       const clean = String(hl.text).replace(/[ \t]+/g, " ").replace(/\s*\n\s*/g, " ").trim();
       let where = hl.page ? translate("p-0-3", hl.page) : "";
-      const uri = highlightBacklink(plugin.app.vault.getName(), bookFile.path, hl);
-      if (plugin.settings.quoteBacklinks !== false && uri) {
-        where += ` [${backlinkLabel()}](${uri})`;
-      }
       const comment = hl.comment
         ? `\n\n**${translate("comment-on-a-highlight")}：** ${String(hl.comment).replace(/\n/g, "\n\n")}`
         : "";
@@ -520,10 +511,6 @@ export function createBookNotes({
         grouped.push(group);
       }
       let where = hl.page ? translate("p-0-3", hl.page) : "";
-      const uri = highlightBacklink(app.vault.getName(), bookFile?.path, hl);
-      if (plugin.settings.quoteBacklinks !== false && uri) {
-        where += ` [${backlinkLabel()}](${uri})`;
-      }
       const comment = hl.comment
         ? `\n\n**${translate("comment-on-a-highlight")}：** ${hl.comment.replace(/\n/g, "\n\n")}`
         : "";
@@ -689,7 +676,6 @@ ${body}
     addBookFileMenu,
     dropBookState,
     deleteBookFromVault,
-    backlinkLabel,
     quoteMarkdown,
     hlCommentMd,
     renderManagedReadingHighlights,

@@ -2,6 +2,7 @@
 // 分章规则:识别「第X章/回/卷/篇」「Chapter N」「序章/楔子/后记…」等标题行;
 // 没有标题时按长度分块,保证纯 txt 也能成书。
 import { chineseNumber } from "../shared/chapter-rules.js";
+import { looksLikeTocLine } from "../shared/printed-toc.js";
 
 export { chineseNumber };
 
@@ -130,19 +131,57 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
+function safeFootnoteAnchor(attrs, body) {
+  const attr = (name) => {
+    const match = new RegExp(`(?:^|\\s)${name}\\s*=\\s*"([^"]*)"`).exec(attrs);
+    return match ? match[1] : "";
+  };
+  const id = attr("id");
+  const href = attr("href");
+  const cls = attr("class");
+  const type = attr("epub:type");
+  if (!/^[A-Za-z][A-Za-z0-9_.:-]*$/.test(id)) return "";
+  if (!/^qbr-(?:noteref|backlink)$/.test(cls)) return "";
+  if (!/^(?:#[A-Za-z0-9_.:-]+|chapter-\d{3}\.xhtml#[A-Za-z0-9_.:-]+)$/.test(href)) return "";
+  if (type && !/^(?:noteref|backlink|footnote)$/.test(type)) return "";
+  const value = String(body || "");
+  if (!/^(?:[^<>]|<sup>[^<>]*<\/sup>)*$/.test(value)) return "";
+  return `<a id="${id}" class="${cls}"${type ? ` epub:type="${type}"` : ""} href="${href}">${value}</a>`;
+}
+
+// 纯文本章节也要能承载精修生成的脚注锚点；只放行本应用自己生成的
+// qbr-noteref / qbr-backlink，其他 HTML 照旧转义。
+function escapeHtmlWithFootnotes(value) {
+  const kept = [];
+  const masked = String(value ?? "").replace(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi, (whole, attrs, body) => {
+    const safe = safeFootnoteAnchor(attrs, body);
+    if (!safe) return whole;
+    kept.push(safe);
+    return `\uE003${kept.length - 1}\uE003`;
+  });
+  return escapeHtml(masked).replace(/\uE003(\d+)\uE003/g, (_whole, index) => kept[Number(index)] || "");
+}
+
 function inlineMarkdown(text) {
   // 上游(MinerU / pdf_tool)会写 <sup>ℓ</sup> / <sub>2</sub> 这类上下标:书稿内容可信,
   // 放行这两个标签,其余 HTML 照旧转义 —— 否则成品里会显示成字面的 &lt;sup&gt;
   // (实测 Notes_Boltzmann 这本书有 36+18 处)。用私用区槽位先藏起来再还原。
   const keptTags = [];
-  const masked = String(text ?? "").replace(/<\/?(?:sup|sub)>/gi, (tag) => {
-    keptTags.push(tag.toLowerCase());
+  const maskTag = (tag) => {
+    keptTags.push(tag);
     return `\uE001${keptTags.length - 1}\uE001`;
+  };
+  let masked = String(text ?? "").replace(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi, (whole, attrs, body) => {
+    const safe = safeFootnoteAnchor(attrs, body);
+    return safe ? maskTag(safe) : whole;
   });
+  masked = masked.replace(/<\/?(?:sup|sub)>/gi, (tag) => maskTag(tag.toLowerCase()));
   let html = escapeHtml(masked);
   // 图注/链接文字里常带方括号(「!(b) [五]」「[引自 A. B. …]」),允许一层嵌套的 [ ]。
-  html = html.replace(/!\[((?:[^[\]]|\[[^[\]]*\])*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_m, alt, src) => `<img src="${src}" alt="${alt}"/>`);
-  html = html.replace(/\[((?:[^[\]]|\[[^[\]]*\])*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_m, label, href) => `<a href="${href}">${label}</a>`);
+  // 生成的 img/a 标签先放进占位符，避免 URL 里的下划线被后面的强调规则
+  // 当成斜体（page_0_image_0.jpg 会变成 page<em>0</em>image_0.jpg）。
+  html = html.replace(/!\[((?:[^[\]]|\[[^[\]]*\])*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_m, alt, src) => maskTag(`<img src="${src}" alt="${alt}"/>`));
+  html = html.replace(/\[((?:[^[\]]|\[[^[\]]*\])*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_m, label, href) => maskTag(`<a href="${href}">${label}</a>`));
   html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
   html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/__([^_]+)__/g, "<strong>$1</strong>");
@@ -222,9 +261,11 @@ export function textToHtml(text, { preserveLineBreaks = false } = {}) {
   return blocks
     .map((block) => {
       const lines = block.split("\n").map((line) => line.trim()).filter(Boolean);
+      const joined = lines.join("");
+      const cls = looksLikeTocLine(joined) ? ' class="qbr-toc-entry"' : "";
       return preserveLineBreaks
-        ? lines.length ? `<p>${lines.map(escapeHtml).join("<br/>")}</p>` : ""
-        : lines.length ? `<p>${escapeHtml(lines.join(""))}</p>` : "";
+        ? lines.length ? `<p${cls}>${lines.map(escapeHtmlWithFootnotes).join("<br/>")}</p>` : ""
+        : lines.length ? `<p${cls}>${escapeHtmlWithFootnotes(joined)}</p>` : "";
     })
     .filter(Boolean)
     .join("\n");
@@ -268,7 +309,8 @@ export function markdownToHtml(markdown, options = {}) {
     const content = preserveLineBreaks
       ? lines.map((line) => inlineWithMath(line, renderMath)).join("<br/>")
       : inlineWithMath(joined, renderMath);
-    out.push(`<p>${content}</p>`);
+    const tocClass = looksLikeTocLine(joined) ? ' class="qbr-toc-entry"' : "";
+    out.push(`<p${tocClass}>${content}</p>`);
   };
   const topList = () => lists[lists.length - 1] || null;
   // 一层的项正文落地:`<li>` 开标签先不闭(后面可能跟嵌套列表)。

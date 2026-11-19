@@ -8,7 +8,7 @@ import { UI_LANGUAGES } from "./i18n-languages.js";
 import { selectionActionPreferences } from "./selection-preferences.js";
 
 export function createSettingsTab({
-  Notice, Platform, PluginSettingTab, SecretComponent, Setting, setIcon, HL_COLORS, OnboardingModal, QUOTE_TEMPLATE_DEFAULT, SettingsGroupModal, TRANSLATION_LANGUAGE_CHOICES, VIEW_TYPE, WHATS_NEW, WhatsNewModal, addFolderPathControl, addMarkdownFilePathControl, aiConfig, aiConnectionErrorMessage, aiSetupMessage, aiSetupState, aiTestConnection, aiCapabilityState, bindSettingsTabKeys, buildCustomFontInput, buildPageButtonsSetting, detectAiCapability, fmtReadTime, openPluginAiSettings, qiaomuReaderDeviceKey, qiaomuReaderFontLabel, qiaomuReaderReaderFonts, qiaomuReaderSetLanguage, qiaomuReaderTranslate, readerThemeLabel, readerTimer, readerTodayKey, readingStats, selectedReaderTheme, setReaderTheme, testAndEnableAi, withSliderValue,
+  Notice, Platform, PluginSettingTab, SecretComponent, Setting, setIcon, HL_COLORS, OnboardingModal, QUOTE_TEMPLATE_DEFAULT, SettingsGroupModal, TRANSLATION_LANGUAGE_CHOICES, VIEW_TYPE, WHATS_NEW, WhatsNewModal, addFolderPathControl, addMarkdownFilePathControl, aiConfig, aiConnectionErrorMessage, aiSetupMessage, aiSetupState, aiTestConnection, aiCapabilityState, bindSettingsTabKeys, buildCustomFontInput, buildPageButtonsSetting, detectAiCapability, fmtReadTime, openPluginAiSettings, qiaomuReaderFontLabel, qiaomuReaderReaderFonts, qiaomuReaderSetLanguage, qiaomuReaderTranslate, readerThemeLabel, readerTimer, readerTodayKey, readingStats, selectedReaderTheme, setReaderTheme, testAndEnableAi, withSliderValue,
 }) {
   return class SettingsTab extends PluginSettingTab {
   _group(c, { name, desc, build }) {
@@ -68,7 +68,7 @@ export function createSettingsTab({
     if (!this._tab || !tabs.some((t) => t.id === this._tab)) { this._tab = "look"; }
     const head = root.createDiv("qiaomu-reader-settings-head");
     const headText = head.createDiv("qiaomu-reader-settings-head-text");
-    headText.createEl("h2", { text: "UV Reader" });
+    headText.createEl("h2", { text: qiaomuReaderTranslate("settings") });
 
     const language = head.createEl("select", { cls: "dropdown qiaomu-reader-settings-language" });
     for (const { id: value, label } of UI_LANGUAGES) {
@@ -105,9 +105,12 @@ export function createSettingsTab({
     ];
   }
   async _applyUiLanguage(v) {
-    this.plugin.settings.language = v; this.plugin.settings.languagePicked = true;
+    this.plugin.settings.language = v;
     qiaomuReaderSetLanguage(v);
-    await this.plugin.saveAll(); this._redraw();
+    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+      window.dispatchEvent(new window.CustomEvent("qiaomu-reader-language-changed", { detail: v }));
+    }
+    await this._saveAll(); this._redraw();
     new Notice(qiaomuReaderTranslate("interface-language-updated-reopen-existing-book-tabs-and-chats-t"));
   }
   _drawSettingsTab(body) {
@@ -200,7 +203,7 @@ export function createSettingsTab({
       [["buttons", t("buttons")], ["click", t("by-mouse-click")]],
       s.navMode || "buttons",
       async (v) => {
-        s.navMode = v; await this.plugin.saveAll();
+        s.navMode = v; await this._saveAll();
         const readers = this.app.workspace.getLeavesOfType(VIEW_TYPE).map(l => l.view);
         if (this.plugin._openReaderModal) readers.push(this.plugin._openReaderModal);
         for (const reader of readers) (reader.contentEl || reader.containerEl).classList.toggle("qiaomu-reader-navclick", v === "click");
@@ -213,7 +216,7 @@ export function createSettingsTab({
       s.readMode || "pages",
       async (v) => {
         s.readMode = v;
-        await this.plugin.saveAll();
+        await this._saveAll();
         this._repaginateOpenBooks();
         this._redraw();
       });
@@ -221,8 +224,19 @@ export function createSettingsTab({
     if (s.readMode !== "scroll") this._readingDropdown(c,
       "pages-side-by-side", "two-pages-are-shown-only-on-a-wide-screen",
       [["1", t("one")], ["2", t("two")]], String(s.columns || "2"),
-      async value => { s.columns = value; await this.plugin.saveAll(); this._repaginateOpenBooks(); });
+      async value => { s.columns = value; await this._saveAll(); this._repaginateOpenBooks(); });
     buildPageButtonsSetting(c, this.plugin);
+    this._readingToggle(c,
+      "page-turn-animation",
+      "the-page-slides-sideways-as-it-turns-that-movement-is-what-shows",
+      s.pageTurnAnimation !== false,
+      async (value) => {
+        s.pageTurnAnimation = value;
+        const readers = this.app.workspace.getLeavesOfType(VIEW_TYPE).map((leaf) => leaf.view);
+        if (this.plugin._openReaderModal) readers.push(this.plugin._openReaderModal);
+        for (const reader of readers) if (reader?.pager) reader.pager.animate = value;
+        await this._saveAll();
+      });
     this._selectionToolbarSettings(this._settingsDisclosure(c, "selection-toolbar", true));
     const extras = c.createEl("details", { cls: "qiaomu-reader-settings-disclosure" });
     extras.createEl("summary", { text: t("reading-goal") });
@@ -233,7 +247,7 @@ export function createSettingsTab({
       "a-countdown-to-your-daily-goal-for-example-15-minutes-start-it-w",
       s.timerEnabled !== false,
       async (v) => {
-        s.timerEnabled = v; await this.plugin.saveAll();
+        s.timerEnabled = v; await this._saveAll();
         const readers = this.app.workspace.getLeavesOfType(VIEW_TYPE).map(l => l.view);
         if (this.plugin._openReaderModal) readers.push(this.plugin._openReaderModal);
         for (const reader of readers) {
@@ -245,13 +259,20 @@ export function createSettingsTab({
       .setName(t("daily-goal-minutes"))
       .setDesc(t("how-many-minutes-a-day-you-want-to-read-today-s-progress-is-in-t"))
       .addSlider((slider) => withSliderValue(slider.setLimits(5, 120, 5).setValue(s.dailyGoalMin || 15))
-        .onChange(async (v) => { s.dailyGoalMin = v; await this.plugin.saveAll(); }));
+        .onChange(async (v) => { s.dailyGoalMin = v; this._scheduleSave(); }));
 
     c.createEl("h3", { cls: "qiaomu-reader-set-h", text: t("reading-statistics") });
     this._statsCard(c);
   }
   _saveAll() {
-    return this.plugin.saveAll();
+    return typeof this.plugin.saveSettings === "function" ? this.plugin.saveSettings() : this.plugin.saveAll();
+  }
+  _scheduleSave(delay = 300) {
+    window.clearTimeout(this._saveTimer);
+    this._saveTimer = window.setTimeout(() => {
+      this._saveTimer = 0;
+      void this._saveAll();
+    }, delay);
   }
   _groupAi(c, redraw, options = {}) {
     const plugin = this.plugin;
@@ -287,6 +308,7 @@ export function createSettingsTab({
       "let-the-assistant-look-up-pages-search-the-book-and-list-highlights",
       s.aiToolsEnabled !== false,
       async (value) => { s.aiToolsEnabled = value; await this._saveAll(); });
+    if (options.showWebSearch !== false) this._aiWebSearchRows(advanced, s);
     const connection = this._settingsDisclosure(advanced, "ai-connection-settings");
     connection.parentElement.setAttribute("data-ai-connection", "");
     if (p.needsKey && !needsSecret) this._aiSecretRow(connection, s, p);
@@ -309,21 +331,17 @@ export function createSettingsTab({
       host.empty();
       new Setting(host).setName(t("selection-show-labels"))
         .addToggle(toggle => toggle.setValue(s.selectionShowLabels === true).onChange(async value => {
-          s.selectionShowLabels = value; await this.plugin.saveAll();
+          s.selectionShowLabels = value; await this._saveAll();
         }));
       new Setting(host).setName(t("auto-pinyin-info"))
         .addToggle(toggle => toggle.setValue(s.autoPinyinInfo !== false).onChange(async value => {
-          s.autoPinyinInfo = value; await this.plugin.saveAll();
-        }));
-      new Setting(host).setName(t("auto-translate-english"))
-        .addToggle(toggle => toggle.setValue(s.autoTranslateEnglish !== false).onChange(async value => {
-          s.autoTranslateEnglish = value; await this.plugin.saveAll();
+          s.autoPinyinInfo = value; await this._saveAll();
         }));
       host.createEl("p", { cls: "qiaomu-reader-set-note", text: t("selection-hidden-in-more") });
       const items = selectionActionPreferences(s.selectionActions);
       const labels = { highlight: "highlight-action", comment: "annotate-action", ai: "ask-ai-action", translate: "translate", copy: "copy" };
       const save = async (focus) => {
-        s.selectionActions = items; await this.plugin.saveAll(); render();
+        s.selectionActions = items; await this._saveAll(); render();
         if (focus) host.querySelector(focus)?.focus();
       };
       items.forEach((item, index) => {
@@ -347,7 +365,7 @@ export function createSettingsTab({
         });
       });
       new Setting(host).addButton(button => button.setButtonText(t("restore-defaults")).onClick(async () => {
-        s.selectionActions = null; s.selectionShowLabels = false; await this.plugin.saveAll(); render();
+        s.selectionActions = null; s.selectionShowLabels = false; await this._saveAll(); render();
       }));
     };
     render();
@@ -376,11 +394,14 @@ export function createSettingsTab({
   _aiModelPicker(host, s, p, redraw) {
     const models = [...new Set([p.model, ...(p.models || [])].filter(Boolean))];
     const custom = Boolean(s.aiModel && !models.includes(s.aiModel)) || (!p.model && !s.aiModel);
-    const saveModel = async value => {
+    const applyModel = (value) => {
       s.aiModel = value;
       s.aiModels = { ...s.aiModels, [s.aiProvider]: value };
       s.aiEnabled = false;
       s.aiNeedsVerification = true;
+    };
+    const saveModel = async value => {
+      applyModel(value);
       await this._saveAll();
     };
     let inputRow;
@@ -400,7 +421,10 @@ export function createSettingsTab({
       });
     });
     inputRow = new Setting(host).setName(qiaomuReaderTranslate("model-id"))
-      .addText(field => field.setValue(s.aiModel || "").setPlaceholder(p.model || "model-id").onChange(value => saveModel(value.trim())));
+      .addText(field => field.setValue(s.aiModel || "").setPlaceholder(p.model || "model-id").onChange(value => {
+        applyModel(value.trim());
+        this._scheduleSave(500);
+      }));
     inputRow.settingEl.toggleClass("qiaomu-reader-hidden", !custom);
   }
   _aiSecretRow(host, s, p) {
@@ -499,6 +523,25 @@ export function createSettingsTab({
         await this._saveAll();
       });
   }
+  _aiWebSearchRows(host, s) {
+    const t = qiaomuReaderTranslate;
+    this._readingToggle(host,
+      "auto-web-search",
+      "auto-web-search-desc",
+      s.aiWebSearchEnabled !== false,
+      async (value) => { s.aiWebSearchEnabled = value; await this._saveAll(); });
+    const keySetting = new Setting(host)
+      .setName(t("deepseek-search-key"))
+      .setDesc(t("deepseek-search-key-desc"));
+    if (typeof SecretComponent === "function" && this.app.secretStorage) {
+      keySetting.addComponent((el) => new SecretComponent(this.app, el)
+        .setValue(s.aiWebSearchSecret || "")
+        .onChange(async (value) => {
+          s.aiWebSearchSecret = value || "";
+          await this._saveAll();
+        }));
+    }
+  }
   _aiBaseRow(host, s, p) {
     if (!s.aiBases || typeof s.aiBases !== "object") s.aiBases = {};
     new Setting(host)
@@ -509,7 +552,7 @@ export function createSettingsTab({
         s.aiBase = "";
         s.aiEnabled = false;
         s.aiNeedsVerification = true;
-        await this._saveAll();
+        this._scheduleSave(500);
       }));
   }
   _aiTestRow(host, p, options) {
@@ -547,7 +590,7 @@ export function createSettingsTab({
         field.setValue(s.aiSystem || "");
         field.onChange(async (value) => {
           s.aiSystem = value;
-          await this._saveAll();
+          this._scheduleSave(500);
         });
       });
     new Setting(host)
@@ -555,7 +598,7 @@ export function createSettingsTab({
       .setDesc(qiaomuReaderTranslate("the-language-used-for-ai-explanations-and-follow-up-questions"))
       .addText((field) => field.setPlaceholder("中文").setValue(s.aiInto || "中文").onChange(async (value) => {
         s.aiInto = value.trim() || "中文";
-        await this._saveAll();
+        this._scheduleSave(500);
       }));
     host.createEl("div", {
       cls: "qiaomu-reader-set-note",
@@ -578,6 +621,11 @@ export function createSettingsTab({
         if (repaginate && view.bookHtml && typeof view.repaginate === "function") await view.repaginate();
         else if (repaginate && typeof view._applyContentStyle === "function") view._applyContentStyle();
       }
+    };
+    let appearanceTimer = 0;
+    const applyAppearanceSoon = (repaginate = true) => {
+      window.clearTimeout(appearanceTimer);
+      appearanceTimer = window.setTimeout(() => { void applyAppearance(repaginate); }, 250);
     };
     this._readingDropdown(host,
       "theme-2",
@@ -604,7 +652,7 @@ export function createSettingsTab({
       .setDesc(qiaomuReaderTranslate("the-book-text-size-synced-with-the-in-reader-control"))
       .addSlider((slider) => withSliderValue(slider.setLimits(12, 32, 1).setValue(s.fontSize || 18)).onChange(async (size) => {
         s.fontSize = size;
-        await applyAppearance(true);
+        applyAppearanceSoon(true);
       }));
     new Setting(host)
       .setName(qiaomuReaderTranslate("line-spacing-2"))
@@ -614,7 +662,7 @@ export function createSettingsTab({
         .setValue(s.lineHeight || 1.8), 2)
         .onChange(async (value) => {
           s.lineHeight = Math.round(value * 20) / 20;
-          await applyAppearance(true);
+          applyAppearanceSoon(true);
         }));
     this._appearanceAdvancedRows(host, s, applyAppearance);
   }
@@ -623,14 +671,6 @@ export function createSettingsTab({
     advanced.createEl("summary", { text: qiaomuReaderTranslate("more-appearance-options") });
     const body = advanced.createDiv("qiaomu-reader-settings-disclosure-body");
     body.createEl("h3", { text: qiaomuReaderTranslate("display-and-devices") });
-    new Setting(body)
-      .setName(qiaomuReaderTranslate("a-separate-look-on-each-device"))
-      .setDesc(qiaomuReaderTranslate("font-size-theme-typeface-line-spacing-column-count-and-alignment",
-        qiaomuReaderTranslate({ desktop: "computer", tablet: "tablet", phone: "phone" }[qiaomuReaderDeviceKey()])))
-      .addToggle((toggle) => toggle.setValue(s.perDevice === true).onChange(async (enabled) => {
-        s.perDevice = enabled;
-        await this._saveAll(); this.display();
-      }));
     this._readingToggle(body,
       "e-ink-reader-mode",
       "for-obsidian-on-an-android-e-ink-reader-removes-animations-fades",
@@ -680,7 +720,7 @@ export function createSettingsTab({
     const tx = (s, ...args) => qiaomuReaderTranslate(s, ...args);
     const settings = this.plugin.settings;
     const persist = async (key, v, after) => {
-      this.plugin.settings[key] = v; await this.plugin.saveAll();
+      this.plugin.settings[key] = v; await this._saveAll();
       if (after) after(v);
     };
     // defaultOn: the setting counts as enabled unless explicitly switched off
@@ -727,13 +767,10 @@ export function createSettingsTab({
       .addTextArea((box) => {
         box.setPlaceholder(QUOTE_TEMPLATE_DEFAULT)
           .setValue(settings.quoteTemplate || "")
-          .onChange(async (v) => persist("quoteTemplate", v));
+          .onChange((v) => { settings.quoteTemplate = v; this._scheduleSave(500); });
         box.inputEl.rows = 4;
         box.inputEl.addClass("qiaomu-reader-tpl-input");
       });
-    toggle(new Setting(c)
-      .setName(tx("link-back-to-the-book-under-each-quote"))
-      .setDesc(tx("every-exported-quote-gets-a-link-that-opens-the-book-at-the-exac")), "quoteBacklinks", true);
     toggle(new Setting(c)
       .setName(tx("keep-highlight-color-on-export"))
       .setDesc(tx("each-quote-is-wrapped-in-a-colored-mark-the-highlight-color-show")), "exportColors", true);
@@ -749,20 +786,20 @@ export function createSettingsTab({
     pickFolder(new Setting(c)
       .setName(tx("book-notes-folder-for-links"))
       .setDesc(tx("where-book-notes-live-one-per-book-collecting-every-quote-from-i")), "bookNotesFolder", tx("book-notes-folder-for-links"), tx("3-resources-book-base"));
+    quoteFmt.settingEl.addClass("qiaomu-reader-set-stacked");
+    c = this._settingsDisclosure(c, "ai-note-template-options");
     pickFile(new Setting(c)
       .setName(tx("reading-note-template"))
       .setDesc(tx("used-only-for-the-single-reading-note-created-for-a-book-where-h")), "bookNoteTemplate", tx("reading-note-template"), tx("templates-template-md"));
     toggle(new Setting(c)
       .setName(tx("progress-in-the-book-note-s-properties"))
       .setDesc(tx("adds-reading-progress-a-percentage-and-reading-updated-a-date-to")), "progressToFrontmatter", false);
-    quoteFmt.settingEl.addClass("qiaomu-reader-set-stacked");
-    c = this._settingsDisclosure(c, "ai-note-template-options");
     pickFile(new Setting(c)
       .setName(tx("note-template"))
       .setDesc(tx("path-to-your-templater-template-applied-to-each-new-highlight-no")), "noteTemplate", tx("note-template"), tx("templates-template-md"));
     toggle(new Setting(c)
       .setName(tx("keep-what-s-new-as-a-note"))
-      .setDesc(tx("after-the-plugin-updates-a-note-listing-the-changes-appears-in-y")), "whatsNewNote", true);
+      .setDesc(tx("after-the-plugin-updates-a-note-listing-the-changes-appears-in-y")), "whatsNewNote", false);
     c.createEl("div", { cls: "qiaomu-reader-set-note", text: tx("tip-the-template-can-be-overridden-per-book-open-the-book-press") });
   }
   _tabTranslate(host) {
@@ -777,7 +814,7 @@ export function createSettingsTab({
     new Setting(host)
       .setName(qiaomuReaderTranslate("auto-translate-english"))
       .addToggle((toggle) => toggle.setValue(this.plugin.settings.autoTranslateEnglish !== false).onChange(async (v) => {
-        this.plugin.settings.autoTranslateEnglish = v; await this.plugin.saveAll();
+        this.plugin.settings.autoTranslateEnglish = v; await this._saveAll();
       }));
     host.createEl("div", { cls: "qiaomu-reader-set-note", text: qiaomuReaderTranslate("translation-is-a-separate-network-request-to-google-if-you-need") });
   }
@@ -807,7 +844,7 @@ export function createSettingsTab({
       .setName(qiaomuReaderTranslate("enable-ai-assistance"))
       .setDesc(qiaomuReaderTranslate("turning-this-off-keeps-the-service-and-key-and-only-hides-the-ai"))
       .addToggle((toggle) => toggle.setValue(state.enabled).onChange(async (v) => {
-        this.plugin.settings.aiEnabled = v; await this.plugin.saveAll(); this._redraw();
+        this.plugin.settings.aiEnabled = v; await this._saveAll(); this._redraw();
       }));
 
   }
@@ -823,7 +860,7 @@ export function createSettingsTab({
       .setName(qiaomuReaderTranslate("translate-button-in-the-selection-popup"))
       .setDesc(qiaomuReaderTranslate("adds-a-translate-button-to-the-popup-that-appears-when-you-selec"))
       .addToggle((toggle) => toggle.setValue(this.plugin.settings.translateEnabled === true).onChange(async (v) => {
-        this.plugin.settings.translateEnabled = v; await this.plugin.saveAll();
+        this.plugin.settings.translateEnabled = v; await this._saveAll();
         if (v) new Notice(qiaomuReaderTranslate("this-is-an-early-version-of-the-feature-translation-uses-the-fre"), 1e4);
       }));
     new Setting(host)
@@ -832,7 +869,7 @@ export function createSettingsTab({
       .addDropdown((dropdown) => {
         TRANSLATION_LANGUAGE_CHOICES.forEach(([value, label]) => dropdown.addOption(value, qiaomuReaderTranslate(label)));
         dropdown.setValue(this.plugin.settings.translateTo || "zh-CN")
-          .onChange(async (v) => { this.plugin.settings.translateTo = v; await this.plugin.saveAll(); });
+          .onChange(async (v) => { this.plugin.settings.translateTo = v; await this._saveAll(); });
       });
   }
   _unreadableStoreCard(c, detail) {
@@ -885,18 +922,10 @@ export function createSettingsTab({
   _tabData(c) {
     const tx = (s, ...args) => qiaomuReaderTranslate(s, ...args);
     const settings = this.plugin.settings;
-    const persist = async (key, v, after) => {
-      this.plugin.settings[key] = v; await this.plugin.saveAll();
-      if (after) after(v);
-    };
-    // data files live in the vault too, so the local store is refreshed first
+    // data files live in the library folder too, so the local store is refreshed first
     const persistViaDisk = async (key, v) => {
-      this.plugin.settings[key] = v; await this.plugin._saveLocalData(); await this.plugin.saveAll();
+      this.plugin.settings[key] = v; await this.plugin._saveLocalData();
     };
-    const choose = (setting, options, current, apply) => setting.addDropdown((d) => {
-      for (const [value, label] of options) d.addOption(value, label);
-      d.setValue(current).onChange(apply);
-    });
     this._sectionIntro(c, tx("data"), tx("books-progress-and-sync-live-here-usually-there-is-nothing-to-ch"));
     new Setting(c)
       .setName(tx("starter-books"))
@@ -917,7 +946,7 @@ export function createSettingsTab({
     addFolderPathControl(new Setting(c).setName(tx("books-folder")).setDesc(tx("empty-the-whole-vault")), this.app, {
       value: settings.booksFolder,
       label: tx("books-folder"),
-      placeholder: "0. Files/3. PDF-files",
+      placeholder: "Books",
       commit: (v) => persistViaDisk("booksFolder", v),
     });
     const dataRoot = c;
@@ -938,22 +967,25 @@ export function createSettingsTab({
       placeholder: `${settings.dataFolder || "plugin"}/reading`,
       commit: (v) => persistViaDisk("readingRoot", v),
     });
-    const layoutRow = new Setting(c).setName(tx("per-book-folders")).setDesc(
-      settings.storageLayout === "books"
-        ? tx("reading-traces-layout-books")
-        : settings.storageMigrationError
+    c.createEl("div", { cls: "qiaomu-reader-set-note", text: tx("changing-data-folder-does-not-move-existing-data") });
+    if (settings.storageLayout === "books") {
+      c.createEl("div", { cls: "qiaomu-reader-set-note", text: tx("reading-traces-layout-books") });
+    } else {
+      const layoutRow = new Setting(c).setName(tx("per-book-folders")).setDesc(
+        settings.storageMigrationError
           ? tx("reading-traces-migration-failed-0", settings.storageMigrationError)
           : tx("reading-traces-layout-legacy"),
-    );
-    layoutRow.addButton((button) => button.setButtonText(tx("migrate-reading-traces")).onClick(async () => {
-      button.setDisabled(true);
-      try {
-        await this.plugin._migrateToBooksLayout();
-      } finally {
-        button.setDisabled(false);
-        this._redraw();
-      }
-    }));
+      );
+      layoutRow.addButton((button) => button.setButtonText(tx("migrate-reading-traces")).onClick(async () => {
+        button.setDisabled(true);
+        try {
+          await this.plugin._migrateToBooksLayout();
+        } finally {
+          button.setDisabled(false);
+          this._redraw();
+        }
+      }));
+    }
     const recovery = this.plugin.collectHighlightRecovery();
     if (recovery.total) {
       const recoveryRow = new Setting(c)
@@ -971,45 +1003,14 @@ export function createSettingsTab({
       }));
     }
 
-    c.createEl("h3", { text: tx("syncing-across-devices") });
+    c.createEl("h3", { text: tx("reading-data-folder") });
+    // Standalone UV Reader has no Obsidian-style vault sync. Keep the data
+    // location visible and explain that the files are ordinary app data.
     const syncInfo = c.createEl("div", { cls: "qiaomu-reader-set-note" });
-    const storePaths = settings.storageLayout === "books"
-      ? [`${this.plugin._readingRoot()}/<书名>/`]
-      : [this.plugin._progressFilePath(), this.plugin._highlightsFilePath()];
-    const addLine = (parts) => {
-      const row = syncInfo.createDiv();
-      for (const item of parts) {
-        if (typeof item === "string") row.appendText(item);
-        else row.createEl(item.tag, { text: item.text });
-      }
-      return row;
-    };
-    addLine([
-      { tag: "span", text: tx("reading-progress-and-highlights-are-stored") },
-      { tag: "b", text: tx("as-files-right-in-the-vault") },
-      tx("next-to-the-books-2"),
-    ]);
-    for (const p of storePaths) addLine(["• ", { tag: "code", text: p }]);
-    addLine([
-      tx("so-they-travel-between-pc-and-phone-by"),
-      { tag: "b", text: tx("any") },
-      tx("means-you-use-to-sync-the-vault-itself-obsidian-sync-icloud-goog"),
-    ]);
-    addLine([
-      tx("appearance-settings-and-the-cover-cache-are-local-in-the-plugin-2"),
-      { tag: "code", text: "data.json" }, tx("and-are-intentionally-not-synced"),
-    ]);
-    choose(new Setting(c)
-      .setName(tx("sync-method"))
-      .setDesc(tx("tells-the-plugin-how-eagerly-to-re-read-the-progress-files-when")), [
-      ["auto", tx("auto-recommended")],
-      ["obsidian", "Obsidian Sync"],
-      ["remotely", "Remotely Save / self-hosted"],
-      ["cloud", tx("icloud-google-drive-folder")],
-      ["none", tx("no-syncing")],
-    ], settings.syncMode || "auto", (v) => persist("syncMode", v, () => this._redraw()));
-    if (settings.syncMode === "cloud") {
-      c.createEl("div", { cls: "qiaomu-reader-set-note", text: tx("cloud-folders-icloud-drive-update-with-a-delay-if-you-only-read") });
+    syncInfo.setText(tx("reading-data-folder-help"));
+    if (typeof window.qbrDesktop?.openPath === "function") {
+      const openData = c.createEl("button", { text: tx("open-data-folder"), attr: { type: "button" } });
+      openData.addEventListener("click", () => void window.qbrDesktop.openPath(this.plugin._readingRoot()));
     }
 
     c = this._settingsDisclosure(dataRoot, "cleanup");
@@ -1050,68 +1051,11 @@ export function createSettingsTab({
       primed = false;
       b.setButtonText(tx("forget-all-books"));
       const prefs = this.plugin.settings;
-      for (const key of memoryKeys) prefs[key] = {}; await this.plugin.saveAll();
+      for (const key of memoryKeys) prefs[key] = {}; await this._saveAll();
       new Notice(tx("done-the-reader-will-ask-about-a-note-again-when-you-open-a-book"));
       memorySet.setDesc(memoryDesc(0));
     }));
 
-  }
-  // Scanned PDFs: a local OCR sidecar adds a text layer to the open book page
-  // by page; the original file is never touched.
-  _ocrSettings(host) {
-    const tx = (s, ...args) => qiaomuReaderTranslate(s, ...args);
-    const persist = async (key, value) => {
-      this.plugin.settings[key] = value;
-      await this.plugin.saveAll();
-    };
-    host.createEl("p", { cls: "qiaomu-reader-set-note", text: tx("scanned-pdf-text-layer-desc") });
-    new Setting(host)
-      .setName(tx("scanned-pdf-auto"))
-      .setDesc(tx("ocr-generated-hint"))
-      .addToggle((toggle) => toggle
-        .setValue(this.plugin.settings.ocrScannedPdf !== false)
-        .onChange((value) => persist("ocrScannedPdf", value)));
-    new Setting(host)
-      .setName(tx("ocr-hybrid"))
-      .setDesc(`${tx("ocr-hybrid-desc")} ${tx("ocr-hybrid-mineru")}`)
-      .addToggle((toggle) => toggle
-        .setValue(this.plugin.settings.ocrHybrid === true)
-        .onChange((value) => persist("ocrHybrid", value)));
-    const status = new Setting(host)
-      .setName(tx("ocr-sidecar-status"))
-      .setDesc(tx("ocr-sidecar-status-unknown"));
-    status.addButton((button) => button.setButtonText(tx("ocr-check")).onClick(async () => {
-      button.setDisabled(true);
-      try {
-        const result = await this.plugin.ocrProbe();
-        status.setDesc(result.ok ? tx("ocr-sidecar-ready-0", result.detail) : tx("ocr-sidecar-missing-0", result.detail));
-      } catch (error) {
-        status.setDesc(tx("ocr-sidecar-missing-0", String(error?.message || error)));
-      } finally {
-        button.setDisabled(false);
-      }
-    }));
-    new Setting(host)
-      .setName(tx("ocr-python"))
-      .setDesc(tx("ocr-python-desc"))
-      .addText((text) => text
-        .setPlaceholder("python")
-        .setValue(this.plugin.settings.ocrPython || "")
-        .onChange((value) => persist("ocrPython", value.trim())));
-    new Setting(host)
-      .setName(tx("ocr-sidecar-dir"))
-      .setDesc(tx("ocr-sidecar-dir-desc"))
-      .addText((text) => text
-        .setPlaceholder("D:\\projects\\auto_chat")
-        .setValue(this.plugin.settings.ocrSidecarDir || "")
-        .onChange((value) => persist("ocrSidecarDir", value.trim())));
-    new Setting(host)
-      .setName(tx("ocr-sidecar-exe"))
-      .setDesc(tx("ocr-sidecar-exe-desc"))
-      .addText((text) => text
-        .setPlaceholder("pdf_tool_reader.exe")
-        .setValue(this.plugin.settings.ocrSidecarExe || "")
-        .onChange((value) => persist("ocrSidecarExe", value.trim())));
   }
   _tabAbout(c) {
     this._sectionIntro(c, qiaomuReaderTranslate("about"), qiaomuReaderTranslate("help-updates-and-contact-information"));

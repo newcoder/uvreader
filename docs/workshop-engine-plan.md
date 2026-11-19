@@ -175,7 +175,7 @@ POST  /v1/math       { latex[] }     → { mathml[] }            # 轻量同步�
 
 - **安装位置**:venv 在 `%LOCALAPPDATA%\UVReader\engine\venv`;启动器 `…\engine\start-engine.cmd`(读同目录 `token.txt`,端口 8760,日志 `engine.log`);引擎配置 `~/.uvreader-engine/config.json`。
 - **启动/停止**:双击 `start-engine.cmd`(或 `node scripts/engine-e2e.mjs` 会自己起临时实例);停止 = 关掉那个窗口,或按端口杀:`Get-NetTCPConnection -LocalPort 8760 | Stop-Process -Id {$_.OwningProcess}`。
-- **应用侧**:`设置 → 书坊 → 书坊引擎` 里填 `http://127.0.0.1:8760` + 令牌(`token.txt`),或直接写进 `%APPDATA%\qiaomu-reader-desktop\data\data.json` 的 `settings.engineUrl` / `settings.engineToken`(应用没在跑时)。
+- **应用侧**:`设置 → 书坊 → 书坊引擎` 里填 `http://127.0.0.1:8760` + 令牌(`token.txt`),或直接写进 `%APPDATA%\uvreader-desktop\data\data.json` 的 `settings.engineUrl` / `settings.engineToken`(应用没在跑时)。
 - **DocVortex 的调用顺序**(实测坑):**配置路径 → PATH 上的 `docvortex`(CLI,Windows 是 `docvortex.exe`)→ `python -c "from docvortex.cli import main; …"` → `python -c "runpy.run_module('docvortex', …)"`** —— 真装的包没有 `__main__`(`python -m docvortex` 会报 `No module named docvortex.__main__`),console_scripts 入口是 `docvortex.cli:main`,所以第三条才是真装时唯一可靠的;最后一条等价于 `-m`,给「模块形态」的旧装法兜底。两条 `-c` 都会先把组件目录(`<bundle>/components`)塞进子进程 `sys.path`。
 
 ### 5.5 旧用户迁移(0.6.x → 0.7.0)

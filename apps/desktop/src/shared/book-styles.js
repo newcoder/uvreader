@@ -54,7 +54,11 @@ body {
   hyphens: none;
 }
 p { margin: 0 0 ${s.spacing}em; text-indent: ${s.indent}em; }
-h1 + p, h2 + p, h3 + p, h4 + p, hr + p, blockquote + p, figure + p, pre + p { text-indent: 0; }
+/* Keep every paragraph on the same first-line indent, including the first one
+   after a heading. Poetry lines and contents entries are often separate
+   paragraphs; a special "first paragraph flush" rule would make only their
+   first line stick out. */
+p.qbr-toc-entry { text-indent: ${s.indent}em; }
 h1, h2, h3, h4 { font-family: ${headingFont}inherit; line-height: 1.3; margin: 1.4em 0 .7em; text-align: ${s.headingAlign}; text-indent: 0; page-break-after: avoid; }
 h1 { font-size: 1.6em; margin-top: 0; } h2 { font-size: 1.35em; } h3 { font-size: 1.15em; } h4 { font-size: 1em; }
 blockquote { margin: 1em 0; padding: .2em 0 .2em 1em; border-left: 3px solid currentColor; opacity: .85; }
@@ -71,6 +75,12 @@ figure { margin: 1em 0; text-align: center; }
 figcaption { font-size: .85em; opacity: .75; }
 hr { border: 0; border-top: 1px solid rgba(128,128,128,.4); margin: 1.6em 0; }
 a { color: inherit; text-decoration: underline; }
+a.qbr-noteref, a.qbr-backlink { color: #1d4ed8; font-weight: 600; text-decoration: none; }
+a.qbr-citation, a.qbr-citation-back { color: inherit; text-decoration: none; }
+a.qbr-noteref:hover, a.qbr-backlink:hover { text-decoration: underline; }
+a.qbr-citation:hover, a.qbr-citation-back:hover { text-decoration: underline; }
+a.qbr-citation-back { margin-left: .35em; opacity: .55; font-size: .9em; }
+a.qbr-citation-back:hover { opacity: 1; }
 table { border-collapse: collapse; margin: 1em 0; font-size: .95em; }
 th, td { border: 1px solid rgba(128,128,128,.35); padding: .3em .6em; }
 /* Bilingual books: source and translation stay in separate blocks so every

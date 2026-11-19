@@ -12,6 +12,8 @@ const TOC_TITLE_RE = /^(目\s*录|目\s*次|contents|table of contents|inhalt|so
 const LEADER_RE = /(?:\.{2,}|…{2,}|·{2,}|_{2,}|-{2,})\s*\d{1,4}\s*$/;
 // 「标题 12」:结尾是页码,且去掉页码后不像一句正文
 const TRAILING_RE = /\s\d{1,4}\s*$/;
+// 有些书的目录写成「标题 作者 / 237」,没有点线。
+const SLASH_PAGE_RE = /\s\/\s*\d{1,4}\b/;
 const SENTENCE_END_RE = /[。，、；：！？,.!?;:]$/;
 const MAX_ENTRY_LENGTH = 120;
 
@@ -27,6 +29,16 @@ export function looksLikeTocEntry(line) {
   if (!TRAILING_RE.test(value)) return false;
   if (SENTENCE_END_RE.test(withoutPage)) return false;
   return withoutPage.length >= 2;
+}
+
+// 目录排版用:除了点线/尾页,还接受「标题 作者 / 237」这种斜杠页码写法。
+export function looksLikeTocLine(line) {
+  const value = String(line || "").replace(/\s+$/, "").trim();
+  if (!value || value.length > MAX_ENTRY_LENGTH) return false;
+  if (/^#{1,6}\s/.test(value)) return false;
+  if (SENTENCE_END_RE.test(value)) return false;
+  if (SLASH_PAGE_RE.test(value)) return true;
+  return looksLikeTocEntry(value);
 }
 
 function nonEmptyLines(text) {
@@ -424,6 +436,7 @@ export function buildNavPlan({ chapters = [], tocEntries = [], pages = [], minSi
     key: chapterKey(chapter?.title || ""),
     number: chapterNumber(chapter?.title || ""),
     page: Number((Array.isArray(pages) ? pages : [])[index]) || 0,
+    syntheticTitle: Boolean(chapter?.syntheticTitle),
   }));
   const entryList = Array.isArray(tocEntries) ? tocEntries : [];
   const entries = entryList.map((entry) => ({ ...entry, number: chapterNumber(entry?.label || "") }));
@@ -572,6 +585,7 @@ export function buildNavPlan({ chapters = [], tocEntries = [], pages = [], minSi
   // 目录覆盖范围之外、且在两端的前言/附录:补进导航,免得整章从目录里消失。
   // 但封面类碎片(无标题 / 纯括号版次如「(第五版)」)不进导航 —— 正文里照旧保留。
   const coverish = (chapter) => {
+    if (chapter.syntheticTitle) return true; // 封面/无标题页的「第 N 章」兜底标题
     const title = String(chapter.title || "").trim();
     if (!title) return true;
     return /^[（(][^）)]{1,14}[）)]$/.test(title);
@@ -610,6 +624,112 @@ export function normalizeNavLevels(items) {
     previous = level;
     return { ...item, level };
   });
+}
+
+// 用印刷目录把整本书重新切章：有些 PDF 的正文标题被 OCR 拆成
+// 「## 寡妇」「## 彭」这类页内小节，甚至章节号单独一行；按 Markdown 标题分章
+// 会得到一堆假章节。这里只信印刷目录的顺序，在正文里依次找每条目录的落点：
+// 标题行、章节号行或独立标题行。找不到的条目跳过，找得太少就放弃。
+export function splitChaptersByToc(markdown, tocEntries) {
+  const text = String(markdown || "").replace(/\r\n?/g, "\n");
+  const entries = (Array.isArray(tocEntries) ? tocEntries : [])
+    .map((entry) => ({
+      label: cleanChapterTitle(String(entry?.label || entry?.title || "")).replace(/\0/g, "").trim(),
+      key: String(entry?.key || tocKey(entry?.label || entry?.title || "")),
+      level: Math.min(3, Math.max(1, Number(entry?.level) || 1)),
+      page: Number(entry?.page) || 0,
+    }))
+    .filter((entry) => entry.label && entry.key);
+  if (entries.length < 3) return null;
+  const chapterNumber = (label) => {
+    const match = String(label || "").match(/^第\s*[0-9０-９〇零一二两三四五六七八九十百]{1,4}\s*[章节篇卷部讲]/);
+    if (match) return match[0].replace(/\s+/g, "");
+    const english = String(label || "").match(/^(?:chapter|part)\s+[0-9ivxlc]+/i);
+    return english ? english[0].replace(/\s+/g, "") : "";
+  };
+  const keyMatches = (entryKey, lineKey) => {
+    if (!entryKey || !lineKey) return false;
+    if (lineKey === entryKey) return true;
+    if (lineKey.startsWith(entryKey) && lineKey.length - entryKey.length <= 4) return true;
+    return lineKey.length >= 2 && entryKey.startsWith(lineKey) && entryKey.length - lineKey.length <= 4;
+  };
+  const lines = [];
+  let at = 0;
+  for (const line of text.split("\n")) {
+    lines.push({ text: line, at });
+    at += line.length + 1;
+  }
+  const firstChapter = entries.findIndex((entry) => chapterNumber(entry.label) || /^(?:chapter|part)\s+/i.test(entry.label));
+  if (firstChapter < 0) return null;
+
+  const findStart = (entry, after) => {
+    const number = chapterNumber(entry.label);
+    let inFence = false;
+    const candidates = [];
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      if (line.at <= after) {
+        if (/^```/.test(line.text.trim())) inFence = !inFence;
+        continue;
+      }
+      if (/^```/.test(line.text.trim())) {
+        inFence = !inFence;
+        continue;
+      }
+      if (inFence) continue;
+      const heading = line.text.match(/^(#{1,3})\s+(.+?)\s*$/);
+      if (heading) {
+        const title = cleanChapterTitle(heading[2]);
+        if (keyMatches(entry.key, chapterKey(title))) {
+          candidates.push({ at: line.at, lineIndex: index, type: "heading", level: heading[1].length });
+        }
+        continue;
+      }
+      const value = line.text.replace(/^[•·\-\s]+/, "").trim();
+      if (!value || value.length > 50) continue;
+      if (number && value.startsWith(number) && value.length <= number.length + 24) {
+        candidates.push({ at: line.at, lineIndex: index, type: "number", level: 1 });
+      }
+      if (keyMatches(entry.key, chapterKey(value))) {
+        candidates.push({ at: line.at, lineIndex: index, type: "title", level: 1 });
+      }
+    }
+    return candidates.sort((left, right) => left.at - right.at)[0] || null;
+  };
+
+  const starts = [];
+  let after = 0;
+  for (const entry of entries.slice(firstChapter)) {
+    const found = findStart(entry, after);
+    if (!found) continue;
+    // 跳过落点行本身，再跳过紧随其后的章节号/重复标题行；正文只留内容。
+    let cursor = found.lineIndex + 1;
+    while (cursor < lines.length && !lines[cursor].text.trim()) cursor += 1;
+    const next = lines[cursor]?.text.replace(/^[•·\-\s]+/, "").trim() || "";
+    const number = chapterNumber(entry.label);
+    if (number && next.startsWith(number) && next.length <= number.length + 24) {
+      cursor += 1;
+    } else if (found.type === "number" && keyMatches(entry.key, chapterKey(next)) && next.length <= 50) {
+      cursor += 1;
+    }
+    while (cursor < lines.length && !lines[cursor].text.trim()) cursor += 1;
+    starts.push({ ...entry, headingAt: found.at, contentAt: lines[cursor]?.at ?? text.length });
+    after = found.at;
+  }
+  if (starts.length < Math.max(3, Math.ceil((entries.length - firstChapter) * 0.6))) return null;
+  const first = starts[0];
+  const frontTitle = firstChapter > 0 ? entries[firstChapter - 1].label : "正文前";
+  const chapters = [];
+  const front = text.slice(0, first.headingAt).trim();
+  if (front) chapters.push({ title: frontTitle, text: front, level: 1, markdown: true });
+  for (let index = 0; index < starts.length; index += 1) {
+    const start = starts[index];
+    const end = starts[index + 1]?.headingAt ?? text.length;
+    const body = text.slice(start.contentAt, end).trim();
+    if (!body) continue;
+    chapters.push({ title: start.label, text: body, level: start.level, markdown: true });
+  }
+  return chapters.length >= 3 ? { chapters, matched: starts.length, entries: entries.length } : null;
 }
 
 export function stripPrintedToc(chapters, { enabled = true } = {}) {

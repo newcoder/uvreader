@@ -95,6 +95,17 @@ test("aiExplainStep passes tools down and returns the model's tool calls", async
   assert.equal("tools" in calls.stream[1].options, false, "a turn without tools does not advertise any");
 });
 
+test("aiComplete forwards output and timeout limits for structured grading", async () => {
+  const { calls, transport } = setup();
+  const answer = await transport.aiComplete([{ role: "user", content: "grade" }], { settings: {} }, {
+    maxTokens: 20000,
+    timeoutMs: 300000,
+  });
+  assert.equal(answer, "你好");
+  assert.equal(calls.stream[0].options.maxTokens, 20000);
+  assert.equal(calls.stream[0].options.timeoutMs, 300000);
+});
+
 test("missing configuration and keys keep the reader reasons", async () => {
   const noProvider = setup({ cfg: { provider: null } });
   await assert.rejects(noProvider.transport.aiExplain("q", { settings: {} }, [], ""), (error) => error.qiaomuReaderReason === "notconfigured");

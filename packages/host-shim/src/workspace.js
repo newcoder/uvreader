@@ -181,7 +181,9 @@ export class WorkspaceLeaf {
 // observer. Values live in localStorage so the layout survives a restart.
 const SPLIT_WIDTHS = {
   left: { min: 200, max: 640, fallback: 300 },
-  right: { min: 240, max: 720, fallback: 380 },
+  // The AI companion is a right split. Let it grow to 70% of the window while
+  // still leaving room for the reading/quiz area.
+  right: { min: 240, maxRatio: 0.7, fallback: 380 },
 };
 const SPLIT_WIDTH_KEY = "qbr.workspace.splitWidths";
 const MAIN_MIN_WIDTH = 360;
@@ -271,8 +273,11 @@ export class Workspace extends Events {
     const other = side === "left" ? this.rightSplit : this.leftSplit;
     const otherWidth = other?.collapsed ? 0 : (other?.width || 0);
     const total = workspace?.clientWidth || 0;
-    const room = total ? total - otherWidth - MAIN_MIN_WIDTH - 12 : limits.max;
-    return Math.max(limits.min, Math.min(limits.max, room));
+    const hardMax = total && limits.maxRatio
+      ? Math.floor(total * limits.maxRatio)
+      : (limits.max || 1200);
+    const room = total ? total - otherWidth - MAIN_MIN_WIDTH - 12 : hardMax;
+    return Math.max(limits.min, Math.min(hardMax, room));
   }
 
   _setSplitWidth(side, width) {

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import { marked } from "marked";
@@ -40,6 +41,28 @@ test("backslash LaTeX delimiters survive Markdown escaping and render", () => {
   assert.match(element.textContent, /y=cos/);
 });
 
+test("polish preview markdown typesets inline and display formulas", () => {
+  const dom = new JSDOM("<div id='root'></div>");
+  globalThis.document = dom.window.document;
+  globalThis.window = dom.window;
+  const markdown = "## 推导\n\n行内 $\\frac{a}{b}$，块级：\n\n$$\\int_0^1 x^2\\,dx$$";
+  const protectedSource = protectLatexDelimiters(markdown);
+  const html = restoreLatexDelimiters(sanitizeHtml(dom.window.document, marked.parse(protectedSource)));
+  const element = dom.window.document.getElementById("root");
+  element.innerHTML = html;
+  renderMathIn(element);
+  assert.ok(element.querySelector(".katex math"), "inline formula should be typeset");
+  assert.ok(element.querySelector(".katex-display math"), "display formula should be typeset");
+  assert.doesNotMatch(element.textContent, /\$\\frac/);
+});
+
+test("polish and note previews run the math pass after Markdown", () => {
+  const polish = fs.readFileSync(new URL("../src/renderer/polish-view.js", import.meta.url), "utf8");
+  assert.match(polish, /this\._previewBody\.innerHTML = (?:decoratePreviewNoterefs\()?renderMarkdown\(limited\)(?:,\s*noteIds)?\)?;[\s\S]{0,80}renderMathIn\(this\._previewBody\)/);
+  const views = fs.readFileSync(new URL("../src/renderer/views.js", import.meta.url), "utf8");
+  assert.match(views, /body\.innerHTML = renderMarkdown\(data\);[\s\S]{0,120}renderMathIn\(body\)/);
+});
+
 test("code blocks keep their dollars and plain text is untouched", () => {
   const { element } = makeElement("<pre><code>const price = $5; // $x$</code></pre><p>no math here</p>");
   renderMathIn(element);
@@ -58,6 +81,10 @@ test("dollars around prices or prose are not math", () => {
   assert.equal(looksLikeMath("hello world"), false);
   assert.equal(looksLikeMath("x"), true);
   assert.equal(looksLikeMath("n+1"), true);
+  assert.equal(looksLikeMath("2"), true, "a bare number is a formula");
+  assert.equal(looksLikeMath("l,"), true, "sentence punctuation after a symbol is allowed");
+  assert.equal(looksLikeMath("α"), true);
+  assert.equal(looksLikeMath("5 到 10"), false);
   assert.equal(looksLikeMath("\\mathrm{Re}(f,g) \\leq \\frac{1}{2}"), true);
   assert.equal(looksLikeMath("\\text{中文}"), true, "an explicit wrapper may contain CJK");
   assert.equal(looksLikeMath("a $ b"), false);
@@ -67,6 +94,11 @@ test("dollars around prices or prose are not math", () => {
   assert.equal(element.querySelectorAll("math").length, 1, "only the variable typesets");
   assert.match(element.textContent, /\$5 到 \$10/);
   assert.match(element.textContent, /其中 x+ 表示数量/, "the variable still typesets");
+
+  const bare = makeElement("<p>第 $2$ 层有 $l,$ 个节点。</p>");
+  renderMathIn(bare.element);
+  assert.equal(bare.element.querySelectorAll("math").length, 2, "bare numbers and symbols typeset");
+  assert.doesNotMatch(bare.element.textContent, /\$2\$|\$l,\$/);
 });
 
 test("a broken formula stays readable instead of throwing", () => {

@@ -129,6 +129,17 @@ test("normalizeAiChatHistory migrates legacy text into the first user turn", () 
   assert.equal(chat.turns[0].context.text, "legacy selection");
 });
 
+test("normalizeAiChatHistory keeps an empty titled chat so it can be reopened", () => {
+  const ctx = makeContext();
+  const history = ctx.normalizeAiChatHistory([
+    { id: "c-empty", title: "空对话", bookPath: "Books/a.epub", turns: [] },
+    { id: "c-orphan", turns: [] },
+  ]);
+  assert.equal(history.length, 1);
+  assert.equal(history[0].id, "c-empty");
+  assert.deepEqual(history[0].turns, []);
+});
+
 test("aiMessages turns UI turns and structured context into model messages", () => {
   const ctx = makeContext();
   const turns = [

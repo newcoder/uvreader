@@ -74,11 +74,11 @@ export const WORKSHOP_CAPABILITIES = Object.freeze([
     group: "study",
     title: "把文档做成可作答的答题页",
     summary: "用 AI 识别题目和选项，生成可作答、交卷后自动判分的页面。",
-    cue: "手里有 PDF 文档，想要在线作答时",
+    cue: "手里有 PDF 或 Word 文档，想要在线作答时",
     prompt: "我想把这份文档做成可作答的答题页。",
     tool: "convert",
     convertFormat: "quiz-ai",
-    formats: ["pdf", ...IMAGE_FORMATS],
+    formats: ["pdf", "doc", "docx", ...IMAGE_FORMATS],
     order: 10,
     featured: true,
     primary: true,
@@ -277,7 +277,6 @@ function capabilityHidden(capability, readerView, textState) {
   if (capability.id === "make-searchable" || capability.id === "searchable-copy") {
     return textState.ready || textState.working;
   }
-  if (capability.id === "navigation-toc") return navAvailability(readerView);
   if (capability.id === "export-navigation-epub") {
     const extension = String(readerView?.file?.extension || "").toLowerCase();
     const items = Array.isArray(readerView?.tocItems) ? readerView.tocItems : [];
@@ -290,18 +289,31 @@ function capabilityHidden(capability, readerView, textState) {
 export function workshopCapabilitiesFor({ extension = "", readerView = null } = {}) {
   const ext = String(extension || "").replace(/^\./, "").toLowerCase();
   const textState = pdfTextAvailability(readerView);
+  const hasNavigation = navAvailability(readerView);
   const imageSource = IMAGE_INPUTS.includes(ext);
   return WORKSHOP_CAPABILITIES
     .map((capability) => {
       const fits = !ext || capability.formats.includes(ext);
       const hidden = !fits || capabilityHidden(capability, readerView, textState);
+      const repairing = capability.id === "navigation-toc" && hasNavigation;
+      let prompt = capability.prompt;
+      if (capability.id === "navigation-toc") {
+        if (ext === "pdf") {
+          prompt = repairing
+            ? "帮我检查并补全这个文档的导航目录。现有目录可能不完整；先扫描目录页范围，再生成目录草稿。"
+            : "帮我制作这个文档的导航目录。先问我目录页是哪几页，以及印刷页码到 PDF 页码是否有偏移。";
+        } else if (repairing) {
+          prompt = "帮我检查并补全这个文档的导航目录。已有目录可能不完整，请重新匹配目录页并生成草稿。";
+        }
+      }
       return {
         ...capability,
-        // PDF still needs the printed-page range before it can build; EPUB
-        // locates headings and CFIs itself, so it asks only for the outcome.
-        prompt: ext === "pdf" && capability.id === "navigation-toc"
-          ? "帮我制作这个文档的导航目录。先问我目录页是哪几页，以及印刷页码到 PDF 页码是否有偏移。"
-          : capability.prompt,
+        title: repairing ? "修复导航目录" : capability.title,
+        summary: repairing
+          ? "检查现有目录并用目录页补全、校正，生成可点击的章节导航。"
+          : capability.summary,
+        cue: repairing ? "目录缺章、顺序不对或不能跳转时" : capability.cue,
+        prompt,
         hidden,
         // For a photographed worksheet, Markdown is the useful text outcome;
         // EPUB creation remains available under 更多/书坊 but should not lead

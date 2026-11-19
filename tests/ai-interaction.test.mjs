@@ -972,6 +972,7 @@ test("the export-toc document tool runs the reader action without sending an AI 
   });
   const chat = {
     busy: false,
+    plugin: { settings: { aiToolsEnabled: false } },
     readerView: { exportEpubWithToc: () => { exported += 1; } },
     _send: () => { sent += 1; },
   };
@@ -981,7 +982,7 @@ test("the export-toc document tool runs the reader action without sending an AI 
   assert.deepEqual(notices, []);
 });
 
-test("the study companion keeps document tools out of its quick prompts", () => {
+test("the study companion replaces reading prompts with one current-question action", () => {
   const start = aiRenderSource.indexOf("function contextualAiQuickPrompts(");
   const end = aiRenderSource.indexOf("function renderAiComposerPrompts(");
   const source = aiRenderSource.slice(start, end);
@@ -991,8 +992,12 @@ test("the study companion keeps document tools out of its quick prompts", () => 
   ];
   const { contextualAiQuickPrompts } = vm.runInNewContext(`${source}\n({contextualAiQuickPrompts})`, {
     aiQuickPrompts: () => items,
+    translate: (key) => key,
   });
-  assert.equal(JSON.stringify(contextualAiQuickPrompts({ _isQuizContext: () => true }).map((item) => item.id)), JSON.stringify(["explain"]));
+  const quizPrompts = contextualAiQuickPrompts({ _isQuizContext: () => true });
+  assert.equal(JSON.stringify(quizPrompts.map((item) => item.id)), JSON.stringify(["quiz-current"]));
+  assert.equal(quizPrompts[0].name, "analyze-current-question");
+  assert.equal(quizPrompts[0].action, "quiz-current");
   assert.equal(JSON.stringify(contextualAiQuickPrompts({ _isQuizContext: () => false }).map((item) => item.id)), JSON.stringify(["explain", "document-tools"]));
 });
 
@@ -1111,4 +1116,99 @@ test("the 文档工具 command renders the current document shortcuts", () => {
   assert.equal(chat._useDocumentToolNumber("9"), false);
 });
 
+test("document tools ask to enable AI tools instead of silently answering inline", async () => {
+  const { chat } = sidebarHarness();
+  const sent = [];
+  chat._send = (text) => { sent.push(text); return true; };
+  chat._scroll = () => {};
+  chat.busy = false;
+  chat.bookFile = { extension: "pdf" };
+  chat.plugin.settings.aiToolsEnabled = false;
+  let saved = 0;
+  chat.plugin.saveSettings = async () => { saved += 1; };
+  chat.plugin.workshopCapabilities = () => [{
+    id: "convert-word",
+    title: "把文档转成 Word",
+    summary: "生成一份 Word 文档。",
+    prompt: "我想把这个文档转成 Word。",
+    recommended: true,
+    primary: true,
+  }];
+  chat.log = chat.contentEl;
+  assert.equal(chat._showDocumentTools(), true);
+  assert.equal(chat.contentEl.querySelector(".qiaomu-reader-ai-doc-row"), null);
+  assert.match(chat.contentEl.textContent, /需要允许 AI 使用工具/);
+  const enable = [...chat.contentEl.querySelectorAll("button")]
+    .find((button) => button.textContent === "允许使用工具");
+  assert.ok(enable);
+  enable.click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(chat.plugin.settings.aiToolsEnabled, true);
+  assert.equal(saved, 1);
+  assert.match(chat.contentEl.textContent, /已允许/);
+  assert.match(chat.contentEl.querySelector(".qiaomu-reader-ai-doc-row")?.textContent, /把文档转成 Word/);
+  assert.deepEqual(sent, [], "showing the menu must not send a model turn");
+  chat._useDocumentToolNumber("1");
+  assert.deepEqual(sent, ["我想把这个文档转成 Word。"]);
+});
 
+test("a document tool refuses to send an inline prompt while AI tools are off", () => {
+  const start = chatViewSource.indexOf("  _runDocumentTool(item) {");
+  const end = chatViewSource.indexOf("\n  }", start) + 4;
+  const notices = [];
+  let sent = 0;
+  const run = vm.runInNewContext(`({${chatViewSource.slice(start, end)}})._runDocumentTool`, {
+    Notice: class { constructor(message) { notices.push(String(message || "")); } },
+  });
+  const chat = {
+    busy: false,
+    plugin: { settings: { aiToolsEnabled: false } },
+    _send: () => { sent += 1; return true; },
+  };
+  assert.equal(run.call(chat, { capability: { prompt: "翻译整本书" } }), false);
+  assert.equal(sent, 0);
+  assert.deepEqual(notices, ["请先允许 AI 使用工具，再使用文档工具。"]);
+});
+
+test("the AI composer can switch a PDF between full text and the current page", () => {
+  const pageStart = chatViewSource.indexOf("  _usePageContext() {");
+  const pageEnd = chatViewSource.indexOf("\n  }", pageStart) + 4;
+  const fullStart = chatViewSource.indexOf("  _useFullContext() {");
+  const fullEnd = chatViewSource.indexOf("\n  }", fullStart) + 4;
+  const notices = [];
+  const deps = {
+    Notice: class { constructor(message) { notices.push(String(message || "")); } },
+    qiaomuReaderTranslate: (key) => key,
+    readerPageContext: (view) => view.pageContext,
+    readerDefaultAiContext: (view) => view.fullContext,
+  };
+  const usePage = vm.runInNewContext(`({${chatViewSource.slice(pageStart, pageEnd)}})._usePageContext`, deps);
+  const useFull = vm.runInNewContext(`({${chatViewSource.slice(fullStart, fullEnd)}})._useFullContext`, deps);
+  let refreshed = 0;
+  const chat = {
+    bookFile: { path: "a.pdf" },
+    readerView: {
+      file: { path: "a.pdf" },
+      pageContext: { kind: "page", label: "current-page", text: "page text" },
+      fullContext: { kind: "document", label: "full-pdf", text: "full text" },
+    },
+    contextScope: "auto",
+    contextMode: "none",
+    pendingContext: null,
+    text: "",
+    _refreshPendingContext() { refreshed += 1; },
+  };
+  assert.equal(usePage.call(chat), true);
+  assert.equal(chat.contextScope, "page");
+  assert.equal(chat.pendingContext.text, "page text");
+  assert.equal(chat.text, "page text");
+  assert.equal(chat.contextMode, "follow");
+  assert.equal(refreshed, 1);
+  assert.equal(useFull.call(chat), true);
+  assert.equal(chat.contextScope, "auto");
+  assert.equal(chat.pendingContext.text, "full text");
+  assert.equal(refreshed, 2);
+  chat.readerView.pageContext = null;
+  assert.equal(usePage.call(chat), false);
+  assert.equal(notices.at(-1), "current-page-has-no-text");
+});

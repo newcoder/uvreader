@@ -704,6 +704,11 @@ export class FuzzySuggestModal extends Modal {
     });
   }
 
+  setPlaceholder(placeholder) {
+    if (this.inputEl) this.inputEl.placeholder = String(placeholder || "");
+    return this;
+  }
+
   getItems() {
     return [];
   }
@@ -734,12 +739,13 @@ export class FuzzySuggestModal extends Modal {
     for (const item of matches) {
       const el = this.resultContainerEl.createDiv("suggestion-item");
       el._value = item;
-      this.renderSuggestion(item, el);
+      this.renderSuggestion({ item, match: { score: 0, matches: [] } }, el);
       el.addEventListener("click", (event) => this.selectSuggestion(item, event));
     }
   }
 
-  renderSuggestion(item, el) {
+  renderSuggestion(match, el) {
+    const item = match?.item ?? match;
     el.textContent = this.getItemText(item);
   }
 

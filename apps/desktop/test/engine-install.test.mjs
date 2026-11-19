@@ -221,6 +221,36 @@ test("the install runner unpacks a local bundle, starts it and returns the setti
   assert.ok(reports.some((row) => /解压/.test(row.label || "")));
 });
 
+test("reinstalling the same local bundle keeps optional components", async () => {
+  const dir = tempDir();
+  const root = path.join(dir, "engine");
+  const target = path.join(root, "0.1.0");
+  fs.mkdirSync(path.join(target, "components", "docvortex"), { recursive: true });
+  fs.writeFileSync(path.join(target, "components", "docvortex", "marker.txt"), "cached", "utf8");
+  const runners = new Map();
+  const installer = {
+    extract: async (_archive, out) => {
+      fs.mkdirSync(out, { recursive: true });
+      fs.writeFileSync(path.join(out, "engine.json"), JSON.stringify({ engineVersion: "0.1.0" }), "utf8");
+    },
+    start: () => ({ pid: 4343 }),
+    waitHealthy: async () => ({ ok: true, engineVersion: "0.1.0" }),
+  };
+  registerEngineInstallRunner({ register: (kind, runner) => runners.set(kind, runner) }, { installer, engineRoot: root });
+  const archive = path.join(dir, "bundle.zip");
+  fs.writeFileSync(archive, "fake-bundle");
+  await runners.get("engine-install")({
+    payload: { archivePath: archive, version: "0.1.0" },
+    report: () => {},
+    signal: new AbortController().signal,
+  });
+  assert.equal(
+    fs.readFileSync(path.join(target, "components", "docvortex", "marker.txt"), "utf8"),
+    "cached",
+    "reinstall should reuse the existing components instead of dropping them",
+  );
+});
+
 test("a downloaded bundle with the wrong sha256 is rejected", async () => {
   const dir = tempDir();
   const root = path.join(dir, "engine");

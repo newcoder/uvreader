@@ -4,6 +4,21 @@
 
 export const IMPORT_MIME_EXT = new Map([["application/pdf", "pdf"], ["application/epub+zip", "epub"]]);
 
+const INTERMEDIATE_LIBRARY_ROOTS = new Set(["spaces", "_attachments"]);
+const INTERMEDIATE_IMAGE_DIRS = new Set(["images", "equations", "formulas", "attachments", "_attachments"]);
+
+// Space contents are managed by the space view, and extraction/workbench
+// artifacts (page images, equation crops, attachments) are not books. Keep
+// both out of the library tree and card grid without deleting the files.
+export function isIntermediateAssetPath(filePath, { image = false } = {}) {
+  const normalized = String(filePath || "").replace(/\\/g, "/").replace(/^\/+/, "");
+  const parts = normalized.split("/").filter(Boolean).map((part) => part.toLowerCase());
+  if (!parts.length) return false;
+  if (INTERMEDIATE_LIBRARY_ROOTS.has(parts[0])) return true;
+  if (!image) return false;
+  return parts.some((part) => INTERMEDIATE_IMAGE_DIRS.has(part) || part.endsWith(".assets"));
+}
+
 // ── Library tree / new-book helpers (pure, host-free) ────────────────────────
 
 // Tags of one book; shared by the factory below and by the plugin's import

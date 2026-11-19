@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  FuzzySuggestModal,
   MarkdownRenderer,
   Menu,
   Modal,
@@ -102,6 +103,47 @@ test("Modal ignores Escape while composing text", () => {
   modal.open();
   document.dispatchEvent(new globalThis.window.KeyboardEvent("keydown", { key: "Escape", isComposing: true }));
   assert.equal(document.body.contains(modal.containerEl), true);
+  modal.close();
+});
+
+test("FuzzySuggestModal supports setPlaceholder and renders suggestions", () => {
+  const seen = [];
+  class DemoModal extends FuzzySuggestModal {
+    getItems() {
+      return [{ name: "Alpha" }, { name: "Beta" }];
+    }
+
+    getItemText(item) {
+      return item.name;
+    }
+
+    renderSuggestion(match, el) {
+      seen.push(match.item.name);
+      el.textContent = match.item.name;
+    }
+  }
+  const modal = new DemoModal(null);
+  assert.equal(modal.setPlaceholder("搜索字体"), modal);
+  modal.open();
+  assert.equal(modal.inputEl.placeholder, "搜索字体");
+  assert.equal(modal.resultContainerEl.querySelectorAll(".suggestion-item").length, 2);
+  assert.deepEqual(seen, ["Alpha", "Beta"]);
+  modal.close();
+});
+
+test("FuzzySuggestModal default renderer accepts the match wrapper", () => {
+  class DemoModal extends FuzzySuggestModal {
+    getItems() {
+      return [{ name: "Alpha" }];
+    }
+
+    getItemText(item) {
+      return item.name;
+    }
+  }
+  const modal = new DemoModal(null);
+  modal.open();
+  assert.equal(modal.resultContainerEl.querySelector(".suggestion-item")?.textContent, "Alpha");
   modal.close();
 });
 

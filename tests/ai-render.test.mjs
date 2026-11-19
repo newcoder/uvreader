@@ -76,6 +76,81 @@ test("renderAiContextQuote expands long selections and clears on demand", () => 
   assert.equal(render.renderAiContextQuote(host, null), null);
 });
 
+test("long PDF context exposes page/full switches and a cost warning", () => {
+  const { doc, render } = setup();
+  const host = doc.createElement("div");
+  let page = 0;
+  const documentCard = render.renderAiContextQuote(host, {
+    kind: "document",
+    label: "full-pdf-condensed",
+    text: "x".repeat(120_000),
+  }, {
+    clearable: true,
+    onUsePage: () => { page += 1; },
+  });
+  const pageButton = [...documentCard.card.querySelectorAll(".qiaomu-reader-ai-context-action")]
+    .find((button) => button.textContent === "use-current-page-context");
+  assert.ok(pageButton, "large PDFs can switch to the current page");
+  assert.match(documentCard.card.textContent, /long-context-warning/);
+  pageButton.click();
+  assert.equal(page, 1);
+
+  let full = 0;
+  const pageCard = render.renderAiContextQuote(host, { kind: "page", text: "short", page: "p.2" }, {
+    clearable: true,
+    onUseFull: () => { full += 1; },
+  });
+  const fullButton = [...pageCard.card.querySelectorAll(".qiaomu-reader-ai-context-action")]
+    .find((button) => button.textContent === "use-full-pdf-context");
+  assert.ok(fullButton, "a page-scoped PDF can restore the full text");
+  fullButton.click();
+  assert.equal(full, 1);
+  assert.doesNotMatch(pageCard.card.textContent, /long-context-warning/);
+});
+
+test("follow-up questions in the worth-asking section become one-click prompts", () => {
+  const { doc, render } = setup();
+  const root = doc.createElement("div");
+  root.innerHTML = [
+    "<h3>值得追问</h3>",
+    "<ul><li>诗人为什么用这个标题？</li><li>红色在文中象征什么？</li></ul>",
+  ].join("");
+  const sent = [];
+  render.enhanceAiMarkdown(root, { _send: (text) => { sent.push(text); return true; } });
+  const buttons = [...root.querySelectorAll(".qiaomu-reader-ai-followup")];
+  assert.equal(buttons.length, 2);
+  assert.equal(buttons[0].querySelector(".qiaomu-reader-ai-followup-text").textContent, "诗人为什么用这个标题？");
+  buttons[0].click();
+  assert.deepEqual(sent, ["诗人为什么用这个标题？"]);
+  assert.equal(root.querySelectorAll("li").length, 2, "the list stays a list");
+});
+
+test("nested follow-up lists work and ordinary lists stay plain", () => {
+  const { doc, render } = setup();
+  const sent = [];
+  const owner = { _send: (text) => { sent.push(text); return true; } };
+  const root = doc.createElement("div");
+  root.innerHTML = '<ol><li><strong>值得追问</strong> — 最多两个问题<ul><li>继续追问的问题？</li></ul></li></ol>';
+  render.enhanceAiMarkdown(root, owner);
+  const buttons = [...root.querySelectorAll(".qiaomu-reader-ai-followup")];
+  assert.equal(buttons.length, 1);
+  buttons[0].click();
+  assert.deepEqual(sent, ["继续追问的问题？"]);
+
+  const plain = doc.createElement("div");
+  plain.innerHTML = "<ul><li>普通列表</li></ul>";
+  render.enhanceAiMarkdown(plain, owner);
+  assert.equal(plain.querySelectorAll(".qiaomu-reader-ai-followup").length, 0);
+});
+
+test("follow-up buttons are not created without a chat sender", () => {
+  const { doc, render } = setup();
+  const root = doc.createElement("div");
+  root.innerHTML = "<h3>值得追问</h3><ul><li>问题？</li></ul>";
+  render.enhanceAiMarkdown(root);
+  assert.equal(root.querySelectorAll(".qiaomu-reader-ai-followup").length, 0);
+});
+
 test("renderAiUserTurn prints the context card above the question", () => {
   const { doc, render } = setup();
   const log = doc.createElement("div");
@@ -84,6 +159,26 @@ test("renderAiUserTurn prints the context card above the question", () => {
   assert.ok(bubble.classList.contains("qiaomu-reader-ai-msg-me"));
   assert.ok(bubble.querySelector(".qiaomu-reader-ai-msg-context"));
   assert.equal(bubble.querySelector(".qiaomu-reader-ai-msg-text").textContent, "what?");
+});
+
+test("a user turn with pasted math is rendered instead of showing raw dollar signs", async () => {
+  let rendered = "";
+  const { doc, render } = setup({
+    MarkdownRenderer: {
+      async render(_app, markdown, element) {
+        rendered = markdown;
+        element.innerHTML = "<p>rendered math</p>";
+      },
+    },
+  });
+  const log = doc.createElement("div");
+  const bubble = render.renderAiUserTurn(log, { role: "user", content: "解答：$AB=BC=8$" }, {
+    app: {},
+    bookFile: { path: "Books/a.epub" },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(rendered, "解答：$AB=BC=8$");
+  assert.equal(bubble.querySelector(".qiaomu-reader-ai-msg-text").textContent, "rendered math");
 });
 
 test("contextualAiQuickPrompts keeps the configured common prompts", () => {
@@ -107,6 +202,23 @@ test("renderAiComposerPrompts sends immediately and disables while busy", () => 
   render.renderAiComposerPrompts(host, chat);
   assert.ok(chat.quickPromptButtons.every((button) => button.disabled));
   assert.equal(host.querySelectorAll(".qiaomu-reader-ai-composer-prompts").length, 1, "a refresh replaces the row in place");
+});
+
+test("the quiz quick prompt asks the quiz view to analyze its current question", () => {
+  const { doc, render } = setup();
+  const host = doc.createElement("div");
+  let analyzed = 0;
+  const chat = {
+    busy: false,
+    _isQuizContext: () => true,
+    readerView: { _analyzeCurrentQuestion: () => { analyzed += 1; } },
+    _send: () => { throw new Error("the quiz action should not send a bare prompt"); },
+  };
+  render.renderAiComposerPrompts(host, chat);
+  assert.equal(chat.quickPromptButtons.length, 1);
+  assert.equal(chat.quickPromptButtons[0].textContent, "analyze-current-question");
+  chat.quickPromptButtons[0].click();
+  assert.equal(analyzed, 1);
 });
 
 test("createAiChatLog tracks reading-earlier state and the jump button", () => {

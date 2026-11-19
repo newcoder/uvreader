@@ -7,6 +7,7 @@ import test from "node:test";
 import { build } from "esbuild";
 import { JSDOM } from "jsdom";
 import { foliateElements } from "../scripts/foliate-elements.mjs";
+import { PDF_RASTER_QUALITY, pdfRasterNeedsUpgrade } from "../packages/reader/src/pdf-raster.js";
 
 const root = path.resolve(import.meta.dirname, "..");
 const source = fs.readFileSync(path.join(root, "packages", "reader", "src", "wire.js"), "utf8");
@@ -25,6 +26,7 @@ function sliceFunction(text, name, indent = "") {
 function functionSource(name) {
   return sliceFunction(source, name);
 }
+const figureSweepSource = `${functionSource("pdfRenderMime")}\n${functionSource("figureRenderTarget")}\n${functionSource("figureNeedsHiRes")}\n${functionSource("drawFigure")}\n${functionSource("sweepReaderFigures")}\nsweepReaderFigures`;
 const translate = (key) => key;
 
 test("switching a reused PDF flow between paged and scroll modes clears stale geometry", () => {
@@ -554,10 +556,11 @@ test("a PDF render finishing after a book switch cannot paint stale pages or sta
   const flow = dom.window.document.querySelector('main');
   const lazy = { render: () => { rendered++; return new Promise(resolve => { release = resolve; }); } };
   const view = { pager: { flow, sw: 600, spread: 0 }, _pdfLazy: lazy };
-  const sweep = vm.runInNewContext(`${functionSource('drawFigure')}\n${functionSource('sweepReaderFigures')}\nsweepReaderFigures`, {
+  const sweep = vm.runInNewContext(figureSweepSource, {
     FIGURE_SURFACE_SELECTOR: '.surface', FIGURE_LAZY_SELECTOR: 'img', FIGURE_LOADED_ATTR: 'data-loaded',
     FIGURE_RENDERING_CLASS: 'rendering',
     FIGURE_LOAD_SPAN: 2, FIGURE_DROP_SPAN: 6,
+    PDF_RASTER_QUALITY, pdfRasterNeedsUpgrade,
     figureSpreadGap: () => 0, figurePageNumber: img => Number(img.dataset.pdfPage),
     markFigureUnavailable: () => assert.fail('stale error shown'),
   });
@@ -565,6 +568,41 @@ test("a PDF render finishing after a book switch cannot paint stale pages or sta
   view._pdfLazy = {}; release({ src: 'data:image/png;base64,stale', textLayer: null }); await pending;
   assert.equal(rendered, 1);
   assert.equal(flow.querySelector('img').hasAttribute('src'), false);
+  dom.window.close();
+});
+
+test("a large page jump stops the old preload sweep from painting distant pages", async () => {
+  const dom = new JSDOM('<main><img data-pdf-page="1"><img data-pdf-page="2"><img data-pdf-page="3"></main>');
+  dom.window.Element.prototype.addClass = function (name) { this.classList.add(name); };
+  dom.window.Element.prototype.removeClass = function (name) { this.classList.remove(name); };
+  const flow = dom.window.document.querySelector('main');
+  let release, rendered = 0;
+  const lazy = {
+    _destroyed: false,
+    textFor: () => "",
+    render: () => {
+      rendered += 1;
+      return new Promise((resolve) => { release = resolve; });
+    },
+  };
+  const pager = { flow, sw: 600, spread: 0, scrollMode: false };
+  const view = { pager, _pdfLazy: lazy, _closed: false };
+  const sweep = vm.runInNewContext(figureSweepSource, {
+    FIGURE_SURFACE_SELECTOR: '.surface', FIGURE_LAZY_SELECTOR: 'img', FIGURE_LOADED_ATTR: 'data-loaded',
+    FIGURE_RENDERING_CLASS: 'rendering',
+    FIGURE_LOAD_SPAN: 2, FIGURE_DROP_SPAN: 6,
+    PDF_RASTER_QUALITY, pdfRasterNeedsUpgrade: () => true,
+    figureSpreadGap: () => 0, figurePageNumber: img => Number(img.dataset.pdfPage),
+    markFigureUnavailable: () => assert.fail('page should remain renderable'),
+  });
+
+  const pending = sweep(view, lazy);
+  assert.equal(rendered, 1, "the first visible page starts rendering immediately");
+  pager.spread = 100;
+  release({ src: 'data:image/png;base64,stale', textLayer: null });
+  await pending;
+  assert.equal(rendered, 1, "the abandoned sweep must not render the rest of its old window");
+  assert.equal(flow.querySelector('img').hasAttribute('src'), false, "the stale result is not painted");
   dom.window.close();
 });
 
@@ -585,10 +623,11 @@ test("visible PDF pages gain selectable text and offscreen pages collapse back t
   };
   const pager = { flow, sw: 600, spread: 0, scrollMode: false };
   const view = { pager, _pdfLazy: lazy, _closed: false };
-  const sweep = vm.runInNewContext(`${functionSource('drawFigure')}\n${functionSource('sweepReaderFigures')}\nsweepReaderFigures`, {
+  const sweep = vm.runInNewContext(figureSweepSource, {
     FIGURE_SURFACE_SELECTOR: '.surface', FIGURE_LAZY_SELECTOR: 'img', FIGURE_LOADED_ATTR: 'data-loaded',
     FIGURE_RENDERING_CLASS: 'rendering',
     FIGURE_LOAD_SPAN: 2, FIGURE_DROP_SPAN: 6,
+    PDF_RASTER_QUALITY, pdfRasterNeedsUpgrade,
     figureSpreadGap: () => gap, figurePageNumber: img => Number(img.dataset.pdfPage),
     markFigureUnavailable: () => assert.fail('page should remain renderable'),
   });
@@ -606,6 +645,52 @@ test("visible PDF pages gain selectable text and offscreen pages collapse back t
   assert.equal(collapsed.getAttribute('data-pdf-selectable'), 'false');
   assert.equal(collapsed.textContent, 'fallback');
   assert.equal(collapsed.querySelectorAll('span').length, 0);
+  dom.window.close();
+});
+
+test("a painted PDF page is re-rasterised when the zoom needs more pixels", async () => {
+  const dom = new JSDOM('<main><div class="surface"><img data-pdf-page="1" data-loaded="1" src="data:image/png;base64,old"><div class="qiaomu-reader-pdf-text-layer" data-pdf-layer="pdfjs" data-pdf-selectable="true">text</div></div></main>');
+  dom.window.Element.prototype.addClass = function (name) { this.classList.add(name); };
+  dom.window.Element.prototype.removeClass = function (name) { this.classList.remove(name); };
+  const flow = dom.window.document.querySelector("main");
+  const img = flow.querySelector("img");
+  let renders = 0;
+  let received = null;
+  const lazy = {
+    _destroyed: false,
+    textFor: () => "text",
+    async render(_page, _doc, options) {
+      renders += 1;
+      received = options;
+      return {
+        src: "data:image/png;base64,new",
+        textLayer: null,
+        pixelWidth: 2400,
+        pixelHeight: 3200,
+        limited: false,
+      };
+    },
+  };
+  const pager = { flow, sw: 600, spread: 0, scrollMode: false };
+  const view = { pager, _pdfLazy: lazy, _closed: false };
+  const sweep = vm.runInNewContext(figureSweepSource, {
+    FIGURE_SURFACE_SELECTOR: '.surface', FIGURE_LAZY_SELECTOR: 'img', FIGURE_LOADED_ATTR: 'data-loaded',
+    FIGURE_RENDERING_CLASS: 'rendering',
+    FIGURE_LOAD_SPAN: 2, FIGURE_DROP_SPAN: 6,
+    PDF_RASTER_QUALITY, pdfRasterNeedsUpgrade: () => true,
+    figureSpreadGap: () => 0, figurePageNumber: img => Number(img.dataset.pdfPage),
+    markFigureUnavailable: () => assert.fail('page should remain renderable'),
+  });
+
+  await sweep(view, lazy);
+  assert.equal(renders, 1);
+  assert.equal(img.getAttribute("src"), "data:image/png;base64,new");
+  assert.equal(img.getAttribute("data-pdf-raster-limited"), "0");
+  assert.equal(received.withTextLayer, false, "the positioned PDF.js text layer is kept across a bitmap swap");
+
+  img.setAttribute("data-pdf-raster-limited", "1");
+  await sweep(view, lazy);
+  assert.equal(renders, 1, "a page that already hit the bitmap budget is not re-rendered every sweep");
   dom.window.close();
 });
 
@@ -627,10 +712,11 @@ test("a PDF paint sweep keeps the first layout snapshot instead of rasterising t
   };
   const pager = { flow, sw: 600, spread: 0, scrollMode: false };
   const view = { pager, _pdfLazy: lazy, _closed: false };
-  const sweep = vm.runInNewContext(`${functionSource('drawFigure')}\n${functionSource('sweepReaderFigures')}\nsweepReaderFigures`, {
+  const sweep = vm.runInNewContext(figureSweepSource, {
     FIGURE_SURFACE_SELECTOR: '.surface', FIGURE_LAZY_SELECTOR: 'img', FIGURE_LOADED_ATTR: 'data-loaded',
     FIGURE_RENDERING_CLASS: 'rendering',
     FIGURE_LOAD_SPAN: 2, FIGURE_DROP_SPAN: 6,
+    PDF_RASTER_QUALITY, pdfRasterNeedsUpgrade,
     figureSpreadGap: (img) => (collapsed ? 0 : Math.min(3, Math.floor((Number(img.dataset.pdfPage) - 1) / 2))),
     figurePageNumber: img => Number(img.dataset.pdfPage),
     markFigureUnavailable: () => assert.fail('page should remain renderable'),
@@ -642,6 +728,26 @@ test("a PDF paint sweep keeps the first layout snapshot instead of rasterising t
   await sweep(view, lazy);
   assert.equal(rendered, 6, "only the current and two neighbouring spreads are preloaded");
   assert.equal(flow.querySelectorAll('img[src]').length, 6);
+  dom.window.close();
+});
+
+test("the PDF paginator maps a second-column page to its containing spread", () => {
+  const dom = new JSDOM('<main><div class="qiaomu-reader-pdf-page-break" data-pdf-page-no="2"><p>text</p></div></main>');
+  const flow = dom.window.document.querySelector("main");
+  const page = flow.querySelector("[data-pdf-page-no]");
+  const block = page.querySelector("p");
+  flow.getBoundingClientRect = () => ({ left: 0, top: 0, right: 800, bottom: 1000, width: 800, height: 1000 });
+  page.getBoundingClientRect = () => ({ left: 400, top: 0, right: 800, bottom: 1000, width: 400, height: 1000 });
+  const paginatorFactory = paginatorSource.slice(paginatorSource.indexOf("export function createPdfPaginatorClass(")).replace("export function", "function");
+  const PdfPaginator = vm.runInNewContext(`${paginatorFactory}\ncreatePdfPaginatorClass({ FONTS: {}, READER_FONTS: {}, SHORT_PAGE_GAP: 0, currentLanguage: () => "zh" })`, { PDF_ZOOM_DEFAULT: 1, READER_BLOCK_SELECTOR: "p,h1", clampPdfZoom: (value) => value, comfortableLineWidth: () => 0, docOf: (el) => el.ownerDocument, ensureBundledReaderFont: async () => {}, resolveReaderFont: () => "serif", uiLanguageMetadata: () => ({ cjk: false }) });
+  const pager = new PdfPaginator();
+  pager.flow = flow;
+  pager.sw = 800;
+  pager.total = 10;
+  pager.cols = 2;
+  pager.scrollMode = false;
+  pager.blockEl = () => block;
+  assert.equal(pager.spreadForBlock(0), 0, "the second column belongs to the current spread, not the next one");
   dom.window.close();
 });
 

@@ -6,7 +6,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 
 import { removeTree } from "./paths.js";
-import { compareVersions, engineOcrPaths, engineOcrReady, writePid } from "./engine-service.js";
+import { compareVersions, engineOcrPaths, engineOcrReady, migrateEngineComponents, writePid } from "./engine-service.js";
 
 export const ENGINE_RELEASES_API = "https://api.github.com/repos/newcoder/uvreader/releases?per_page=30";
 
@@ -217,9 +217,32 @@ export function registerEngineInstallRunner(workshop, {
         if (actual !== expected) throw new Error(`sha256 不匹配(期望 ${expected.slice(0, 12)}…,实际 ${actual.slice(0, 12)}…)`);
       }
       const target = path.join(root, asset.version);
+      const existingComponents = path.join(target, "components");
+      const componentBackup = path.join(tempDir, "components-backup");
+      let hadComponents = false;
+      if (fs.existsSync(existingComponents)) {
+        try {
+          fs.cpSync(existingComponents, componentBackup, { recursive: true, force: true });
+          hadComponents = true;
+        } catch (error) {
+          log("[engine-install] component backup skipped", String(error?.message || error));
+        }
+      }
       removeTree(target);
       report({ label: "解压引擎…" });
       await installer.extract(archivePath, target, { signal });
+      if (hadComponents) {
+        try {
+          fs.cpSync(componentBackup, path.join(target, "components"), { recursive: true, force: true });
+          log("[engine-install] restored components after reinstall", target);
+        } catch (error) {
+          log("[engine-install] component restore failed", String(error?.message || error));
+          migrateEngineComponents(root, target, { log });
+        }
+      } else {
+        const reused = migrateEngineComponents(root, target, { log });
+        if (reused.copied) log("[engine-install] reused components from", reused.version);
+      }
       const tokenFile = path.join(target, "token.txt");
       let token = fs.existsSync(tokenFile) ? fs.readFileSync(tokenFile, "utf8").trim() : "";
       if (!token) {

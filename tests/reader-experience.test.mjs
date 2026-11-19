@@ -94,6 +94,18 @@ test("PDF scan anchors restore the native page even when there are no text block
   assert.equal(pager.spread, 7);
 });
 
+test("PDF pages in the second column restore to their own spread", () => {
+  const doc = new JSDOM('<section><div data-pdf-page-no="2"></div></section>').window.document;
+  const flow = doc.querySelector("section"), page = doc.querySelector("div");
+  flow.getBoundingClientRect = () => rect(0, 0);
+  page.getBoundingClientRect = () => rect(400, 0);
+  const pager = { flow, sw: 800, total: 369, blockEl: () => null, spreadForBlock: () => 0,
+    jumpTo(n) { this.spread = n; return [n, this.total]; },
+  };
+  restoreReadingAnchor(pager, { block: 0, pdfPage: 2, pct: 0 });
+  assert.equal(pager.spread, 0, "page 2 is the second column of spread 0, not the start of spread 1");
+});
+
 test("resize bursts are serialized and share the original anchor", async () => {
   const anchor = { block: 15, offset: 27 };
   const view = { file: {}, bookHtml: "book", _readingAnchor: anchor };

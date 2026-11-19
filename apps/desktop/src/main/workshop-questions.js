@@ -13,6 +13,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 
 import { bankFromMarkdown, bankToMarkdown, validateBank } from "../shared/question-bank.js";
+import { spaceCategoryDir } from "../../../../packages/reader/src/space-paths.js";
 
 // 每个源一份独立的工作目录:提取产物里 `merged.md` 是**固定文件名**,
 // 共用缓存根会让不同试卷互相串味(实测:CSP2019 的最后一题读到了另一篇光学论文)。
@@ -108,7 +109,8 @@ export function registerQuestionRunners(workshop, {
     });
     const issues = validateBank(bank);
     const stem = path.basename(absolute).replace(/\.[^.]+$/, "");
-    const outDir = path.dirname(absolute);
+    const outDir = spaceCategoryDir(absolute, "quizzes") || path.dirname(absolute);
+    fs.mkdirSync(outDir, { recursive: true });
     // 图片链接改成源文件旁的 <stem>.assets/(否则相对缓存目录的 mineru/images/ 在产物旁边打不开)。
     const images = rebaseImages(bank, { extractedPath: extracted.path, outDir, stem });
     const bankPath = path.join(outDir, `${stem}_questions.json`);

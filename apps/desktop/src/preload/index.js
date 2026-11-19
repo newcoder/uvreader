@@ -22,6 +22,9 @@ window.qbrDesktop = {
     ipcRenderer.on("qbr:open-book", (_event, filePath) => callback(filePath));
   },
   showItemInFolder: (filePath) => ipcRenderer.invoke("qbr:show-item", filePath),
+  fonts: {
+    list: () => ipcRenderer.invoke("qbr:fonts:list"),
+  },
   secrets: {
     getSecret: (id) => ipcRenderer.invoke("qbr:secret", "get", id),
     getSecretSync: (id) => ipcRenderer.sendSync("qbr:secret-sync", id),
@@ -123,11 +126,25 @@ window.qbrDesktop = {
     stop: () => ipcRenderer.invoke("qbr:engine:stop"),
     autoStart: (settings) => ipcRenderer.invoke("qbr:engine:auto-start", settings),
   },
+  webSearch: {
+    search: (payload) => ipcRenderer.invoke("qbr:web-search:search", payload),
+    fetchUrl: (payload) => ipcRenderer.invoke("qbr:web-search:fetch", payload),
+  },
+  spaces: {
+    list: () => ipcRenderer.invoke("qbr:spaces:list"),
+    sync: (id) => ipcRenderer.invoke("qbr:spaces:sync", { id }),
+    create: (payload) => ipcRenderer.invoke("qbr:spaces:create", payload),
+    importFiles: (spaceId, filePaths) => ipcRenderer.invoke("qbr:spaces:import", { spaceId, filePaths }),
+    pickFiles: () => ipcRenderer.invoke("qbr:spaces:pick-files"),
+    openFolder: (id) => ipcRenderer.invoke("qbr:spaces:open-folder", id),
+    deleteOutput: (spaceId, relativePath) => ipcRenderer.invoke("qbr:spaces:delete-output", { spaceId, relativePath }),
+  },
   workshop: {
     list: () => ipcRenderer.invoke("qbr:workshop:list"),
     start: (request) => ipcRenderer.invoke("qbr:workshop:start", request),
     cancel: (id) => ipcRenderer.invoke("qbr:workshop:cancel", id),
     retry: (id) => ipcRenderer.invoke("qbr:workshop:retry", id),
+    remove: (id) => ipcRenderer.invoke("qbr:workshop:remove", id),
     clear: () => ipcRenderer.invoke("qbr:workshop:clear"),
     pickFiles: () => ipcRenderer.invoke("qbr:workshop:pick-files"),
     // Returns an unsubscribe function so a closed view stops listening.
@@ -146,6 +163,28 @@ window.qbrDesktop = {
       ipcRenderer.on("qbr:workshop:finished", listener);
       return () => ipcRenderer.removeListener("qbr:workshop:finished", listener);
     },
+  },
+  polish: {
+    list: () => ipcRenderer.invoke("qbr:polish:list"),
+    load: (manifestPath) => ipcRenderer.invoke("qbr:polish:load", { manifestPath }),
+    saveMarkdown: (manifestPath, markdown) => ipcRenderer.invoke("qbr:polish:save-markdown", { manifestPath, markdown }),
+    saveSession: (manifestPath, patch) => ipcRenderer.invoke("qbr:polish:save-session", { manifestPath, patch }),
+    forgetNote: (manifestPath, noteId) => ipcRenderer.invoke("qbr:polish:forget-note", { manifestPath, noteId }),
+    revert: (manifestPath) => ipcRenderer.invoke("qbr:polish:revert", { manifestPath }),
+    importNotes: (manifestPath, markdown) => ipcRenderer.invoke("qbr:polish:import-notes", { manifestPath, markdown }),
+    pickImport: (manifestPath) => ipcRenderer.invoke("qbr:polish:pick-import", { manifestPath }),
+    importMarkdown: (manifestPath, filePath, options = {}) => ipcRenderer.invoke("qbr:polish:import-markdown", {
+      manifestPath,
+      filePath,
+      force: options?.force === true,
+      markdown: options?.markdown || "",
+    }),
+    repairHeadings: (manifestPath, markdown = "") => ipcRenderer.invoke("qbr:polish:repair-headings", { manifestPath, markdown }),
+    trash: (manifestPath) => ipcRenderer.invoke("qbr:polish:trash", { manifestPath }),
+    saveInfo: (manifestPath, info) => ipcRenderer.invoke("qbr:polish:save-info", { manifestPath, info }),
+    resolveAsset: (manifestPath, source) => ipcRenderer.invoke("qbr:polish:resolve-asset", { manifestPath, source }),
+    findBySource: (source) => ipcRenderer.invoke("qbr:polish:find-by-source", { source }),
+    saveAs: (manifestPath) => ipcRenderer.invoke("qbr:polish:save-as", { manifestPath }),
   },
   quiz: {
     prepare: (html) => ipcRenderer.invoke("qbr:quiz:prepare", html),

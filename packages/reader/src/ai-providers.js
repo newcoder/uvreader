@@ -57,36 +57,29 @@ export const AI_PROVIDERS = {
     apiKeyUrl: "https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys",
     description: "official-zhipu-ai-open-platform-api",
   },
-  minimax: {
-    label: "MiniMax",
-    category: "china",
-    needsKey: true,
-    base: "https://api.minimax.cn/v1",
-    model: "MiniMax-M3",
-    models: ["MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.5"],
-    apiKeyUrl: "https://platform.minimaxi.com/user-center/basic-information/interface-key",
-    description: "openai-compatible-api-on-minimax-s-china-platform",
-  },
-  siliconflow: {
-    label: "siliconflow",
+  "opencode-go": {
+    label: "OpenCode Go",
     category: "aggregator",
     needsKey: true,
-    base: "https://api.siliconflow.cn/v1",
-    model: "Qwen/Qwen3-8B",
-    models: ["Qwen/Qwen3-8B", "deepseek-ai/DeepSeek-V3"],
-    apiKeyUrl: "https://cloud.siliconflow.cn/account/ak",
-    description: "a-multi-model-aggregation-service-based-in-china",
-    recommended: true,
-  },
-  doubao: {
-    label: "doubao-volcengine-ark",
-    category: "aggregator",
-    needsKey: true,
-    base: "https://ark.cn-beijing.volces.com/api/v3",
-    model: "",
-    models: [],
-    apiKeyUrl: "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey",
-    description: "enter-the-inference-endpoint-id-you-created-in-volcengine-ark-in",
+    base: "https://opencode.ai/inference/go/openai/v1",
+    model: "deepseek-v4.1-flash",
+    models: [
+      "deepseek-v4.1-flash",
+      "deepseek-v4-pro",
+      "kimi-k3.1-pro",
+      "glm-5.3-flash",
+      "qwen3.8-flash",
+      "claude-haiku-5-5",
+      "gpt-6-luna",
+      "gemini-4-argon",
+      "grok-4.7",
+    ],
+    apiKeyUrl: "https://opencode.ai/console",
+    description: "opencode-go-description",
+    supportsThinking: true,
+    // OpenCode Go accepts reasoning_effort; "none" is the explicit off state.
+    // The app only asks for medium, so map it to the provider's high tier.
+    thinkingLevelMap: { off: "none", low: "low", medium: "high", high: "max" },
   },
   openrouter: {
     label: "OpenRouter",
@@ -107,6 +100,16 @@ export const AI_PROVIDERS = {
     models: ["gpt-4.1-mini", "gpt-4.1"],
     apiKeyUrl: "https://platform.openai.com/api-keys",
     description: "official-openai-api",
+  },
+  gemini: {
+    label: "Gemini",
+    category: "international",
+    needsKey: true,
+    base: "https://generativelanguage.googleapis.com/v1beta/openai",
+    model: "gemini-3.8-flash",
+    models: ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-4-argon"],
+    apiKeyUrl: "https://aistudio.google.com/app/apikey",
+    description: "gemini-description",
   },
   ollama: {
     label: "Ollama",
@@ -139,12 +142,73 @@ export const AI_PROVIDERS = {
   },
 };
 
+// Presets removed from the picker. Existing users are moved to "custom" with
+// the same endpoint and model so an update does not silently break AI setup.
+export const RETIRED_AI_PROVIDERS = {
+  siliconflow: { base: "https://api.siliconflow.cn/v1", model: "Qwen/Qwen3-8B" },
+  doubao: { base: "https://ark.cn-beijing.volces.com/api/v3", model: "" },
+  minimax: { base: "https://api.minimax.cn/v1", model: "MiniMax-M3" },
+};
+
+export function migrateRetiredAiProvider(settings) {
+  if (!settings || typeof settings !== "object") return false;
+  const retired = RETIRED_AI_PROVIDERS[settings.aiProvider];
+  if (!retired) return false;
+  const oldId = settings.aiProvider;
+  settings.aiBases = { ...(settings.aiBases || {}) };
+  settings.aiModels = { ...(settings.aiModels || {}) };
+  settings.aiSecrets = { ...(settings.aiSecrets || {}) };
+  settings.aiThinking = { ...(settings.aiThinking || {}) };
+  settings.aiCapabilities = { ...(settings.aiCapabilities || {}) };
+  // Keep an existing custom endpoint untouched; otherwise carry the retired
+  // preset over so its URL, model and key reference continue to work.
+  if (!settings.aiBases.custom) {
+    settings.aiBases.custom = settings.aiBases[oldId] || retired.base;
+  }
+  if (!settings.aiModels.custom) {
+    const model = settings.aiModels[oldId] || retired.model;
+    if (model) settings.aiModels.custom = model;
+  }
+  if (!settings.aiSecrets.custom && settings.aiSecrets[oldId]) {
+    settings.aiSecrets.custom = settings.aiSecrets[oldId];
+  }
+  delete settings.aiBases[oldId];
+  delete settings.aiModels[oldId];
+  delete settings.aiSecrets[oldId];
+  delete settings.aiThinking[oldId];
+  delete settings.aiCapabilities[oldId];
+  settings.aiProvider = "custom";
+  settings.aiEnabled = false;
+  settings.aiNeedsVerification = true;
+  return true;
+}
+
 export function aiProviderFor(id) {
   return AI_PROVIDERS[id] || null;
 }
 
 export function normalizeAiBase(value) {
   return String(value || "").trim().replace(/\/+$/, "");
+}
+
+// DeepSeek Search always uses a DeepSeek key. Prefer a dedicated search secret,
+// then a DeepSeek provider key even when the active chat service is another
+// provider (OpenCode Go, Kimi, etc.). Never borrow another provider's key.
+export function resolveDeepseekSearchKey(settings = {}, readSecret = () => "") {
+  const secret = (id) => {
+    const key = String(id || "").trim();
+    return key ? String(readSecret(key) || "").trim() : "";
+  };
+  const explicit = secret(settings.aiWebSearchSecret);
+  if (explicit) return explicit;
+  const providerSecret = secret(settings.aiSecrets?.deepseek);
+  if (providerSecret) return providerSecret;
+  if (settings.aiProvider === "deepseek") {
+    const legacy = secret(settings.aiSecret);
+    if (legacy) return legacy;
+    return String(settings.aiKey || "").trim();
+  }
+  return "";
 }
 
 export function classifyAiHttpStatus(status) {
@@ -160,7 +224,7 @@ export function buildAiRequestBody(providerId, model, messages, options = {}) {
     model,
     messages,
     temperature: 0.2,
-    max_tokens: options.connectionTest ? 16 : 2400,
+    max_tokens: options.connectionTest ? 512 : 2400,
   };
   if (options.stream) body.stream = true;
   // A connection check needs one short answer. In real reading conversations

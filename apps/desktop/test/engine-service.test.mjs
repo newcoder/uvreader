@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { clearPid, compareVersions, createEngineService, engineOcrPaths, engineOcrReady, engineOcrSettings, findFreePort, isAlive, listEngines, pickEngine, portFromUrl, readPid, writePid } from "../src/main/engine-service.js";
+import { clearPid, compareVersions, createEngineService, engineOcrPaths, engineOcrReady, engineOcrSettings, findFreePort, isAlive, listEngines, migrateEngineComponents, pickEngine, portFromUrl, readPid, writePid } from "../src/main/engine-service.js";
 
 const tempRoot = () => fs.mkdtempSync(path.join(os.tmpdir(), "qbr-engine-service-"));
 const makeEngine = (root, version, { token = "", manifest = {} } = {}) => {
@@ -34,6 +34,44 @@ test("listEngines only counts directories with a manifest, newest first", () => 
   assert.equal(pickEngine(path.join(root, "nope")), null);
 });
 
+test("migrateEngineComponents copies a previous engine's optional components", () => {
+  const root = tempRoot();
+  const oldDir = makeEngine(root, "0.1.16");
+  const newDir = makeEngine(root, "0.1.17");
+  fs.mkdirSync(path.join(oldDir, "components", "docvortex"), { recursive: true });
+  fs.writeFileSync(path.join(oldDir, "components", "docvortex", "__init__.py"), "ok", "utf8");
+  const result = migrateEngineComponents(root, newDir);
+  assert.equal(result.copied, true);
+  assert.equal(result.version, "0.1.16");
+  assert.equal(fs.readFileSync(path.join(newDir, "components", "docvortex", "__init__.py"), "utf8"), "ok");
+  const again = migrateEngineComponents(root, newDir);
+  assert.equal(again.copied, false);
+  assert.equal(again.reason, "already-present");
+});
+
+test("prepare reuses components when extracting a newer bundled engine", async () => {
+  const root = tempRoot();
+  const installedRoot = path.join(root, "installed");
+  const oldDir = makeEngine(installedRoot, "0.1.9");
+  fs.mkdirSync(path.join(oldDir, "components", "docvortex"), { recursive: true });
+  fs.writeFileSync(path.join(oldDir, "components", "docvortex", "marker.txt"), "cached", "utf8");
+  const archive = path.join(root, "uvreader-engine-0.2.0-win32-x64.zip");
+  fs.writeFileSync(archive, "not-a-real-zip", "utf8");
+  const service = createEngineService({
+    engineRoot: installedRoot,
+    bundleArchive: archive,
+    installer: {
+      extract: async (_archive, target) => {
+        fs.mkdirSync(target, { recursive: true });
+        fs.writeFileSync(path.join(target, "engine.json"), JSON.stringify({ engineVersion: "0.2.0", platform: "win32-x64" }), "utf8");
+      },
+    },
+  });
+  const prepared = await service.prepare();
+  assert.equal(prepared.version, "0.2.0");
+  assert.equal(fs.readFileSync(path.join(prepared.dir, "components", "docvortex", "marker.txt"), "utf8"), "cached");
+});
+
 test("an installed engine exposes its OCR sidecar only when RapidOCR is present", async () => {
   const root = tempRoot();
   const dir = makeEngine(root, "0.1.12");
@@ -57,6 +95,21 @@ test("an installed engine exposes its OCR sidecar only when RapidOCR is present"
   assert.equal(state.ocrReady, true);
   assert.equal(state.ocrSidecarDir, paths.ocrSidecarDir);
   assert.equal(state.ocrPython, paths.ocrPython);
+
+  // autoStart 在“刚刚启动引擎”这条路径上也要把 OCR 路径带回渲染层，
+  // 否则升级后设置里会一直留着旧引擎目录。
+  const startedService = createEngineService({
+    engineRoot: root,
+    installer: {
+      start: () => ({ pid: 901 }),
+      waitHealthy: async () => ({ ok: true }),
+    },
+    kill: () => {},
+  });
+  const started = await startedService.start({ port: 8769 });
+  assert.equal(started.ocrReady, true);
+  assert.equal(started.ocrSidecarDir, paths.ocrSidecarDir);
+  assert.equal(started.ocrPython, paths.ocrPython);
 });
 
 test("pid files round-trip and isAlive reads the process table", () => {
@@ -97,6 +150,7 @@ test("status reports what is installed and whether the recorded pid is alive", a
   const idle = await service.status();
   assert.equal(idle.installed, true);
   assert.equal(idle.running, false);
+  assert.equal(idle.engineUrl, undefined, "没运行的引擎不该回地址");
   assert.match(idle.detail, /未运行/);
 
   writePid(dir, { pid: 4242, port: 8761 });
@@ -104,6 +158,8 @@ test("status reports what is installed and whether the recorded pid is alive", a
   assert.equal(running.running, true);
   assert.equal(running.pid, 4242);
   assert.equal(running.port, 8761);
+  assert.equal(running.engineUrl, "http://127.0.0.1:8761", "已运行的引擎也要回地址，供新配置回填");
+  assert.equal(running.engineToken, "t", "令牌同样要回填");
   assert.match(running.detail, /运行中/);
 });
 
@@ -132,9 +188,11 @@ test("start reuses the token, records the pid and waits for health", async () =>
   assert.deepEqual(readPid(dir), { pid: 777, port: 8762, startedAt: readPid(dir).startedAt });
   assert.deepEqual(calls[1].waited, { port: 8762, token: "existing-token" });
 
-  // 已经在跑:不重复拉起
+  // 已经在跑:不重复拉起,但要把现有地址/令牌带回渲染层
   const again = await service.start({ port: 8762 });
   assert.equal(again.started, false);
+  assert.equal(again.engineUrl, "http://127.0.0.1:8762");
+  assert.equal(again.engineToken, "existing-token");
   assert.equal(calls.length, 2, "第二个 start 不该再调 installer.start");
 
   // 没装引擎:说清楚,不去瞎跑

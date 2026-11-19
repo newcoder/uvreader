@@ -63,7 +63,11 @@ export function restoreReadingAnchor(pager, anchor) {
     block = pager.flow.querySelector(`[data-pdf-page-no="${Number(anchor.pdfPage)}"]`) || block;
   }
   let target = block ? pager.spreadForBlock(anchor.block) : Math.round(anchor.pct * Math.max(0, pager.total - 1));
-  if (anchor.pdfPage && block && !pager.scrollMode) target = Math.round((block.getBoundingClientRect().left - pager.flow.getBoundingClientRect().left) / pager.sw);
+  if (anchor.pdfPage && block && !pager.scrollMode) {
+    // Second-column pages are half a spread from the flow origin; rounding
+    // would land on the next spread and skip the target page.
+    target = Math.floor((block.getBoundingClientRect().left - pager.flow.getBoundingClientRect().left) / pager.sw);
+  }
   const point = textPoint(block, anchor.offset);
   if (point && !pager.scrollMode && !anchor.pdfPage) {
     const range = block.ownerDocument.createRange();

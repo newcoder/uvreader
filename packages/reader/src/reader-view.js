@@ -11,11 +11,11 @@ import { createReaderLoadCoordinator, isReaderLoadAbort, waitForReaderFrame } fr
 import { docOf } from "./reader-dom.js";
 import { jumpToEngineHighlight } from "./highlight-navigation.js";
 import { readerTextCss, resolveReaderFont, syncPageButtons } from "./reader-appearance.js";
+import { applyPdfPageThemeFilter } from "./pdf-theme-filter.js";
 import { svgIcon } from "./reader-icons.js";
 import { pinyinPinFor, renderEnginePins, togglePinyinPin } from "./pinyin-pins.js";
 import { warmWordGlosses } from "./pinyin-annotate.js";
 import { columnDragActive, installColumnDragWatch, onColumnDrag } from "./column-drag.js";
-import { pageForBlock } from "./toc-build.js";
 import { createPdfFormController } from "./pdf-form.js";
 
 export function createReaderView({
@@ -66,8 +66,19 @@ export function createReaderView({
     const path5 = (state == null ? void 0 : state.file) != null ? state.file : state == null ? void 0 : state.path;
     if (!path5)
       return;
-    if (this.file && this.file.path === path5 && this.bookHtml)
+    if (this.file && this.file.path === path5 && this.bookHtml) {
+      const changed = this.app.vault.getAbstractFileByPath(path5);
+      const current = changed?.stat;
+      const opened = this._openedFileStamp;
+      // The same library path can be replaced on disk (polished rebuilds do
+      // this). Returning early here kept the old book in memory. Ask the vault
+      // for a fresh TFile: the open view's TFile caches its stat.
+      if (changed instanceof TFile && current && opened
+        && (current.mtime !== opened.mtime || current.size !== opened.size)) {
+        await this.openFile(changed);
+      }
       return;
+    }
     const f = this.app.vault.getAbstractFileByPath(path5);
     if (f instanceof TFile)
       await this.openFile(f);
@@ -171,11 +182,30 @@ export function createReaderView({
         settleReader(this);
         void this.plugin._showCompanionForBook(this);
         if (this._layoutWidthStale()) void this.repaginate();
+        this._flushPendingPdfJump();
       }
     }
   }
+  _flushPendingPdfJump() {
+    const pending = this._pendingPdfJump;
+    if (!pending || this._openingBook || this._closed || !this.pager?.total) return;
+    // A reflow started before this jump will restore its own anchor when it
+    // finishes. Wait for it, then move to the requested chapter so the old
+    // layout cannot snap the reader back to page one.
+    if (this._layoutPromise) {
+      void this._layoutPromise.then(() => this._flushPendingPdfJump(), () => this._flushPendingPdfJump());
+      return;
+    }
+    this._pendingPdfJump = null;
+    // A jump requested while another book was still opening belongs to that
+    // book; never apply its block index to the new one.
+    if (pending.path !== (this.file?.path || "") || (pending.lazy && pending.lazy !== this._pdfLazy)) return;
+    void this._jumpToBlock(pending.block, pending.flash);
+  }
   _resetBookState(file) {
     this.file = file; this.ext = file.extension;
+    const stamp = file?.stat;
+    this._openedFileStamp = stamp ? { mtime: stamp.mtime, size: stamp.size } : null;
     this._releaseImage();
     if (this.fitBtn) {
       this.fitBtn.setAttribute("aria-label", qiaomuReaderTranslate("fit-page"));
@@ -193,7 +223,8 @@ export function createReaderView({
     this.pdfDocumentContext = null; this.tocItems = []; this._tocOriginalItems = null;
     this._epubTocScan = null; this._epubTocDraft = null;
     this._disposePdfLazy();
-    this.pager = createPdfPaginator(this); this._pdfOutline = null;
+    this._pendingPdfJump = null;
+    this.pager = createPdfPaginator(this); this._pdfOutline = null; this._pdfFigures = null;
     this.pdfZoom = PDF_ZOOM_DEFAULT;
     this.pager.pdfZoom = this.pdfZoom;
     if (this.aiBtn) this.aiBtn.hidden = true;
@@ -254,6 +285,7 @@ export function createReaderView({
       this.pdfDocumentContext = null;
       this._pdfLazy = null;
       this._pdfOutline = null;
+      this._pdfFigures = null;
       await this.plugin.ensureReadingFolder(file.path);
       await this.plugin.refreshProgress(file.path);
       if (!this._loadCoordinator.isCurrent(loadToken)) return;
@@ -270,6 +302,7 @@ export function createReaderView({
       this.pdfDocumentContext = null;
       this._pdfLazy = null;
       this._pdfOutline = null;
+      this._pdfFigures = null;
       await this.plugin.ensureReadingFolder(file.path);
       await this.plugin.refreshProgress(file.path);
       if (!this._loadCoordinator.isCurrent(loadToken)) return;
@@ -319,6 +352,8 @@ export function createReaderView({
     this.pdfDocumentContext = result.pdfDocumentContext || null;
     this._pdfLazy = result.lazy;
     this._pdfOutline = result.outline;
+    this._pdfFigures = result.figureManifest || null;
+    this.contentEl?.removeClass("qiaomu-reader-pdf-scanned");
     // Text, scan verdict and the AI context keep filling in after the first
     // frame; `_maybeGenerateTextLayer` waits for this before starting OCR.
     this._pdfTextReady = result.whenTextReady || null;
@@ -376,10 +411,14 @@ export function createReaderView({
     const ready = await (this._pdfTextReady || result?.whenTextReady || Promise.resolve(null)).catch(() => null);
     if (ready) {
       this._pdfTextReady = null;
+      this.contentEl?.toggleClass("qiaomu-reader-pdf-scanned", ready.scan?.scanned === true);
       if (!this.pdfDocumentContext) this.pdfDocumentContext = ready.pdfDocumentContext || null;
       // 文字刚到位:立刻把每一页的空文字层补上(不依赖扫页经过那一页),否则远处的页面
       // 在 DOM 里永远"没有文字"(查找/跨页选择/断言都读不到)。
       try { backfillPdfTextLayers(this); } catch { /* 补文字失败不影响阅读 */ }
+      // 文字刚到位:已经用 JPEG 画过的可见页会在下一次扫页时重画为文字无损
+      // PNG,同时把纯文本占位层换成可定位的 PDF.js 文字层。
+      void renderVisibleFigures(this);
       // The text pass just filled page text for the whole document: drop the
       // search corpus so a later search covers every page, and refresh an open
       // find panel the way the OCR pass does.
@@ -906,10 +945,19 @@ export function createReaderView({
   }
   async _jumpToBlock(block, flash = true) {
     if (!readerIsPdf(this) || !this.bookHtml || typeof block !== "number") return;
+    // The navigation panel is built before the first pagination finishes, so a
+    // reader can click a chapter while the pager is still empty. That early
+    // jump used to be overwritten by the finishing layout; keep the latest one
+    // and apply it once the book is ready.
+    if (this._openingBook || !this.pager?.total) {
+      this._pendingPdfJump = { block, flash, path: this.file?.path || "", lazy: this._pdfLazy };
+      return;
+    }
     rememberReaderJump(this);
     await this._settleLayoutBeforeJump();
     const [cur, tot] = restoreReadingAnchor(this.pager, { block, offset: 0, pct: this.pager.currentPct });
     this.updateUI(cur, tot);
+    this._readingAnchor = captureReadingAnchor(this.pager);
     if (this.file) this.plugin.saveProgress(this.file.path, cur, tot, this.pager.currentBlockIndex());
     if (flash) this._flashBlock(block);
   }
@@ -965,9 +1013,15 @@ export function createReaderView({
     const pb = root.createDiv("qiaomu-reader-pbar");
     this.pbarFill = pb.createDiv("qiaomu-reader-pbar-fill");
     const tray = buildReaderTopBar(this, {
-      backAttr: { "aria-label": qiaomuReaderTranslate("library") },
+      backAttr: { "aria-label": qiaomuReaderTranslate("back-3") },
       title: "UV Reader",
-      onBack: () => this.plugin.openLibrary(),
+      onBack: () => {
+        if (typeof this.plugin.navigateBackFromReader === "function") {
+          this.plugin.navigateBackFromReader(this);
+          return;
+        }
+        this.plugin.openLibrary();
+      },
     });
     readerTimer.buildButton(tray, this);
     // Tray buttons share an icon, accessible label and click handler.
@@ -1138,6 +1192,7 @@ export function createReaderView({
     r.style.setProperty("--qiaomu-reader-border", t.border);
     r.style.setProperty("--qiaomu-reader-accent", t.accent);
     r.style.setProperty("--qiaomu-reader-muted", t.muted);
+    r.style.setProperty("--qiaomu-reader-pdf-filter", applyPdfPageThemeFilter(docOf(r), s));
     r.toggleClass("qiaomu-reader-eink", s.einkMode === true);
     // Live restyle of an open engine book: re-send the appearance CSS and make
     // sure any freshly selected reading font reaches the rendered documents.
@@ -1466,13 +1521,17 @@ export function createReaderView({
     if (this.engine) { this._renderEngineHighlights(); this._renderEnginePins(); return; }
     if (!this.file || !this.pager.flow) return;
     const flow = this.pager.flow;
-    unwrapAllHighlights(flow);
-    const blocks = flow.querySelectorAll(READER_BLOCK_SELECTOR);
     const list = this.plugin.getHighlights(this.file.path);
-    for (const hl of list) {
-      const anchor = resolveHighlightAnchor(blocks, hl, this.file.extension === "pdf");
-      if (!anchor) continue;
-      wrapBlockRange(anchor.block, anchor.loc.start, anchor.loc.start + anchor.loc.len, { id: hl.id, color: hlColorCss(hl.color) });
+    // A sweep runs after every page turn. With no highlights (and no stale
+    // wrappers left over from a deleted one) avoid scanning every block.
+    if (list.length || flow.querySelector("[data-hl-id]")) {
+      unwrapAllHighlights(flow);
+      const blocks = flow.querySelectorAll(READER_BLOCK_SELECTOR);
+      for (const hl of list) {
+        const anchor = resolveHighlightAnchor(blocks, hl, this.file.extension === "pdf");
+        if (!anchor) continue;
+        wrapBlockRange(anchor.block, anchor.loc.start, anchor.loc.start + anchor.loc.len, { id: hl.id, color: hlColorCss(hl.color) });
+      }
     }
     this._renderFlowPins();
   }
@@ -1481,9 +1540,11 @@ export function createReaderView({
   _renderFlowPins() {
     if (this.engine || !this.file || !this.pager.flow) return;
     const flow = this.pager.flow;
+    const pins = this.plugin.getPins(this.file.path);
+    if (!pins.length && !flow.querySelector("[data-py-pin]")) return;
     unwrapAllPins(flow);
     const blocks = flow.querySelectorAll(READER_BLOCK_SELECTOR);
-    for (const pin of this.plugin.getPins(this.file.path)) {
+    for (const pin of pins) {
       if (!Number.isInteger(pin.block) || !pin.pinyin) continue;
       const anchor = resolveHighlightAnchor(blocks, pin, this.file.extension === "pdf");
       if (!anchor) continue;
@@ -1639,6 +1700,7 @@ export function createReaderView({
   // Shared tail of every highlight jump: repaint, persist the position, close.
   _commitSpreadJump(page, pages) {
     this.updateUI(page, pages);
+    this._readingAnchor = captureReadingAnchor(this.pager);
     if (this.file) this.plugin.saveProgress(this.file.path, page, pages, this.pager.currentBlockIndex());
     this.closePanel();
   }
@@ -1656,13 +1718,10 @@ export function createReaderView({
     const anchor = resolveHighlightAnchor(blocks, hl, this.file?.extension === "pdf");
     if (!anchor) {
       // 固定版式按需渲染:目标页的文本层可能已经被回收,锚点自然找不回来。
-      // PDF 的 block 与页一一对应(面板上的页码也是这么算的),照页跳过去,
-      // 别只弹「找不到这条划线」。
-      const page = this.file?.extension === "pdf"
-        ? (this._pdfLazy ? hl.block + 1 : pageForBlock(this.pager.flow, hl.block))
-        : 0;
-      if (page) {
-        const [current, pages] = this.pager.jumpTo(page - 1);
+      // PDF 的 block 与页一一对应(面板上的页码也是这么算的),按 block 找
+      // 所在 spread,别只弹「找不到这条划线」。
+      if (this.file?.extension === "pdf") {
+        const [current, pages] = this.pager.jumpTo(this.pager.spreadForBlock(hl.block));
         this._commitSpreadJump(current, pages);
         window.requestAnimationFrame(() => this._flashHighlightLater(id));
         return;

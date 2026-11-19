@@ -298,6 +298,33 @@ export function stripRepeatedLines(pages, { minPages = 0, minLength = 12, ratio 
     .join("\n"));
 }
 
+// 程序阅读/完善题的选项块:文字层通常保留着正确的代码符号（==、||、cmp()），
+// 而 MinerU 容易把这些符号识别成 ≡、θ、\mid 等“公式”。这种块直接按题号从
+// 文字层取整段，不再走公式保留逻辑；只对确实含代码符号的题生效。
+function textLayerOptionBlock(block, pageText) {
+  const full = blockFullText(block);
+  if (!/处应填|应填入|补全|填入/.test(full) || !/\$/.test(full)) return "";
+  const number = /^\s*(\d{1,3})\s*[.、．]/.exec(full)?.[1];
+  if (!number) return "";
+  const lines = String(pageText || "").split(/\r?\n/);
+  const numberRe = new RegExp(`^\\s*${number}\\s*[.、．]`);
+  const start = lines.findIndex((line) => numberRe.test(line));
+  if (start < 0) return "";
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (/^\s*\d{1,3}\s*[.、．]/.test(lines[index])) {
+      end = index;
+      break;
+    }
+  }
+  const text = lines.slice(start, end).join(" ").replace(/\s+/g, " ").trim();
+  // Only replace when the text layer actually looks like code; otherwise the
+  // normal merge/prose path is safer.
+  if (squashKey(text).length < 20) return "";
+  if (!/(?:==|!=|\|\||&&|>>|<<|\+\+|--|\b[A-Za-z_]\w*\s*[\[(])/.test(text)) return "";
+  return text;
+}
+
 // 块列表 → 合并后的块列表(只动 text / heading / 被判成 code 的正文;公式、图片、表格保持)。
 // 用整篇(清洗过的)文字层建一个索引:段落跨页也能定位,页码只决定搜索起点。
 export function mergeBlocksWithTextLayer(blocks, pages, { log = () => {} } = {}) {
@@ -324,6 +351,13 @@ export function mergeBlocksWithTextLayer(blocks, pages, { log = () => {} } = {})
     if (!mergeable) {
       out.push(block);
       continue;
+    }
+    if (type === "text") {
+      const optionText = textLayerOptionBlock(block, cleaned[page - 1]);
+      if (optionText) {
+        out.push({ ...block, text: optionText, content: undefined, caption: undefined });
+        continue;
+      }
     }
     const full = blockFullText(block);
     if (squashKey(full).length < MIN_ANCHOR) {

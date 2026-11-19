@@ -154,7 +154,7 @@ export function createAiRender({
 
   const AI_MARKDOWN_RENDER_INTERVAL_MS = 50;
 
-  function enhanceAiMarkdown(root) {
+  function enhanceAiMarkdown(root, owner = null) {
     for (const table of root.querySelectorAll("table")) {
       const parent = table.parentElement;
       if (parent?.classList.contains("table-wrapper")) {
@@ -175,6 +175,76 @@ export function createAiRender({
       image.loading = "lazy";
       image.decoding = "async";
     }
+    enhanceFollowUpQuestions(root, owner);
+  }
+
+  // The reader prompt asks for a short “值得追问” section. Turn each suggested
+  // question into a one-click prompt; the answer itself remains ordinary text.
+  function enhanceFollowUpQuestions(root, owner) {
+    if (typeof owner?._send !== "function") return;
+    const doc = root.ownerDocument;
+    const converted = new Set();
+    const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim();
+    const questionText = (item) => {
+      const clone = item.cloneNode(true);
+      for (const nested of clone.querySelectorAll("ul, ol")) nested.remove();
+      return normalize(clone.textContent)
+        .replace(/^(?:\d{1,2}[.、)]|[-*•])\s*/u, "")
+        .slice(0, 300);
+    };
+    const isLabel = (value) => {
+      const text = normalize(value).replace(/^(?:\d{1,2}[.、)]\s*)/u, "");
+      if (!text) return false;
+      if (/^(?:值得追问|值得继续追问)/u.test(text)) return text.length <= 160;
+      if (text.length > 80) return false;
+      return /worth (?:asking|exploring)|follow-up questions?|questions? to consider/i.test(text)
+        || /weiterführende fragen/i.test(text)
+        || /preguntas para (?:seguir|profundizar)/i.test(text)
+        || /questions? à approfondir/i.test(text)
+        || /さらに考える|이어서 생각해 볼|perguntas para continuar|вопросы для размышления/iu.test(text);
+    };
+    const listFor = (block) => {
+      if (block.tagName === "LI") {
+        const nested = block.querySelector(":scope > ul, :scope > ol");
+        if (nested) return null;
+        const siblings = [...(block.parentElement?.children || [])].filter((item) => item.tagName === "LI");
+        const index = siblings.indexOf(block);
+        return index >= 0 && index + 1 < siblings.length ? siblings.slice(index + 1) : [];
+      }
+      let next = block.nextElementSibling;
+      while (next && !normalize(next.textContent)) next = next.nextElementSibling;
+      return next && (next.tagName === "UL" || next.tagName === "OL")
+        ? [...next.children].filter((item) => item.tagName === "LI")
+        : [];
+    };
+    for (const block of root.querySelectorAll("h1,h2,h3,h4,h5,h6,p,li")) {
+      if (!isLabel(block.textContent)) continue;
+      const nested = block.tagName === "LI" ? block.querySelector(":scope > ul, :scope > ol") : null;
+      const items = nested ? [...nested.children].filter((item) => item.tagName === "LI") : listFor(block);
+      for (const item of items) {
+        if (converted.has(item)) continue;
+        const question = questionText(item);
+        if (!question) continue;
+        converted.add(item);
+        const button = doc.createElement("button");
+        button.type = "button";
+        button.className = "qiaomu-reader-ai-followup";
+        const icon = doc.createElement("span");
+        icon.className = "qiaomu-reader-ai-followup-icon";
+        icon.setAttribute("aria-hidden", "true");
+        svgIcon(icon, "send");
+        const text = doc.createElement("span");
+        text.className = "qiaomu-reader-ai-followup-text";
+        text.textContent = question;
+        button.append(icon, text);
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void owner._send(question);
+        });
+        item.replaceChildren(button);
+      }
+    }
   }
 
   async function renderAiMarkdown(owner, element, markdown, sourcePath = "") {
@@ -183,7 +253,7 @@ export function createAiRender({
     element.empty();
     try {
       await MarkdownRenderer.render(owner.app, String(markdown || ""), element, sourcePath, owner);
-      enhanceAiMarkdown(element);
+      enhanceAiMarkdown(element, owner);
     } catch (error) {
       console.error("UV Reader: Markdown rendering failed", error);
       element.addClass("qiaomu-reader-ai-markdown-fallback");
@@ -244,6 +314,22 @@ export function createAiRender({
     const meta = summary.createDiv("qiaomu-reader-ai-context-meta");
     const label = context.label || (isDocument ? translate("full-pdf") : context.kind === "page" ? translate("current-page") : translate("selection"));
     meta.createSpan({ text: [label, context.page, translate("0-characters", context.text.length)].filter(Boolean).join(" · ") });
+    const action = isDocument && typeof options.onUsePage === "function"
+      ? { key: "use-current-page-context", run: options.onUsePage }
+      : !isDocument && context.kind === "page" && typeof options.onUseFull === "function"
+        ? { key: "use-full-pdf-context", run: options.onUseFull }
+        : null;
+    if (action) {
+      const button = meta.createEl("button", { cls: "qiaomu-reader-ai-context-action", text: translate(action.key) });
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        action.run();
+      });
+    }
+    if (options.clearable && isDocument && context.text.length >= 100_000) {
+      summary.createDiv({ cls: "qiaomu-reader-ai-context-note", text: translate("long-context-warning") });
+    }
     if (expandable) {
       const toggle = meta.createSpan("qiaomu-reader-ai-context-toggle");
       svgIcon(toggle, "chevron-down");
@@ -315,10 +401,24 @@ export function createAiRender({
   };
 
   function contextualAiQuickPrompts(chat) {
-    // 文档工具 belongs to the reading companion. The study companion (quiz
-    // answer page) has no document shortcuts to discover, so keep its composer
-    // focused on the answer at hand.
-    return aiQuickPrompts().filter((item) => !(item.id === "document-tools" && chat?._isQuizContext?.()));
+    // The study companion has one action that is always tied to the question
+    // the reader is looking at, not to the reading-companion prompts.
+    if (chat?._isQuizContext?.()) {
+      const name = translate("analyze-current-question");
+      return [{ id: "quiz-current", name, prompt: name, action: "quiz-current" }];
+    }
+    // Reading-companion prompts stay unchanged for books and documents.
+    return aiQuickPrompts();
+  }
+
+  function runAiQuickPrompt(chat, item) {
+    if (!item || chat?.busy) return;
+    if (item.action === "quiz-current"
+      && typeof chat.readerView?._analyzeCurrentQuestion === "function") {
+      void chat.readerView._analyzeCurrentQuestion(chat);
+      return;
+    }
+    void chat._send(item.prompt);
   }
 
   function renderAiComposerPrompts(host, chat) {
@@ -336,7 +436,7 @@ export function createAiRender({
       const button = row.createEl("button", { cls: "qiaomu-reader-ai-composer-prompt", text: item.name });
       button.type = "button";
       button.addEventListener("click", () => {
-        if (!chat.busy) void chat._send(item.prompt);
+        runAiQuickPrompt(chat, item);
       });
       chat.quickPromptButtons.push(button);
     };
@@ -351,7 +451,7 @@ export function createAiRender({
         if (chat.busy) return;
         const menu = new Menu();
         for (const item of items.slice(visibleCount)) {
-          menu.addItem((entry) => entry.setTitle(item.name).onClick(() => { if (!chat.busy) void chat._send(item.prompt); }));
+          menu.addItem((entry) => entry.setTitle(item.name).onClick(() => { runAiQuickPrompt(chat, item); }));
         }
         menu.showAtMouseEvent(event);
       });
@@ -373,6 +473,11 @@ export function createAiRender({
     const choose = (item) => {
       if (!item || chat.busy) return;
       close();
+      if (item.action === "quiz-current"
+        && typeof chat.readerView?._analyzeCurrentQuestion === "function") {
+        void chat.readerView._analyzeCurrentQuestion(chat);
+        return;
+      }
       void chat.inputController.submit(item.prompt);
     };
     const draw = () => {
@@ -573,7 +678,8 @@ export function createAiRender({
     if (name === "get_book_outline") return "list";
     if (name === "list_highlights") return "highlighter";
     if (name === "get_reading_position") return "bookmark";
-    if (name === "search_books_online") return "globe";
+    if (name === "search_books_online" || name === "web_search") return "globe";
+    if (name === "read_url") return "file-text";
     if (name === "download_book") return "download";
     if (name === "get_workshop_options" || name === "prepare_workshop_task") return "layout-grid";
     if (name === "start_workshop_task") return "play";
@@ -770,6 +876,12 @@ export function createAiRender({
     }
     if (name === "search_book" && args.query) return `${translateFn(key)}：${String(args.query).slice(0, 20)}`;
     if (name === "search_books_online" && args.query) return `${translateFn(key)}：${String(args.query).slice(0, 20)}`;
+    if (name === "web_search" && args.query) return `${translateFn(key)}：${String(args.query).slice(0, 20)}`;
+    if (name === "read_url" && args.url) {
+      let host = String(args.url);
+      try { host = new URL(host).host; } catch { /* keep the raw value */ }
+      return `${translateFn(key)}：${host.slice(0, 32)}`;
+    }
     if (name === "download_book" && args.title) return `${translateFn(key)}：${String(args.title).slice(0, 20)}`;
     if (name === "prepare_workshop_task" && args.operation) return `${translateFn(key)}：${String(args.operation).slice(0, 20)}`;
     return translateFn(key);
@@ -791,7 +903,18 @@ export function createAiRender({
       chip.addEventListener("click", () => { if (owner) void jumpToAiLocation?.(owner, location); });
     }
     if (normalizeAiAttachments(turn?.attachments).length) renderAiAttachmentList(bubble, turn.attachments, { owner });
-    if (turn?.content) bubble.createDiv({ cls: "qiaomu-reader-ai-msg-text", text: turn.content });
+    if (turn?.content) {
+      const text = bubble.createDiv({ cls: "qiaomu-reader-ai-msg-text", text: turn.content });
+      // A pasted solution in the user's own message can contain $...$ / \[...\].
+      // Assistant turns already go through MarkdownRenderer; do the same for
+      // user turns that actually carry math, while leaving ordinary messages as
+      // plain text.
+      const value = String(turn.content || "");
+      if (owner?.app && /\$|\\\(|\\\[/.test(value)) {
+        void MarkdownRenderer.render(owner.app, value, text, owner.bookFile?.path || "", owner)
+          .catch(() => text.setText(value));
+      }
+    }
     return bubble;
   }
 

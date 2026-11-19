@@ -155,6 +155,34 @@ test("history is persisted, reloaded and capped", async () => {
   assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")).tasks, []);
 });
 
+test("remove deletes one finished task and persists the rest", async () => {
+  const { queue, file } = makeQueue({ quick: async () => ({ output: "x" }) });
+  const first = queue.start({ kind: "quick", title: "要删除" });
+  const second = queue.start({ kind: "quick", title: "保留" });
+  await waitForDone(queue, [first, second]);
+  assert.equal(queue.remove(first), true);
+  const tasks = queue.snapshot().tasks;
+  assert.equal(tasks.some((task) => task.id === first), false);
+  assert.equal(tasks.some((task) => task.id === second), true);
+  const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.equal(saved.tasks.some((task) => task.id === first), false);
+  assert.equal(saved.tasks.some((task) => task.id === second), true);
+  assert.equal(queue.remove(first), false, "removing twice is a no-op");
+});
+
+test("remove refuses a task that is still running", async () => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const { queue } = makeQueue({
+    slow: async () => { await gate; return {}; },
+  });
+  const id = queue.start({ kind: "slow", title: "运行中" });
+  assert.equal(queue.remove(id), false);
+  release();
+  await waitForDone(queue, [id]);
+  assert.equal(queue.remove(id), true);
+});
+
 test("task history keeps the document and source it belongs to, including retries", async () => {
   const { queue, file } = makeQueue({ quick: async () => ({ output: "x" }) });
   const id = queue.start({ kind: "quick", title: "转换", bookPath: "Books/a.pdf", source: "Books/a.pdf", origin: "assistant" });

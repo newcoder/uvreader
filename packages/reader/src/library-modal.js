@@ -517,6 +517,15 @@ export function createLibraryModal({
   async onOpen() { const { modalEl, contentEl } = this;
     const render = this._libraryRender = {};
     contentEl.empty();
+    if (!this._libCardClickBound) {
+      this._libCardClickBound = true;
+      contentEl.addEventListener("click", (event) => {
+        if (event.target?.closest?.(".qiaomu-reader-lib-card")) return;
+        for (const card of contentEl.querySelectorAll(".qiaomu-reader-lib-card.is-selected")) {
+          card.classList.remove("is-selected");
+        }
+      });
+    }
     // The stylesheet matches `.qiaomu-reader-modal-lib .modal`, so the marker
     // class must sit on the modal element itself, not only the outer container.
     this.containerEl.addClass("qiaomu-reader-modal-lib");
@@ -1417,14 +1426,22 @@ export function createLibraryModal({
       this.close();
       void this.plugin.openFile(file);
     };
+    const selectCard = () => {
+      for (const node of this.contentEl.querySelectorAll(".qiaomu-reader-lib-card.is-selected")) {
+        node.classList.remove("is-selected");
+      }
+      card.classList.add("is-selected");
+    };
     const bookMenu = this._libCardMenu(file); card.addEventListener("contextmenu", bookMenu);
     const menuBtn = cover.createEl("button", { cls: "qiaomu-reader-lib-morebtn", attr: { type: "button" } });
     menuBtn.setAttribute("aria-label", qiaomuReaderTranslate("book-actions"));
     svgIcon(menuBtn, "more");
     menuBtn.addEventListener("click", bookMenu);
-    card.addEventListener("click", ev => { if (!ev.target.closest("button")) openBook(); });
+    card.addEventListener("click", ev => { if (!ev.target.closest("button")) selectCard(); });
+    card.addEventListener("dblclick", ev => { if (!ev.target.closest("button")) openBook(); });
     card.addEventListener("keydown", ev => {
-      if (ev.target === card && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); openBook(); }
+      if (ev.target === card && ev.key === "Enter") { ev.preventDefault(); openBook(); }
+      else if (ev.target === card && ev.key === " ") { ev.preventDefault(); selectCard(); }
     });
   }
   async loadThumb(bookFile, coverEl, placeholder) {

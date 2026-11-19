@@ -3,12 +3,19 @@ import test from "node:test";
 
 import {
   applyTocOffset,
+  bestTocPageRange,
   buildTocExtractionMessages,
+  cleanTocLine,
   inferTocOffset,
+  inferTocOffsetFromFooters,
   mergeTocEntries,
   parseTocExtractionReply,
   parseTocText,
+  pdfTextLines,
+  repairTocTitles,
   tocCandidates,
+  tocPageRanges,
+  tocTextFromLines,
   validateTocEntries,
 } from "../packages/reader/src/pdf-toc.js";
 
@@ -38,6 +45,32 @@ test("candidate pages are ranked by the TOC heuristics", () => {
   assert.match(heading.reason, /leaders/);
 });
 
+test("a long TOC becomes one contiguous page range instead of four ranked pages", () => {
+  const candidates = [
+    { page: 10, score: 68 }, { page: 11, score: 68 }, { page: 12, score: 66 }, { page: 13, score: 66 },
+    { page: 4, score: 62 }, { page: 9, score: 62 }, { page: 5, score: 61 }, { page: 3, score: 60 },
+    { page: 6, score: 58 }, { page: 7, score: 61 }, { page: 8, score: 61 }, { page: 14, score: 66 },
+    { page: 15, score: 64 }, { page: 16, score: 61 }, { page: 17, score: 64 }, { page: 18, score: 60 },
+  ];
+  assert.deepEqual(tocPageRanges(candidates), [
+    { from: 3, to: 18, count: 16, score: 68, pages: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18] },
+  ]);
+  const separated = tocPageRanges([{ page: 6, score: 40 }, { page: 7, score: 40 }, { page: 12, score: 35 }, { page: 13, score: 35 }]);
+  assert.deepEqual(separated.map((range) => [range.from, range.to]), [[6, 7], [12, 13]]);
+});
+
+test("the best TOC range wins by score, not by the longest run", () => {
+  const candidates = [
+    { page: 3, score: 77 }, { page: 4, score: 77 }, { page: 5, score: 70 }, { page: 6, score: 70 },
+    { page: 7, score: 70 }, { page: 8, score: 70 }, { page: 9, score: 70 }, { page: 10, score: 70 },
+    { page: 11, score: 70 }, { page: 12, score: 70 }, { page: 13, score: 70 }, { page: 14, score: 70 },
+    { page: 15, score: 70 }, { page: 16, score: 70 }, { page: 17, score: 70 },
+    { page: 2177, score: 38 }, { page: 2178, score: 38 }, { page: 2179, score: 38 }, { page: 2180, score: 38 },
+  ];
+  const best = bestTocPageRange(candidates);
+  assert.deepEqual([best.from, best.to], [3, 17], "the index run is longer but scores lower");
+});
+
 test("printed lines parse into entries with single, dual and bracketed numbers", () => {
   const entries = parseTocText([
     "第一章 起点 ......... 1",
@@ -52,6 +85,48 @@ test("printed lines parse into entries with single, dual and bracketed numbers",
   assert.deepEqual(entries[3], { level: 1, title: "第二单元 定义新运算", page: 5, page2: 85 });
   assert.equal(entries[4].level, 2, "bracketed numbering is a sub-level");
   assert.equal(entries.every((entry) => !entry.title.includes("…")), true, "leaders are stripped");
+});
+
+test("a formula split across two TOC lines keeps the full title", () => {
+  const entries = parseTocText([
+    "3.2 Vector Spaces . . . . . . 61",
+    "3.3 Indexed Families; the Sum Notation ∑",
+    "i∈I ai . . . . . . . . . . . . 64",
+    "3.4 Linear Independence, Subspaces . . . . . . 70",
+  ].join("\n"));
+  assert.equal(entries[1].title, "3.3 Indexed Families; the Sum Notation ∑ i∈I ai");
+  assert.equal(entries[1].page, 64);
+  assert.equal(entries[2].title, "3.4 Linear Independence, Subspaces");
+});
+
+test("a formula-only AI title is repaired from the text-layer entry on the same page", () => {
+  const repaired = repairTocTitles([
+    { level: 1, title: "i∈I ai", page: 64 },
+    { level: 1, title: "Vector Spaces", page: 61 },
+    { level: 1, title: "Index", page: 2177 },
+  ], [
+    { level: 1, title: "3.3 Indexed Families; the Sum Notation ∑ i∈I ai", page: 64 },
+    { level: 1, title: "3.2 Vector Spaces", page: 61 },
+  ]);
+  assert.equal(repaired[0].title, "3.3 Indexed Families; the Sum Notation ∑ i∈I ai");
+  assert.equal(repaired[1].title, "3.2 Vector Spaces");
+  assert.equal(repaired[2].title, "Index");
+});
+
+test("spaced dot leaders and running page headers are stripped from printed rows", () => {
+  assert.equal(cleanTocLine("1 Introduction . . . . . . . 19"), "1 Introduction 19");
+  const entries = parseTocText([
+    "Contents Contents 3",
+    "1 Introduction . . . . . . 19",
+    "4 CONTENTS 5.1 Introduction . . . . . 143",
+    "18 CONTENTS",
+    "2 Groups, Rings, and Fields . . . . 21",
+  ].join("\n"));
+  assert.deepEqual(entries, [
+    { level: 1, title: "1 Introduction", page: 19, page2: null },
+    { level: 2, title: "5.1 Introduction", page: 143, page2: null },
+    { level: 1, title: "2 Groups, Rings, and Fields", page: 21, page2: null },
+  ]);
 });
 
 test("the offset is inferred from outline anchors by majority", () => {
@@ -151,4 +226,49 @@ test("model replies parse out of fences and drop unusable rows", () => {
   assert.match(roles[0].content, /只输出/);
   assert.match(roles[1].content, /第 6 页/);
   assert.deepEqual(buildTocExtractionMessages([]), []);
+});
+
+
+test("positioned text lines keep two columns apart and merge title/page rows", () => {
+  const item = (str, x, y, width = 30) => ({
+    str,
+    transform: [10, 0, 0, 10, x, y],
+    width,
+    height: 10,
+  });
+  const items = [
+    item("图解 纳兰词", 50, 760, 100),
+    item("左一", 50, 700),
+    item("1", 170, 700, 10),
+    item("右一", 350, 700),
+    item("37", 470, 700, 10),
+    item("左二", 50, 680),
+    item("5", 170, 680, 10),
+    item("右二", 350, 680),
+    item("43", 470, 680, 10),
+  ];
+  const lines = pdfTextLines(items, { pageWidth: 600 });
+  const text = tocTextFromLines(lines, { pageWidth: 600 });
+  assert.equal(text, ["左一 1", "左二 5", "右一 37", "右二 43"].join("\n"));
+});
+
+test("footer page numbers infer a printed→PDF offset without an outline", () => {
+  const pages = [
+    { page: 11, text: "正文第一页\n1" },
+    { page: 12, text: "正文第二页\n2" },
+    { page: 13, text: "正文第三页\n3" },
+    { page: 20, text: "正文第十页\n10" },
+  ];
+  assert.deepEqual(inferTocOffsetFromFooters(pages, { tocPages: [7, 8, 9, 10] }), {
+    offset: 10, agree: 4, total: 4,
+  });
+  assert.equal(inferTocOffsetFromFooters(pages.slice(0, 2), { tocPages: [] }), null);
+});
+
+
+test("a merged two-column row is split into left and right entries", () => {
+  const text = tocTextFromLines([
+    { text: "Left title / 1 Right title / 37", x0: 50, x1: 560, y: 700 },
+  ], { pageWidth: 600 });
+  assert.equal(text, ["Left title / 1", "Right title / 37"].join("\n"));
 });

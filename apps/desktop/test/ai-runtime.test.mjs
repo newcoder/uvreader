@@ -295,5 +295,21 @@ test("provider construction keeps the request shape stable", () => {
   assert.equal(buildPiModel({ id: "deepseek", model: "deepseek-chat", base: "https://api.deepseek.com", thinking: false, supportsThinking: true }).reasoning, true);
   // Local models that do not declare thinking support must not advertise it.
   assert.equal(buildPiModel({ id: "ollama", model: "hy-mt2", base: "http://localhost:11434/v1", thinking: true }).reasoning, false);
-  assert.equal(buildPiModel({ id: "x", model: "m", base: "b" }, { connectionTest: true }).maxTokens, 16);
+  // OpenCode Go routes by a session header; a missing one is a hard 400.
+  const opencode = buildPiModel({ id: "opencode-go", model: "deepseek-v4.1-flash", base: "https://opencode.ai/inference/go/openai/v1" }, { sessionKey: "chat-1" });
+  assert.equal(opencode.headers["x-opencode-session"], "chat-1");
+  assert.equal(buildPiModel({ id: "opencode-go", model: "m", base: "b" }).headers["x-opencode-session"], "uvreader");
+  const opencodeThinking = buildPiModel({
+    id: "opencode-go",
+    model: "deepseek-v4.1-flash",
+    base: "https://opencode.ai/inference/go/openai/v1",
+    supportsThinking: true,
+    thinkingLevelMap: { off: "none", medium: "high" },
+  });
+  assert.equal(opencodeThinking.reasoning, true);
+  assert.deepEqual(opencodeThinking.thinkingLevelMap, { off: "none", medium: "high" });
+  assert.equal(buildPiModel({ id: "openai", model: "m", base: "b" }).headers, undefined);
+  // Reasoning models can use the whole budget on hidden reasoning, so a
+  // connection check keeps room for a short visible answer.
+  assert.equal(buildPiModel({ id: "x", model: "m", base: "b" }, { connectionTest: true }).maxTokens, 512);
 });

@@ -39,7 +39,7 @@ function setup(overrides = {}) {
     createPdfZoomSettings() {},
     READER_THEME_CHOICES,
     readerThemeLabel: (id) => id,
-    selectedReaderTheme: () => "auto",
+    selectedReaderTheme: () => "paper",
     setReaderTheme: (settings, id) => { settings.theme = id; },
     qiaomuReaderReaderFonts: () => [],
     qiaomuReaderFontLabel: (font) => font.id,

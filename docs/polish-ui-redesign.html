@@ -1,0 +1,1060 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>精修界面重设计 · 静态示意</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #1e1e1e;
+    --bg-2: #252526;
+    --bg-3: #2d2d30;
+    --bg-4: #333336;
+    --border: #3b3b3d;
+    --border-soft: #323234;
+    --text: #d7d7d7;
+    --muted: #a0a0a0;
+    --faint: #707070;
+    --accent: #8aa9ff;
+    --accent-bg: rgba(138, 169, 255, .13);
+    --warn: #d7ba7d;
+    --error: #f48771;
+    --green: #89d185;
+    --editor: "Cascadia Mono", "Consolas", "SFMono-Regular", monospace;
+    --serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif;
+    --ui: "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--ui);
+    font-size: 13px;
+    overflow: hidden;
+  }
+  button, input { font: inherit; color: inherit; }
+  button {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 5px 9px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:hover { background: rgba(255, 255, 255, .06); }
+  button.cta {
+    background: var(--accent);
+    color: #11141d;
+    font-weight: 600;
+    border-color: transparent;
+  }
+  button.cta:hover { background: #a6bdff; }
+  .app {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    min-width: 760px;
+  }
+  /* ── 顶栏 ─────────────────────────────────────────── */
+  .topbar {
+    flex: none;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-2);
+  }
+  .title { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
+  .title b { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .title span { color: var(--faint); font-size: 11px; white-space: nowrap; }
+  .design-pill {
+    flex: none;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: rgba(215, 186, 125, .12);
+    color: var(--warn);
+    font-size: 10px;
+    letter-spacing: .03em;
+  }
+  .save { margin-left: auto; color: var(--faint); font-size: 11px; white-space: nowrap; }
+  .top-actions { display: flex; align-items: center; gap: 5px; }
+  .check-button {
+    border-color: var(--border);
+    background: var(--bg-3);
+  }
+  .check-button .badge {
+    display: inline-block;
+    margin-left: 6px;
+    min-width: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--accent-bg);
+    color: var(--accent);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  .icon-button { width: 30px; padding: 5px 0; text-align: center; color: var(--muted); }
+  .toc-toggle { margin-right: 2px; }
+  /* ── 左侧目录 / 全书概览 ───────────────────────────── */
+  .workspace {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    position: relative;
+  }
+  .main-col {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .toc {
+    flex: 0 0 252px;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-2);
+    border-right: 1px solid var(--border);
+    overflow: hidden;
+    transition: flex-basis .16s ease;
+  }
+  .toc.is-collapsed { flex-basis: 48px; }
+  .toc-expanded {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .toc.is-collapsed .toc-expanded { display: none; }
+  .toc-head {
+    flex: none;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 13px 10px 7px 13px;
+  }
+  .toc-kicker {
+    color: var(--faint);
+    font-size: 10px;
+    letter-spacing: .08em;
+  }
+  .toc-title {
+    margin-top: 3px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+  }
+  .toc-collapse {
+    margin-left: auto;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .toc-head-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+  .toc-info { width: 24px; height: 24px; padding: 0; color: var(--muted); font-size: 13px; }
+  .toc-overview {
+    flex: none;
+    padding: 5px 13px 12px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .toc-stat { display: flex; align-items: baseline; gap: 5px; color: var(--muted); font-size: 11px; }
+  .toc-stat b { font-size: 19px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+  .toc-progress {
+    height: 4px;
+    margin: 8px 0 7px;
+    border-radius: 999px;
+    background: var(--bg-4);
+    overflow: hidden;
+  }
+  .toc-progress i { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+  .toc-meta { color: var(--faint); font-size: 10px; line-height: 1.7; }
+  .toc-section-title {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 11px 13px 5px;
+    color: var(--faint);
+    font-size: 10px;
+    letter-spacing: .08em;
+  }
+  .toc-live {
+    margin-left: 5px;
+    padding: 1px 5px;
+    border-radius: 999px;
+    background: rgba(137, 209, 133, .1);
+    color: var(--green);
+    font-size: 9px;
+    letter-spacing: 0;
+  }
+  .toc-depth {
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--muted);
+    border-radius: 4px;
+    font-size: 10px;
+    padding: 2px 4px;
+    outline: none;
+  }
+  .toc-child { padding-left: 22px; color: var(--faint); }
+  .toc-child .toc-name { font-size: 11px; }
+  .toc-child-2 { padding-left: 38px; }
+  .toc-child.is-active { color: var(--text); background: rgba(138, 169, 255, .08); border-left-color: transparent; }
+  .toc-list {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 0 7px 18px;
+  }
+  .toc-row {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 8px;
+    margin-bottom: 1px;
+    border-left: 2px solid transparent;
+    border-radius: 5px;
+    color: var(--muted);
+    text-align: left;
+  }
+  .toc-row:hover { background: rgba(255, 255, 255, .045); color: var(--text); }
+  .toc-row.is-active { background: var(--accent-bg); color: var(--text); border-left-color: var(--accent); }
+  .toc-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+  .toc-count { color: var(--faint); font-size: 10px; font-variant-numeric: tabular-nums; }
+  .toc-row.is-active .toc-count { color: var(--accent); }
+  .toc-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--warn); flex: none; }
+  .toc-rail {
+    display: none;
+    flex: 1;
+    min-height: 0;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 8px 0 12px;
+    overflow: auto;
+  }
+  .toc.is-collapsed .toc-rail { display: flex; }
+  .rail-expand {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .rail-book { color: var(--faint); font-size: 10px; margin: 5px 0 7px; }
+  .rail-item {
+    width: 28px;
+    height: 25px;
+    padding: 0;
+    border-radius: 5px;
+    color: var(--faint);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+  .rail-item:hover { color: var(--text); background: rgba(255, 255, 255, .05); }
+  .rail-item.is-active { color: var(--accent); background: var(--accent-bg); }
+  /* ── 编辑工具栏 ───────────────────────────────────── */
+  .toolbar {
+    flex: none;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg);
+    color: var(--muted);
+  }
+  .toolbar .divider { width: 1px; height: 16px; background: var(--border); margin: 0 5px; }
+  .toolbar .spacer { flex: 1; }
+  .toolbar .chapter { color: var(--faint); font-size: 11px; white-space: nowrap; }
+  .toolbar button { color: var(--text); padding: 4px 8px; }
+  .toolbar button.ghost { color: var(--muted); }
+  /* ── 主区域 ───────────────────────────────────────── */
+  .main {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(340px, .95fr);
+  }
+  /* 编辑器 */
+  .editor {
+    min-width: 0;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr);
+    overflow: hidden;
+    background: #1b1b1b;
+    border-right: 1px solid var(--border);
+  }
+  .gutter {
+    padding: 18px 10px 24px 0;
+    text-align: right;
+    color: #5b5b5b;
+    font: 12px/1.9 var(--editor);
+    user-select: none;
+    background: #191919;
+    border-right: 1px solid #2b2b2b;
+  }
+  .gutter div.active { color: #c8c8c8; }
+  .code {
+    overflow: auto;
+    padding: 18px 24px 40px 18px;
+    font: 13px/1.9 var(--editor);
+    tab-size: 2;
+  }
+  .code .h1 { color: #e6e6e6; font-weight: 700; }
+  .code .h2 { color: #dcdcaa; font-weight: 600; }
+  .code .muted { color: #6f6f6f; }
+  .code .marker {
+    display: inline-block;
+    margin: 0 1px;
+    padding: 0 3px;
+    border-radius: 3px;
+    background: rgba(138, 169, 255, .08);
+    color: #9fb4ff;
+    font: 10px/1.5 var(--ui);
+    vertical-align: super;
+    cursor: pointer;
+  }
+  .code .marker:hover { background: rgba(138, 169, 255, .22); }
+  .code .cursor-line { background: rgba(255, 255, 255, .035); display: block; margin: 0 -24px 0 -18px; padding: 0 24px 0 18px; }
+  .code .caret { display: inline-block; width: 1px; height: 16px; margin: 0 -1px; background: var(--accent); vertical-align: -3px; animation: blink 1.1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  /* 右侧面板 */
+  .side {
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-2);
+  }
+  .side-tabs {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 7px 10px 0;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .side-tab {
+    padding: 7px 12px 8px;
+    color: var(--muted);
+    border-bottom: 2px solid transparent;
+    border-radius: 5px 5px 0 0;
+  }
+  .side-tab.is-active { color: var(--text); border-bottom-color: var(--accent); background: rgba(255, 255, 255, .025); }
+  .side-tab .badge { margin-left: 5px; color: var(--accent); font-size: 10px; }
+  .side-back { display: none; color: var(--muted); font-size: 11px; }
+  .side-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+  /* 预览 */
+  .preview {
+    overflow: auto;
+    padding: 32px 38px 60px;
+    font-family: var(--serif);
+    font-size: 16px;
+    line-height: 1.9;
+    color: #cfcfcf;
+  }
+  .preview h1 { font-size: 22px; margin: 0 0 22px; letter-spacing: .04em; }
+  .preview h2 { font-size: 17px; margin: 28px 0 12px; color: #e3e3e3; }
+  .preview p { margin: 0 0 14px; text-indent: 2em; }
+  .preview sup { font-size: 10px; color: var(--accent); vertical-align: super; }
+  .preview .note-block {
+    margin-top: 34px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--muted);
+  }
+  /* 检查面板 */
+  .inspect { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+  .inspect-head { flex: none; padding: 10px 12px 0; }
+  .inspect-title { display: flex; align-items: center; gap: 8px; }
+  .inspect-title b { font-size: 13px; }
+  .inspect-title button { margin-left: auto; color: var(--muted); font-size: 11px; }
+  .sub-tabs { display: flex; gap: 4px; margin: 9px 0 8px; }
+  .sub-tab { padding: 4px 9px; color: var(--muted); font-size: 11px; border: 1px solid transparent; }
+  .sub-tab.is-active { color: var(--text); border-color: var(--border); background: var(--bg-3); }
+  .sub-tab .count { color: var(--faint); margin-left: 4px; }
+  .search { width: 100%; padding: 6px 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); outline: none; font-size: 12px; }
+  .search:focus { border-color: var(--accent); }
+  .filters { display: flex; gap: 4px; margin: 8px 0 9px; }
+  .filter { padding: 3px 8px; border-radius: 999px; color: var(--muted); font-size: 11px; border: 1px solid var(--border); }
+  .filter.is-active { color: var(--text); background: var(--bg-4); border-color: var(--border); }
+  .list { flex: 1; min-height: 0; overflow: auto; padding: 0 8px 10px; }
+  .row {
+    width: 100%;
+    display: block;
+    text-align: left;
+    padding: 8px 9px;
+    margin-bottom: 2px;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    cursor: pointer;
+  }
+  .row:hover { background: rgba(255, 255, 255, .04); }
+  .row.is-selected { background: var(--accent-bg); border-color: rgba(138, 169, 255, .28); }
+  .row-top { display: flex; align-items: center; gap: 7px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); flex: none; }
+  .dot.green { background: var(--green); }
+  .dot.error { background: var(--error); }
+  .row-title { font-size: 12px; line-height: 1.45; }
+  .row-meta { margin-top: 3px; color: var(--faint); font-size: 10px; }
+  .note-row .row-title { font-size: 12px; }
+  .note-row .note-text { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; margin-top: 2px; }
+  .detail {
+    flex: none;
+    max-height: 46%;
+    overflow: auto;
+    padding: 12px 13px 14px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-3);
+  }
+  .detail h4 { margin: 0 0 6px; font-size: 13px; }
+  .detail p { margin: 0 0 8px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+  .detail .suggest { color: var(--text); background: rgba(138, 169, 255, .08); padding: 6px 8px; border-radius: 6px; border-left: 2px solid var(--accent); }
+  .detail .actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+  .detail .actions button { border-color: var(--border); background: var(--bg-2); font-size: 11px; }
+  .detail .actions button.primary { background: var(--accent); color: #11141d; border-color: transparent; font-weight: 600; }
+  .hidden { display: none !important; }
+  /* ── 书籍信息弹窗 ─────────────────────────────────── */
+  .book-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, .58);
+    padding: 24px;
+  }
+  .book-dialog {
+    width: min(780px, 94vw);
+    max-height: 88vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 26px 90px rgba(0, 0, 0, .55);
+  }
+  .book-dialog-head {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 13px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .book-dialog-head b { font-size: 14px; }
+  .book-dialog-head .close { margin-left: auto; color: var(--muted); font-size: 18px; }
+  .book-tabs { flex: none; display: flex; gap: 4px; padding: 10px 16px 0; border-bottom: 1px solid var(--border-soft); }
+  .book-tab {
+    padding: 7px 12px 8px;
+    color: var(--muted);
+    border-bottom: 2px solid transparent;
+    border-radius: 5px 5px 0 0;
+    font-size: 12px;
+  }
+  .book-tab.is-active { color: var(--text); border-bottom-color: var(--accent); background: rgba(255, 255, 255, .025); }
+  .book-body { flex: 1; min-height: 0; overflow: auto; padding: 18px 20px 20px; }
+  .book-pane { display: flex; gap: 24px; align-items: flex-start; }
+  .cover-preview { flex: 0 0 196px; display: flex; flex-direction: column; gap: 9px; }
+  .cover-art {
+    width: 196px;
+    aspect-ratio: 2 / 2.9;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 18px 16px;
+    border-radius: 5px;
+    color: #2c241d;
+    background:
+      radial-gradient(circle at 78% 8%, rgba(255, 255, 255, .55), transparent 28%),
+      linear-gradient(155deg, #d8c7ae 0%, #b89d7c 48%, #8c6f52 100%);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, .28);
+  }
+  .cover-kicker { font-size: 8px; letter-spacing: .22em; color: rgba(44, 36, 29, .65); }
+  .cover-title { font-family: var(--serif); font-size: 26px; font-weight: 700; letter-spacing: .08em; }
+  .cover-sub { font-family: var(--serif); font-size: 11px; line-height: 1.5; color: rgba(44, 36, 29, .8); }
+  .cover-author { font-size: 10px; color: rgba(44, 36, 29, .72); }
+  .cover-change { border-color: var(--border); background: var(--bg-3); font-size: 11px; }
+  .book-form { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field > label { color: var(--muted); font-size: 11px; }
+  .field input, .field select {
+    width: 100%;
+    padding: 7px 9px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    outline: none;
+  }
+  .field input:focus, .field select:focus { border-color: var(--accent); }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .field-note { color: var(--faint); font-size: 10px; line-height: 1.6; }
+  .book-dialog-foot {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 16px;
+    border-top: 1px solid var(--border);
+  }
+  .book-dialog-foot .hint { margin-right: auto; color: var(--faint); font-size: 10px; }
+  .book-dialog-foot .primary { background: var(--accent); color: #11141d; font-weight: 600; }
+  /* ── 状态栏 ───────────────────────────────────────── */
+  .statusbar {
+    flex: none;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 0 14px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-2);
+    color: var(--faint);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  .statusbar .ok { color: var(--green); }
+  .statusbar .right { margin-left: auto; }
+  /* 窄屏 */
+  @media (max-width: 1180px) {
+    .toc { flex-basis: 224px; }
+  }
+  @media (max-width: 980px) {
+    .app { min-width: 0; }
+    .toc {
+      position: absolute;
+      z-index: 12;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      flex-basis: 252px !important;
+      width: 252px;
+      transform: translateX(-100%);
+      transition: transform .16s ease;
+      box-shadow: 12px 0 32px rgba(0, 0, 0, .38);
+    }
+    .toc.is-open { transform: none; }
+    .toc.is-collapsed { flex-basis: 252px !important; }
+    .toc.is-collapsed .toc-expanded { display: flex; }
+    .toc.is-collapsed .toc-rail { display: none; }
+    .toc-rail { display: none !important; }
+    .main { grid-template-columns: 1fr; }
+    .editor { border-right: 0; }
+    .side { display: none; }
+    .main.show-side .editor { display: none; }
+    .main.show-side .side { display: flex; }
+    .toolbar .chapter { display: none; }
+    .side-back { display: inline-flex; }
+    .filters .filter:nth-child(n+3) { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <button class="icon-button toc-toggle" id="toggleToc" title="收起或展开目录" aria-label="收起或展开目录">☰</button>
+    <div class="title">
+      <b>王氏之死</b>
+      <span>整本书 Markdown</span>
+      <span class="design-pill">设计示意</span>
+    </div>
+    <span class="save">已保存 15:24</span>
+    <div class="top-actions">
+      <button class="check-button" id="openInspect">检查<span class="badge">94</span></button>
+      <button>更多</button>
+      <button class="cta">生成精修版本</button>
+      <button class="icon-button" title="关闭">×</button>
+    </div>
+  </header>
+
+  <div class="workspace">
+    <aside class="toc" id="toc" aria-label="目录与全书概览">
+      <div class="toc-expanded">
+        <div class="toc-head">
+          <div>
+            <div class="toc-kicker">全书概览</div>
+            <div class="toc-title">9 章 · 199 注文</div>
+          </div>
+          <div class="toc-head-actions">
+            <button class="toc-info" id="openBookInfo" title="书籍信息" aria-label="书籍信息">⚙</button>
+            <button class="toc-collapse" id="collapseToc" title="收起目录" aria-label="收起目录">«</button>
+          </div>
+        </div>
+        <div class="toc-overview">
+          <div class="toc-stat"><b>105</b><span>/ 199 注文已链接</span></div>
+          <div class="toc-progress"><i style="width:53%"></i></div>
+          <div class="toc-meta">待确认 94 · 标记 109 · 目录 0</div>
+        </div>
+        <div class="toc-section-title">
+          <span>目录 <span class="toc-live">实时</span></span>
+          <select class="toc-depth" id="tocDepth" aria-label="目录显示层级">
+            <option value="1">只看章</option>
+            <option value="2" selected>章 + 节</option>
+            <option value="3">全部</option>
+          </select>
+        </div>
+        <div class="toc-list" id="tocList">
+          <button class="toc-row" data-chapter="前言" data-level="1"><span class="toc-name">前言</span><span class="toc-count">5</span></button>
+          <button class="toc-row is-active" data-chapter="第一章 观察者" data-level="1"><span class="toc-name">第一章 观察者</span><span class="toc-count">52</span><span class="toc-dot"></span></button>
+          <button class="toc-row toc-child" data-chapter="第一章 观察者" data-level="2" data-title="第一章 观察者 · 地震"><span class="toc-name">地震</span></button>
+          <button class="toc-row toc-child toc-child-2" data-chapter="第一章 观察者" data-level="3" data-title="第一章 观察者 · 地震 · 城墙"><span class="toc-name">城墙</span></button>
+          <button class="toc-row" data-chapter="第二章 土地" data-level="1"><span class="toc-name">第二章 土地</span><span class="toc-count">39</span><span class="toc-dot"></span></button>
+          <button class="toc-row" data-chapter="第三 寡妇" data-level="1"><span class="toc-name">第三 寡妇</span><span class="toc-count">19</span></button>
+          <button class="toc-row" data-chapter="第四 争斗" data-level="1"><span class="toc-name">第四 争斗</span><span class="toc-count">18</span></button>
+          <button class="toc-row" data-chapter="第五 私奔的女人" data-level="1"><span class="toc-name">第五 私奔的女人</span><span class="toc-count">58</span></button>
+          <button class="toc-row" data-chapter="结局 审判" data-level="1"><span class="toc-name">结局 审判</span><span class="toc-count">8</span></button>
+          <button class="toc-row" data-chapter="注释" data-level="1"><span class="toc-name">注释</span><span class="toc-count">199</span></button>
+          <button class="toc-row" data-chapter="参考书目" data-level="1"><span class="toc-name">参考书目</span></button>
+        </div>
+      </div>
+      <div class="toc-rail" aria-label="目录快捷跳转">
+        <button class="rail-expand" id="expandToc" title="展开目录" aria-label="展开目录">»</button>
+        <div class="rail-book">书</div>
+        <button class="rail-item" data-chapter="前言">01</button>
+        <button class="rail-item is-active" data-chapter="第一章 观察者">02</button>
+        <button class="rail-item" data-chapter="第二章 土地">03</button>
+        <button class="rail-item" data-chapter="第三 寡妇">04</button>
+        <button class="rail-item" data-chapter="第四 争斗">05</button>
+        <button class="rail-item" data-chapter="第五 私奔的女人">06</button>
+        <button class="rail-item" data-chapter="结局 审判">07</button>
+        <button class="rail-item" data-chapter="注释">08</button>
+        <button class="rail-item" data-chapter="参考书目">09</button>
+      </div>
+    </aside>
+    <div class="main-col">
+  <div class="toolbar">
+    <button>补号</button>
+    <button>加标注</button>
+    <button>删标注</button>
+    <span class="divider"></span>
+    <button class="ghost">重新生成正文标记</button>
+    <span class="divider"></span>
+    <button class="ghost" id="toggleComments">显示定位注释</button>
+    <span class="spacer"></span>
+    <span class="chapter">第 2 章 · 12,340 字</span>
+  </div>
+
+  <main class="main" id="main">
+    <section class="editor" aria-label="Markdown 编辑器">
+      <div class="gutter">
+        <div>1</div><div>2</div><div>3</div><div>4</div><div class="active">5</div><div>6</div><div>7</div>
+        <div>8</div><div>9</div><div>10</div><div>11</div><div>12</div><div>13</div><div>14</div>
+        <div>15</div><div>16</div><div>17</div><div>18</div><div>19</div><div>20</div><div>21</div>
+        <div>22</div><div>23</div><div>24</div><div>25</div><div>26</div><div>27</div><div>28</div>
+      </div>
+      <div class="code">
+        <span class="h1"># 王氏之死</span><br />
+        <br />
+        <span class="h2">## 第一章 观察者</span><br />
+        <br />
+        1673 年 7 月 25 日，郯城一带发生地震。当天晚上，一场地震<span class="marker">1</span> 震撼了郯城。<br />
+        <br />
+        从一块刻着二百九十二位 1641 年郯城保卫者名字的墓碑上，某种程度上可知郯城县较有影响的人物那时是怎样涌入城内寻求自保的<span class="marker">10</span>。<br />
+        <br />
+        <span class="cursor-line">这批人和其他不知名的郯城人经过 4 月 15 日上午的战斗打退了盗匪<span class="caret"></span>，最后把他们赶跑了。</span><br />
+        <br />
+        盗匪的军队最后放弃了对主要县城的进攻，到郊区进行骚扰，然后向南朝红花埠驿站和集镇而去<span class="marker">6</span>。<br />
+        <br />
+        <span class="h2">## 第二章 土地</span><br />
+        <br />
+        1671 年冬，郯城下了一场异常大的雪。黄六鸿骑马出去查看田地，发现河上结了厚厚的冰<span class="marker">1</span>。<br />
+        <br />
+        郯城是一个农业县，没有什么手工业。《郯城县志》列出了当地生产的三种棉丝混合布<span class="marker">2</span>。<br />
+      </div>
+    </section>
+
+    <aside class="side" aria-label="预览与检查">
+      <div class="side-tabs">
+        <button class="side-back" id="backToEditor">← 编辑</button>
+        <button class="side-tab is-active" data-pane="preview">预览</button>
+        <button class="side-tab" data-pane="inspect">检查 <span class="badge">94</span></button>
+      </div>
+      <div class="side-body">
+        <div class="preview" id="previewPane">
+          <h1>第一章 观察者</h1>
+          <p>1673 年 7 月 25 日，郯城一带发生地震。当天晚上，一场地震<sup>1</sup> 震撼了郯城。</p>
+          <p>从一块刻着二百九十二位 1641 年郯城保卫者名字的墓碑上，某种程度上可知郯城县较有影响的人物那时是怎样涌入城内寻求自保的<sup>10</sup>。</p>
+          <p>这批人和其他不知名的郯城人经过 4 月 15 日上午的战斗打退了盗匪，最后把他们赶跑了。</p>
+          <p>盗匪的军队最后放弃了对主要县城的进攻，到郊区进行骚扰，然后向南朝红花埠驿站和集镇而去<sup>6</sup>。</p>
+          <h2>第二章 土地</h2>
+          <p>1671 年冬，郯城下了一场异常大的雪。黄六鸿骑马出去查看田地，发现河上结了厚厚的冰<sup>1</sup>。</p>
+          <div class="note-block">
+            <b>注文</b><br />
+            1、雪：冯，卷 3，页 85。黄六鸿的马：黄，卷 1，页 8a。<br />
+            10、墓碑名单见《郯城县志》卷 9。
+          </div>
+        </div>
+
+        <div class="inspect hidden" id="inspectPane">
+          <div class="inspect-head">
+            <div class="inspect-title">
+              <b>检查</b>
+              <button>重新检查</button>
+            </div>
+            <div class="sub-tabs">
+              <button class="sub-tab is-active" data-subpane="points">修正点 <span class="count">94</span></button>
+              <button class="sub-tab" data-subpane="notes">注文 <span class="count">199</span></button>
+              <button class="sub-tab" data-subpane="toc">目录 <span class="count">0</span></button>
+            </div>
+            <input class="search" placeholder="搜索注号、页码或注文…" />
+            <div class="filters" data-filter-group="points">
+              <button class="filter is-active">待确认 94</button>
+              <button class="filter">全部</button>
+              <button class="filter">已处理</button>
+            </div>
+            <div class="filters hidden" data-filter-group="notes">
+              <button class="filter is-active">全部 199</button>
+              <button class="filter">未链接 94</button>
+              <button class="filter">已链接 105</button>
+            </div>
+            <div class="filters hidden" data-filter-group="toc">
+              <button class="filter is-active">全部问题 0</button>
+            </div>
+          </div>
+
+          <div class="list" id="pointList">
+            <button class="row is-selected">
+              <div class="row-top"><span class="dot"></span><span class="row-title">第一章 观察者：注号 26 没有对应的正文标记</span></div>
+              <div class="row-meta">注释 · 待确认 · 注文在“第一章: 观察者”</div>
+            </button>
+            <button class="row">
+              <div class="row-top"><span class="dot"></span><span class="row-title">第一章 观察者：注号 27 没有对应的正文标记</span></div>
+              <div class="row-meta">注释 · 待确认 · 注文在“第一章: 观察者”</div>
+            </button>
+            <button class="row">
+              <div class="row-top"><span class="dot"></span><span class="row-title">第二章 土地：注号 19 没有对应的正文标记</span></div>
+              <div class="row-meta">注释 · 待确认 · 注文在“第二章: 土地”</div>
+            </button>
+            <button class="row">
+              <div class="row-top"><span class="dot error"></span><span class="row-title">注号 46 与注文文本 47 不一致</span></div>
+              <div class="row-meta">注释 · 待确认</div>
+            </button>
+            <button class="row">
+              <div class="row-top"><span class="dot green"></span><span class="row-title">注号 1 已与正文标记关联</span></div>
+              <div class="row-meta">已处理</div>
+            </button>
+          </div>
+
+          <div class="list hidden" id="noteList">
+            <button class="row note-row">
+              <div class="row-top"><span class="dot"></span><span class="row-title">注号 26</span></div>
+              <div class="note-text">又，见《邵武府志》卷 6，页 6b，以及他的传记。</div>
+              <div class="row-meta">第一章 观察者 · 未链接</div>
+            </button>
+            <button class="row note-row">
+              <div class="row-top"><span class="dot"></span><span class="row-title">注号 27</span></div>
+              <div class="note-text">由于冯，卷 1，页 12；卷 4，页 8。</div>
+              <div class="row-meta">第一章 观察者 · 未链接</div>
+            </button>
+            <button class="row note-row">
+              <div class="row-top"><span class="dot green"></span><span class="row-title">注号 1</span></div>
+              <div class="note-text">雪：冯，卷 3，页 85。黄六鸿的马：黄，卷 1，页 8a。</div>
+              <div class="row-meta">第二章 土地 · 已链接</div>
+            </button>
+          </div>
+
+          <div class="list hidden" id="tocList">
+            <div class="row">
+              <div class="row-top"><span class="dot green"></span><span class="row-title">目录 9 条，和章节落点一致</span></div>
+              <div class="row-meta">当前没有高置信度目录问题</div>
+            </div>
+          </div>
+
+          <div class="detail" id="pointDetail">
+            <h4>注号 26 没有对应的正文标记</h4>
+            <p>注释里的“第一章 观察者”分组有这条注文，但该章正文没有找到对应标记。</p>
+            <p class="suggest">建议：在“第一章 观察者”的正文里找到对应句子，用“加标注”补上注号 26，再点“重新生成正文标记”按顺序对齐。</p>
+            <div class="actions">
+              <button class="primary">去正文补标注</button>
+              <button>查看注文</button>
+              <button>标记已处理</button>
+              <button>忽略</button>
+            </div>
+          </div>
+
+          <div class="detail hidden" id="noteDetail">
+            <h4>注号 26 · 第一章 观察者</h4>
+            <p>又，见《邵武府志》卷 6，页 6b，以及他的传记。见《邵武府志》卷 20，页 2。</p>
+            <div class="actions">
+              <button class="primary">手动补号</button>
+              <button>与下一条合并</button>
+              <button>并入上一条</button>
+              <button>删除注文</button>
+            </div>
+          </div>
+
+          <div class="detail hidden" id="tocDetail">
+            <h4>目录检查</h4>
+            <p>印刷目录已保留。这里只列出高置信度问题；P0 不在工作区直接编辑目录。</p>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </main>
+    </div>
+  </div>
+
+  <footer class="statusbar">
+    <span>待确认 94</span>
+    <span>注文 199</span>
+    <span>标记 109</span>
+    <span id="currentChapter">当前章节 第一章 观察者</span>
+    <span class="right ok">已保存</span>
+  </footer>
+</div>
+
+<div class="book-modal hidden" id="bookInfoModal">
+  <div class="book-dialog" role="dialog" aria-modal="true" aria-labelledby="bookInfoTitle">
+    <div class="book-dialog-head">
+      <b id="bookInfoTitle">书籍信息</b>
+      <button class="icon-button close" id="closeBookInfo" aria-label="关闭">×</button>
+    </div>
+    <div class="book-tabs">
+      <button class="book-tab is-active" data-book-tab="cover">封面</button>
+      <button class="book-tab" data-book-tab="metadata">元数据</button>
+    </div>
+    <div class="book-body">
+      <div class="book-pane" id="bookCoverPane">
+        <div class="cover-preview">
+          <div class="cover-art">
+            <div class="cover-kicker">UV READER</div>
+            <div>
+              <div class="cover-title">王氏之死</div>
+              <div class="cover-sub">大历史背后的小人物命运</div>
+            </div>
+            <div class="cover-author">史景迁</div>
+          </div>
+          <button class="cover-change">选择图片…</button>
+        </div>
+        <div class="book-form">
+          <div class="field">
+            <label for="coverMode">封面模式</label>
+            <select id="coverMode">
+              <option>模板生成</option>
+              <option>自动（书内首图）</option>
+              <option selected>指定图片</option>
+              <option>不要封面</option>
+            </select>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="coverPalette">模板配色</label>
+              <select id="coverPalette">
+                <option>暖纸</option>
+                <option>墨绿</option>
+                <option>藏蓝</option>
+                <option>砖红</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="coverFit">图片显示</label>
+              <select id="coverFit">
+                <option>完整显示（留白）</option>
+                <option>铺满页面（可能裁切）</option>
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <label for="coverSubtitle">副标题</label>
+            <input id="coverSubtitle" value="大历史背后的小人物命运" />
+          </div>
+          <div class="field-note">封面会在下一次“生成精修版本”时写入 EPUB，不会自动重建。</div>
+        </div>
+      </div>
+
+      <div class="book-pane hidden" id="bookMetaPane">
+        <div class="book-form">
+          <div class="field-row">
+            <div class="field">
+              <label for="metaTitle">书名</label>
+              <input id="metaTitle" value="王氏之死" />
+            </div>
+            <div class="field">
+              <label for="metaAuthor">作者</label>
+              <input id="metaAuthor" value="史景迁" />
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="metaLanguage">语言</label>
+              <select id="metaLanguage">
+                <option selected>中文 (zh)</option>
+                <option>English (en)</option>
+                <option>Deutsch (de)</option>
+                <option>日本語 (ja)</option>
+                <option>其他…</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="metaIdentifier">标识符 / ISBN</label>
+              <input id="metaIdentifier" placeholder="可选，例如 urn:isbn:978…" />
+            </div>
+          </div>
+          <div class="field-note">这些字段写入 EPUB 元数据，不改 Markdown 正文。出版社、出版日期、简介暂不存。</div>
+        </div>
+      </div>
+    </div>
+    <div class="book-dialog-foot">
+      <span class="hint">保存后下次“生成精修版本”生效</span>
+      <button id="cancelBookInfo">取消</button>
+      <button class="primary" id="saveBookInfo">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const sideTabs = [...document.querySelectorAll('[data-pane]')];
+  const previewPane = document.getElementById('previewPane');
+  const inspectPane = document.getElementById('inspectPane');
+  const openInspect = document.getElementById('openInspect');
+  const main = document.getElementById('main');
+
+  function showPane(name) {
+    sideTabs.forEach((tab) => tab.classList.toggle('is-active', tab.dataset.pane === name));
+    previewPane.classList.toggle('hidden', name !== 'preview');
+    inspectPane.classList.toggle('hidden', name !== 'inspect');
+  }
+  sideTabs.forEach((tab) => tab.addEventListener('click', () => showPane(tab.dataset.pane)));
+  openInspect.addEventListener('click', () => {
+    main.classList.add('show-side');
+    showPane('inspect');
+  });
+  document.getElementById('backToEditor').addEventListener('click', () => {
+    main.classList.remove('show-side');
+  });
+
+  const subTabs = [...document.querySelectorAll('[data-subpane]')];
+  const lists = {
+    points: document.getElementById('pointList'),
+    notes: document.getElementById('noteList'),
+    toc: document.getElementById('tocList'),
+  };
+  const details = {
+    points: document.getElementById('pointDetail'),
+    notes: document.getElementById('noteDetail'),
+    toc: document.getElementById('tocDetail'),
+  };
+  function showSub(name) {
+    subTabs.forEach((tab) => tab.classList.toggle('is-active', tab.dataset.subpane === name));
+    for (const key of Object.keys(lists)) lists[key].classList.toggle('hidden', key !== name);
+    for (const key of Object.keys(details)) details[key].classList.toggle('hidden', key !== name);
+    document.querySelectorAll('[data-filter-group]').forEach((group) => {
+      group.classList.toggle('hidden', group.dataset.filterGroup !== name);
+    });
+  }
+  subTabs.forEach((tab) => tab.addEventListener('click', () => showSub(tab.dataset.subpane)));
+
+  document.querySelectorAll('#pointList .row, #noteList .row').forEach((row) => {
+    row.addEventListener('click', () => {
+      row.parentElement.querySelectorAll('.row').forEach((item) => item.classList.remove('is-selected'));
+      row.classList.add('is-selected');
+    });
+  });
+
+  document.getElementById('toggleComments').addEventListener('click', (event) => {
+    const button = event.currentTarget;
+    const shown = button.textContent.includes('隐藏');
+    button.textContent = shown ? '显示定位注释' : '隐藏定位注释';
+  });
+
+  // ── 目录 sidebar ───────────────────────────────────
+  const toc = document.getElementById('toc');
+  const currentChapter = document.getElementById('currentChapter');
+  const narrow = () => window.innerWidth <= 980;
+  const tocRows = [...document.querySelectorAll('.toc-row')];
+  const railItems = [...document.querySelectorAll('.rail-item')];
+
+  function selectChapter(name) {
+    tocRows.filter((row) => !row.classList.contains('toc-child')).forEach((row) => {
+      row.classList.toggle('is-active', row.dataset.chapter === name);
+    });
+    tocRows.filter((row) => row.classList.contains('toc-child')).forEach((row) => row.classList.remove('is-active'));
+    railItems.forEach((item) => item.classList.toggle('is-active', item.dataset.chapter === name));
+    currentChapter.textContent = `当前章节 ${name}`;
+  }
+
+  const depthSelect = document.getElementById('tocDepth');
+  function applyDepth() {
+    const depth = Number(depthSelect.value) || 1;
+    tocRows.forEach((row) => {
+      const level = Number(row.dataset.level || 1);
+      row.hidden = level > depth;
+    });
+  }
+  depthSelect.addEventListener('change', applyDepth);
+  applyDepth();
+
+  document.getElementById('toggleToc').addEventListener('click', () => {
+    if (narrow()) toc.classList.toggle('is-open');
+    else toc.classList.toggle('is-collapsed');
+  });
+  document.getElementById('collapseToc').addEventListener('click', () => {
+    if (narrow()) toc.classList.remove('is-open');
+    else toc.classList.add('is-collapsed');
+  });
+  document.getElementById('expandToc').addEventListener('click', () => {
+    if (narrow()) toc.classList.add('is-open');
+    else toc.classList.remove('is-collapsed');
+  });
+  tocRows.filter((row) => !row.classList.contains('toc-child')).forEach((row) => row.addEventListener('click', () => {
+    selectChapter(row.dataset.chapter);
+    if (narrow()) toc.classList.remove('is-open');
+  }));
+  tocRows.filter((row) => row.classList.contains('toc-child')).forEach((row) => row.addEventListener('click', () => {
+    selectChapter(row.dataset.chapter);
+    row.classList.add('is-active');
+    currentChapter.textContent = `当前章节 ${row.dataset.title || row.dataset.chapter}`;
+    if (narrow()) toc.classList.remove('is-open');
+  }));
+  railItems.forEach((item) => item.addEventListener('click', () => {
+    selectChapter(item.dataset.chapter);
+    toc.classList.remove('is-collapsed');
+  }));
+
+  // ── 书籍信息弹窗 ───────────────────────────────────
+  const bookModal = document.getElementById('bookInfoModal');
+  const bookTabs = [...document.querySelectorAll('[data-book-tab]')];
+  const coverPane = document.getElementById('bookCoverPane');
+  const metaPane = document.getElementById('bookMetaPane');
+  function showBookTab(name) {
+    bookTabs.forEach((tab) => tab.classList.toggle('is-active', tab.dataset.bookTab === name));
+    coverPane.classList.toggle('hidden', name !== 'cover');
+    metaPane.classList.toggle('hidden', name !== 'metadata');
+  }
+  function openBookInfo(tab = 'cover') {
+    bookModal.classList.remove('hidden');
+    showBookTab(tab);
+  }
+  function closeBookInfo() {
+    bookModal.classList.add('hidden');
+  }
+  document.getElementById('openBookInfo').addEventListener('click', () => openBookInfo('cover'));
+  document.getElementById('closeBookInfo').addEventListener('click', closeBookInfo);
+  document.getElementById('cancelBookInfo').addEventListener('click', closeBookInfo);
+  document.getElementById('saveBookInfo').addEventListener('click', closeBookInfo);
+  bookTabs.forEach((tab) => tab.addEventListener('click', () => showBookTab(tab.dataset.bookTab)));
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !bookModal.classList.contains('hidden')) closeBookInfo();
+  });
+</script>
+</body>
+</html>

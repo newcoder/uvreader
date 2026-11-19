@@ -80,7 +80,7 @@ test("highlight dedupe normalizes markdown and quotes", () => {
   assert.deepEqual(result.fresh.map((h) => h.text), ["Fresh quote"]);
 });
 
-test("quoteMarkdown fills the template with book, page, backlink and comment", () => {
+test("quoteMarkdown fills the template with book, page and comment without a stale backlink", () => {
   const { notes } = setup();
   const plugin = {
     app: { vault: { getName: () => "Vault" } },
@@ -91,6 +91,7 @@ test("quoteMarkdown fills the template with book, page, backlink and comment", (
   assert.match(out, /— \[\[a\]\]/);
   assert.match(out, /p-0-2:12/);
   assert.match(out, /comment-on-a-highlight/);
+  assert.doesNotMatch(out, /obsidian:\/\//);
   assert.equal(notes.hlCommentMd({ comment: "line1\nline2" }), "\n\n**comment-on-a-highlight：** line1\n\nline2");
   assert.equal(notes.hlCommentMd({}), "");
 });

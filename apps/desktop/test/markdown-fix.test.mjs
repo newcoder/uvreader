@@ -1,7 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { cleanChapterTitle, fenceProseCode, isProseFence, joinContinuationLines, joinSplitCodeFences, looksLikeHeadingTitle, looksLikeProseBlock, splitInlineAnswerMarkers, splitMarkdownChapters, stripCodeLineNumbers, unwrapProseFences } from "../src/shared/markdown-fix.js";
+import { cleanChapterTitle, fenceProseCode, isProseFence, joinContinuationLines, joinSplitCodeFences, looksLikeHeadingTitle, looksLikeProseBlock, repairMissingParallelSymbols, splitInlineAnswerMarkers, splitMarkdownChapters, stripCodeLineNumbers, unwrapProseFences } from "../src/shared/markdown-fix.js";
+
+test("repairMissingParallelSymbols restores dropped parallel marks between segment names", () => {
+  assert.equal(
+    repairMissingParallelSymbols("其中 AB EF RS CD, BC DE ST AF. 若AB = BC = 8"),
+    "其中 AB∥EF∥RS∥CD, BC∥DE∥ST∥AF. 若AB = BC = 8",
+  );
+  assert.equal(
+    repairMissingParallelSymbols("AB\nEF\nRS\nCD"),
+    "AB∥EF∥RS∥CD",
+    "the text layer may keep one label per line",
+  );
+  assert.equal(repairMissingParallelSymbols("`AB EF RS` $AB EF RS$"), "`AB EF RS` $AB EF RS$", "code and math stay untouched");
+  assert.equal(repairMissingParallelSymbols("AB, EF, RS, CD"), "AB, EF, RS, CD", "punctuated lists are not rewritten");
+});
 
 test("stripCodeLineNumbers removes PDF margin numbers only when they are sequential", () => {
   const numbered = "```\n22 memset(cnt, 0, sizeof(cnt));\n23 for (int i = 0; i < n; ++i)\n24   cnt[i] += 1;\n```\n";
@@ -146,6 +160,11 @@ test("prose without formulas is still rescued, formulas inside it are not counte
   assert.equal(looksLikeProseBlock("\\frac{a}{b} &= c \\\\ d"), false, "unwrapped LaTeX stays code");
   assert.equal(looksLikeProseBlock("function x() { return 1; }"), false);
   assert.equal(looksLikeProseBlock("npm test -- --watch"), false, "short snippets stay code");
+});
+
+test("a question stem with options is prose, not code", () => {
+  const question = "9. 在一定条件下, 某模型训练 N 个单位的数据量需要的时间 $T=k\\log_2 N$ (单位: h)。已知训练数据量 N 从 10<sup>6</sup> 增加到 10<sup>9</sup> 时, 训练时间增加 20 h; 当训练数据量增加时, 训练时间增加 ( ) (A) 2 h (B) 4 h (C) 20 h (D) 40 h";
+  assert.equal(looksLikeProseBlock(question), true);
 });
 
 test("a fenced prose paragraph with formulas is unwrapped", () => {

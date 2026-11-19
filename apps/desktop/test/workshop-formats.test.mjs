@@ -21,8 +21,8 @@ test("format conversion keeps document targets only", () => {
   assert.ok(DOCVORTEX_INPUTS.includes("ofd") && DOCVORTEX_INPUTS.includes("epub"), "books can still be conversion inputs");
 });
 
-test("answer pages default to the AI page and keep no deterministic duplicate", () => {
-  const answer = CONVERT_FORMATS.filter((format) => format.id === "quiz" || format.id === "quiz-ai");
+test("the conversion menu offers only the AI answer page", () => {
+  const answer = CONVERT_FORMATS.filter((format) => format.id.startsWith("quiz"));
   assert.deepEqual(answer.map((format) => format.id), ["quiz-ai"]);
   assert.equal(answer[0].ext, "AI答题页.html");
 });

@@ -287,7 +287,9 @@ export function blockToMarkdown(block, { tableMode = "table" } = {}) {
     const content = String(block?.content ?? block?.code ?? "");
     const caption = blockCaption(block);
     const combined = caption ? [caption, content].filter(Boolean).join("\n") : content;
-    return looksLikeProseBlock(combined) ? joinProseLines(combined) : `\`\`\`\n${content}\n\`\`\``;
+    if (looksLikeProseBlock(combined)) return joinProseLines(combined);
+    const pre = `\`\`\`\n${content}\n\`\`\``;
+    return caption ? `${joinProseLines(caption)}\n\n${pre}` : pre;
   }
   // 脚注原样保留(引用块);上游丢内容只剩「||」的残片清掉。
   // 不再附「（第 N 页）」:页码是给"对回原书"用的内部信息,读者看到的是噪声(用户实测)。

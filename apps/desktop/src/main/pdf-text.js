@@ -749,8 +749,49 @@ export function writeTextProducts(doc, { outDir, stem, assets = [] } = {}) {
   return files;
 }
 
-// 格式转换的「文本型」链路:本地确定性提取 → 桥接 HTML → DocVortex 转目标格式。
+// 格式转换的「文本型」链路:本地确定性提取 → 直接输出 Markdown;其它目标格式再交给 DocVortex。
 // 与「公式优先」同构,只是解析结果来自 fitz(不需要 MinerU、不把文字裁成图片)。
+export async function writePdfTextMarkdown(source, out, {
+  settings = {},
+  pdfText = createPdfTextReader(),
+  cacheRoot = "",
+  signal,
+  report = () => {},
+  log = () => {},
+} = {}) {
+  const stem = path.basename(source).replace(/\.[^.]+$/, "");
+  const outDir = path.dirname(out);
+  const outStem = path.basename(out, path.extname(out));
+  const workDir = path.join(cacheRoot || os.tmpdir(), "pdf-text", `${stem}-${Date.now().toString(36)}`);
+  report({ label: "本地取文本" });
+  const read = await pdfText.read(source, {
+    python: String(settings.docvortexPython || settings.ocrPython || "").trim() || "python",
+    workDir,
+    signal,
+    engineSettings: settings,
+  });
+  if (signal?.aborted) throw new Error("任务已取消");
+  if (!read.ok) throw new Error(`本地取文本失败：${read.error}`);
+  const doc = buildTextDoc(read.pages, { source, title: stem, assetPrefix: `${outStem}.assets/` });
+  if (!doc.pages.length) throw new Error("这份 PDF 没有可提取的文本(扫描件请用「公式优先」或内容提取的「扫描视觉」)");
+  fs.mkdirSync(outDir, { recursive: true });
+  report({ label: "生成 Markdown" });
+  fs.writeFileSync(out, blocksToMarkdown(doc.pages.flatMap((page) => page.blocks)), "utf8");
+  const assets = read.pages.flatMap((page) => (page.figures || []).map((figure) => ({
+    name: figure.file,
+    path: path.join(workDir, "assets", String(figure.file || "")),
+  })));
+  if (assets.length) {
+    const dir = path.join(outDir, `${outStem}.assets`);
+    fs.mkdirSync(dir, { recursive: true });
+    for (const asset of assets) {
+      if (asset.name && fs.existsSync(asset.path)) fs.copyFileSync(asset.path, path.join(dir, asset.name));
+    }
+  }
+  log("pdf text markdown", source, "→", out);
+  return { output: out, detail: `Markdown · ${path.basename(out)} · PDF text layer (no OCR)`, via: "pdf-text" };
+}
+
 export function registerTextConvertRunner(workshop, { docvortex, vaultRoot = "", cacheRoot = "", pdfText = createPdfTextReader(), log = (...args) => console.log(...args) } = {}) {
   // pdfText must be injectable: the app passes a reader with the engine client,
   // so text-mode PDF conversion uses the engine instead of a local Python that
@@ -768,6 +809,9 @@ export function registerTextConvertRunner(workshop, { docvortex, vaultRoot = "",
     const out = uniqueFile(payload?.out
       ? absolute(payload.out)
       : absolute(convertPath(payload?.source, docvortexFormatExt(format))));
+    if (format === "markdown") {
+      return writePdfTextMarkdown(source, out, { settings, pdfText, cacheRoot, signal, report, log });
+    }
     const stem = path.basename(source).replace(/\.[^.]+$/, "");
     const python = String(settings.docvortexPython || settings.ocrPython || "").trim() || "python";
     const workDir = path.join(cacheRoot || process.env.TEMP || process.env.TMP || "/tmp", "pdf-text", `${stem}-${Date.now().toString(36)}`);

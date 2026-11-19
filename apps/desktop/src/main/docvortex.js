@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { cleanedPdfFor, createPdfCleaner } from "./pdf-text.js";
+import { cleanedPdfFor, createPdfCleaner, createPdfTextReader, writePdfTextMarkdown } from "./pdf-text.js";
 import { docvortexPython, imageToPdf, imagesToPdf } from "./image-pdf.js";
 import { restoreDocxLists } from "./docx-numbering.js";
 import { escapeHtml, mathScript, stripMathDelimiters } from "./formula-html.js";
@@ -177,7 +177,9 @@ export function createDocvortex({ spawnImpl = spawn, timeoutMs = 10 * 60_000, pr
   async function convert(settings, { source, format, out, signal, parseMode = "" } = {}) {
     if (!fs.existsSync(source)) return { ok: false, error: `源文件不存在：${source}` };
     // 引擎优先(可独立部署):引擎按自己的配置调 DocVortex;失败/没配再回退本机 CLI。
-    if (engine && String(settings.engineUrl || "").trim()) {
+    // engineUrl 留空表示默认 http://127.0.0.1:8760，不要因为它为空就跳过引擎 ——
+    // 打包版/本机引擎经常就是默认端口，而 DocVortex 只装在引擎组件里。
+    if (engine) {
       const ran = await engine.runJob(settings, "convert", { source, format, out, parseMode }, { signal });
       if (ran.ok && ran.result?.out && fs.existsSync(ran.result.out)) return { ok: true, out: ran.result.out, via: "engine" };
       if (ran.cancelled) return { ok: false, error: "已取消", cancelled: true };
@@ -187,13 +189,13 @@ export function createDocvortex({ spawnImpl = spawn, timeoutMs = 10 * 60_000, pr
     const result = await run(resolved, convertArgs(source, format, out, { parseMode }), { signal });
     if (!result.ok) return result;
     if (!fs.existsSync(out)) return { ok: false, error: "转换完成但没有生成文件" };
-    return { ok: true, out };
+    return { ok: true, out, via: "local" };
   }
 
   return { probe, convert, run };
 }
 
-export function registerDocvortexRunners(workshop, { docvortex, vaultRoot = "", cacheRoot = "", cleaner = createPdfCleaner(), log = (...args) => console.log(...args), spawnImpl = spawn } = {}) {
+export function registerDocvortexRunners(workshop, { docvortex, vaultRoot = "", cacheRoot = "", pdfText = createPdfTextReader(), cleaner = createPdfCleaner(), log = (...args) => console.log(...args), spawnImpl = spawn } = {}) {
   const absolute = (raw) => {
     const value = String(raw || "");
     return path.isAbsolute(value) ? value : path.join(vaultRoot, value);
@@ -256,7 +258,16 @@ export function registerDocvortexRunners(workshop, { docvortex, vaultRoot = "", 
         parseMode: imageInput ? "ocr" : "",
       });
       if (signal.aborted) throw new Error("任务已取消");
-      if (!result.ok) throw new Error(String(result.error || "转换失败"));
+      if (!result.ok) {
+        // PDF → Markdown is fully doable with the local text layer. DocVortex is
+        // optional for this one target, so a missing install must not block the
+        // conversion (AI tools route PDFs here by default).
+        if (format === "markdown" && !imageInput && /\.pdf$/i.test(input)) {
+          report({ label: "DocVortex 不可用，改用本地 PDF 文本" });
+          return await writePdfTextMarkdown(input, out, { settings, pdfText, cacheRoot, signal, report, log });
+        }
+        throw new Error(String(result.error || "转换失败"));
+      }
       // 文本源 → docx:DocVortex 的列表是「字面编号 + 缩进」的普通段落,产物里换成
       // 真 Word 列表(w:numPr) —— 编号可续、可改样式(见 docx-numbering.js)。
       if (kind && format === "docx") {
@@ -264,13 +275,14 @@ export function registerDocvortexRunners(workshop, { docvortex, vaultRoot = "", 
         if (restored) log("docx lists restored", restored, path.basename(out));
       }
       if (format === "html") rewriteHtmlMath(out, { log });
+      const viaLabel = result.via === "engine" ? "DocVortex (engine)" : "DocVortex (local)";
+      return { output: out, detail: `${format} · ${path.basename(out)} · ${viaLabel}`, via: result.via || "local" };
     } finally {
       if (tempPdf) {
         try { removeFile(tempPdf); } catch { /* 临时文件,忽略 */ }
       }
       removeTextSourceBridge(bridge, { log });
     }
-    return { output: out, detail: `${format} · ${path.basename(out)}` };
   });
 
   return { convertPath };

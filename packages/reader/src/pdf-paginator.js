@@ -481,7 +481,10 @@ export function createPdfPaginatorClass({
         const rowHeight = this.clip?.clientHeight || 1;
         return Math.max(0, Math.min(Math.floor((pageRect.top - flowRect.top) / rowHeight), this.total - 1));
       }
-      return Math.max(0, Math.min(Math.round((pageRect.left - flowRect.left) / (this.sw || 1)), this.total - 1));
+      // A page can be the second column of a spread: its offset / sw is x.5,
+      // and rounding would skip to the next spread. The containing spread is
+      // always the floor of that ratio.
+      return Math.max(0, Math.min(Math.floor((pageRect.left - flowRect.left) / (this.sw || 1)), this.total - 1));
     }
     return this.scrollMode ? this._scrollSpreadForBlock(idx) : this._pagedSpreadForBlock(idx);
   }

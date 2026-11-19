@@ -5,12 +5,11 @@ import { ENGINE_EXTENSIONS } from "./reader-engine.js";
 import { IMAGE_BOOK_EXTENSIONS } from "./image-book.js";
 import { buildNavigationEpub, buildNavigationEpubFromTitles } from "./epub-export.js";
 import { STARTER_BOOKS } from "./starter-book-data.js";
-import { addMissingQuoteLinks, highlightBacklink, jumpToEngineHighlight } from "./highlight-navigation.js";
 import { normalizeBookSources } from "./book-sources.js";
 import { collectMissingHighlights } from "./highlight-recovery.js";
 import { sortHighlightsByPosition } from "./highlight-order.js";
 import { searchablePdfName } from "./pdf-scan.js";
-import { aiProviderFor, normalizeAiBase } from "./ai-providers.js";
+import { aiProviderFor, migrateRetiredAiProvider, normalizeAiBase, resolveDeepseekSearchKey } from "./ai-providers.js";
 import { aiAttachmentFileName } from "./ai-attachments.js";
 import { normalizeAiCapabilities } from "./ai-capability.js";
 import { createReadingStore, readingSourceChanged } from "./reading-store.js";
@@ -23,20 +22,24 @@ import { migrateReaderTheme } from "./reader-themes.js";
 import { normalizeLocationMarks } from "./reading-workflow.js";
 import { normalizeUiLanguage } from "./i18n-languages.js";
 import { watchQuietUi } from "./quiet-ui.js";
-import { bookTagsOf, existingVaultBookPath, freeBookPath, isInsideVaultPath, mergeBookTags, pickLibraryFolder, vaultBookPaths, vaultOnlyRecord } from "./library-data.js";
+import { bookTagsOf, existingVaultBookPath, freeBookPath, isInsideVaultPath, isIntermediateAssetPath, mergeBookTags, pickLibraryFolder, vaultBookPaths, vaultOnlyRecord } from "./library-data.js";
+import { spaceVaultRelative } from "./space-paths.js";
 
 export function createPlugin({
-  MarkdownView, Notice, Plugin, TFile, AI_CHAT_VIEW_TYPE, AiChatView, AiExplainModal, BOOK_EXTENSIONS, BookQuickOpen, DEFAULT, LIB_VIEW_TYPE, LibraryView, MAX_BOOK_COMMANDS, OnboardingModal, ReaderModal, ReaderView, SettingsTab, VIEW_TYPE, WhatsNewModal, aiSetupState, applyDeviceProfile, bookNoteFiles, bookNoteLinkFor, bookNoteTemplatePath, bookNotesFolderPath, captureDeviceProfile, flattenSelectionText, hlMark, isMarkedReadingNote, isUnsafeReadingNote, normalizeAiChatHistory, notesFolderPath, openPluginAiSettings, processTemplateManually, qiaomuReaderPath, qiaomuReaderSetLanguage, qiaomuReaderTranslate, readerAiPanelContext, readerDefaultAiContext, readerHud, readerSupportsAiContext, readerTodayKey, rememberReaderJump, resolveBookNote, sanitizeNoteTitle, selectedReaderTheme, stripGeneratedReadingNoteTitle, syncHighlightsToReadingNote, whatsNewSince, writeBookProperty, writeWhatsNewNote,
+  MarkdownView, Notice, Plugin, TFile, AI_CHAT_VIEW_TYPE, AiChatView, AiExplainModal, BOOK_EXTENSIONS, BookQuickOpen, DEFAULT, LIB_VIEW_TYPE, LibraryView, MAX_BOOK_COMMANDS, OnboardingModal, ReaderModal, ReaderView, SettingsTab, VIEW_TYPE, WhatsNewModal, aiSetupState, applyDeviceProfile, bookNoteFiles, bookNoteLinkFor, bookNoteTemplatePath, bookNotesFolderPath, captureDeviceProfile, isMarkedReadingNote, isUnsafeReadingNote, normalizeAiChatHistory, notesFolderPath, openPluginAiSettings, processTemplateManually, qiaomuReaderPath, qiaomuReaderSetLanguage, qiaomuReaderTranslate, readerAiPanelContext, readerDefaultAiContext, readerHud, readerSupportsAiContext, readerTodayKey, resolveBookNote, sanitizeNoteTitle, stripGeneratedReadingNoteTitle, syncHighlightsToReadingNote, whatsNewSince, writeBookProperty, writeWhatsNewNote,
 }) {
   return class QiaomuBookReader extends Plugin {
   constructor() {
     super(...arguments);
+    this.translate = qiaomuReaderTranslate;
     this.settings = { ...DEFAULT };
     this.progress = {};
     this.thumbCache = {};
     this.highlights = {};
     this.pins = {};
     this._readingStoreCache = null;
+    this._readingStores = new Map();
+    this._spaceLoaded = new Set();
     this._aiChatsAdopted = false;
     this._marksAdopted = false;
     this.progressBackups = {};
@@ -51,7 +54,6 @@ export function createPlugin({
     this._unloading = false;
     this._watchCompanionAndNotes();
     this._registerReaderViews();
-    this._registerBookProtocol();
     this._registerReaderExtensions();
     this._addRibbonEntry();
     this._registerCommandsAndSettings();
@@ -71,15 +73,8 @@ export function createPlugin({
       this._quietUiDocuments.clear();
     });
     this._registerPdfFileMenu();
-    this.registerEvent(this.app.workspace.on("css-change", () => {
-      if (selectedReaderTheme(this.settings) !== "auto" || this.settings.einkMode) return;
-      for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) leaf.view.applyVars();
-      this._openReaderModal?._applyTheme();
-    }));
     this.app.workspace.onLayoutReady(() => {
       this._watchBookFiles();
-      // Note metadata and the plugin instance must exist before rendering links.
-      void this._repairCfiBacklinks().catch((error) => console.warn("UV Reader: backlink upgrade failed", error));
     });
     this._scheduleFirstRunFlow();
   }
@@ -131,20 +126,6 @@ export function createPlugin({
       doc.defaultView?.addEventListener("unload", cleanup, { once: true });
     }
   }
-  async _repairCfiBacklinks() {
-    if (!this.settings.cfiBacklinksMigrated && this.settings.quoteBacklinks !== false) {
-      for (const [bookPath, items] of Object.entries(this.highlights || {})) {
-        const note = resolveBookNote(this.app, this.settings.bookNoteLinks?.[bookPath]);
-        if (!(note instanceof TFile) || isUnsafeReadingNote(this.app, note)) continue;
-        const entries = (items || []).filter((hl) => hl.cfi).map((hl) => ({
-          quote: `> ${hlMark(this.app, flattenSelectionText(hl.text), hl.color)}`,
-          uri: highlightBacklink(this.app.vault.getName(), bookPath, hl),
-        }));
-        if (entries.length) await this.app.vault.process(note, (data) => addMissingQuoteLinks(data, entries));
-      }
-      this.settings.cfiBacklinksMigrated = true; await this._saveLocalData();
-    }
-  }
   async _attachAiDraftStore() {
     const onDraftStoreFailure = () => new Notice(qiaomuReaderTranslate("drafts-could-not-be-saved-they-remain-in-memory-check-plugin-fol"));
     const legacyPath = `${this.manifest.dir}/ai-drafts.json`;
@@ -189,15 +170,6 @@ export function createPlugin({
     for (const [viewType, ViewClass] of viewTypes) {
       this.registerView(viewType, (leaf) => new ViewClass(leaf, this));
     }
-  }
-  _registerBookProtocol() {
-    const openBacklink = (params) => {
-      const book = params.book || "";
-      void this.openBookAt(book, params.block, params.page, params.highlight, params.cfi);
-    };
-    this.registerObsidianProtocolHandler("qiaomu-reader", openBacklink);
-    // Existing reading notes keep working after users switch to the new plugin ID.
-    this.registerObsidianProtocolHandler("qiaomu-book-reader", openBacklink);
   }
   _registerReaderExtensions() {
     this.registerExtensions(["epub"], VIEW_TYPE);
@@ -378,6 +350,8 @@ export function createPlugin({
     void Promise.allSettled(pending);
   }
   async openFile(file) {
+    if (!file?.path) return null;
+    await this.loadSpaceBookReading(file.path);
     if (this.app.isMobile) {
       const modal = new ReaderModal(this.app, this, file);
       modal.open();
@@ -448,7 +422,12 @@ export function createPlugin({
     await this.app.workspace.revealLeaf(leaf);
     this._companionWasVisible = true;
     await this._rememberCompanion(true);
-    if (options.automatic && context?.readerView?.leaf) this.app.workspace.setActiveLeaf(context.readerView.leaf, { focus: false });
+    // 伴读是随书自动打开的;如果用户在这期间已经切到书坊/设置等主视图,
+    // 不要再把 active leaf 抢回阅读器,否则刚打开的目标页会藏在后台。
+    if (options.automatic && context?.readerView?.leaf
+      && this.app.workspace.activeLeaf === context.readerView.leaf) {
+      this.app.workspace.setActiveLeaf(context.readerView.leaf, { focus: false });
+    }
   }
 
   // Prefill a reader-facing AI request without sending it. Capability discovery
@@ -503,38 +482,6 @@ export function createPlugin({
     await leaf.setViewState({ type: LIB_VIEW_TYPE, active: true });
     this.app.workspace.revealLeaf(leaf);
   }
-  async openBookAt(rawPath, block, page, highlightId, cfi) {
-    const request = this._backlinkRequest = {};
-    const found = this.app.vault.getAbstractFileByPath(qiaomuReaderPath(rawPath));
-    if (!(found instanceof TFile)) {
-      new Notice(qiaomuReaderTranslate("book-not-found-0", rawPath));
-      return;
-    }
-    try {
-      const view = await this.openFile(found);
-      const deadline = Date.now() + 15000;
-      while (this._backlinkRequest === request && !view?._closed && Date.now() < deadline
-        && (view?.file?.path !== found.path || view._openingBook || !(view.engine?.currentLocation() || view.pager?.total))) {
-        await new Promise((resolve) => window.setTimeout(resolve, 100));
-      }
-      if (this._backlinkRequest !== request || view?._closed || view?.file?.path !== found.path) return;
-      if (view._openingBook || !(view.engine?.currentLocation() || view.pager?.total)) throw new Error("Book not ready");
-      const highlight = highlightId && this.getHighlights(found.path).find((item) => item.id === highlightId);
-      if (highlight) { await view.goToHighlight(highlight.id); return; }
-      if (cfi && view.engine) { rememberReaderJump(view); await jumpToEngineHighlight(view, { cfi }); return; }
-      if (view.engine) throw new Error("An ebook link requires a CFI location");
-      const idx = Number(block);
-      if (block !== undefined && block !== "" && Number.isInteger(idx) && idx >= 0) {
-        view.jumpToBlockWhenReady(idx);
-        return;
-      }
-      const pageNum = Number(page);
-      if (Number.isInteger(pageNum) && pageNum >= 1) view.jumpToPdfPageWhenReady(pageNum);
-    } catch (error) {
-      console.warn("UV Reader: backlink navigation failed", error);
-      new Notice(qiaomuReaderTranslate("highlight-not-found"));
-    }
-  }
   _dataFolder() {
     const dedicated = qiaomuReaderPath(this.settings.dataFolder);
     if (dedicated) return dedicated;
@@ -549,6 +496,29 @@ export function createPlugin({
     const data = this._dataFolder();
     return data ? `${data}/reading` : "reading";
   }
+  _spaceRootForPath(bookPath) {
+    const normalized = String(bookPath || "").replace(/\\/g, "/");
+    const match = /^((?:.*\/)?Spaces\/[^/]+)\//i.exec(normalized);
+    return match ? match[1] : "";
+  }
+  _readingRootFor(bookPath) {
+    const space = this._spaceRootForPath(bookPath);
+    return space ? `${space}/reading` : this._readingRoot();
+  }
+  _spaceNotesFolderForBook(bookPath) {
+    const space = this._spaceRootForPath(bookPath);
+    return space ? `${space}/notes` : "";
+  }
+  _readingStoreFor(bookPath = "") {
+    const root = this._readingRootFor(bookPath);
+    if (!this._readingStores) this._readingStores = new Map();
+    let store = this._readingStores.get(root);
+    if (!store) {
+      store = createReadingStore({ adapter: this.app.vault.adapter, root });
+      this._readingStores.set(root, store);
+    }
+    return store;
+  }
   _readingStore() {
     const root = this._readingRoot();
     if (!this._readingStoreCache || this._readingStoreCache.root !== root) {
@@ -561,7 +531,7 @@ export function createPlugin({
   async ensureReadingFolder(bookPath) {
     if (this.settings.storageLayout !== "books" || !bookPath) return;
     try {
-      const store = this._readingStore();
+      const store = this._readingStoreFor(bookPath);
       const meta = this._bookMeta(bookPath);
       const stored = await store.readBookMeta(bookPath);
       if (readingSourceChanged(stored, meta)) {
@@ -595,7 +565,7 @@ export function createPlugin({
       this.aiDraftStore?.set?.(bookPath, "");
       await this.aiDraftStore?.flush?.();
     } catch { /* best effort */ }
-    try { await this._readingStore().deleteBook(bookPath); } catch (error) {
+    try { await this._readingStoreFor(bookPath).deleteBook(bookPath); } catch (error) {
       console.error("UV Reader: could not clear replaced book traces", error);
     }
   }
@@ -604,7 +574,7 @@ export function createPlugin({
   async resolveAttachmentPath(bookPath, attachment) {
     if (this.settings.storageLayout !== "books" || !bookPath) return "";
     try {
-      return await this._readingStore().attachmentPath(bookPath, aiAttachmentFileName(attachment));
+      return await this._readingStoreFor(bookPath).attachmentPath(bookPath, aiAttachmentFileName(attachment));
     } catch (error) {
       console.error("UV Reader: could not resolve the attachment folder", error);
       return "";
@@ -663,7 +633,7 @@ export function createPlugin({
   async searchableCopyPath(bookPath) {
     if (this.settings.storageLayout !== "books" || !bookPath) return "";
     try {
-      const meta = await this._readingStore().readBookMeta(bookPath);
+      const meta = await this._readingStoreFor(bookPath).readBookMeta(bookPath);
       return String(meta?.derived?.searchable || "");
     } catch {
       return "";
@@ -680,8 +650,8 @@ export function createPlugin({
   async buildSearchableCopy(bookPath, { jobId, onProgress } = {}) {
     const bridge = this.ocrBridge();
     if (!bridge) throw new Error(qiaomuReaderTranslate("ocr-needs-desktop"));
-    const { folder } = await this._readingStore().ensureBook(bookPath, this._bookMeta(bookPath));
-    const rel = `${this._readingRoot()}/${folder}/derived/${searchablePdfName(bookPath)}`;
+    const { folder } = await this._readingStoreFor(bookPath).ensureBook(bookPath, this._bookMeta(bookPath));
+    const rel = `${this._readingRootFor(bookPath)}/${folder}/derived/${searchablePdfName(bookPath)}`;
     let settle = () => {};
     const finished = new Promise((resolve) => { settle = resolve; });
     await bridge.start({
@@ -693,7 +663,7 @@ export function createPlugin({
     });
     const result = await finished;
     if (result?.ok) {
-      await this._readingStore().updateBookMeta(bookPath, {
+      await this._readingStoreFor(bookPath).updateBookMeta(bookPath, {
         derived: { searchable: rel, at: Date.now(), pages: Number(result.stats?.pages) || 0 },
         preferred: { pdf: rel },
       });
@@ -722,15 +692,15 @@ export function createPlugin({
       }
     };
     try {
-      const meta = await this._readingStore().readBookMeta(bookPath);
+      const meta = await this._readingStoreFor(bookPath).readBookMeta(bookPath);
       const recorded = String(meta?.derived?.textSource || "");
       // The vault index can still hold a path whose file was removed by an
       // interrupted cleanup; ask the adapter rather than trusting the cache.
       if (recorded && await fileExists(recorded)) return this._vaultAbsolute(recorded);
-      const { folder } = await this._readingStore().ensureBook(bookPath, this._bookMeta(bookPath));
+      const { folder } = await this._readingStoreFor(bookPath).ensureBook(bookPath, this._bookMeta(bookPath));
       // Manual drop-ins first, then whatever a previous MinerU run produced
       // (the sidecar writes <out>/mineru/layout.json under derived/mineru/).
-      const dir = `${this._readingRoot()}/${folder}/derived`;
+      const dir = `${this._readingRootFor(bookPath)}/${folder}/derived`;
       for (const name of ["text-source.json", "layout.json", "mineru/layout.json", "mineru/mineru/layout.json"]) {
         const rel = `${dir}/${name}`;
         if (await fileExists(rel)) return this._vaultAbsolute(rel);
@@ -744,8 +714,8 @@ export function createPlugin({
   // Lives beside the other derived data (derived/toc.json) so the original
   // PDF never changes; the stamp ties it to the file it was built from.
   async _generatedTocPath(bookPath) {
-    const { folder } = await this._readingStore().ensureBook(bookPath, this._bookMeta(bookPath));
-    return `${this._readingRoot()}/${folder}/derived/toc.json`;
+    const { folder } = await this._readingStoreFor(bookPath).ensureBook(bookPath, this._bookMeta(bookPath));
+    return `${this._readingRootFor(bookPath)}/${folder}/derived/toc.json`;
   }
   async loadGeneratedToc(bookPath, stamp = "") {
     try {
@@ -871,8 +841,8 @@ export function createPlugin({
   // derived/ocr-done.json (same mtime:size stamp): once the layer is fully
   // generated the reader skips the queue, and its progress bar, on later opens.
   async _ocrDonePath(bookPath) {
-    const { folder } = await this._readingStore().ensureBook(bookPath, this._bookMeta(bookPath));
-    return `${this._readingRoot()}/${folder}/derived/ocr-done.json`;
+    const { folder } = await this._readingStoreFor(bookPath).ensureBook(bookPath, this._bookMeta(bookPath));
+    return `${this._readingRootFor(bookPath)}/${folder}/derived/ocr-done.json`;
   }
   async ocrTextLayerComplete(bookPath, stamp = "") {
     try {
@@ -896,6 +866,47 @@ export function createPlugin({
       await adapter.write(rel, JSON.stringify({ schemaVersion: 1, data: { done: true, stamp } }, null, 2));
       return true;
     } catch { return false; }
+  }
+  // ── web search (DeepSeek Search) ─────────────────────────────────────────
+  webSearchBridge() {
+    return typeof window !== "undefined" ? window.qbrDesktop?.webSearch || null : null;
+  }
+  deepseekSearchConfig() {
+    const s = this.settings || {};
+    const readSecret = (id) => this.app.secretStorage?.getSecret?.(id) || "";
+    return {
+      enabled: s.aiWebSearchEnabled !== false,
+      key: resolveDeepseekSearchKey(s, readSecret),
+      base: String(s.aiWebSearchBase || "").trim() || "https://api.deepseek.com",
+    };
+  }
+  webSearchAvailable() {
+    const config = this.deepseekSearchConfig();
+    return config.enabled && Boolean(config.key) && Boolean(this.webSearchBridge()?.search);
+  }
+  async searchWeb(query, options = {}) {
+    const bridge = this.webSearchBridge();
+    const config = this.deepseekSearchConfig();
+    if (!config.enabled) throw new Error("联网搜索已在设置中关闭");
+    if (!config.key) throw new Error("还没有配置 DeepSeek Search Key");
+    if (!bridge?.search) throw new Error("当前环境不支持联网搜索");
+    const report = await bridge.search({
+      key: config.key,
+      base: config.base,
+      query: String(query || "").trim(),
+      count: options.count,
+      oriQuestion: options.oriQuestion || "",
+      needContent: options.needContent === true,
+    });
+    return report;
+  }
+  async fetchWeb(url) {
+    const bridge = this.webSearchBridge();
+    const config = this.deepseekSearchConfig();
+    if (!config.enabled) throw new Error("联网搜索已在设置中关闭");
+    if (!config.key) throw new Error("还没有配置 DeepSeek Search Key");
+    if (!bridge?.fetchUrl) throw new Error("当前环境不支持网页抓取");
+    return bridge.fetchUrl({ key: config.key, base: config.base, url: String(url || "").trim() });
   }
   // ── online book search and downloads ──────────────────────────────────────
   booksBridge() {
@@ -943,12 +954,8 @@ export function createPlugin({
     const path = String(file?.path || "");
     if (!path) return false;
     const normalized = path.replace(/\\/g, "/");
-    // Extracted formulas/figures and generated assets are stored beside books
-    // and under library/images. They are image files, but they are not books.
-    if (IMAGE_BOOK_EXTENSIONS.includes(String(file?.extension || "").toLowerCase())) {
-      const parts = normalized.split("/");
-      if (parts[0] === "images" || parts.some((part) => part.endsWith(".assets"))) return false;
-    }
+    const image = IMAGE_BOOK_EXTENSIONS.includes(String(file?.extension || "").toLowerCase());
+    if (isIntermediateAssetPath(normalized, { image })) return false;
     const hidden = [this._readingRoot(), this._dataFolder?.(), this.manifest?.dir]
       .filter(Boolean)
       .map((root) => String(root).replace(/\\/g, "/").replace(/\/+$/, ""));
@@ -958,8 +965,8 @@ export function createPlugin({
   // copy, equations and figure crops are byproducts nobody reads.
   async pruneOcrDerived(bookPath) {
     try {
-      const { folder } = await this._readingStore().ensureBook(bookPath, this._bookMeta(bookPath));
-      const base = `${this._readingRoot()}/${folder}/derived/mineru`;
+      const { folder } = await this._readingStoreFor(bookPath).ensureBook(bookPath, this._bookMeta(bookPath));
+      const base = `${this._readingRootFor(bookPath)}/${folder}/derived/mineru`;
       const adapter = this.app.vault.adapter;
       // A directory is kept when it (or a descendant) holds the layout JSON;
       // everything else goes. The uploaded copy and figure crops are not read.
@@ -997,8 +1004,8 @@ export function createPlugin({
   async buildOcrTextSource(bookPath, { jobId, onProgress, timeout } = {}) {
     const bridge = this.ocrBridge();
     if (!bridge?.textSource) throw new Error(qiaomuReaderTranslate("ocr-needs-desktop"));
-    const { folder } = await this._readingStore().ensureBook(bookPath, this._bookMeta(bookPath));
-    const outRel = `${this._readingRoot()}/${folder}/derived/mineru`;
+    const { folder } = await this._readingStoreFor(bookPath).ensureBook(bookPath, this._bookMeta(bookPath));
+    const outRel = `${this._readingRootFor(bookPath)}/${folder}/derived/mineru`;
     let settle = () => {};
     const finished = new Promise((resolve) => { settle = resolve; });
     await bridge.textSource({
@@ -1015,7 +1022,7 @@ export function createPlugin({
       const rel = root && normalized.toLowerCase().startsWith(`${root.toLowerCase()}/`)
         ? normalized.slice(root.length + 1)
         : normalized;
-      await this._readingStore().updateBookMeta(bookPath, {
+      await this._readingStoreFor(bookPath).updateBookMeta(bookPath, {
         derived: { textSource: rel, textSourceAt: Date.now() },
       });
       // Finish cleanup before reporting the job, so a session opening right
@@ -1140,11 +1147,6 @@ export function createPlugin({
     const migratedTheme = migrateReaderTheme(this.settings.theme);
     if (migratedTheme !== this.settings.theme) settingsMigrated = true;
     this.settings.theme = migratedTheme;
-    if (!["auto", "reader"].includes(this.settings.libTheme)) {
-      const migratedLibraryTheme = migrateReaderTheme(this.settings.libTheme);
-      if (migratedLibraryTheme !== this.settings.libTheme) settingsMigrated = true;
-      this.settings.libTheme = migratedLibraryTheme;
-    }
     for (const profile of Object.values(this.settings.deviceProfiles || {})) {
       if (profile && profile.theme) {
         const migratedProfileTheme = migrateReaderTheme(profile.theme);
@@ -1156,6 +1158,10 @@ export function createPlugin({
       this.settings.aiProvider = "ollama";
       settingsMigrated = true;
     }
+    // Removed provider presets keep working as a custom OpenAI-compatible
+    // endpoint. Preserve the endpoint, model and key reference instead of
+    // clearing a setup the reader already paid for and verified.
+    if (migrateRetiredAiProvider(this.settings)) settingsMigrated = true;
     // Unknown providers must not send a saved key to a different service.
     if (this.settings.aiProvider && !aiProviderFor(this.settings.aiProvider)) {
       this.settings.aiProvider = "";
@@ -1191,13 +1197,25 @@ export function createPlugin({
       this.settings.aiBase = "";
       settingsMigrated = true;
     }
+    // Retired settings from the Obsidian-companion era. Keeping them in the
+    // saved object only makes future migrations and backups noisier.
+    for (const key of [
+      "figuresShownByDefault", "quoteBacklinkLabel", "syncMode", "libTheme",
+      "languagePicked", "aiQuickPrompts", "quoteBacklinks", "vAlign", "maxLineCh",
+      "cfiBacklinksMigrated", "iconBacklinksMigrated",
+    ]) {
+      if (key in this.settings) {
+        delete this.settings[key];
+        settingsMigrated = true;
+      }
+    }
     if (settingsMigrated) await this._saveLocalData();
   }
   _applyLanguageDefaults() {
     // UV Reader is Chinese-first. Existing explicit language choices
     // stay untouched; every fresh install and every legacy install that never
     // chose a language starts in Simplified Chinese, regardless of OS locale.
-    if (!this.settings.languagePicked) this.settings.language = "zh";
+    if (!this.settings.language) this.settings.language = "zh";
     // Publish the chosen UI language so qiaomuReaderTranslate() (module-level i18n helper) can read it.
     this.settings.language = normalizeUiLanguage(this.settings.language);
     qiaomuReaderSetLanguage(this.settings.language);
@@ -1233,7 +1251,7 @@ export function createPlugin({
   // book has no data of that kind yet. Pending writes drain first so a refresh
   // right after a save never reads a stale file.
   async _readBooksLayout(bookPath) {
-    const store = this._readingStore();
+    const store = bookPath ? this._readingStoreFor(bookPath) : this._readingStore();
     await store.drain();
     if (bookPath && (await store.readIndex()).books[bookPath]) {
       const values = await store.loadBook(bookPath);
@@ -1283,6 +1301,116 @@ export function createPlugin({
     this._loadedDrafts = drafts;
     await this._restoreLocationMarks(marks);
   }
+
+  // Space books keep their reading data inside the space:
+  //   Spaces/<name>/reading/<book folder>/
+  // Load it lazily; existing global data for the same book is copied once so an
+  // upgrade does not lose progress, highlights, drafts, bookmarks or chats.
+  async loadSpaceBookReading(bookPath) {
+    if (this.settings.storageLayout !== "books" || !this._spaceRootForPath(bookPath)) return false;
+    if (this._spaceLoaded.has(bookPath)) return true;
+    const store = this._readingStoreFor(bookPath);
+    const meta = this._bookMeta(bookPath);
+    try {
+      const localIndex = await store.readIndex();
+      if (!localIndex.books[bookPath]) {
+        const global = this._readingStore();
+        const globalIndex = await global.readIndex();
+        if (globalIndex.books[bookPath]) {
+          const old = await global.loadBook(bookPath);
+          for (const kind of ["progress", "highlights", "pins", "drafts", "marks"]) {
+            const value = old[kind];
+            if (!value) continue;
+            if (kind === "progress" && !Object.keys(value).length) continue;
+            if (Array.isArray(value) && !value.length) continue;
+            if (kind === "drafts" && !value.text) continue;
+            await store.saveBook(bookPath, kind, value, meta).catch(() => false);
+          }
+          for (const chat of old.chats || []) {
+            await store.saveChat(bookPath, chat, meta).catch(() => false);
+          }
+        }
+      }
+    } catch (error) {
+      console.error("UV Reader: could not migrate space reading data", error);
+    }
+    const values = await store.loadBook(bookPath);
+    if (values.progress) this.progress[bookPath] = values.progress;
+    if (values.highlights) this.highlights[bookPath] = values.highlights;
+    if (values.pins) this.pins[bookPath] = values.pins;
+    if (values.drafts?.text) this._loadedDrafts[bookPath] = values.drafts;
+    if (Array.isArray(values.marks) && values.marks.length) {
+      const known = new Set((this.settings.locationMarks || []).map((mark) => mark?.id).filter(Boolean));
+      const extra = values.marks
+        .filter((mark) => mark?.id && !known.has(mark.id))
+        .map((mark) => ({ ...mark, bookPath: mark.bookPath || bookPath }));
+      if (extra.length) {
+        this.settings.locationMarks = normalizeLocationMarks([...(this.settings.locationMarks || []), ...extra]);
+        const byBook = this._marksByBook instanceof Map ? this._marksByBook : new Map();
+        byBook.set(bookPath, [...(byBook.get(bookPath) || []), ...extra]);
+        this._marksByBook = byBook;
+      }
+    }
+    if (Array.isArray(values.chats) && values.chats.length) {
+      if (!Array.isArray(this.settings.aiChatHistory)) this.settings.aiChatHistory = [];
+      const known = new Set((this.settings.aiChatHistory || []).map((chat) => chat?.id).filter(Boolean));
+      let added = false;
+      for (const chat of values.chats) {
+        if (!chat?.id || known.has(chat.id)) continue;
+        this.settings.aiChatHistory.push({ ...chat, bookPath: chat.bookPath || bookPath });
+        known.add(chat.id);
+        added = true;
+      }
+      if (added) {
+        this.settings.aiChatHistory.sort((a, b) => (Number(b?.updatedAt) || 0) - (Number(a?.updatedAt) || 0));
+      }
+    }
+    await this._adoptSpaceBookNote(bookPath);
+    this._spaceLoaded.add(bookPath);
+    return true;
+  }
+  async _adoptSpaceBookNote(bookPath) {
+    const folder = this._spaceNotesFolderForBook(bookPath);
+    if (!folder) return null;
+    const links = this.settings.bookNoteLinks;
+    const current = String(links?.[bookPath] || "");
+    if (!current || current.startsWith(`${folder}/`)) return null;
+    const note = this.app.vault.getAbstractFileByPath(current);
+    if (!(note instanceof TFile)) return null;
+    const base = note.basename;
+    let target = `${folder}/${base}.md`;
+    let index = 2;
+    while (this.app.vault.getAbstractFileByPath(target)) target = `${folder}/${base} (${index++}).md`;
+    try {
+      await this.app.vault.createFolder(folder).catch(() => {});
+      const copy = await this.app.vault.create(target, await this.app.vault.read(note));
+      if (copy instanceof TFile) {
+        this.settings.bookNoteLinks[bookPath] = copy.path;
+        await this.saveAll();
+        return copy;
+      }
+    } catch (error) {
+      console.error("UV Reader: could not move the book note into its space", error);
+    }
+    return null;
+  }
+  async loadSpaceReading(spaceRoot) {
+    const root = String(spaceRoot || "").replace(/\\/g, "/").replace(/\/+$/, "");
+    if (!root || this.settings.storageLayout !== "books") return 0;
+    const base = String(this.app.vault.adapter?.getBasePath?.() || "").replace(/\\/g, "/").replace(/\/+$/, "");
+    const relativeRoot = base && root.toLowerCase().startsWith(`${base.toLowerCase()}/`)
+      ? root.slice(base.length + 1)
+      : spaceVaultRelative(root, base);
+    const prefix = `${relativeRoot.replace(/^\/+/, "")}/books/`.replace(/\\/g, "/").toLowerCase();
+    const books = this.app.vault.getFiles().filter((file) => (
+      file.path.replace(/\\/g, "/").toLowerCase().startsWith(prefix)
+    ));
+    let loaded = 0;
+    for (const file of books) {
+      if (await this.loadSpaceBookReading(file.path)) loaded += 1;
+    }
+    return loaded;
+  }
   // Reading-position bookmarks live in their book's folder like the rest of the
   // traces. Bookmarks that only exist in the plugin data are adopted once.
   async _restoreLocationMarks(stored) {
@@ -1300,9 +1428,8 @@ export function createPlugin({
     }
     this._marksByBook = byBook;
     if (!adopt.length) { this._marksAdopted = true; return; }
-    const store = this._readingStore();
     const written = await Promise.all([...new Set(adopt.map((mark) => mark.bookPath))].map((bookPath) => (
-      store.saveBook(bookPath, "marks", byBook.get(bookPath) || [], this._bookMeta(bookPath))
+      this._readingStoreFor(bookPath).saveBook(bookPath, "marks", byBook.get(bookPath) || [], this._bookMeta(bookPath))
         .then(() => true).catch(() => false)
     )));
     this._marksAdopted = written.every(Boolean);
@@ -1321,12 +1448,11 @@ export function createPlugin({
     const previous = this._marksByBook || new Map();
     this._marksByBook = groups;
     if (this.settings.storageLayout !== "books" || !this._marksAdopted) return false;
-    const store = this._readingStore();
     await Promise.all([...groups].map(([bookPath, list]) => (
-      store.saveBook(bookPath, "marks", list, this._bookMeta(bookPath)).catch(() => false)
+      this._readingStoreFor(bookPath).saveBook(bookPath, "marks", list, this._bookMeta(bookPath)).catch(() => false)
     )));
     for (const bookPath of previous.keys()) {
-      if (!groups.has(bookPath)) await store.clearBook(bookPath, "marks").catch(() => false);
+      if (!groups.has(bookPath)) await this._readingStoreFor(bookPath).clearBook(bookPath, "marks").catch(() => false);
     }
     return true;
   }
@@ -1349,9 +1475,8 @@ export function createPlugin({
     this.settings.aiChatHistory = [...stored, ...adopt, ...bookless]
       .sort((a, b) => (Number(b?.updatedAt) || 0) - (Number(a?.updatedAt) || 0));
     if (!adopt.length) { this._aiChatsAdopted = true; return; }
-    const store = this._readingStore();
     const written = await Promise.all(adopt.map((chat) =>
-      store.saveChat(chat.bookPath, chat, this._bookMeta(chat.bookPath)).then(() => true).catch(() => false)));
+      this._readingStoreFor(chat.bookPath).saveChat(chat.bookPath, chat, this._bookMeta(chat.bookPath)).then(() => true).catch(() => false)));
     // Only drop the legacy history from the host file once every conversation
     // is safely in its book folder.
     this._aiChatsAdopted = written.every(Boolean);
@@ -1416,7 +1541,7 @@ export function createPlugin({
   }
   async moveBookToReadingProject(bookPath, project) {
     if (this.settings.storageLayout !== "books" || !bookPath) return false;
-    return this._readingStore().moveBook(bookPath, project);
+    return this._readingStoreFor(bookPath).moveBook(bookPath, project);
   }
   async removeBookFromReadingProject(bookPath) {
     return this.moveBookToReadingProject(bookPath, "");
@@ -1428,7 +1553,7 @@ export function createPlugin({
   async readingProjectOf(bookPath) {
     if (this.settings.storageLayout !== "books" || !bookPath) return "";
     try {
-      const index = await this._readingStore().readIndex();
+      const index = await this._readingStoreFor(bookPath).readIndex();
       return String(index.books[bookPath]?.project || "");
     } catch {
       return "";
@@ -1439,7 +1564,7 @@ export function createPlugin({
     const bookPath = chat?.bookPath || "";
     if (this.settings.storageLayout !== "books" || !bookPath || !chat?.id) return false;
     try {
-      await this._readingStore().saveChat(bookPath, chat, this._bookMeta(bookPath));
+      await this._readingStoreFor(bookPath).saveChat(bookPath, chat, this._bookMeta(bookPath));
       return true;
     } catch (error) {
       console.error("UV Reader: could not save the conversation into the book folder", error);
@@ -1448,9 +1573,8 @@ export function createPlugin({
   }
   async removeAiChatRecords(records) {
     if (this.settings.storageLayout !== "books") return false;
-    const store = this._readingStore();
     await Promise.all((records || []).map((chat) =>
-      chat?.id && chat.bookPath ? store.deleteChat(chat.bookPath, chat.id).catch(() => false) : false));
+      chat?.id && chat.bookPath ? this._readingStoreFor(chat.bookPath).deleteChat(chat.bookPath, chat.id).catch(() => false) : false));
     return true;
   }
   // One-time move from the three global files into per-book folders. Verified
@@ -1533,17 +1657,6 @@ export function createPlugin({
       }
       this.settings.readingNoteLinksRepaired = true; await this._saveLocalData();
     }
-    // One-time presentation migration: rewrite managed reading-note sections
-    // with the icon-only backlink. This updates existing notes immediately on
-    // upgrade instead of waiting for the reader to edit every old highlight.
-    if (!this.settings.iconBacklinksMigrated && this.settings.quotesToBookNote === true) {
-      for (const [bookPath, items] of Object.entries(this.highlights || {})) {
-        if (Array.isArray(items) && items.length) {
-          await syncHighlightsToReadingNote(this.app, this, bookPath, items);
-        }
-      }
-      this.settings.iconBacklinksMigrated = true; await this._saveLocalData();
-    }
     if (!this.settings.manualExcerptSectionsMigrated && this.settings.quotesToBookNote === true) {
       const bookPaths = new Set([
         ...Object.keys(this.settings.bookNoteLinks || {}),
@@ -1584,12 +1697,14 @@ export function createPlugin({
       await this._saveProgressToVault(); await this._saveLocalData();
     }
   }
+  async saveSettings() {
+    await this._saveLocalData();
+  }
   async saveAll() {
     await this._saveLocalData();
     if (this.settings.storageLayout === "books") {
-      const store = this._readingStore();
       await Promise.all(Object.keys(this.progress || {}).map((bookPath) =>
-        store.saveBook(bookPath, "progress", this.progress[bookPath] || {}, this._bookMeta(bookPath))));
+        this._readingStoreFor(bookPath).saveBook(bookPath, "progress", this.progress[bookPath] || {}, this._bookMeta(bookPath))));
       return;
     }
     await this._saveProgressToVault();
@@ -1732,7 +1847,7 @@ export function createPlugin({
     const s = this.settings;
     if (!s.bookNoteLinks) s.bookNoteLinks = {};
     if (s.bookNoteLinks[file.path]) return null;
-    const base = bookNotesFolderPath(this.app) || notesFolderPath(this.app) || "";
+    const base = this._spaceNotesFolderForBook(file.path) || bookNotesFolderPath(this.app) || notesFolderPath(this.app) || "";
     return this.createBookNote(file, file.basename, base);
   }
   async setBookTags(bookPath, tags) {
@@ -1765,7 +1880,28 @@ export function createPlugin({
     // duplicates in the library.
     const sourceKey = raw.replace(/\\/g, "/");
     const known = this.settings.importedBooks || (this.settings.importedBooks = {});
-    if (known[sourceKey] && this.app.vault.getAbstractFileByPath(known[sourceKey])) return known[sourceKey];
+    if (known[sourceKey] && this.app.vault.getAbstractFileByPath(known[sourceKey])) {
+      const target = known[sourceKey];
+      // The same outside path can be rewritten in place (the ebook builder
+      // overwrites its previous output). Reusing the old library copy made the
+      // reader show the pre-polish book. Keep the path (annotations/progress
+      // stay attached) but refresh the bytes when the source is newer.
+      const adapter = this.app.vault.adapter;
+      let sourceStat = null;
+      let targetStat = null;
+      try { sourceStat = await adapter.stat?.(raw) || null; } catch { /* source stat is optional */ }
+      try { targetStat = await adapter.stat?.(target) || null; } catch { /* target stat is optional */ }
+      const mtimeOf = (stat) => (stat?.mtime instanceof Date
+        ? stat.mtime.getTime()
+        : Number(stat?.mtime) || 0);
+      if (sourceStat && (!targetStat
+        || sourceStat.size !== targetStat.size
+        || mtimeOf(sourceStat) > mtimeOf(targetStat))) {
+        const bytes = await adapter.readBinary(raw);
+        await adapter.writeBinary(target, bytes);
+      }
+      return target;
+    }
     const bytes = await this.app.vault.adapter.readBinary(raw);
     const name = raw.split(/[\\/]/).pop() || "book";
     const dir = pickLibraryFolder(
@@ -1786,6 +1922,7 @@ export function createPlugin({
   async createBookNote(file, title, folder) { // create (or reuse) the note linked to a book
     try {
       if (!file) { return null; }
+      folder = (typeof this._spaceNotesFolderForBook === "function" ? this._spaceNotesFolderForBook(file.path) : "") || folder;
       const settings = this.settings;
       if (!settings.bookNoteLinks) settings.bookNoteLinks = {};
       const dir = qiaomuReaderPath(folder);
@@ -1996,7 +2133,7 @@ export function createPlugin({
     // Per-book layout: only this book's file is rewritten, so a write touches
     // one folder instead of the whole library.
     const save = this.settings.storageLayout === "books" && bookPath
-      ? this._readingStore().saveBook(bookPath, "progress", this.progress[bookPath] || {}, this._bookMeta(bookPath)).then(() => true)
+      ? this._readingStoreFor(bookPath).saveBook(bookPath, "progress", this.progress[bookPath] || {}, this._bookMeta(bookPath)).then(() => true)
       : this._saveProgressToVault();
     return Promise.all([save, this._saveLocalData()]).then((stores) => {
       if (stores.some((store) => store === false)) throw new Error("reading progress store is locked");
@@ -2164,7 +2301,7 @@ export function createPlugin({
       applyFn(disk);
       this.highlights[bookPath] = disk[bookPath];
       this._backupHighlights(bookPath, disk[bookPath] || []);
-      await this._readingStore().saveBook(bookPath, "highlights", disk[bookPath] || [], this._bookMeta(bookPath));
+      await this._readingStoreFor(bookPath).saveBook(bookPath, "highlights", disk[bookPath] || [], this._bookMeta(bookPath));
       await this._saveLocalData();
       if (this.settings.quotesToBookNote === true) {
         await syncHighlightsToReadingNote(this.app, this, bookPath, disk[bookPath] || []);
@@ -2218,7 +2355,7 @@ export function createPlugin({
         if (this.settings.storageLayout === "books") {
           this.highlights[bookPath] = merged;
           this._backupHighlights(bookPath, merged);
-          await this._readingStore().saveBook(bookPath, "highlights", merged, this._bookMeta(bookPath));
+          await this._readingStoreFor(bookPath).saveBook(bookPath, "highlights", merged, this._bookMeta(bookPath));
         } else {
           const disk = await this._readHighlightStore(this._highlightsFilePath());
           disk[bookPath] = merged;
@@ -2274,7 +2411,7 @@ export function createPlugin({
     if (!bookPath) return false;
     delete this.pins[bookPath];
     if (this.settings.storageLayout === "books") {
-      return this._readingStore().clearBook(bookPath, "pins");
+      return this._readingStoreFor(bookPath).clearBook(bookPath, "pins");
     }
     return this._persistPins(bookPath, (disk) => { delete disk[bookPath]; });
   }
@@ -2291,7 +2428,7 @@ export function createPlugin({
       const disk = { [bookPath]: (Array.isArray(this.pins[bookPath]) ? this.pins[bookPath] : []).map((pin) => ({ ...pin })) };
       applyFn(disk);
       this.pins[bookPath] = disk[bookPath];
-      await this._readingStore().saveBook(bookPath, "pins", disk[bookPath] || [], this._bookMeta(bookPath));
+      await this._readingStoreFor(bookPath).saveBook(bookPath, "pins", disk[bookPath] || [], this._bookMeta(bookPath));
       return true;
     }
     const file = this._pinsFilePath();

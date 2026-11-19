@@ -17,16 +17,61 @@ function setup(state = {}) {
 
 test("the schemas stay minimal and are advertised as-is", () => {
   assert.deepEqual(AI_TOOL_DEFINITIONS.map((tool) => tool.name), [
-    "get_reading_position", "get_book_outline", "read_page_image", "read_pages", "search_book", "list_highlights",
+    "get_reading_position", "get_book_outline", "read_page_image", "read_pages", "search_book",
+    "web_search", "read_url", "list_highlights",
     "get_workshop_options", "prepare_workshop_task", "start_workshop_task", "search_books_online", "download_book", "toc_scan", "toc_build", "toc_apply",
   ]);
   const { definitions } = setup();
   assert.deepEqual(definitions, AI_TOOL_DEFINITIONS
     .filter((tool) => tool.name !== "read_page_image")
+    .filter((tool) => !["web_search", "read_url"].includes(tool.name))
     .filter((tool) => !["get_workshop_options", "prepare_workshop_task", "start_workshop_task"].includes(tool.name))
     .map(({ name, description, parameters }) => ({ name, description, parameters })),
-    "without vision or the desktop workshop the unavailable tools are not advertised");
+    "without vision, web search or the desktop workshop the unavailable tools are not advertised");
   assert.equal(definitions.every((tool) => tool.parameters.type === "object"), true);
+});
+
+test("web search and page reading are advertised only after configuration", async () => {
+  const calls = [];
+  const tools = setup({
+    hasWebSearch: true,
+    webSearchQuestion: "最近有什么新版本？",
+    webSearch: async (query, options) => {
+      calls.push({ query, options });
+      return {
+        ok: true,
+        results: [
+          { title: "版本说明", url: "https://example.com/release", summary: "新版本已经发布。", siteName: "Example", date: "2026-01-01", authority: 3 },
+        ],
+      };
+    },
+    webFetch: async (url) => ({ ok: true, url, title: "版本说明", content: "这里是网页正文。" }),
+  });
+  assert.equal(tools.definitions.some((tool) => tool.name === "web_search"), true);
+  assert.equal(tools.definitions.some((tool) => tool.name === "read_url"), true);
+  const search = await tools.run("web_search", { query: "DeepSeek 新版本", count: 3 });
+  assert.match(search.text, /\[1\] 版本说明/);
+  assert.match(search.text, /https:\/\/example\.com\/release/);
+  assert.deepEqual(calls[0], { query: "DeepSeek 新版本", options: { count: 3, oriQuestion: "最近有什么新版本？" } });
+  const page = await tools.run("read_url", { url: "https://example.com/release" });
+  assert.match(page.text, /这里是网页正文/);
+  assert.equal(page.isError, false);
+  const hidden = setup({ hasWebSearch: false });
+  assert.equal(hidden.definitions.some((tool) => tool.name === "web_search"), false);
+  assert.equal(hidden.definitions.some((tool) => tool.name === "read_url"), false);
+});
+
+test("a web-only tool set still works outside a book", async () => {
+  const tools = setup({
+    hasReader: false,
+    hasWorkshop: false,
+    hasWebSearch: true,
+    webSearch: async () => ({ ok: true, results: [] }),
+  });
+  assert.equal(tools.definitions.some((tool) => tool.name === "get_reading_position"), false);
+  assert.equal(tools.definitions.some((tool) => tool.name === "web_search"), true);
+  const result = await tools.run("web_search", { query: "最新消息" });
+  assert.match(result.text, /没有找到/);
 });
 
 test("the reading position and outline answer in Chinese", async () => {

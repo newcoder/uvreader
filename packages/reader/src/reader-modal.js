@@ -11,6 +11,7 @@ import { createReaderLoadCoordinator, isReaderLoadAbort, waitForReaderFrame } fr
 import { docOf } from "./reader-dom.js";
 import { jumpToEngineHighlight } from "./highlight-navigation.js";
 import { readerTextCss, resolveReaderFont, syncPageButtons } from "./reader-appearance.js";
+import { applyPdfPageThemeFilter } from "./pdf-theme-filter.js";
 import { pinyinPinFor, renderEnginePins, togglePinyinPin } from "./pinyin-pins.js";
 import { columnDragActive, installColumnDragWatch, onColumnDrag } from "./column-drag.js";
 
@@ -33,6 +34,7 @@ export function createReaderModal({
     this.panelOpen = null;
     this._pendingSel = null;
     this._editHlId = null;
+    this._pendingPdfJump = null;
   }
   async onOpen() {
     const modalEl = this.modalEl;
@@ -156,6 +158,7 @@ export function createReaderModal({
     m.style.setProperty("--qiaomu-reader-border", t.border);
     m.style.setProperty("--qiaomu-reader-accent", t.accent);
     m.style.setProperty("--qiaomu-reader-muted", t.muted);
+    m.style.setProperty("--qiaomu-reader-pdf-filter", applyPdfPageThemeFilter(m.ownerDocument, this.plugin.settings));
     // Keep the full reading surface in the selected paper colour.
     // Navigation controls keep their own Obsidian surface styles.
     m.setCssProps({ background: "var(--qiaomu-reader-bg, var(--background-primary))" });
@@ -265,6 +268,7 @@ export function createReaderModal({
   async _loadBook() {
     const loadToken = this._loadCoordinator.begin();
     this._openingBook = loadToken;
+    this._pendingPdfJump = null;
     this._layoutAgain = false;
     this._epubTocScan = null;
     this._epubTocDraft = null;
@@ -306,8 +310,18 @@ export function createReaderModal({
       renderReaderLoadError(this, e, () => this._loadBook());
     } finally {
       this._loadCoordinator.finish(loadToken);
-      if (this._openingBook === loadToken) { this._openingBook = null; settleReader(this); }
+      if (this._openingBook === loadToken) { this._openingBook = null; settleReader(this); this._flushPendingPdfJump(); }
     }
+  }
+  _flushPendingPdfJump() {
+    const pending = this._pendingPdfJump;
+    if (!pending || this._openingBook || this._closed || !this.pager?.total) return;
+    if (this._layoutPromise) {
+      void this._layoutPromise.then(() => this._flushPendingPdfJump(), () => this._flushPendingPdfJump());
+      return;
+    }
+    this._pendingPdfJump = null;
+    this._jumpToBlock(pending.block, pending.flash);
   }
   _releasePdfLazy() {
     this._pdfLazy?.destroy?.(); this._pdfLazy = null;
@@ -317,6 +331,7 @@ export function createReaderModal({
     return waitForReaderFrame(win).then(() => waitForReaderFrame(win));
   }
   async _openLoadedDocument(result, loadToken) {
+    this.contentEl?.removeClass("qiaomu-reader-pdf-scanned");
     if (result.image) {
       // The image page owns the whole reading area; no paginator or foliate
       // document is created for it.
@@ -324,6 +339,7 @@ export function createReaderModal({
       this.pdfDocumentContext = null;
       this._pdfLazy = null;
       this._pdfOutline = null;
+      this._pdfFigures = null;
       this.tocItems = [];
       this._buildTocPanel();
       await this.plugin.ensureReadingFolder(this.file.path);
@@ -343,6 +359,7 @@ export function createReaderModal({
       this.pdfDocumentContext = null;
       this._pdfLazy = null;
       this._pdfOutline = null;
+      this._pdfFigures = null;
       await this.plugin.ensureReadingFolder(this.file.path);
       await this.plugin.refreshProgress(this.file.path);
       if (!this._loadCoordinator.isCurrent(loadToken)) return false;
@@ -361,6 +378,10 @@ export function createReaderModal({
     this.pdfDocumentContext = result.pdfDocumentContext || null;
     this._pdfLazy = result.lazy;
     this._pdfOutline = result.outline;
+    this._pdfFigures = result.figureManifest || null;
+    void Promise.resolve(result.whenTextReady).then((ready) => {
+      if (ready?.scan?.scanned === true) this.contentEl?.addClass("qiaomu-reader-pdf-scanned");
+    }).catch(() => {});
     this.tocItems = buildTocItems(this.bookHtml, this._pdfOutline);
     this._buildTocPanel();
     await this.plugin.ensureReadingFolder(this.file.path);
@@ -414,9 +435,14 @@ export function createReaderModal({
   }
   _jumpToBlock(block, flash = true) {
     if (!readerIsPdf(this) || !this.bookHtml || typeof block !== "number") return;
+    if (this._openingBook || !this.pager?.total) {
+      this._pendingPdfJump = { block, flash };
+      return;
+    }
     rememberReaderJump(this);
     const [cur, tot] = restoreReadingAnchor(this.pager, { block, offset: 0, pct: this.pager.currentPct });
     this._updateUI(cur, tot);
+    this._readingAnchor = captureReadingAnchor(this.pager);
     if (this.file) this.plugin.saveProgress(this.file.path, cur, tot, this.pager.currentBlockIndex());
     if (flash) this._flashBlock(block);
   }
@@ -788,22 +814,27 @@ export function createReaderModal({
   _renderFlowHighlights() {
     if (this.engine) { this._renderEngineHighlights(); this._renderEnginePins(); return; }
     if (!this.file || !this.pager.flow) return;
-    unwrapAllHighlights(this.pager.flow);
-    const blocks = this.pager.flow.querySelectorAll(READER_BLOCK_SELECTOR);
+    const flow = this.pager.flow;
     const list = this.plugin.getHighlights(this.file.path);
-    for (const hl of list) {
-      const anchor = resolveHighlightAnchor(blocks, hl, this.file.extension === "pdf");
-      if (!anchor) continue;
-      wrapBlockRange(anchor.block, anchor.loc.start, anchor.loc.start + anchor.loc.len, { id: hl.id, color: hlColorCss(hl.color) });
+    if (list.length || flow.querySelector("[data-hl-id]")) {
+      unwrapAllHighlights(flow);
+      const blocks = flow.querySelectorAll(READER_BLOCK_SELECTOR);
+      for (const hl of list) {
+        const anchor = resolveHighlightAnchor(blocks, hl, this.file.extension === "pdf");
+        if (!anchor) continue;
+        wrapBlockRange(anchor.block, anchor.loc.start, anchor.loc.start + anchor.loc.len, { id: hl.id, color: hlColorCss(hl.color) });
+      }
     }
     this._renderFlowPins();
   }
   _renderFlowPins() {
     if (this.engine || !this.file || !this.pager.flow) return;
     const flow = this.pager.flow;
+    const pins = this.plugin.getPins(this.file.path);
+    if (!pins.length && !flow.querySelector("[data-py-pin]")) return;
     unwrapAllPins(flow);
     const blocks = flow.querySelectorAll(READER_BLOCK_SELECTOR);
-    for (const pin of this.plugin.getPins(this.file.path)) {
+    for (const pin of pins) {
       if (!Number.isInteger(pin.block) || !pin.pinyin) continue;
       const anchor = resolveHighlightAnchor(blocks, pin, this.file.extension === "pdf");
       if (!anchor) continue;

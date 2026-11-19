@@ -215,6 +215,22 @@ test("the right split expands for a sidebar and collapses when its leaf detaches
   }
 });
 
+test("the right split can grow to 70% of the workspace", () => {
+  const env = setupHost();
+  const original = Object.getOwnPropertyDescriptor(document.body, "clientWidth");
+  try {
+    Object.defineProperty(document.body, "clientWidth", { value: 2000, configurable: true });
+    const app = createApp({ workspaceEl: document.body });
+    assert.equal(app.workspace._splitMax("right"), 1400);
+    app.workspace._setSplitWidth("right", 1900);
+    assert.equal(app.workspace.rightSplit.width, 1400);
+  } finally {
+    if (original) Object.defineProperty(document.body, "clientWidth", original);
+    else delete document.body.clientWidth;
+    env.cleanup();
+  }
+});
+
 test("getRightLeaf lives under the right split", async () => {
   const env = setupHost();
   try {

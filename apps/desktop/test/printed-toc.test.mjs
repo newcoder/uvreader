@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildNavPlan, chapterNumber, chapterStartPages, estimatePageOffset, fillPageGaps, interpolatePage, isPrintedTocChapter, lastPdfPageOf, lastPrintedPageOf, looksLikeTocEntry, normalizeNavLevels, parsePrintedTocEntries, printedPageOf, stripPageMarkers, stripPrintedToc, stripTocBlock, tocRatio } from "../src/shared/printed-toc.js";
+import { buildNavPlan, chapterNumber, chapterStartPages, estimatePageOffset, fillPageGaps, interpolatePage, isPrintedTocChapter, lastPdfPageOf, lastPrintedPageOf, looksLikeTocEntry, looksLikeTocLine, normalizeNavLevels, parsePrintedTocEntries, printedPageOf, splitChaptersByToc, stripPageMarkers, stripPrintedToc, stripTocBlock, tocRatio } from "../src/shared/printed-toc.js";
 import { chaptersToNavItems } from "../src/main/workshop-epub.js";
 import { outlineToTocEntries } from "../src/main/pdf-outline.js";
 
@@ -22,6 +22,15 @@ test("looksLikeTocEntry recognises leaders and trailing page numbers", () => {
   assert.equal(looksLikeTocEntry("## 目录"), false, "标题行不算条目");
   assert.equal(looksLikeTocEntry("| $s_o=2f$ | 倒像 |"), false, "表格行不算");
   assert.equal(looksLikeTocEntry(""), false);
+});
+
+test("looksLikeTocLine accepts slash page numbers used by author contents", () => {
+  assert.equal(looksLikeTocLine("林泉居的故事 小思 / 74"), true);
+  assert.equal(looksLikeTocLine("张爱玲与王安忆的香港 小思 / 237"), true);
+  assert.equal(looksLikeTocLine("延伸阅读 / 257 忆故人……"), true);
+  assert.equal(looksLikeTocLine("青山脚下的怀念 沈思 / 221 达德学院大事志 小思 / 227"), true);
+  assert.equal(looksLikeTocLine("正文提到一个比例 / 237 这里只是叙述。"), false, "句末标点的正文不算");
+  assert.equal(looksLikeTocLine("## 戴望舒"), false);
 });
 
 test("tocRatio measures how much of a chapter looks like a listing", () => {
@@ -161,6 +170,20 @@ test("cover-ish chapters never lead the nav", () => {
   assert.deepEqual(plan.items.map((item) => item.title), ["Optics Fifth Edition", "译者序", "第一章 光学简史", "第二章 波动"]);
   assert.ok(!plan.items.some((item) => /^[（(]/.test(item.title)), "括号版次条目不进导航");
   assert.ok(!plan.items.some((item) => !item.title), "无标题章节也不进导航");
+});
+
+test("a synthetic cover title never leads the nav", () => {
+  const chapters = [
+    { title: "第 1 章", syntheticTitle: true, text: "![插图](cover.jpg)" },
+    { title: "第二版前言" },
+    { title: "第一章 内务府" },
+  ];
+  const tocEntries = [
+    { label: "第二版前言", key: "第二版前言", page: 1, level: 1 },
+    { label: "第一章 内务府", key: "内务府", page: 1, level: 1 },
+  ];
+  const plan = buildNavPlan({ chapters, tocEntries });
+  assert.deepEqual(plan.items.map((item) => item.title), ["第二版前言", "第一章 内务府"]);
 });
 
 test("a chapter is used by at most one entry", () => {
@@ -486,4 +509,70 @@ test("orderFallback anchors every entry near its own place in the book", () => {
   assert.equal(indexes[0], 0, "第一条落在书首");
   assert.equal(indexes[indexes.length - 1], 39, "最后一条落在书尾");
   assert.equal(plan.items.length, 20, "中间章节不会被当成前后附章灌进导航");
+});
+
+test("splitChaptersByToc finds real chapter starts when headings are page fragments", () => {
+  const markdown = [
+    "# 书名",
+    "",
+    "## 出版说明",
+    "",
+    "说明。",
+    "",
+    "## 目录",
+    "",
+    "## 观察者",
+    "",
+    "第一章",
+    "",
+    "正文一。",
+    "",
+    "土地",
+    "",
+    "第二章",
+    "",
+    "正文二。",
+    "",
+    "## 寡妇",
+    "",
+    "第三章",
+    "",
+    "正文三。",
+    "",
+    "## 注释",
+    "",
+    "1、注一。",
+    "",
+    "## 第一章: 观察者",
+    "",
+    "1、注二。",
+    "",
+    "## 参考书目",
+    "",
+    "书目。",
+  ].join("\n");
+  const toc = [
+    { label: "前言", page: 1, level: 1 },
+    { label: "第一章 观察者", page: 1, level: 1 },
+    { label: "第二章 土地", page: 25, level: 1 },
+    { label: "第三章 寡妇", page: 47, level: 1 },
+    { label: "注释", page: 115, level: 1 },
+    { label: "参考书目", page: 139, level: 1 },
+  ];
+  const split = splitChaptersByToc(markdown, toc);
+  assert.ok(split);
+  assert.deepEqual(split.chapters.map((chapter) => chapter.title), [
+    "前言",
+    "第一章 观察者",
+    "第二章 土地",
+    "第三章 寡妇",
+    "注释",
+    "参考书目",
+  ]);
+  assert.match(split.chapters[0].text, /出版说明/);
+  assert.match(split.chapters[2].text, /正文二/);
+  assert.doesNotMatch(split.chapters[2].text, /^土地$/m);
+  assert.match(split.chapters[4].text, /第一章: 观察者/);
+  assert.match(split.chapters[4].text, /注一/);
+  assert.equal(split.matched, 5);
 });

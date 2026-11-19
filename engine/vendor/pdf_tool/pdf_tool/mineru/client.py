@@ -1240,7 +1240,8 @@ def content_list_to_blocks(items: list[dict], *, base: Path,
     blocks: list[dict] = []
     stats = {"items": len(items), "skipped_furniture": 0, "footnotes": 0,
              "equations": 0, "tables": 0, "images": 0, "headings": 0, "codes": 0,
-             "charts": 0, "images_dropped": 0, "furniture_images": [],
+             "charts": 0, "ref_text_items": 0, "list_items": 0,
+             "images_dropped": 0, "furniture_images": [],
              "figure_text_removed": 0, "figure_text_overlap": 0,
              "figure_text_overlaps": [], **index_stats}
     # 先收集「家具类型块」的 bbox（跨页重复页眉/页脚的位置）
@@ -1409,6 +1410,33 @@ def content_list_to_blocks(items: list[dict], *, base: Path,
             caption = " ".join(it.get("image_caption") or [])
             blocks.append({"type": "image", "position": pos,
                            "image": {"src": prefix + src, "alt": caption or "插图"}})
+        elif t == "list":
+            # MinerU 会把页脚注/参考文献放在 `type=list, sub_type=ref_text` 的
+            # list_items 里；旧逻辑只处理 text/table/...，整块注释会直接消失。
+            list_items = _index_list_items(it)
+            if not list_items:
+                continue
+            sub_type = str(it.get("sub_type") or "").lower()
+            content = it.get("content")
+            if not sub_type and isinstance(content, dict):
+                sub_type = str(content.get("sub_type") or "").lower()
+            if "ref_text" in sub_type:
+                for item in list_items:
+                    text = str(item).strip()
+                    if not text:
+                        continue
+                    blocks.append({"type": "text", "position": pos, "text": text})
+                    stats["ref_text_items"] += 1
+            else:
+                lines = []
+                for item in list_items:
+                    text = str(item).strip()
+                    if not text:
+                        continue
+                    lines.append(text if re.match(r"^[-*+]\s", text) else f"- {text}")
+                if lines:
+                    blocks.append({"type": "text", "position": pos, "text": "\n".join(lines)})
+                    stats["list_items"] += len(lines)
         elif t == "table":
             body = it.get("table_body") or ""
             parsed = html_table_to_rows(body)

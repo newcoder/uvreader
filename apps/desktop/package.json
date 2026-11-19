@@ -1,7 +1,7 @@
 {
   "name": "qiaomu-reader-desktop",
   "private": true,
-  "version": "0.7.89",
+  "version": "0.9.63",
   "description": "Standalone Electron shell for UV Reader (纽扣).",
   "author": "newcoder",
   "main": "dist/main.cjs",
@@ -27,6 +27,12 @@
     "playwright-core": "^1.63.0"
   },
   "dependencies": {
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/search": "^6.7.2",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.15",
     "@earendil-works/pi-ai": "0.85.1",
     "marked": "^18.0.13",
     "opencc-js": "^1.4.2"

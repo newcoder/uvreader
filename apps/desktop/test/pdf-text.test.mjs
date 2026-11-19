@@ -194,7 +194,7 @@ test("headings come out as headings with levels", () => {
   assert.equal(blocks.filter((block) => block.type === "text").length, 2);
 });
 
-test("the text-convert runner bridges the local extraction into DocVortex", async () => {
+test("the text-convert runner writes Markdown without DocVortex", async () => {
   const { createWorkshopQueue } = await import("../src/main/workshop.js");
   const { registerTextConvertRunner } = await import("../src/main/pdf-text.js");
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-textconv-"));
@@ -225,9 +225,8 @@ test("the text-convert runner bridges the local extraction into DocVortex", asyn
   const task = queue.snapshot().tasks.find((row) => row.id === id);
   assert.equal(task.status, "done", task.error);
   assert.equal(path.basename(task.output), "讲义.md");
-  assert.equal(converted.length, 1);
-  assert.match(String(converted[0].source), /bridge\.html$/, "DocVortex 收到的是桥接 HTML");
-  assert.match(fs.readFileSync(converted[0].source, "utf8"), /def run\(\):/, "本地提取的文字进了桥接 HTML");
+  assert.equal(converted.length, 0, "Markdown 不需要 DocVortex");
+  assert.match(fs.readFileSync(task.output, "utf8"), /def run\(\):/, "本地提取的文字直接写进了 Markdown");
 });
 
 test("furnitureRects locates headers, footers and watermarks for redaction", () => {

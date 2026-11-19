@@ -27,7 +27,10 @@ test("renderBookCss emits a single-column reflow stylesheet", () => {
   assert.match(css, /line-height: 1\.8/);
   assert.match(css, /margin: 6%/);
   assert.match(css, /text-indent: 2em/);
+  assert.match(css, /p\.qbr-toc-entry \{ text-indent: 2em; \}/);
+  assert.doesNotMatch(css, /h1 \+ p/, "the first paragraph after a heading follows the same indent");
   assert.match(css, /img \{ max-width: 100%/);
+  assert.match(css, /a\.qbr-noteref, a\.qbr-backlink \{ color: #1d4ed8;/);
   assert.ok(!/background:/.test(css), "主题已移除:书里不写背景色,交给阅读器");
   assert.ok(!/@font-face/.test(renderBookCss({})), "字体不再嵌入:样式里没有 @font-face");
 });

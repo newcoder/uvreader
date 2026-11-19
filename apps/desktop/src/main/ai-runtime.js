@@ -9,9 +9,12 @@ import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completio
 
 const PI_API = "openai-completions";
 const DEFAULT_MAX_TOKENS = 2400;
-const CONNECTION_TEST_MAX_TOKENS = 16;
-const PROBE_MAX_TOKENS = 16;
-const PROBE_TOOL_MAX_TOKENS = 64;
+// Reasoning models can spend a small connection check entirely on hidden
+// reasoning and return an empty answer. Leave enough room for both the
+// reasoning phase and a short visible reply.
+const CONNECTION_TEST_MAX_TOKENS = 512;
+const PROBE_MAX_TOKENS = 512;
+const PROBE_TOOL_MAX_TOKENS = 512;
 const PROBE_TIMEOUT_MS = 20_000;
 const DEFAULT_TIMEOUT_MS = 45_000;
 // pi requires a non-empty client key; keyless local servers ignore the header.
@@ -62,6 +65,15 @@ export function buildPiModel(config, options = {}) {
   // omit finish_reason; infer the stop reason instead of failing the stream.
   const compat = { ...(isLocalEndpoint(config.base) ? { supportsFinishReason: false } : {}), ...(config.compat || {}) };
   if (Object.keys(compat).length) model.compat = compat;
+  if (config.thinkingLevelMap) model.thinkingLevelMap = config.thinkingLevelMap;
+  // OpenCode Go rejects requests without a session header, even for a one-off
+  // connection test. Chat calls pass their conversation key; other calls use a
+  // stable app-level key.
+  if (config.id === "opencode-go") {
+    model.headers = {
+      "x-opencode-session": String(options.sessionKey || config.sessionKey || "uvreader"),
+    };
+  }
   return model;
 }
 
@@ -203,7 +215,10 @@ export function createAiRuntime({ modelsFor } = {}) {
 
   async function stream(payload, emit = () => {}) {
     const { requestId, config, messages, options = {} } = payload || {};
-    const { models, model } = modelFor(config);
+    const { models, model } = modelFor(config, {
+      sessionKey: options.sessionKey,
+      connectionTest: options.connectionTest === true,
+    });
     if (!model) return { ok: false, reason: "notconfigured", message: "AI model is not configured" };
     const controller = new AbortController();
     controllers.set(requestId, controller);
@@ -268,7 +283,7 @@ export function createAiRuntime({ modelsFor } = {}) {
   }
 
   async function test(config) {
-    const { models, model } = modelFor(config, { connectionTest: true });
+    const { models, model } = modelFor(config, { connectionTest: true, sessionKey: "uvreader-connection-test" });
     if (!model) return { ok: false, reason: "notconfigured", message: "AI model is not configured" };
     const started = Date.now();
     try {
@@ -299,7 +314,7 @@ export function createAiRuntime({ modelsFor } = {}) {
   // the only proof of support; a rejection reports the distinct reason.
   async function probe(payload = {}) {
     const { config = {}, kind = "image", image = null, expected = "", prompt = "" } = payload || {};
-    const { models, model } = modelFor(config, { imageInput: kind === "image" });
+    const { models, model } = modelFor(config, { imageInput: kind === "image", sessionKey: "uvreader-probe" });
     if (!model) return { ok: false, kind, reason: "notconfigured", message: "AI model is not configured" };
     if (kind === "image" && (!image?.data || !image?.mimeType)) {
       return { ok: false, kind, reason: "payload", message: "missing probe image" };

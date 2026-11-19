@@ -43,10 +43,9 @@ export function docvortexFormatExt(target) {
 }
 
 // 格式转换面板的目标格式:DocVortex 的文档格式 + reader 的 AI 答题页。
-// 答题页统一走 AI 版本,旧版确定性答题页的生成入口已移除。
+// 普通答题页入口已撤回;旧产物仍由扫描器识别,旧文件也能继续打开和 AI 判分。
 export const CONVERT_FORMATS = Object.freeze([
   ...DOCVORTEX_FORMATS,
-  // 答题页统一走 AI 版本；旧版确定性答题页仍保留 runner，供历史任务重试。
   { id: "quiz-ai", label: "AI 答题页", ext: "AI答题页.html" },
 ]);
 

@@ -125,7 +125,7 @@ UV Reader 是一个 **中文优先的本地桌面阅读器**（Electron），支
 
 ### AI（可选）
 
-- 支持 HTTP OpenAI 兼容服务（DeepSeek、Kimi、通义千问、智谱 GLM、MiniMax、OpenRouter、OpenAI 等），也支持本地 OpenAI 兼容端点（Ollama、llama.cpp、LM Studio）。
+- 支持 HTTP OpenAI 兼容服务（DeepSeek、Kimi、通义千问、智谱 GLM、OpenCode Go、OpenRouter、OpenAI、Gemini 等），也支持本地 OpenAI 兼容端点（Ollama、llama.cpp、LM Studio）。
 - **AI 助读**：选中文本解释、总结、追问、翻译，读取书籍上下文；可以自定义提示词和回复语言。
 - **AI 伴读**：AI 对话会记录提问时所在的书籍位置，点击位置标签即可回到书内；支持整页截图或框选截图提问，并结合当前书籍上下文继续追问。顶部只保留新建对话、本书历史对话和关闭；阅读笔记改在阅读器主工具栏打开，历史对话也只列出当前这本书的会话，避免把别的书的上下文带进来。
 - **AI 书坊**：推断元数据、生成封面文案、建议分章规则、按块做最小文本清理、在成书时生成中英 / 英中双语对照。

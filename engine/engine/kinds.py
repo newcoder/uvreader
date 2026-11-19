@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 
 from .jobs import Job, report_progress
+from .layout_pdf import run_layout_pdf
 from .mineru import local_kit_problem, local_service_healthy
 
 # ── LaTeX → MathML(同步接口)──────────────────────────────────────────
@@ -325,6 +326,11 @@ def run_extract(job: Job) -> dict:
         args.extend(["--mineru-source", effective_source])
     if pages:
         args.extend(["--pages", pages])
+    # 应用里勾“忽略缓存重新提取”时，必须把 --force 传下去；pdf_tool 的
+    # convert CLI 用 --force 重跑 MinerU 分卷（它没有 --split-force）。
+    refresh = job.args.get("refresh", job.args.get("force"))
+    if refresh is True or refresh == 1 or str(refresh).lower() in ("1", "true"):
+        args.append("--force")
     code, output = run_process(job, python, args, cwd=str(config.get("pdfToolDir") or "").strip() or None,
                                env=env, timeout=float(job.args.get("timeoutMs") or 1800_000) / 1000.0,
                                label="pdf_tool 提取中…")
@@ -551,6 +557,7 @@ JOB_KINDS = {
     "redact": run_redact,
     "extract": run_extract,
     "convert": run_convert,
+    "layout-pdf": run_layout_pdf,
     "pdf-text": run_pdf_text,
     "install-component": run_install_component,
     "ebook-convert": run_ebook_convert,

@@ -220,7 +220,7 @@ def test_extract_job_runs_pdf_tool_from_the_config(client, tmp_path, monkeypatch
         "import json, sys\n"
         "out = sys.argv[sys.argv.index('--out-dir') + 1]\n"
         "open(out + '/book_doc.json', 'w', encoding='utf-8').write(json.dumps({'mode': 'stub'}))\n"
-        "print('stub pdf_tool ok')\n",
+        "print('stub pdf_tool ok ' + ' '.join(sys.argv[1:]))\n",
         encoding="utf-8",
     )
     pdf = make_pdf(tmp_path / "book.pdf")
@@ -233,6 +233,17 @@ def test_extract_job_runs_pdf_tool_from_the_config(client, tmp_path, monkeypatch
     assert result["produced"] == ["book_doc.json"]
     assert (out_dir / "book_doc.json").exists()
     assert "stub pdf_tool ok" in result["log"]
+    assert "--force" not in result["log"]
+
+    # “忽略缓存重新提取”必须把 --force 传给 pdf_tool（convert CLI 的参数名），
+    # 否则 MinerU chunks/*/_done.json 会被复用，几秒就返回旧结果。
+    refresh_id = submit(client, "extract", {
+        "source": str(pdf), "outDir": str(out_dir), "model": "vlm", "refresh": True,
+    })
+    refreshed = wait_for(client, refresh_id)
+    assert refreshed["status"] == "done", refreshed.get("error")
+    refresh_result = client.get(f"/v1/jobs/{refresh_id}/result", headers=AUTH).json()["result"]
+    assert "--force" in refresh_result["log"]
 
     # 没配置 pdf_tool 目录时给可操作的错误
     client.patch("/v1/config", headers=AUTH, json={"patch": {"pdfToolDir": ""}})

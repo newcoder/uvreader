@@ -2,11 +2,27 @@
 // printed entries (single or dual page numbers, hierarchy), let the model turn
 // the page text into a structured list, then merge everything back into the
 // reader's navigation. Pure module: no host APIs, fully unit-tested.
-const DOT_LEADERS = /[.…·]{2,}/g;
+const DOT_LEADERS = /[.…·]{2,}|[.…·](?:\s*[.…·]){2,}/g;
 const HEADING = /^(目\s*录|contents?|table of contents)$/i;
+const RUNNING_HEADER = /^(?:\d+\s+)?(?:CONTENTS?|目\s*录)$/i;
+const RUNNING_HEADER_PREFIX = /^(?:\d+\s+)?(?:CONTENTS?|目\s*录)\s+(?=(?:\d|(?:CONTENTS?|目\s*录)\b))/i;
 
 export function cleanTocLine(value) {
   return String(value || "").replace(DOT_LEADERS, " ").replace(/\s+/g, " ").trim();
+}
+
+// "4 CONTENTS 5.1 ..." and "Contents Contents 3" are running headers glued to
+// the first printed row. Strip them before parsing, but keep a real title that
+// merely begins with the word "Contents".
+function stripTocRunningHeader(value) {
+  let body = String(value || "").trim();
+  if (!body || RUNNING_HEADER.test(body)) return "";
+  for (let pass = 0; pass < 2; pass += 1) {
+    const next = body.replace(RUNNING_HEADER_PREFIX, "").trim();
+    if (next === body) break;
+    body = next;
+  }
+  return /^\d+$/.test(body) ? "" : body;
 }
 
 // Candidate pages: a 目录/Contents heading, dotted leaders and a healthy share
@@ -35,6 +51,38 @@ export function tocCandidates(pages, { minScore = 25 } = {}) {
     .sort((a, b) => b.score - a.score || a.page - b.page);
 }
 
+// A printed table of contents is usually a run of neighbouring pages. The
+// scan must report that whole run: ranking the pages by score and keeping only
+// the top few silently drops the beginning (or end) of a long TOC.
+export function tocPageRanges(candidates, { gap = 2 } = {}) {
+  const ordered = (Array.isArray(candidates) ? candidates : [])
+    .map((item) => ({
+      page: Math.round(Number(item?.page)) || 0,
+      score: Math.round(Number(item?.score)) || 0,
+    }))
+    .filter((item) => item.page > 0)
+    .sort((a, b) => a.page - b.page);
+  const ranges = [];
+  for (const item of ordered) {
+    const last = ranges[ranges.length - 1];
+    if (last && item.page - last.to <= Math.max(1, gap) + 1) {
+      last.to = Math.max(last.to, item.page);
+      last.score = Math.max(last.score, item.score);
+      last.pages.push(item.page);
+    } else {
+      ranges.push({ from: item.page, to: item.page, count: 1, score: item.score, pages: [item.page] });
+    }
+  }
+  for (const range of ranges) range.count = range.to - range.from + 1;
+  return ranges;
+}
+
+// The best run is the one with the strongest TOC signals, not the longest run:
+// a book's index is often longer than its contents but scores lower.
+export function bestTocPageRange(candidates) {
+  return [...tocPageRanges(candidates)].sort((a, b) => b.score - a.score || b.count - a.count || a.from - b.from)[0] || null;
+}
+
 function levelOf(title, raw) {
   const lead = (/^\s*/.exec(String(raw ?? ""))?.[0] || "").replace(/\t/g, "  ").length;
   if (/^\d+\.\d+\.\d+/.test(title)) return 3;
@@ -61,7 +109,7 @@ export function parseTocLine(line, raw) {
     page = Number(single[1]);
     body = clean.slice(0, single.index);
   }
-  const title = cleanTocLine(body);
+  const title = cleanTocLine(body).replace(/[/／.…·:：\s]+$/, "").trim();
   if (!title) return null;
   return { level: levelOf(title, raw), title, page, page2 };
 }
@@ -72,13 +120,16 @@ export function parseTocText(text) {
   for (const raw of String(text || "").split(/\r?\n/)) {
     const trimmed = String(raw || "").trim();
     if (!trimmed) continue;
-    const entry = parseTocLine(trimmed, raw);
+    const clean = stripTocRunningHeader(cleanTocLine(trimmed));
+    if (!clean) continue;
+    const entry = parseTocLine(clean, raw);
     if (!entry) {
-      // TOC pages often print 第X单元 on its own line above the numbered row;
-      // hold short heading-like lines and prepend them to the next entry.
-      const clean = cleanTocLine(trimmed);
-      if (clean && (/^第[一二三四五六七八九十百零0-9]+[章节单元讲部篇]/.test(clean) || clean.length <= 12)) {
-        pending = pending ? `${pending} ${clean}` : clean;
+      // TOC pages often print 第X单元 on its own line above the numbered row,
+      // and formulas split a title across two text-layer lines ("... ∑" then
+      // "i∈I ai ... 64"). Hold the fragment and prepend it to the next row.
+      if (clean.length <= 200 && !/^\d+$/.test(clean)) {
+        const joined = pending ? `${pending} ${clean}` : clean;
+        pending = joined.length > 240 ? clean : joined;
       }
       continue;
     }
@@ -114,6 +165,172 @@ export function applyTocOffset(entries, offset) {
     pdfPage: entry?.page ? entry.page + shift : null,
     pdfPage2: entry?.page2 ? entry.page2 + shift : null,
   }));
+}
+
+// PDF.js text items → visual lines with coordinates. The text layer's own
+// order can interleave two columns; grouping by baseline and keeping a large
+// horizontal gap as a column break gives the printed reading order.
+export function pdfTextLines(items, { pageWidth = 1000 } = {}) {
+  const lines = [];
+  let current = null;
+  const flush = () => {
+    if (current && current.text.trim()) lines.push(current);
+    current = null;
+  };
+  for (const item of Array.isArray(items) ? items : []) {
+    const text = String(item?.str || "").replace(/\s+/g, " ").trim();
+    if (!text) continue;
+    const transform = Array.isArray(item?.transform) ? item.transform : null;
+    const x = Number(transform?.[4]) || 0;
+    const y = Number(transform?.[5]) || 0;
+    const width = Math.max(0, Number(item?.width) || 0);
+    const height = Math.abs(Number(item?.height) || 0);
+    const isPageNumber = /^\d{1,4}$/.test(text);
+    if (current) {
+      const tolerance = Math.max(2, Math.max(current.height, height) * 0.6);
+      const sameBaseline = Math.abs(current.y - y) <= tolerance;
+      // A right-column item at the same baseline starts before the left line
+      // ends; a large non-numeric gap is the gutter. A page number is allowed
+      // to sit far to the right of its title.
+      const nextColumn = x < current.x1 - 2;
+      const gutter = x - current.x1 > pageWidth * 0.15 && !isPageNumber;
+      if (!sameBaseline || nextColumn || gutter) flush();
+    }
+    if (!current) {
+      current = { text, x0: x, x1: x + width, y, height };
+    } else {
+      current.text += `${x > current.x1 + 1 ? " " : ""}${text}`;
+      current.x1 = Math.max(current.x1, x + width);
+      current.height = Math.max(current.height, height);
+    }
+    if (item.hasEOL) flush();
+  }
+  flush();
+  return lines;
+}
+
+function splitMergedTocRow(text) {
+  // PDF.js sometimes merges two visual columns into one text item when their
+  // baselines match: "左标题 / 1 右标题 / 37". Both halves must end in a page
+  // number; otherwise this is just a title containing a number.
+  const value = String(text || "").trim();
+  if (!value) return null;
+  const match = value.match(/^(.+?[/／]?\s*\d{1,4})\s+(\S.*)$/);
+  if (!match) return null;
+  const left = match[1].trim();
+  const right = match[2].trim();
+  const endsInPage = (part) => /(?:[/／]\s*|\s)\d{1,4}\s*$/.test(part);
+  if (!endsInPage(left) || !endsInPage(right)) return null;
+  return [left, right];
+}
+
+// A contents page is commonly two columns. Split at the widest gutter and
+// return the left column top-to-bottom followed by the right column.
+export function tocTextFromLines(lines, { pageWidth = 1000 } = {}) {
+  const list = [];
+  for (const line of Array.isArray(lines) ? lines : []) {
+    const text = String(line?.text || "").trim();
+    if (!text) continue;
+    const parts = splitMergedTocRow(text);
+    if (parts) {
+      list.push({ ...line, text: parts[0] });
+      list.push({ ...line, text: parts[1], x0: Math.max(Number(line.x0) || 0, pageWidth * 0.5) });
+    } else {
+      list.push({ ...line, text });
+    }
+  }
+  if (!list.length) return "";
+  const xs = [...new Set(list.map((line) => Math.round((Number(line.x0) || 0) * 10) / 10))].sort((a, b) => a - b);
+  let splitAt = null;
+  let bestGap = 0;
+  for (let index = 1; index < xs.length; index += 1) {
+    const gap = xs[index] - xs[index - 1];
+    if (gap > bestGap) {
+      bestGap = gap;
+      splitAt = (xs[index] + xs[index - 1]) / 2;
+    }
+  }
+  let columns = [list];
+  if (bestGap >= pageWidth * 0.14 && splitAt != null) {
+    const left = list.filter((line) => (Number(line.x0) || 0) < splitAt);
+    const right = list.filter((line) => (Number(line.x0) || 0) >= splitAt);
+    if (left.length >= 2 && right.length >= 2) columns = [left, right];
+  }
+  const ordered = columns.map((column) => column
+    .slice()
+    .sort((left, right) => right.y - left.y || left.x0 - right.x0));
+  // Drop a running book title/page header at the top of either column. A real
+  // unnumbered chapter heading ("第一部分") is kept because it carries
+  // hierarchy.
+  for (const column of ordered) {
+    const first = column[0];
+    const second = column[1];
+    if (first && second && !/\d\s*$/.test(String(first.text || ""))
+      && !/^第.+[章节部篇]|^(?:chapter|part)\b/i.test(String(first.text || ""))) {
+      column.shift();
+    }
+  }
+  return ordered.map((column) => column.map((line) => String(line.text || "").trim()).join("\n")).join("\n");
+}
+
+// Footer page numbers are the reliable printed↔PDF anchor when the PDF has no
+// outline (the common case for scans). Only pages after the contents run vote;
+// TOC/front-matter page numbers often use a different sequence.
+export function inferTocOffsetFromFooters(pages, { tocPages = [] } = {}) {
+  const excluded = new Set((Array.isArray(tocPages) ? tocPages : []).map(Number));
+  const votes = new Map();
+  let total = 0;
+  for (const item of Array.isArray(pages) ? pages : []) {
+    const page = Math.round(Number(item?.page)) || 0;
+    if (!page || excluded.has(page)) continue;
+    const lines = String(item?.text || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    if (!lines.length) continue;
+    let printed = 0;
+    for (const line of [lines[lines.length - 1], ...lines.slice(-3), lines[0]]) {
+      const match = line.match(/^(?:[-–—]\s*)?(\d{1,4})(?:\s*[-–—])?$/)
+        || line.match(/^第\s*(\d{1,4})\s*页$/);
+      if (match) {
+        printed = Number(match[1]);
+        break;
+      }
+    }
+    if (!printed || printed >= page) continue;
+    total += 1;
+    const offset = page - printed;
+    votes.set(offset, (votes.get(offset) || 0) + 1);
+  }
+  let best = null;
+  for (const [offset, count] of votes) {
+    if (!best || count > best.count) best = { offset, count };
+  }
+  if (!best || total < 3) return null;
+  return { offset: best.offset, agree: best.count, total };
+}
+
+// The model sometimes keeps only a formula fragment from a two-line printed
+// title ("i∈I ai" instead of "3.3 Indexed Families; the Sum Notation ∑ i∈I ai").
+// The deterministic text-layer entry for the same page is the repair source.
+export function repairTocTitles(entries, deterministic) {
+  const byPage = new Map();
+  for (const item of Array.isArray(deterministic) ? deterministic : []) {
+    const page = Math.round(Number(item?.page)) || 0;
+    const title = cleanTocLine(item?.title);
+    if (!page || !title) continue;
+    if (!byPage.has(page)) byPage.set(page, []);
+    byPage.get(page).push(title);
+  }
+  return (Array.isArray(entries) ? entries : []).map((entry) => {
+    const page = Math.round(Number(entry?.pdfPage ?? entry?.page)) || 0;
+    const candidates = byPage.get(page) || [];
+    const title = cleanTocLine(entry?.title);
+    if (!candidates.length || !title) return entry;
+    const containing = candidates.find((candidate) => candidate !== title
+      && (candidate.includes(title) || title.includes(candidate)));
+    const formulaFragment = title.length <= 10 && /[∈∑∏√^_{}[\]\\]/u.test(title);
+    const repaired = containing
+      || (formulaFragment ? candidates.reduce((longest, candidate) => (candidate.length > longest.length ? candidate : longest), "") : "");
+    return repaired && repaired.length > title.length ? { ...entry, title: repaired } : entry;
+  });
 }
 
 // Levels may only grow one step at a time, pages must be plausible and mostly
@@ -211,7 +428,8 @@ export const TOC_EXTRACTION_SYSTEM_PROMPT = [
   "2. level 从 1 开始，子级最多比上一级深一级；依据缩进、编号（第X章/单元、1.1、1.1.1、（一））判断。",
   "3. page 是条目指向的页码（目录上印的数字）。一行有两个页码（如 (1)/(82)）时 page 填第一个、page2 填第二个；只有一个页码时 page2 填 null。",
   "4. 不编造标题或页码；看不清的条目标 \"confidence\": \"low\"。",
-  "5. 只输出：{\"entries\":[{\"level\":1,\"title\":\"…\",\"page\":1,\"page2\":82}]}",
+  "5. 目录可能是双栏；文本已按「左栏从上到下，再右栏从上到下」排好，按这个顺序输出，不要把两栏交叉；顶部的书名/页眉不是条目。",
+  "6. 只输出：{\"entries\":[{\"level\":1,\"title\":\"…\",\"page\":1,\"page2\":82}]}",
 ].join("\n");
 
 export function buildTocExtractionMessages(pages, { images = {} } = {}) {
@@ -257,7 +475,7 @@ export function parseTocExtractionReply(text, { max = 400 } = {}) {
   const list = Array.isArray(payload?.entries) ? payload.entries : [];
   const out = [];
   for (const item of list) {
-    const title = cleanTocLine(item?.title).slice(0, 200);
+    const title = cleanTocLine(item?.title).replace(/[/／.…·:：\s]+$/, "").slice(0, 200);
     const page = Math.round(Number(item?.page));
     if (!title || !Number.isFinite(page) || page < 1) continue;
     const page2 = Math.round(Number(item?.page2));

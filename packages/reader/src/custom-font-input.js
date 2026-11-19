@@ -4,7 +4,7 @@ import { docOf, winOf } from "./reader-dom.js";
 import { normalizeCustomFontFamily, resolveReaderFont } from "./reader-appearance.js";
 
 export function createBuildCustomFontInput({
-  FONTS, ReaderFontPicker, qiaomuReaderTranslate,
+  FONTS, ReaderFontPicker, qiaomuReaderTranslate, listFonts = listSystemFonts,
 }) {
   function buildCustomFontInput(host, plugin, apply) {
   const settings = plugin.settings;
@@ -74,7 +74,7 @@ export function createBuildCustomFontInput({
     setBusy(true);
     status.setText(qiaomuReaderTranslate("reading-installed-fonts"));
     try {
-      const fonts = await listSystemFonts(winOf(wrap));
+      const fonts = await listFonts(winOf(wrap));
       if (!wrap.isConnected) return;
       status.setText(fonts.length ? qiaomuReaderTranslate("found-0-installed-font-families", fonts.length) : qiaomuReaderTranslate("no-installed-fonts-were-returned-import-a-font-file-instead"));
       if (fonts.length) new ReaderFontPicker(plugin.app, fonts, choose).open();

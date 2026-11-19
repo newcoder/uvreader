@@ -1,12 +1,12 @@
 export const READER_THEMES = {
-  auto: {
-    label: "match-obsidian-2",
-    bg: "var(--background-primary)",
-    text: "var(--text-normal)",
-    ui: "var(--background-secondary)",
-    border: "var(--background-modifier-border)",
-    accent: "var(--interactive-accent)",
-    muted: "var(--text-muted)",
+  white: {
+    label: "white",
+    bg: "#ffffff",
+    text: "#1f2328",
+    ui: "#f4f5f6",
+    border: "#d8dce0",
+    accent: "#496c7b",
+    muted: "#6b7280",
   },
   paper: {
     label: "paper-white",
@@ -53,6 +53,24 @@ export const READER_THEMES = {
     accent: "#91ab9a",
     muted: "#9a9a94",
   },
+  "warm-night": {
+    label: "warm-night",
+    bg: "#1b1714",
+    text: "#d8ccbc",
+    ui: "#241f1a",
+    border: "#3b332b",
+    accent: "#b79b76",
+    muted: "#a89b8b",
+  },
+  "slate-night": {
+    label: "slate-night",
+    bg: "#1a2228",
+    text: "#d5e0e6",
+    ui: "#232d34",
+    border: "#37454e",
+    accent: "#86a9ba",
+    muted: "#9aadb8",
+  },
   eink: {
     label: "e-ink-2",
     bg: "#ffffff",
@@ -64,12 +82,58 @@ export const READER_THEMES = {
   },
 };
 
-export const READER_THEME_CHOICES = ["auto", "paper", "warm", "celadon", "moon", "night"];
+export const READER_THEME_CHOICES = [
+  "white",
+  "paper",
+  "warm",
+  "celadon",
+  "moon",
+  "night",
+  "warm-night",
+  "slate-night",
+];
+
+// PDF pages are one opaque raster: changing their fonts would destroy the
+// layout, but a display filter can still map them onto the reading theme.
+// The page is first desaturated, then its paper/ink levels are stretched, and
+// finally paper maps to the panel colour (`ui`) while ink maps to the theme
+// text colour. This makes the page rectangle match the TOC/panel instead of
+// looking like a separately tinted scan.
+const PDF_PAGE_LEVELS = { slope: 1.3158, intercept: -0.1579 };
+
+function hexChannels(value) {
+  const hex = String(value || "").replace(/^#/, "");
+  if (!/^[0-9a-f]{6}$/i.test(hex)) return [0, 0, 0];
+  return [0, 2, 4].map((index) => parseInt(hex.slice(index, index + 2), 16));
+}
+
+// Accept either a theme id or the reader settings object. Returns null when the
+// page should stay untouched (e-ink mode).
+export function pdfPageFilterSpec(value) {
+  if (value && typeof value === "object" && value.einkMode === true) return null;
+  if (value === "eink") return null;
+  const id = value && typeof value === "object" ? migrateReaderTheme(value.theme) : migrateReaderTheme(value);
+  const theme = READER_THEMES[id] || READER_THEMES.paper;
+  const text = hexChannels(theme.text);
+  const bg = hexChannels(theme.ui);
+  return {
+    id,
+    levels: { ...PDF_PAGE_LEVELS },
+    channels: text.map((textValue, index) => ({
+      slope: (bg[index] - textValue) / 255,
+      intercept: textValue / 255,
+    })),
+  };
+}
 
 export function migrateReaderTheme(value) {
+  // Older versions had an "auto" theme wired to Obsidian variables. The
+  // standalone shell default is dark, so freeze those users on the closest
+  // fixed palette instead of silently switching them to a light page.
+  if (value === "auto") return "night";
   if (value === "light") return "paper";
   if (value === "sepia") return "warm";
   if (value === "dark") return "night";
   if (value === "eink") return "moon";
-  return READER_THEMES[value] ? value : "auto";
+  return READER_THEMES[value] ? value : "paper";
 }

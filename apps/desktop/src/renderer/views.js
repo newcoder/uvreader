@@ -1,6 +1,8 @@
 import { ItemView, Modal, Notice, setIcon } from "obsidian";
 
 import { iconResolver } from "./icons.js";
+import { shellText } from "./i18n-shell.js";
+import { renderMathIn } from "./math.js";
 import { CONVERT_FORMATS, DOCVORTEX_INPUTS, EBOOK_TARGETS, IMAGE_BOOK_TARGETS, docvortexFormatExt } from "../shared/workshop-formats.js";
 import { BOOK_EXTENSIONS } from "../shared/books.js";
 import { BOOK_STYLE_DEFAULTS, COVER_PALETTES } from "../shared/book-styles.js";
@@ -9,6 +11,7 @@ import { splitTextChapters } from "../main/text-book.js";
 import { EXTRACT_MODES, IMAGE_INPUTS, extractionKind } from "../shared/extract-formats.js";
 import { splitMarkdownChapters, unwrapProseFences } from "../shared/markdown-fix.js";
 import { convertPath, uvtextPath } from "../shared/workshop-names.js";
+import { spaceOutputPath } from "../../../../packages/reader/src/space-paths.js";
 import { createAiContext } from "../../../../packages/reader/src/ai-context.js";
 import { docvortexTaskSettings, formulaTaskSettings, taskAiConfig } from "../../../../packages/reader/src/workshop-settings.js";
 import { engineCapabilityRows, engineComponentSummary } from "../main/engine-client.js";
@@ -398,6 +401,7 @@ export function createNoteView(leaf, options) {
         body.setAttribute("data-qbr-source", this.file.path || "");
         body.innerHTML = renderMarkdown(data);
         decorate?.(body);
+        renderMathIn(body);
         return;
       }
       body.addClass("qbr-note-body-editing");
@@ -528,23 +532,24 @@ export function createTocView(leaf, options) {
 }
 
 // 本地 MinerU 状态 → 面板/设置里的一行文案(书坊面板与设置页共用)。
-export function describeMineruStatus(result) {
+export function describeMineruStatus(result, translate = (value) => value) {
+  const tr = translate;
   const url = String(result?.url || "");
-  const version = result?.version ? ` · 版本 ${result.version}` : "";
+  const version = result?.version ? ` · ${tr("版本")} ${result.version}` : "";
   const detail = result?.detail ? ` · ${result.detail}` : "";
   switch (String(result?.status || "")) {
-    case "running": return `运行中${version}(${url}${detail})`;
-    case "starting": return "启动中…首次加载模型约 10–15 秒";
-    case "external": return `外部服务(${url})，不由应用管理`;
-    case "missing": return String(result?.detail || "没找到 mineru-kit:在设置 → 书坊里填程序路径");
-    case "error": return `启动失败:${String(result?.detail || "未知错误")}`;
-    default: return `未运行(${url || "http://127.0.0.1:8123"})；点「启动服务」拉起`;
+    case "running": return `${tr("运行中")}${version}(${url}${detail})`;
+    case "starting": return tr("启动中…首次加载模型约 10–15 秒");
+    case "external": return `${tr("外部服务")}(${url})，${tr("不由应用管理")}`;
+    case "missing": return String(result?.detail || tr("没找到 mineru-kit:在设置 → 书坊里填程序路径"));
+    case "error": return `${tr("启动失败:")}${String(result?.detail || tr("未知错误"))}`;
+    default: return `${tr("未运行")}(${url || "http://127.0.0.1:8123"})${tr("；")}${tr("点「启动服务」拉起")}`;
   }
 }
 
 // 面板里指向「设置 → 书坊」的入口:全局配置与链路检测都集中在那里。
 function addSettingsLink(row, text) {
-  const button = row.createEl("button", { text: "打开 设置 → 书坊" });
+  const button = row.createEl("button", { text: shellText(globalThis.__qbrPlugin, "打开 设置 → 书坊") });
   button.addEventListener("click", () => {
     // 目标 tab 记在 window 上:设置视图首次 onOpen 时会在 display() 之前应用;
     // 已经打开的情况直接重绘到那一页(不依赖 DOM 时序)。
@@ -568,22 +573,33 @@ export function createSettingsView(leaf, options) {
   // 「书坊」设置 tab:书坊 / pdf_tool / MinerU / DocVortex / Calibre 的全局配置与链路检测
   // 都集中在这里(与「存储与同步」同级),各工具面板只做每次任务的选项。
   function drawWorkshopSettings(host) {
+    const t = (text, ...args) => shellText(plugin, text, ...args);
     const settings = plugin?.settings || {};
     const persist = (key, value) => {
       if (!plugin?.settings) return;
       plugin.settings[key] = value;
-      void plugin.saveAll?.();
+      const save = typeof plugin.saveSettings === "function" ? plugin.saveSettings.bind(plugin) : plugin.saveAll?.bind(plugin);
+      void save?.();
     };
     const bridge = typeof window !== "undefined" ? window.qbrDesktop : null;
     const notice = (text) => new Notice(text);
     const save = (text) => {
       notice(text);
     };
-    // 边打边存:点检测/启动时不需要先让输入框失焦。
+    // Type-ahead is kept in memory; commit on a short pause or on blur/change.
     const bind = (input, key, message) => {
-      input.addEventListener("input", () => persist(key, input.value.trim()));
+      let timer = 0;
+      const commit = () => { persist(key, input.value.trim()); };
+      input.addEventListener("input", () => {
+        // Keep the in-memory setting current for immediate probes; only the
+        // disk write is debounced.
+        if (plugin?.settings) plugin.settings[key] = input.value.trim();
+        window.clearTimeout(timer);
+        timer = window.setTimeout(commit, 300);
+      });
       input.addEventListener("change", () => {
-        persist(key, input.value.trim());
+        window.clearTimeout(timer);
+        commit();
         save(message);
       });
     };
@@ -603,48 +619,64 @@ export function createSettingsView(leaf, options) {
 
     // 1. 书坊开关
     const toggleCard = root.createDiv("qbr-workshop-card");
-    toggleCard.createEl("h3", { text: "书坊" });
+    toggleCard.createEl("h3", { text: t("书坊") });
     const switchRow = toggleCard.createDiv("qbr-workshop-row");
     const switchLabel = switchRow.createEl("label", { cls: "qbr-workshop-opt" });
     const switchInput = switchLabel.createEl("input", { attr: { type: "checkbox" } });
     switchInput.checked = settings.workshopEnabled !== false;
-    switchLabel.createSpan({ text: "导航里显示「书坊」;关闭只隐藏导航入口和书坊页面,阅读不受影响,「设置 → 书坊」这个标签页始终在,随时能打开" });
+    switchLabel.createSpan({ text: t("导航里显示「书坊」;关闭只隐藏导航入口和书坊页面,阅读不受影响,「设置 → 书坊」这个标签页始终在,随时能打开") });
     switchInput.addEventListener("change", () => {
       persist("workshopEnabled", Boolean(switchInput.checked));
       // 勾选框只存设置不会重绘导航:显式触发一次布局刷新(否则关掉能生效、再打开导航却不回来)。
       plugin?.app?.workspace?.trigger?.("layout-change");
       save("书坊开关已保存;导航立即生效。");
     });
-    toggleCard.createDiv({ cls: "qbr-workshop-hint", text: "书坊负责:文字层与可搜索 PDF、格式转换、内容提取、电子书制作。后台能力的路径由「书坊引擎」管;下面的「本机工具」只在引擎不可用时回退。" });
+    toggleCard.createDiv({ cls: "qbr-workshop-hint", text: t("书坊负责:文字层与可搜索 PDF、格式转换、内容提取、电子书制作。后台能力的路径由「书坊引擎」管;下面的「本机工具」只在引擎不可用时回退。") });
 
     // 2. 文字层 / 扫描版 PDF(pdf_tool sidecar)
     const ocrCard = root.createDiv("qbr-workshop-card");
-    ocrCard.createEl("h3", { text: "扫描版 PDF 文字层" });
-    ocrCard.createDiv({ cls: "qbr-workshop-hint", text: "本地 OCR sidecar(pdf_tool/reader/server.py)给扫描页加一层看不见的文字:阅读器里能选中 / 搜索 / 划线,原件不变。" });
-    ocrCard.createDiv({ cls: "qbr-workshop-hint", text: "装了书坊引擎后会自动使用引擎自带的 OCR;旧版引擎不含 OCR 时,在下面的「书坊引擎」里检查更新。" });
+    ocrCard.createEl("h3", { text: t("扫描版 PDF 文字层") });
+    ocrCard.createDiv({ cls: "qbr-workshop-hint", text: t("本地 OCR sidecar(pdf_tool/reader/server.py)给扫描页加一层看不见的文字:阅读器里能选中 / 搜索 / 划线,原件不变。") });
+    ocrCard.createDiv({ cls: "qbr-workshop-hint", text: t("装了书坊引擎后会自动使用引擎自带的 OCR;旧版引擎不含 OCR 时,在下面的「书坊引擎」里检查更新。") });
     const autoRow = ocrCard.createDiv("qbr-workshop-row");
     const autoLabel = autoRow.createEl("label", { cls: "qbr-workshop-opt" });
     const autoInput = autoLabel.createEl("input", { attr: { type: "checkbox" } });
     autoInput.checked = settings.ocrScannedPdf !== false;
-    autoLabel.createSpan({ text: "打开扫描版 PDF 时自动生成文字层" });
+    autoLabel.createSpan({ text: t("打开扫描版 PDF 时自动生成文字层") });
     autoInput.addEventListener("change", () => {
       persist("ocrScannedPdf", Boolean(autoInput.checked));
       save("文字层设置已保存;下次打开生效。");
     });
     const sidecarRow = ocrCard.createDiv("qbr-workshop-row");
-    sidecarRow.createSpan({ cls: "qbr-workshop-hint", text: "pdf_tool 目录" });
-    const sidecarDir = sidecarRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "含 pdf_tool/reader/server.py 的目录,如 D:\\projects\\auto_chat" } });
+    sidecarRow.createSpan({ cls: "qbr-workshop-hint", text: t("pdf_tool 目录") });
+    const sidecarDir = sidecarRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: t("含 pdf_tool/reader/server.py 的目录,如 D:\\projects\\auto_chat") } });
     sidecarDir.value = String(settings.ocrSidecarDir || "");
     bind(sidecarDir, "ocrSidecarDir", "pdf_tool 目录已保存;新任务生效。");
     const pythonRow = ocrCard.createDiv("qbr-workshop-row");
     pythonRow.createSpan({ cls: "qbr-workshop-hint", text: "Python" });
-    const pythonInput = pythonRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空用 python(PATH 上的)" } });
+    const pythonInput = pythonRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: t("留空用 python(PATH 上的)") } });
     pythonInput.value = String(settings.ocrPython || "");
     bind(pythonInput, "ocrPython", "Python 路径已保存。");
     const ocrTools = ocrCard.createDiv("qbr-workshop-row");
-    const ocrProbe = ocrTools.createEl("button", { text: "检测文字层链路" });
-    const ocrStatus = ocrTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
+    const ocrProbe = ocrTools.createEl("button", { text: t("检测文字层链路") });
+    const ocrStatus = ocrTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: t("未检测") });
     ocrProbe.addEventListener("click", () => void runProbe(ocrStatus, "", () => bridge?.probe?.ocr(settings)));
+    const ocrAdvanced = ocrCard.createEl("details", { cls: "qbr-mineru-service-advanced" });
+    ocrAdvanced.createEl("summary", { text: t("高级：混合文字层 / 手动 sidecar") });
+    const hybridRow = ocrAdvanced.createDiv("qbr-workshop-row");
+    const hybridLabel = hybridRow.createEl("label", { cls: "qbr-workshop-opt" });
+    const hybridInput = hybridLabel.createEl("input", { attr: { type: "checkbox" } });
+    hybridInput.checked = settings.ocrHybrid === true;
+    hybridLabel.createSpan({ text: t("优先使用版式文本源（混合文字层；没有文本源时仍用本地 OCR）") });
+    hybridInput.addEventListener("change", () => {
+      persist("ocrHybrid", Boolean(hybridInput.checked));
+      save("混合文字层设置已保存；重新打开书籍生效。");
+    });
+    const ocrExeRow = ocrAdvanced.createDiv("qbr-workshop-row");
+    ocrExeRow.createSpan({ cls: "qbr-workshop-hint", text: t("手动 sidecar 程序（可选）") });
+    const ocrExe = ocrExeRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "pdf_tool_reader.exe" } });
+    ocrExe.value = String(settings.ocrSidecarExe || "");
+    bind(ocrExe, "ocrSidecarExe", "sidecar 程序已保存;新任务生效。");
     // An installed engine carries pdf_tool + RapidOCR; fill the local rows so
     // the reader's OCR path sees a configured sidecar without manual copying.
     const applyEngineOcrPaths = (result, { force = false } = {}) => {
@@ -667,40 +699,40 @@ export function createSettingsView(leaf, options) {
 
     // 3. 本地 MinerU(公式优先 / 内容提取共用)
     const mineruCard = root.createDiv("qbr-workshop-card");
-    mineruCard.createEl("h3", { text: "MinerU(公式优先 / 内容提取)" });
-    mineruCard.createDiv({ cls: "qbr-workshop-hint", text: "公式优先与内容提取的 MinerU 链路都用这里的配置:填了本地服务地址就优先本地(不出网、免凭据),否则用云端凭据。" });
-    mineruCard.createDiv({ cls: "qbr-workshop-hint", text: "有引擎时:本地服务地址会自动同步给引擎;凭据只在回退本机时用(引擎的凭据在「引擎配置」里)。" });
-    mineruCard.createDiv({ cls: "qbr-workshop-hint", text: "首次用某个模型时 MinerU 会先下载(几百 MB~GB),期间任务会停在「解析中」;同一模型之后不再下载。" });
+    mineruCard.createEl("h3", { text: t("MinerU(公式优先 / 内容提取)") });
+    mineruCard.createDiv({ cls: "qbr-workshop-hint", text: t("公式优先与内容提取的 MinerU 链路都用这里的配置:填了本地服务地址就优先本地(不出网、免凭据),否则用云端凭据。") });
+    mineruCard.createDiv({ cls: "qbr-workshop-hint", text: t("有引擎时:本地服务地址会自动同步给引擎;凭据只在回退本机时用(引擎的凭据在「引擎配置」里)。") });
+    mineruCard.createDiv({ cls: "qbr-workshop-hint", text: t("首次用某个模型时 MinerU 会先下载(几百 MB~GB),期间任务会停在「解析中」;同一模型之后不再下载。") });
     const tokenRow = mineruCard.createDiv("qbr-workshop-row");
-    tokenRow.createSpan({ cls: "qbr-workshop-hint", text: "MinerU 凭据" });
-    const tokenInput = tokenRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "云端 token;留空用环境变量 MINERU_API_KEY" } });
+    tokenRow.createSpan({ cls: "qbr-workshop-hint", text: t("MinerU 凭据") });
+    const tokenInput = tokenRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: t("云端 token;留空用环境变量 MINERU_API_KEY") } });
     tokenInput.value = String(settings.mineruToken || "");
     bind(tokenInput, "mineruToken", "MinerU 凭据已保存;新任务生效。");
-    mineruCard.createDiv({ cls: "qbr-workshop-hint", text: "本地 MinerU 默认直接使用本机程序，程序路径会自动查找；地址和端口通常不用填。" });
+    mineruCard.createDiv({ cls: "qbr-workshop-hint", text: t("本地 MinerU 默认直接使用本机程序，程序路径会自动查找；地址和端口通常不用填。") });
     const exeRow = mineruCard.createDiv("qbr-workshop-row");
-    exeRow.createSpan({ cls: "qbr-workshop-hint", text: "本地 MinerU 程序" });
-    const exeInput = exeRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空自动查找(常见位置 / MINERU_LOCAL_CMD / 同目录 python);也可手填完整路径" } });
+    exeRow.createSpan({ cls: "qbr-workshop-hint", text: t("本地 MinerU 程序") });
+    const exeInput = exeRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: t("留空自动查找(常见位置 / MINERU_LOCAL_CMD / 同目录 python);也可手填完整路径") } });
     exeInput.value = String(settings.mineruLocalExe || "");
     bind(exeInput, "mineruLocalExe", "本地 MinerU 程序已保存。");
     const serviceDetails = mineruCard.createEl("details", { cls: "qbr-mineru-service-advanced" });
-    serviceDetails.createEl("summary", { text: "高级：使用本地 MinerU 常驻服务（可选）" });
-    serviceDetails.createDiv({ cls: "qbr-workshop-hint", text: "服务地址留空时自动使用 http://127.0.0.1:8123；只有改端口或连接其它机器时才需要填写。常驻服务默认关闭，频繁批量提取时再开。" });
+    serviceDetails.createEl("summary", { text: t("高级：使用本地 MinerU 常驻服务（可选）") });
+    serviceDetails.createDiv({ cls: "qbr-workshop-hint", text: t("服务地址留空时自动使用 http://127.0.0.1:8123；只有改端口或连接其它机器时才需要填写。常驻服务默认关闭，频繁批量提取时再开。") });
     const localRow = serviceDetails.createDiv("qbr-workshop-row");
-    localRow.createSpan({ cls: "qbr-workshop-hint", text: "服务地址（可选）" });
-    const localInput = localRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空 = http://127.0.0.1:8123" } });
+    localRow.createSpan({ cls: "qbr-workshop-hint", text: t("服务地址（可选）") });
+    const localInput = localRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: t("留空 = http://127.0.0.1:8123") } });
     localInput.value = String(settings.mineruLocalUrl || "");
     bind(localInput, "mineruLocalUrl", "本地 MinerU 服务地址已保存;新任务生效。");
     const autoStartRow = serviceDetails.createDiv("qbr-workshop-row");
     const autoStartLabel = autoStartRow.createEl("label", { cls: "qbr-workshop-opt" });
     const autoStartInput = autoStartLabel.createEl("input", { attr: { type: "checkbox" } });
     autoStartInput.checked = settings.mineruLocalAutoStart === true;
-    autoStartLabel.createSpan({ text: "启动应用时自动开启常驻服务（需要先填服务地址，默认关闭）" });
+    autoStartLabel.createSpan({ text: t("启动应用时自动开启常驻服务（需要先填服务地址，默认关闭）") });
     autoStartInput.addEventListener("change", () => {
       persist("mineruLocalAutoStart", Boolean(autoStartInput.checked));
       save("自动开启设置已保存。");
     });
     const mineruTools = mineruCard.createDiv("qbr-workshop-row");
-    const mineruStatus = mineruTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
+    const mineruStatus = mineruTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: t("未检测") });
     // 以输入框当前值为准(用户可能打完路径没失焦就点检测),先落盘再传给主进程。
     const mineruSettings = () => {
       const live = {
@@ -716,7 +748,8 @@ export function createSettingsView(leaf, options) {
         plugin.settings.mineruLocalAutoStart = live.autoStart;
         plugin.settings.ocrPython = live.ocrPython;
         plugin.settings.ocrSidecarDir = live.ocrSidecarDir;
-        void plugin.saveAll?.();
+        const save = typeof plugin.saveSettings === "function" ? plugin.saveSettings.bind(plugin) : plugin.saveAll?.bind(plugin);
+        void save?.();
       }
       return live;
     };
@@ -739,17 +772,17 @@ export function createSettingsView(leaf, options) {
             persist("mineruLocalUrl", liveUrl);
           }
         }
-        const tried = Array.isArray(result?.tried) && result.tried.length ? `(已试:${result.tried.slice(0, 4).join("、")})` : "";
-        mineruStatus.setText(`${describeMineruStatus(result)}${tried}`);
+        const tried = Array.isArray(result?.tried) && result.tried.length ? `(${t("已试:")}${result.tried.slice(0, 4).join(t("、"))})` : "";
+        mineruStatus.setText(`${describeMineruStatus(result, t)}${tried}`);
       } catch (error) {
         mineruStatus.setText(`检测失败:${String(error?.message || error)}`);
       }
     };
-    const checkMineru = mineruTools.createEl("button", { text: "检测本地 MinerU" });
+    const checkMineru = mineruTools.createEl("button", { text: t("检测本地 MinerU") });
     checkMineru.addEventListener("click", () => void runMineru(false));
-    const startMineru = mineruTools.createEl("button", { text: "启动服务" });
+    const startMineru = mineruTools.createEl("button", { text: t("启动服务") });
     startMineru.addEventListener("click", () => void runMineru(true));
-    const clearMineru = mineruTools.createEl("button", { text: "清理 MinerU 缓存" });
+    const clearMineru = mineruTools.createEl("button", { text: t("清理 MinerU 缓存") });
     clearMineru.addEventListener("click", async () => {
       if (!bridge?.mineru?.clearCaches) {
         notice("这个宿主不支持清理 MinerU 缓存");
@@ -776,7 +809,7 @@ export function createSettingsView(leaf, options) {
           if (!value || exeInput.value) return;
           exeInput.value = value;
           persist("mineruLocalExe", value);
-          notice(`已自动找到本地 MinerU:${value}`);
+          notice(t("已自动找到本地 MinerU:{0}", value));
           void runMineru(false);
         })
         .catch(() => {});
@@ -785,18 +818,18 @@ export function createSettingsView(leaf, options) {
     // 4. 书坊引擎(可独立部署的本地 HTTP 服务:应用只探测与调用,能力由引擎上报)
     //    E1 只做探测/状态;搬能力(E2)与一键安装(E3)见 docs/workshop-engine-plan.md。
     const engineCard = root.createDiv("qbr-workshop-card");
-    engineCard.createEl("h3", { text: "书坊引擎(后台能力)" });
-    const engineIntro = engineCard.createDiv({ cls: "qbr-workshop-hint", text: "把 Python / pdf_tool / OCR / DocVortex 这些后台能力做成一个可独立部署的本地服务;装上引擎后,下面那些路径都不用自己配。" });
+    engineCard.createEl("h3", { text: t("书坊引擎(后台能力)") });
+    const engineIntro = engineCard.createDiv({ cls: "qbr-workshop-hint", text: t("把 Python / pdf_tool / OCR / DocVortex 这些后台能力做成一个可独立部署的本地服务;装上引擎后,下面那些路径都不用自己配。") });
     // 引擎进程:状态 + 启动/停止 + 启动应用时自动开启。
     // 引擎是独立服务,应用重启不会自动带起它 —— 这里给显式入口;停只停应用自己起的(pid 记录)。
     const engineServiceRow = engineCard.createDiv("qbr-workshop-row");
     const engineServiceStatus = engineServiceRow.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "检查中…" });
-    const engineStartBtn = engineServiceRow.createEl("button", { cls: "mod-cta", text: "启动引擎" });
-    const engineStopBtn = engineServiceRow.createEl("button", { text: "停止引擎" });
+    const engineStartBtn = engineServiceRow.createEl("button", { cls: "mod-cta", text: t("启动引擎") });
+    const engineStopBtn = engineServiceRow.createEl("button", { text: t("停止引擎") });
     const engineAutoLabel = engineCard.createEl("label", { cls: "qbr-workshop-hint" });
     const engineAuto = engineAutoLabel.createEl("input", { attr: { type: "checkbox" } });
     engineAuto.checked = settings.engineAutoStart !== false;
-    engineAutoLabel.createSpan({ text: "启动应用时自动开启书坊引擎(引擎没装就什么都不做)" });
+    engineAutoLabel.createSpan({ text: t("启动应用时自动开启书坊引擎(引擎没装就什么都不做)") });
     engineAuto.addEventListener("change", () => persist("engineAutoStart", engineAuto.checked));
     let engineState = null;
     let engineBundled = false;
@@ -806,13 +839,24 @@ export function createSettingsView(leaf, options) {
       engineState = state;
       engineBundled = state.bundled === true;
       if (engineBundled) {
-        engineIntro.setText("书坊引擎随 UV Reader 一起安装,由应用在后台管理;不需要单独下载或填写地址。");
+        engineIntro.setText(t("书坊引擎随 UV Reader 一起安装,由应用在后台管理;不需要单独下载或填写地址。"));
       }
       applyEngineOcrPaths(state);
       const ocrNote = state.installed === true
-        ? (state.ocrReady ? " · OCR 已就绪" : " · 当前引擎不含 OCR")
+        ? (state.ocrReady ? t(" · OCR 已就绪") : t(" · 当前引擎不含 OCR"))
         : "";
-      engineServiceStatus.setText(`${String(state.detail || (state.installed ? (state.running ? "运行中" : "未运行") : "未安装"))}${ocrNote}`);
+      const engineServiceLabel = (() => {
+        if (state.running === true) {
+          const version = state.version ? ` · ${state.version}` : "";
+          const port = state.port ? ` · ${t("端口")} ${state.port}` : "";
+          return `${t("运行中")}${version}${port}`;
+        }
+        if (state.installed === true) {
+          return `${t("未运行")}${state.version ? ` · ${state.version}` : ""}`;
+        }
+        return t(String(state.detail || "还没装书坊引擎"));
+      })();
+      engineServiceStatus.setText(`${engineServiceLabel}${ocrNote}`);
       engineStartBtn.disabled = state.installed !== true || state.running === true;
       engineStopBtn.disabled = state.running !== true;
       syncEngineInstallButtons();
@@ -823,11 +867,11 @@ export function createSettingsView(leaf, options) {
       renderEngineService(state);
     };
     engineStartBtn.addEventListener("click", async () => {
-      engineServiceStatus.setText("启动中…");
+      engineServiceStatus.setText(t("启动中…"));
       const result = await bridge?.engine?.start?.({ ...settings, engineUrl: settings.engineUrl })
         .catch((error) => ({ ok: false, detail: String(error?.message || error) }));
       if (!result?.ok) {
-        engineServiceStatus.setText(`启动失败:${result?.detail || result?.error || "没有返回原因"}`);
+        engineServiceStatus.setText(`${t("启动失败:")}${result?.detail || result?.error || t("没有返回原因")}`);
         void refreshEngineService();
         return;
       }
@@ -844,32 +888,32 @@ export function createSettingsView(leaf, options) {
       void checkEngine(true);
     });
     engineStopBtn.addEventListener("click", async () => {
-      engineServiceStatus.setText("停止中…");
+      engineServiceStatus.setText(t("停止中…"));
       const result = await bridge?.engine?.stop?.().catch((error) => ({ ok: false, detail: String(error?.message || error) }));
       if (result?.ok) engineCaps.empty();
-      engineServiceStatus.setText(result?.ok ? "已停止" : String(result?.detail || "停止失败"));
+      engineServiceStatus.setText(result?.ok ? t("已停止") : t(String(result?.detail || "停止失败")));
       void refreshEngineService();
     });
     void refreshEngineService();
     const engineUrlRow = engineCard.createDiv("qbr-workshop-row");
-    engineUrlRow.createSpan({ cls: "qbr-workshop-hint", text: "服务地址" });
-    const engineUrl = engineUrlRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空用 http://127.0.0.1:8760" } });
+    engineUrlRow.createSpan({ cls: "qbr-workshop-hint", text: t("服务地址") });
+    const engineUrl = engineUrlRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: t("留空用 http://127.0.0.1:8760") } });
     engineUrl.value = String(settings.engineUrl || "");
     bind(engineUrl, "engineUrl", "引擎地址已保存。");
     const engineTokenRow = engineCard.createDiv("qbr-workshop-row");
-    engineTokenRow.createSpan({ cls: "qbr-workshop-hint", text: "令牌" });
-    const engineToken = engineTokenRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "引擎没设令牌就留空(仅本机)" } });
+    engineTokenRow.createSpan({ cls: "qbr-workshop-hint", text: t("令牌") });
+    const engineToken = engineTokenRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: t("引擎没设令牌就留空(仅本机)") } });
     engineToken.value = String(settings.engineToken || "");
     bind(engineToken, "engineToken", "引擎令牌已保存。");
     // E3b 一键安装/更新:下载 + sha256 校验 + 解压 + 拉起都在主进程做,进度走任务队列;
     // 装完把地址与令牌回填到上面两行(用户不用自己抄)。
     const engineInstallRow = engineCard.createDiv("qbr-workshop-row");
-    const engineInstallBtn = engineInstallRow.createEl("button", { cls: "mod-cta", text: "下载并安装引擎" });
-    const engineInstallLocalBtn = engineInstallRow.createEl("button", { text: "从本地包安装" });
-    const engineUpdateBtn = engineInstallRow.createEl("button", { text: "检查更新" });
+    const engineInstallBtn = engineInstallRow.createEl("button", { cls: "mod-cta", text: t("下载并安装引擎") });
+    const engineInstallLocalBtn = engineInstallRow.createEl("button", { text: t("从本地包安装") });
+    const engineUpdateBtn = engineInstallRow.createEl("button", { text: t("检查更新") });
     const engineInstallStatus = engineInstallRow.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "" });
     const engineUpdateRow = engineCard.createDiv("qbr-workshop-row");
-    const engineUpdateStatus = engineUpdateRow.createSpan({ cls: "qbr-workshop-hint", text: "安装后可检查最新版本" });
+    const engineUpdateStatus = engineUpdateRow.createSpan({ cls: "qbr-workshop-hint", text: t("安装后可检查最新版本") });
     let engineLatest = null;
     let engineInstallBusy = false;
     const syncInstallButtons = () => {
@@ -883,7 +927,7 @@ export function createSettingsView(leaf, options) {
         if (row) row.hidden = engineBundled;
       }
       const update = engineLatest?.available === true && Boolean(engineLatest?.installed);
-      engineInstallBtn.setText(update ? "下载并更新引擎" : "下载并安装引擎");
+      engineInstallBtn.setText(update ? "下载并更新引擎" : t("下载并安装引擎"));
     };
     syncEngineInstallButtons = syncInstallButtons;
     syncInstallButtons();
@@ -899,7 +943,7 @@ export function createSettingsView(leaf, options) {
       engineLatest = result.version
         ? { ok: true, installed: String(result.version), latest: String(result.version), available: false }
         : null;
-      engineInstallStatus.setText(`引擎 ${result.version || ""} 已装好并启动 ✓${result.ocrReady ? " · OCR 已就绪" : " · 不含 OCR"}`);
+      engineInstallStatus.setText(`引擎 ${result.version || ""} 已装好并启动 ✓${result.ocrReady ? t(" · OCR 已就绪") : " · 不含 OCR"}`);
       engineUpdateStatus.setText(result.version ? `当前引擎 ${result.version}` : "");
       syncInstallButtons();
       void refreshEngineService();
@@ -918,25 +962,25 @@ export function createSettingsView(leaf, options) {
         engineInstallBusy = false;
         syncInstallButtons();
         if (task.status === "done") applyEngineInstall(task.result);
-        else if (task.status === "cancelled") engineInstallStatus.setText("安装已取消。");
-        else engineInstallStatus.setText(`安装失败:${task.error || "看任务详情"}`);
+        else if (task.status === "cancelled") engineInstallStatus.setText(t("安装已取消。"));
+        else engineInstallStatus.setText(`${t("安装失败:")}${task.error || t("看任务详情")}`);
       });
     };
     const startEngineInstall = (payload, detail) => {
       if (!bridge?.workshop?.start) return;
       if (engineState?.running === true) {
-        engineInstallStatus.setText("引擎正在运行，请先停止引擎再更新。");
+        engineInstallStatus.setText(t("引擎正在运行，请先停止引擎再更新。"));
         return;
       }
       engineInstallBusy = true;
       syncInstallButtons();
-      engineInstallStatus.setText("排队中…");
-      void bridge.workshop.start({ kind: "engine-install", title: "安装书坊引擎", detail, payload })
+      engineInstallStatus.setText(t("排队中…"));
+      void bridge.workshop.start({ kind: "engine-install", title: t("安装书坊引擎"), detail, payload })
         .then((taskId) => watchEngineInstall(String(taskId || "")))
         .catch((error) => {
           engineInstallBusy = false;
           syncInstallButtons();
-          engineInstallStatus.setText(`启动失败:${String(error?.message || error)}`);
+          engineInstallStatus.setText(`${t("启动失败:")}${String(error?.message || error)}`);
         });
     };
     engineUpdateBtn.addEventListener("click", async () => {
@@ -975,7 +1019,7 @@ export function createSettingsView(leaf, options) {
       engineInstallStatus.setText(removing ? `准备卸载 ${label}…` : `准备装 ${label}…`);
       void bridge.workshop.start({
         kind: "engine-component",
-        title: removing ? `从引擎卸载 ${label}` : `装 ${label} 到引擎`,
+        title: removing ? t("从引擎卸载 {0}", label) : t("装 {0} 到引擎", label),
         detail: label,
         payload: { name, action, settings: { ...settings } },
       }).then((taskId) => {
@@ -989,23 +1033,23 @@ export function createSettingsView(leaf, options) {
           }
           stop?.();
           if (task.status === "done") {
-            engineInstallStatus.setText(removing ? `${label} 已从引擎卸载 ✓` : `${label} 已装进引擎 ✓`);
+            engineInstallStatus.setText(removing ? t("{0} 已从引擎卸载 ✓", label) : t("{0} 已装进引擎 ✓", label));
             void checkEngine(true);
           } else if (task.status === "cancelled") {
-            engineInstallStatus.setText(`${removing ? "卸载" : "装"} ${label} 已取消。`);
+            engineInstallStatus.setText(t("{0} {1} 已取消。", removing ? t("卸载") : t("装"), label));
           } else {
-            engineInstallStatus.setText(`${removing ? "卸载" : "装"} ${label} 失败:${task.error || "看任务详情"}`);
+            engineInstallStatus.setText(t("{0} {1} 失败:{2}", removing ? t("卸载") : t("装"), label, task.error || t("看任务详情")));
           }
         });
-      }).catch((error) => engineInstallStatus.setText(`启动失败:${String(error?.message || error)}`));
+      }).catch((error) => engineInstallStatus.setText(`${t("启动失败:")}${String(error?.message || error)}`));
     };
     const engineTools = engineCard.createDiv("qbr-workshop-row");
-    const engineProbe = engineTools.createEl("button", { text: "检测引擎" });
-    const engineRefreshBtn = engineTools.createEl("button", { text: "重探能力" });
-    const engineStatus = engineTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
+    const engineProbe = engineTools.createEl("button", { text: t("检测引擎") });
+    const engineRefreshBtn = engineTools.createEl("button", { text: t("重探能力") });
+    const engineStatus = engineTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: t("未检测") });
     const engineCaps = engineCard.createDiv("qbr-workshop-engine-caps");
     const engineConfig = engineCard.createEl("details");
-    engineConfig.createEl("summary", { text: "引擎配置(路径 / 凭据 / 并发;配置存在引擎侧)" });
+    engineConfig.createEl("summary", { text: t("引擎配置(路径 / 凭据 / 并发;配置存在引擎侧)") });
     const engineFields = {};
     const engineField = (label, key, placeholder = "") => {
       const row = engineConfig.createDiv("qbr-workshop-row");
@@ -1013,18 +1057,18 @@ export function createSettingsView(leaf, options) {
       const input = row.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder } });
       engineFields[key] = input;
     };
-    engineField("pdf_tool 目录", "pdfToolDir", "内含 pdf_tool/pdf_to_doc.py;留空用引擎自带的");
-    engineField("Python", "python", "跑 pdf_tool / DocVortex 的解释器;留空用引擎自带");
-    engineField("DocVortex", "docvortexPath", "留空按引擎 Python / PATH 找");
-    engineField("MinerU 服务地址", "mineruLocalUrl", "如 http://127.0.0.1:8000");
-    engineField("MinerU token", "mineruToken", "已保存就留空(不回显)");
-    engineField("MinerU 本机程序", "mineruLocalExe", "mineru-kit 可执行文件(helper 靠它找 venv)");
-    engineField("MinerU 模型", "mineruModel", "默认 vlm");
-    engineField("Calibre", "calibrePath", "ebook-convert;留空按 PATH / 常见位置找");
-    engineField("boko", "bokoPath", "boko 二进制(单文件);留空按 PATH 找");
-    engineField("并发作业数", "workers", "默认 2");
+    engineField(t("pdf_tool 目录"), "pdfToolDir", t("内含 pdf_tool/pdf_to_doc.py;留空用引擎自带的"));
+    engineField("Python", "python", t("跑 pdf_tool / DocVortex 的解释器;留空用引擎自带"));
+    engineField("DocVortex", "docvortexPath", t("留空按引擎 Python / PATH 找"));
+    engineField(t("MinerU 服务地址"), "mineruLocalUrl", t("如 http://127.0.0.1:8000"));
+    engineField("MinerU token", "mineruToken", t("已保存就留空(不回显)"));
+    engineField(t("MinerU 本机程序"), "mineruLocalExe", t("mineru-kit 可执行文件(helper 靠它找 venv)"));
+    engineField(t("MinerU 模型"), "mineruModel", t("默认 vlm"));
+    engineField("Calibre", "calibrePath", t("ebook-convert;留空按 PATH / 常见位置找"));
+    engineField("boko", "bokoPath", t("boko 二进制(单文件);留空按 PATH 找"));
+    engineField(t("并发作业数"), "workers", t("默认 2"));
     const engineActions = engineConfig.createDiv("qbr-workshop-row");
-    const engineSave = engineActions.createEl("button", { cls: "mod-cta", text: "保存到引擎" });
+    const engineSave = engineActions.createEl("button", { cls: "mod-cta", text: t("保存到引擎") });
     const engineSaveHint = engineActions.createSpan({ cls: "qbr-workshop-hint", text: "" });
 
     const renderEngineHealth = (health) => {
@@ -1115,7 +1159,7 @@ export function createSettingsView(leaf, options) {
     engineProbe.addEventListener("click", () => void checkEngine(false));
     engineRefreshBtn.addEventListener("click", () => void checkEngine(true));
     // 手工验证「这次是引擎干的」:看引擎自己的作业清单(新在前,带参数摘要与状态)。
-    const engineJobsBtn = engineTools.createEl("button", { text: "查看引擎作业" });
+    const engineJobsBtn = engineTools.createEl("button", { text: t("查看引擎作业") });
     engineJobsBtn.addEventListener("click", async () => {
       engineCaps.empty();
       const result = await bridge?.engine?.jobs?.({ ...settings }, 8).catch(() => null);
@@ -1148,45 +1192,45 @@ export function createSettingsView(leaf, options) {
 
     // 5. DocVortex(本地解析 / 公式优先的渲染端)
     const docvortexCard = root.createDiv("qbr-workshop-card");
-    docvortexCard.createEl("h3", { text: "DocVortex(格式转换 / 内容提取)" });
+    docvortexCard.createEl("h3", { text: t("DocVortex(格式转换 / 内容提取)") });
     const dvRow = docvortexCard.createDiv("qbr-workshop-row");
-    dvRow.createSpan({ cls: "qbr-workshop-hint", text: "DocVortex 路径" });
-    const dvPath = dvRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空自动检测(PATH / python -m docvortex)" } });
+    dvRow.createSpan({ cls: "qbr-workshop-hint", text: t("DocVortex 路径") });
+    const dvPath = dvRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: t("留空自动检测(PATH / python -m docvortex)") } });
     dvPath.value = String(settings.docvortexPath || "");
     bind(dvPath, "docvortexPath", "DocVortex 路径已保存。");
     const dvTools = docvortexCard.createDiv("qbr-workshop-row");
-    const dvProbe = dvTools.createEl("button", { text: "检测 DocVortex" });
-    const dvStatus = dvTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
+    const dvProbe = dvTools.createEl("button", { text: t("检测 DocVortex") });
+    const dvStatus = dvTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: t("未检测") });
     dvProbe.addEventListener("click", () => void runProbe(dvStatus, "", () => bridge?.probe?.docvortex(settings)));
-    docvortexCard.createDiv({ cls: "qbr-workshop-hint", text: "装了书坊引擎后这里可以留空:DocVortex 的路径改在引擎配置里(引擎会自己探)。" });
-    const formulaProbe = dvTools.createEl("button", { text: "检测公式链路" });
+    docvortexCard.createDiv({ cls: "qbr-workshop-hint", text: t("装了书坊引擎后这里可以留空:DocVortex 的路径改在引擎配置里(引擎会自己探)。") });
+    const formulaProbe = dvTools.createEl("button", { text: t("检测公式链路") });
     const formulaStatus = dvTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "" });
     formulaProbe.addEventListener("click", () => void runProbe(formulaStatus, "", () => bridge?.probe?.formula(settings)));
 
     // 5. Calibre(电子书互转 / 图片打包)
     const calibreCard = root.createDiv("qbr-workshop-card");
-    calibreCard.createEl("h3", { text: "Calibre(电子书制作)" });
+    calibreCard.createEl("h3", { text: t("Calibre(电子书制作)") });
     const calibreRow = calibreCard.createDiv("qbr-workshop-row");
-    calibreRow.createSpan({ cls: "qbr-workshop-hint", text: "Calibre 路径" });
-    const calibrePath = calibreRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空自动检测(常见安装位置 / PATH)" } });
+    calibreRow.createSpan({ cls: "qbr-workshop-hint", text: t("Calibre 路径") });
+    const calibrePath = calibreRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: t("留空自动检测(常见安装位置 / PATH)") } });
     calibrePath.value = String(settings.calibrePath || "");
     bind(calibrePath, "calibrePath", "Calibre 路径已保存。");
     const calibreTools = calibreCard.createDiv("qbr-workshop-row");
-    const calibreProbe = calibreTools.createEl("button", { text: "检测 Calibre" });
-    const calibreStatus = calibreTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: "未检测" });
+    const calibreProbe = calibreTools.createEl("button", { text: t("检测 Calibre") });
+    const calibreStatus = calibreTools.createSpan({ cls: "qbr-workshop-hint qbr-mineru-status", text: t("未检测") });
     calibreProbe.addEventListener("click", () => void runProbe(calibreStatus, "", () => bridge?.probe?.calibre(settings)));
-    calibreCard.createDiv({ cls: "qbr-workshop-hint", text: "装了书坊引擎后这里可以留空:Calibre / boko 的路径改在引擎配置里(引擎会自己探;boko 更轻)。下载:https://calibre-ebook.com/download · boko:https://github.com/zacharydenton/boko/releases" });
+    calibreCard.createDiv({ cls: "qbr-workshop-hint", text: t("装了书坊引擎后这里可以留空:Calibre / boko 的路径改在引擎配置里(引擎会自己探;boko 更轻)。下载:https://calibre-ebook.com/download · boko:https://github.com/zacharydenton/boko/releases") });
 
     // 8. 本机回退:与引擎配置重复的「本机路径」收进一块折叠区(字段不删 —— 引擎不可用时靠它们回退本机)。
     // 引擎是主路径:把它的卡片在 DOM 里提到最前(书坊开关之后),不用搬那一大段代码。
     root.insertBefore(engineCard, toggleCard.nextSibling);
     const fallbackCard = root.createEl("details", { cls: "qbr-workshop-card qbr-workshop-fallback" });
-    fallbackCard.createEl("summary", { text: "本机工具(仅引擎不可用时回退;引擎可用时这些设置不生效)" });
-    fallbackCard.createDiv({ cls: "qbr-workshop-hint", text: "引擎的路径改在「书坊引擎 → 引擎配置」里;这里是引擎没装 / 连不上时的回退路径(填了才用,留空按自动检测)。" });
+    fallbackCard.createEl("summary", { text: t("本机工具(仅引擎不可用时回退;引擎可用时这些设置不生效)") });
+    fallbackCard.createDiv({ cls: "qbr-workshop-hint", text: t("引擎的路径改在「书坊引擎 → 引擎配置」里;这里是引擎没装 / 连不上时的回退路径(填了才用,留空按自动检测)。") });
     // MinerU 模型:本机回退链路要用,但之前只在引擎配置里露出来 → 这里补上(值本来就是共用的同一个设置)。
     const fallbackModelRow = fallbackCard.createDiv("qbr-workshop-row");
-    fallbackModelRow.createSpan({ cls: "qbr-workshop-hint", text: "MinerU 模型" });
-    const fallbackModel = fallbackModelRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "默认 vlm(只影响回退本机;引擎用引擎配置里的)" } });
+    fallbackModelRow.createSpan({ cls: "qbr-workshop-hint", text: t("MinerU 模型") });
+    const fallbackModel = fallbackModelRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: t("默认 vlm(只影响回退本机;引擎用引擎配置里的)") } });
     fallbackModel.value = String(settings.mineruModel || "");
     bind(fallbackModel, "mineruModel", "MinerU 模型已保存;新任务生效。");
     fallbackCard.appendChild(ocrCard);
@@ -1195,10 +1239,10 @@ export function createSettingsView(leaf, options) {
 
     // 7. 一键自检:四条链路各入队一个检测任务,顺带刷新本地 MinerU 状态。
     const selfCheckRow = root.createDiv("qbr-workshop-row");
-    const selfCheck = selfCheckRow.createEl("button", { cls: "mod-cta", text: "书坊链路自检" });
+    const selfCheck = selfCheckRow.createEl("button", { cls: "mod-cta", text: t("书坊链路自检") });
     selfCheck.addEventListener("click", () => {
       for (const [status, label, run] of [
-        [ocrStatus, "文字层", () => bridge?.probe?.ocr(settings)],
+        [ocrStatus, t("文字层"), () => bridge?.probe?.ocr(settings)],
         [dvStatus, "DocVortex", () => bridge?.probe?.docvortex(settings)],
         [formulaStatus, "公式", () => bridge?.probe?.formula(settings)],
         [calibreStatus, "Calibre", () => bridge?.probe?.calibre(settings)],
@@ -1208,7 +1252,7 @@ export function createSettingsView(leaf, options) {
       void runMineru(false);
       notice("四条链路的探测已开始,结果就在下面各自的状态行里。");
     });
-    selfCheckRow.createSpan({ cls: "qbr-workshop-hint", text: "一次把文字层 / DocVortex / 公式 / Calibre 四个检测入队,并刷新本地 MinerU 状态。" });
+    selfCheckRow.createSpan({ cls: "qbr-workshop-hint", text: t("一次把文字层 / DocVortex / 公式 / Calibre 四个检测入队,并刷新本地 MinerU 状态。") });
   }
 
   class SettingsView extends ItemView {
@@ -1217,7 +1261,7 @@ export function createSettingsView(leaf, options) {
     }
 
     getDisplayText() {
-      return "设置";
+      return plugin.translate?.("settings") || "设置";
     }
 
     getIcon() {
@@ -1238,7 +1282,7 @@ export function createSettingsView(leaf, options) {
         const originalTabs = tab._settingsTabs.bind(tab);
         const originalDraw = tab._drawSettingsTab.bind(tab);
         const originalRender = typeof tab._render === "function" ? tab._render.bind(tab) : null;
-        tab._settingsTabs = () => [...originalTabs(), { id: "workshop", label: "书坊" }];
+        tab._settingsTabs = () => [...originalTabs(), { id: "workshop", label: plugin.translate?.("workshop-nav") || "书坊" }];
         tab._drawSettingsTab = (body) => {
           if (tab._tab === "workshop") {
             drawWorkshopSettings(body);
@@ -1306,6 +1350,7 @@ const WORKSHOP_KIND_LABELS = {
   "ebook-convert": "互转",
   "images-cbz": "打包",
   "book-build": "成书",
+  "book-polish": "精修",
   "extract-probe": "检测",
   "extract-pdf": "提取",
   "extract-docvortex": "提取",
@@ -1318,22 +1363,24 @@ function formatElapsed(ms) {
   return `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, "0")}s`;
 }
 
-function workshopTaskState(task, now = Date.now()) {
+function workshopTaskState(task, now = Date.now(), translate = (value) => value) {
+  const tr = translate;
   if (task.status === "running") {
-    if (task.total) return `运行中 ${task.done}/${task.total}`;
+    if (task.total) return `${tr("运行中")} ${task.done}/${task.total}`;
     // 没有总量的任务(DocVortex 等外部 CLI 不报进度)走不确定态,用秒表说明还在跑。
-    return `运行中… ${formatElapsed(now - (Number(task.startedAt) || Number(task.createdAt) || now))}`;
+    return `${tr("运行中")}… ${formatElapsed(now - (Number(task.startedAt) || Number(task.createdAt) || now))}`;
   }
-  if (task.status === "queued") return "排队中";
-  if (task.status === "done") return "已完成";
-  if (task.status === "cancelled") return "已取消(上游释放资源约需 10–20 秒,稍候再试)";
-  return "失败";
+  if (task.status === "queued") return tr("排队中");
+  if (task.status === "done") return tr("已完成");
+  if (task.status === "cancelled") return tr("已取消(上游释放资源约需 10–20 秒,稍候再试)");
+  return tr("失败");
 }
 
 export function createWorkshopView(leaf, options) {
   const app = options?.app;
   const plugin = options?.plugin;
   const bridge = typeof window !== "undefined" ? window.qbrDesktop?.workshop || null : null;
+  const t = (text, ...args) => shellText(plugin, text, ...args);
 
   class WorkshopView extends ItemView {
     getViewType() {
@@ -1341,7 +1388,7 @@ export function createWorkshopView(leaf, options) {
     }
 
     getDisplayText() {
-      return "书坊";
+      return plugin.translate?.("workshop-nav") || t("书坊");
     }
 
     getIcon() {
@@ -1349,7 +1396,7 @@ export function createWorkshopView(leaf, options) {
     }
 
     async onOpen() {
-      this.contentEl.addClass("qbr-workshop-view");
+      this.contentEl.addClass("qbr-workshop-view", "qiaomu-reader-lib");
       this._tool = localStorage.getItem("qbr-workshop-tool") || "ocr";
       if (!WORKSHOP_TOOLS.some((tool) => tool.id === this._tool)) this._tool = "ocr";
       this._collapsed = localStorage.getItem("qbr-workshop-rail") === "collapsed";
@@ -1380,7 +1427,7 @@ export function createWorkshopView(leaf, options) {
       this.syncTools();
     }
 
-    openCapability(capability = {}) {
+    openCapability(capability = {}, options = {}) {
       const tool = String(capability.tool || "tasks");
       this.selectTool(tool);
       if (tool === "ocr") {
@@ -1405,6 +1452,26 @@ export function createWorkshopView(leaf, options) {
         this.syncBookTranslationMode();
         this.onBookStyleChange();
       }
+      this.prefillCapabilitySources(tool, options.sources);
+    }
+
+    prefillCapabilitySources(tool, sources = []) {
+      const paths = [...new Set((Array.isArray(sources) ? sources : [])
+        .map((source) => String(source || "").replace(/\\/g, "/"))
+        .filter(Boolean))];
+      if (!paths.length) return;
+      if (tool === "ocr") {
+        for (const path of paths) this.addOcrFile(path);
+        this.refreshOcrBookList();
+      } else if (tool === "extract") {
+        for (const path of paths) this.addExtractFile(path);
+        this.refreshExtractBookList();
+      } else if (tool === "convert") {
+        for (const path of paths) this.addConvertFile(path);
+        this.refreshConvertBookList();
+      } else if (tool === "book") {
+        this.addBookSource(paths[0]);
+      }
     }
 
     focusTask(id) {
@@ -1416,6 +1483,7 @@ export function createWorkshopView(leaf, options) {
     toggleRail() {
       this._collapsed = !this._collapsed;
       localStorage.setItem("qbr-workshop-rail", this._collapsed ? "collapsed" : "open");
+      this.contentEl.toggleClass("qiaomu-reader-lib-nav-collapsed", this._collapsed);
       this.contentEl.toggleClass("qbr-workshop-rail-collapsed", this._collapsed);
     }
 
@@ -1426,55 +1494,85 @@ export function createWorkshopView(leaf, options) {
       for (const panel of this._panels || []) {
         panel.hidden = panel.dataset.tool !== this._tool;
       }
+      const tool = WORKSHOP_TOOLS.find((item) => item.id === this._tool);
+      if (this._viewLabel && tool) this._viewLabel.setText(`${t(tool.title)} · ${tool.en}`);
     }
 
     render() {
       const root = this.contentEl;
       root.empty();
-      const head = root.createDiv("qbr-workshop-head");
-      const title = head.createDiv("qbr-workshop-title");
-      title.createEl("b", { text: "书坊" });
-      title.createEl("span", { text: "So Fun" });
-      const toggle = head.createEl("button", { cls: "qbr-workshop-toggle", attr: { type: "button", "aria-label": "收起工具栏" } });
-      toggle.insertAdjacentHTML("afterbegin", iconResolver("navigator"));
-      toggle.addEventListener("click", () => this.toggleRail());
-      head.createDiv({ cls: "qbr-workshop-lead", text: "文档处理 · 格式转换 · 电子书制作;产物默认回到书库。" });
-
-      const body = root.createDiv("qbr-workshop-body");
-      const rail = body.createDiv("qbr-workshop-rail");
+      root.toggleClass("qiaomu-reader-lib-nav-collapsed", this._collapsed);
+      root.toggleClass("qbr-workshop-rail-collapsed", this._collapsed);
+      const main = root.createDiv("qiaomu-reader-lib-main qbr-workshop-main");
+      const side = main.createDiv("qiaomu-reader-lib-side qbr-workshop-side");
+      const sideHead = side.createDiv("qiaomu-reader-lib-side-head");
+      sideHead.createSpan({ cls: "qiaomu-reader-lib-side-title", text: plugin.translate?.("workshop-nav") || t("书坊") });
+      const collapse = sideHead.createEl("button", {
+        cls: "qiaomu-reader-lib-collapse",
+        attr: { type: "button", "aria-label": t("收起工具栏") },
+      });
+      setIcon(collapse, "chevron-left");
+      collapse.addEventListener("click", () => this.toggleRail());
+      const rail = side.createDiv("qbr-workshop-rail");
+      const content = main.createDiv("qiaomu-reader-lib-content qbr-workshop-content");
+      const toolbar = content.createDiv("qiaomu-reader-lib-toolbar");
+      const nav = toolbar.createEl("button", {
+        cls: "qiaomu-reader-lib-navbtn",
+        attr: { type: "button", "aria-label": t("展开工具栏") },
+      });
+      setIcon(nav, "chevron-right");
+      nav.addEventListener("click", () => this.toggleRail());
+      const search = toolbar.createDiv("qiaomu-reader-lib-search");
+      const searchIcon = search.createDiv("qiaomu-reader-lib-search-ic");
+      setIcon(searchIcon, "search");
+      const toolSearch = search.createEl("input", {
+        cls: "qiaomu-reader-lib-search-input",
+        attr: { type: "text", placeholder: t("搜索工具"), spellcheck: "false" },
+      });
+      this._viewLabel = toolbar.createDiv("qiaomu-reader-lib-viewlabel");
+      toolSearch.addEventListener("input", () => {
+        const needle = toolSearch.value.trim().toLowerCase();
+        for (const button of rail.querySelectorAll("button")) {
+          button.hidden = Boolean(needle) && !String(button.textContent || "").toLowerCase().includes(needle);
+        }
+      });
       this._railButtons = [];
       let group = "";
       for (const tool of WORKSHOP_TOOLS) {
         if (tool.group !== group) {
           group = tool.group;
-          rail.createDiv({ cls: "group", text: group });
+          rail.createDiv({ cls: "group", text: t(group) });
         }
         const button = rail.createEl("button", { attr: { type: "button", "data-tool": tool.id } });
         button.insertAdjacentHTML("afterbegin", iconResolver(tool.icon));
-        button.createSpan({ text: tool.label });
+        button.createSpan({ text: t(tool.label) });
         if (tool.id === "tasks") this._taskBadge = button.createSpan({ cls: "badge", text: "" });
         button.addEventListener("click", () => this.selectTool(tool.id));
         this._railButtons.push(button);
       }
 
-      const work = body.createDiv("qbr-workshop-work");
+      const work = content.createDiv("qbr-workshop-work");
       this._panels = [];
       for (const tool of WORKSHOP_TOOLS) {
         const panel = work.createDiv("qbr-workshop-panel");
         panel.dataset.tool = tool.id;
         const heading = panel.createEl("h2");
-        heading.createEl("b", { text: tool.title });
+        heading.createEl("b", { text: t(tool.title) });
         heading.createEl("span", { text: tool.en });
-        panel.createDiv({ cls: "lead", text: tool.lead });
+        panel.createDiv({ cls: "lead", text: t(tool.lead) });
         if (tool.id === "tasks") {
           const actions = panel.createDiv("qbr-workshop-task-toolbar");
-          const probe = actions.createEl("button", { cls: "mod-cta", text: "运行环境自检" });
+          const probe = actions.createEl("button", { cls: "mod-cta", text: t("运行环境自检") });
           probe.addEventListener("click", () => this.runSelfCheck());
-          const clear = actions.createEl("button", { text: "清空历史" });
+          const clear = actions.createEl("button", { text: t("清空历史") });
           clear.addEventListener("click", () => {
             if (!bridge) return;
             void bridge.clear().then((state) => this.renderTasks(state)).catch(() => {});
           });
+          const polishCard = panel.createDiv("qbr-workshop-card qbr-polish-recent");
+          polishCard.createEl("h3", { text: t("精修工作区") });
+          polishCard.createDiv({ cls: "qbr-workshop-hint", text: t("修正注号、注文和正文标记；离开后进度会保留，随时回来继续。") });
+          this._polishRecent = polishCard.createDiv("qbr-polish-recent-list");
           this._taskList = panel.createDiv("qbr-workshop-task-list");
         } else if (tool.id === "ocr") {
           this.renderOcrPanel(panel);
@@ -1486,7 +1584,7 @@ export function createWorkshopView(leaf, options) {
           this.renderBookPanel(panel);
         } else {
           const card = panel.createDiv("qbr-workshop-card");
-          card.createDiv({ cls: "qbr-workshop-soon", text: "该工具将在后续阶段接入(实施计划 docs/workshop-implementation.md)。" });
+          card.createDiv({ cls: "qbr-workshop-soon", text: t("该工具将在后续阶段接入(实施计划 docs/workshop-implementation.md)。") });
         }
         this._panels.push(panel);
       }
@@ -1497,11 +1595,12 @@ export function createWorkshopView(leaf, options) {
       const track = bar.createDiv("qbr-workshop-taskbar-track");
       this._taskBarFill = track.createDiv("qbr-workshop-taskbar-fill");
       this._taskBarMeta = bar.createSpan({ cls: "qbr-workshop-taskbar-meta", text: "" });
-      const open = bar.createEl("button", { cls: "qbr-workshop-taskbar-open", text: "查看任务" });
+      const open = bar.createEl("button", { cls: "qbr-workshop-taskbar-open", text: t("查看任务") });
       open.addEventListener("click", () => this.selectTool("tasks"));
       this._taskBar = bar;
 
       this.syncTools();
+      root.toggleClass("qiaomu-reader-lib-nav-collapsed", this._collapsed);
       root.toggleClass("qbr-workshop-rail-collapsed", this._collapsed);
     }
 
@@ -1511,8 +1610,8 @@ export function createWorkshopView(leaf, options) {
       const settings = plugin?.settings || {};
       void bridge.start({
         kind: "probe",
-        title: "环境自检",
-        detail: "OCR 程序",
+        title: t("环境自检"),
+        detail: t("OCR 程序"),
         payload: {
           settings: {
             ocrSidecarExe: settings.ocrSidecarExe || "",
@@ -1530,23 +1629,23 @@ export function createWorkshopView(leaf, options) {
       const root = panel.createDiv("qbr-workshop-tool");
 
       const inputCard = root.createDiv("qbr-workshop-card");
-      inputCard.createEl("h3", { text: "选择文件" });
+      inputCard.createEl("h3", { text: t("选择文件") });
       const pickRow = inputCard.createDiv("qbr-workshop-row");
-      const pickVault = pickRow.createEl("button", { text: "选择书库文件…" });
+      const pickVault = pickRow.createEl("button", { text: t("选择书库文件…") });
       pickVault.addEventListener("click", () => this.toggleOcrBookList());
-      const pickLocal = pickRow.createEl("button", { text: "打开本地文件…" });
+      const pickLocal = pickRow.createEl("button", { text: t("打开本地文件…") });
       pickLocal.addEventListener("click", () => void this.pickLocalOcrFiles());
-      pickRow.createSpan({ cls: "qbr-workshop-hint", text: "本地文件就地处理;书库列表只显示当前书库里的 PDF" });
+      pickRow.createSpan({ cls: "qbr-workshop-hint", text: t("本地文件就地处理;书库列表只显示当前书库里的 PDF") });
       this._ocrBookList = inputCard.createDiv("qbr-workshop-booklist");
       this._ocrBookList.hidden = true;
       this._ocrChips = inputCard.createDiv("qbr-workshop-chips");
 
       const modeCard = root.createDiv("qbr-workshop-card");
-      modeCard.createEl("h3", { text: "处理方式" });
+      modeCard.createEl("h3", { text: t("处理方式") });
       this._ocrModeInputs = {};
       const modes = [
-        ["cache", "生成文字层", "写入阅读器缓存,打开书即可搜索 / 划线;最快。"],
-        ["export", "导出可搜索 PDF 副本", "在源文件旁生成 <源名>.uvtext.pdf(同名覆盖),原页保留,插入不可见文字层。"],
+        ["cache", t("生成文字层"), t("写入阅读器缓存,打开书即可搜索 / 划线;最快。")],
+        ["export", t("导出可搜索 PDF 副本"), t("在源文件旁生成 {0}.uvtext.pdf(同名覆盖),原页保留,插入不可见文字层。", t("源名"))],
       ];
       for (const [value, label, hint] of modes) {
         const row = modeCard.createEl("label", { cls: "qbr-workshop-opt" });
@@ -1559,9 +1658,9 @@ export function createWorkshopView(leaf, options) {
       }
 
       const startRow = root.createDiv("qbr-workshop-row");
-      const start = startRow.createEl("button", { cls: "mod-cta", text: "开始处理" });
+      const start = startRow.createEl("button", { cls: "mod-cta", text: t("开始处理") });
       start.addEventListener("click", () => this.startOcrTasks());
-      startRow.createSpan({ cls: "qbr-workshop-hint", text: "批量:可一次选多本,逐个入队。" });
+      startRow.createSpan({ cls: "qbr-workshop-hint", text: t("批量:可一次选多本,逐个入队。") });
 
       this._ocrRecent = root.createDiv("qbr-workshop-recent");
       this.renderOcrChips();
@@ -1593,7 +1692,7 @@ export function createWorkshopView(leaf, options) {
       list.empty();
       const books = this.ocrBooks();
       if (!books.length) {
-        list.createDiv({ cls: "qbr-workshop-hint", text: "书库里还没有 PDF。" });
+        list.createDiv({ cls: "qbr-workshop-hint", text: t("书库里还没有 PDF。") });
         return;
       }
       for (const file of books) {
@@ -1625,7 +1724,7 @@ export function createWorkshopView(leaf, options) {
       if (!host) return;
       host.empty();
       if (!this._ocrSelection.length) {
-        host.createSpan({ cls: "qbr-workshop-hint", text: "未选择文件" });
+        host.createSpan({ cls: "qbr-workshop-hint", text: t("未选择文件") });
         return;
       }
       for (const path of this._ocrSelection) {
@@ -1648,7 +1747,7 @@ export function createWorkshopView(leaf, options) {
       if (!bridge) return;
       const files = [...this._ocrSelection];
       if (!files.length) {
-        new Notice("请先选择 PDF 文件");
+        new Notice(t("请先选择 PDF 文件"));
         return;
       }
       const settings = plugin?.settings || {};
@@ -1664,7 +1763,7 @@ export function createWorkshopView(leaf, options) {
         if (exportMode) payload.out = uvtextPath(rel);
         void bridge.start({
           kind: exportMode ? "ocr-export" : "ocr-cache",
-          title: exportMode ? "导出可搜索 PDF" : "生成文字层",
+          title: exportMode ? t("导出可搜索 PDF") : t("生成文字层"),
           detail: rel,
           payload,
         }).catch((error) => new Notice(String(error?.message || error)));
@@ -1684,11 +1783,11 @@ export function createWorkshopView(leaf, options) {
         );
         card.createEl("b", { text: preset.label });
         card.createDiv({ cls: "qbr-workshop-opt-hint", text: preset.hint });
-        if (!preset.ready) card.createSpan({ cls: "qbr-workshop-preset-tag", text: "后续阶段" });
+        if (!preset.ready) card.createSpan({ cls: "qbr-workshop-preset-tag", text: t("后续阶段") });
         cards.push(card);
         card.addEventListener("click", () => {
           if (!preset.ready) {
-            new Notice(`${preset.label} 将在后续阶段接入(见 docs/workshop-implementation.md)`);
+            new Notice(t("{0} 将在后续阶段接入(见 docs/workshop-implementation.md)", (preset.label)));
             return;
           }
           for (const entry of cards) entry.classList.toggle("is-selected", entry === card);
@@ -1706,47 +1805,52 @@ export function createWorkshopView(leaf, options) {
       // 这里不放预设矩阵:提取产物固定是 <源名>.md / .html / .json,输入决定走哪条链路,
       // 「选中预设」没有实际效果(会误导)——信息放进下面的设置说明里。
       const inputCard = root.createDiv("qbr-workshop-card");
-      inputCard.createEl("h3", { text: "选择文件" });
+      inputCard.createEl("h3", { text: t("选择文件") });
       const pickRow = inputCard.createDiv("qbr-workshop-row");
-      const pickVault = pickRow.createEl("button", { text: "选择书库文件…" });
+      const pickVault = pickRow.createEl("button", { text: t("选择书库文件…") });
       pickVault.addEventListener("click", () => this.toggleExtractBookList());
-      const pickLocal = pickRow.createEl("button", { text: "打开本地文件…" });
+      const pickLocal = pickRow.createEl("button", { text: t("打开本地文件…") });
       pickLocal.addEventListener("click", () => void this.pickLocalExtractFiles());
-      pickRow.createSpan({ cls: "qbr-workshop-hint", text: "PDF / Office / OFD / HTML / 图片;书库列表只显示当前书库,其它文件用本地打开" });
+      pickRow.createSpan({ cls: "qbr-workshop-hint", text: t("PDF / Office / OFD / HTML / 图片;书库列表只显示当前书库,其它文件用本地打开") });
       this._extractBookList = inputCard.createDiv("qbr-workshop-booklist");
       this._extractBookList.hidden = true;
       this._extractChips = inputCard.createDiv("qbr-workshop-chips");
 
       const optionCard = root.createDiv("qbr-workshop-card");
-      optionCard.createEl("h3", { text: "提取设置" });
+      optionCard.createEl("h3", { text: t("提取设置") });
       const modeRow = optionCard.createDiv("qbr-workshop-row");
-      modeRow.createSpan({ cls: "qbr-workshop-hint", text: "PDF 模式" });
+      modeRow.createSpan({ cls: "qbr-workshop-hint", text: t("PDF 模式") });
       this._extractMode = modeRow.createEl("select", { cls: "qbr-workshop-select" });
       for (const mode of EXTRACT_MODES) {
-        this._extractMode.createEl("option", { attr: { value: mode.id }, text: mode.label });
+        this._extractMode.createEl("option", { attr: { value: mode.id }, text: t(mode.label) });
       }
-      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "MinerU 云端排队时间波动很大(实测 2 页 25 秒、7 页可能到 20 分钟);纯文字、不需要 LaTeX 公式的 PDF 选「文本型 PDF」更快。同一份文件 + 同一模式重跑会复用已有产物,不再等云端。" });
-      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "在「设置 → 书坊」填了「本地 MinerU 服务」地址后,MinerU 模式优先走本机服务(不出网、免凭据,热请求快很多)。" });
-      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "输出 <源名>.md / .html / .json(+ 体检报告),落在源文件旁;PDF 走 pdf_tool(模式可切 MinerU),Office / OFD / HTML / 图片 / Markdown / 纯文本走 DocVortex。" });
-      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "水印 / 页眉页脚:pdf_tool 目前总是自动清理(已向 pdf_tool 提需求,支持后才能在这里关)。" });
+      const savedExtractMode = localStorage.getItem("qbr-workshop-extract-mode");
+      this._extractMode.value = EXTRACT_MODES.some((mode) => mode.id === savedExtractMode) ? savedExtractMode : "auto";
+      this._extractMode.addEventListener("change", () => {
+        localStorage.setItem("qbr-workshop-extract-mode", String(this._extractMode.value));
+      });
+      optionCard.createDiv({ cls: "qbr-workshop-hint", text: t("MinerU 云端排队时间波动很大(实测 2 页 25 秒、7 页可能到 20 分钟);纯文字、不需要 LaTeX 公式的 PDF 选「文本型 PDF」更快。同一份文件 + 同一模式重跑会复用已有产物,不再等云端。") });
+      optionCard.createDiv({ cls: "qbr-workshop-hint", text: t("在「设置 → 书坊」填了「本地 MinerU 服务」地址后,MinerU 模式优先走本机服务(不出网、免凭据,热请求快很多)。") });
+      optionCard.createDiv({ cls: "qbr-workshop-hint", text: t("输出 <源名>.md / .html / .json(+ 体检报告),落在源文件旁;PDF 走 pdf_tool(模式可切 MinerU),Office / OFD / HTML / 图片 / Markdown / 纯文本走 DocVortex。") });
+      optionCard.createDiv({ cls: "qbr-workshop-hint", text: t("水印 / 页眉页脚:pdf_tool 目前总是自动清理(已向 pdf_tool 提需求,支持后才能在这里关)。") });
       // 题库:提取同一份正文,再按规则解析成 uvreader.question-bank/v1(另存 JSON + 可读 Markdown)。
       const bankRow = optionCard.createEl("label", { cls: "qbr-workshop-book" });
       this._extractBank = bankRow.createEl("input", { attr: { type: "checkbox" } });
       this._extractBank.checked = false;
-      bankRow.createSpan({ text: "同时生成题库(题目 → _questions.json + _questions.md;试卷 / 练习册用)" });
+      bankRow.createSpan({ text: t("同时生成题库(题目 → _questions.json + _questions.md;试卷 / 练习册用)") });
       const detectRow = optionCard.createDiv("qbr-workshop-row");
-      addSettingsLink(detectRow, "提取链路的检测(pdf_tool / DocVortex / MinerU)与全局配置都在「设置 → 书坊」。");
+      addSettingsLink(detectRow, t("提取链路的检测(pdf_tool / DocVortex / MinerU)与全局配置都在「设置 → 书坊」。"));
 
       // 上游修好提取行为(脚注、表格等)后老缓存不会自动更新,这里显式重跑一次。
       const refreshRow = optionCard.createEl("label", { cls: "qbr-workshop-book" });
       this._extractRefresh = refreshRow.createEl("input", { attr: { type: "checkbox" } });
       this._extractRefresh.checked = false;
-      refreshRow.createSpan({ text: "忽略缓存重新提取(PDF 会重跑一次 MinerU,较慢且计费)" });
+      refreshRow.createSpan({ text: t("忽略缓存重新提取(PDF 会重跑一次 MinerU,较慢且计费)") });
 
       const startRow = root.createDiv("qbr-workshop-row");
-      const start = startRow.createEl("button", { cls: "mod-cta", text: "开始提取" });
+      const start = startRow.createEl("button", { cls: "mod-cta", text: t("开始提取") });
       start.addEventListener("click", () => this.startExtractTasks());
-      startRow.createSpan({ cls: "qbr-workshop-hint", text: "批量:逐个入队" });
+      startRow.createSpan({ cls: "qbr-workshop-hint", text: t("批量:逐个入队") });
 
       this._extractPreview = root.createDiv("qbr-workshop-card");
       this._extractPreview.hidden = true;
@@ -1771,7 +1875,7 @@ export function createWorkshopView(leaf, options) {
       list.empty();
       const files = this.extractFiles();
       if (!files.length) {
-        list.createDiv({ cls: "qbr-workshop-hint", text: "书库里还没有可提取的文档。" });
+        list.createDiv({ cls: "qbr-workshop-hint", text: t("书库里还没有可提取的文档。") });
         return;
       }
       for (const file of files) {
@@ -1803,7 +1907,7 @@ export function createWorkshopView(leaf, options) {
       if (!host) return;
       host.empty();
       if (!this._extractSelection.length) {
-        host.createSpan({ cls: "qbr-workshop-hint", text: "未选择文件" });
+        host.createSpan({ cls: "qbr-workshop-hint", text: t("未选择文件") });
         return;
       }
       for (const path of this._extractSelection) {
@@ -1825,7 +1929,7 @@ export function createWorkshopView(leaf, options) {
       if (!bridge) return;
       void bridge.start({
         kind: "extract-probe",
-        title: "检测提取链路",
+        title: t("检测提取链路"),
         detail: "pdf_tool + DocVortex",
         payload: { settings: this.formulaSettings() },
       }).catch((error) => new Notice(String(error?.message || error)));
@@ -1836,7 +1940,7 @@ export function createWorkshopView(leaf, options) {
       if (!bridge) return;
       const files = [...this._extractSelection];
       if (!files.length) {
-        new Notice("请先选择文件");
+        new Notice(t("请先选择文件"));
         return;
       }
       const mode = String(this._extractMode?.value || "auto");
@@ -1847,7 +1951,7 @@ export function createWorkshopView(leaf, options) {
           // 题库:一次任务里「提取 + 解析 + 落盘」,产物是 _questions.json / _questions.md / _audit.json。
           void bridge.start({
             kind: "questions-extract",
-            title: "题库提取",
+            title: t("题库提取"),
             detail: rel,
             payload: { settings, source: rel, mode, refresh: this._extractRefresh?.checked === true },
           }).catch((error) => new Notice(String(error?.message || error)));
@@ -1856,7 +1960,7 @@ export function createWorkshopView(leaf, options) {
         const kind = extractionKind(rel);
         void bridge.start({
           kind: kind === "pdf" ? "extract-pdf" : "extract-docvortex",
-          title: "内容提取",
+          title: t("内容提取"),
           detail: rel,
           payload: { settings, source: rel, mode, refresh: this._extractRefresh?.checked === true },
         }).catch((error) => new Notice(String(error?.message || error)));
@@ -1892,7 +1996,7 @@ export function createWorkshopView(leaf, options) {
         return;
       }
       host.hidden = false;
-      host.createEl("h3", { text: "提取结果" });
+      host.createEl("h3", { text: t("提取结果") });
       host.createDiv({ cls: "qbr-workshop-hint", text: task.detail || "" });
       const vaultRoot = String(window.qbrDesktop?.paths?.vaultRoot || "").replace(/\\/g, "/").replace(/\/+$/, "");
       const normalized = String(task.output).replace(/\\/g, "/");
@@ -1901,7 +2005,7 @@ export function createWorkshopView(leaf, options) {
         : "";
       const file = relative ? app?.vault?.getAbstractFileByPath?.(relative) : null;
       if (!file) {
-        host.createDiv({ cls: "qbr-workshop-hint", text: `产物在源文件旁：${task.output}` });
+        host.createDiv({ cls: "qbr-workshop-hint", text: t("产物在源文件旁：{0}", (task.output)) });
         return;
       }
       const text = await app.vault.read(file).catch(() => "");
@@ -1918,7 +2022,7 @@ export function createWorkshopView(leaf, options) {
           const issues = Array.isArray(audit?.issues) ? audit.issues : [];
           host.createDiv({
             cls: "qbr-workshop-hint",
-            text: `体检：${audit?.ok === false ? "有问题" : "通过"}${issues.length ? ` · ${issues.length} 条：${issues.slice(0, 3).map((issue) => String(issue?.message || issue?.code || issue)).join("；")}` : ""}`,
+            text: t("体检：{0}{1}", (audit?.ok === false ? t("有问题") : t("通过")), (issues.length ? t(" · {0} 条：{1}", (issues.length), (issues.slice(0, 3).map((issue) => String(issue?.message || issue?.code || issue)).join(t("；")))) : "")),
           });
         } catch { /* audit is optional */ }
       }
@@ -1936,19 +2040,19 @@ export function createWorkshopView(leaf, options) {
       // 主流程只有一条:向导(① 内容 → ② 目录 → ③ 书名与封面 → ④ 排版 → 生成);
       // 换格式 / 图片打包等次要动作收进「更多工具」。
       const wizardCard = root.createDiv("qbr-workshop-card");
-      wizardCard.createEl("h3", { text: "电子书向导" });
-      wizardCard.createDiv({ cls: "qbr-workshop-hint", text: "输入 txt / Markdown 直接分章;PDF / Office / OFD / HTML / EPUB / 图片在生成时自动提取,无需先跑内容提取。" });
+      wizardCard.createEl("h3", { text: t("电子书向导") });
+      wizardCard.createDiv({ cls: "qbr-workshop-hint", text: t("输入 txt / Markdown 直接分章;PDF / Office / OFD / HTML / EPUB / 图片在生成时自动提取,无需先跑内容提取。") });
       const wizardGrid = wizardCard.createDiv("qbr-workshop-wizard");
       const controls = wizardGrid.createDiv("qbr-workshop-wizard-controls");
 
       // ① 内容
-      const sourceStep = this.bookStep(controls, "1", "内容", "书稿来源");
+      const sourceStep = this.bookStep(controls, "1", t("内容"), t("书稿来源"));
       const sourceRow = sourceStep.createDiv("qbr-workshop-row");
-      const pickSource = sourceRow.createEl("button", { text: "选择书稿…" });
+      const pickSource = sourceRow.createEl("button", { text: t("选择书稿…") });
       pickSource.addEventListener("click", () => this.toggleBookSourceList());
-      const pickSourceLocal = sourceRow.createEl("button", { text: "打开本地文件…" });
+      const pickSourceLocal = sourceRow.createEl("button", { text: t("打开本地文件…") });
       pickSourceLocal.addEventListener("click", () => void this.pickLocalBookSources());
-      sourceRow.createSpan({ cls: "qbr-workshop-hint", text: "书稿列表只显示书库中的 EPUB / PDF / 图片;txt / Markdown / Office 等用「打开本地文件…」。一次只能选择一本。" });
+      sourceRow.createSpan({ cls: "qbr-workshop-hint", text: t("书稿列表只显示书库中的 EPUB / PDF / 图片;txt / Markdown / Office 等用「打开本地文件…」。一次只能选择一本。") });
       this._bookSourceList = sourceStep.createDiv("qbr-workshop-booklist");
       this._bookSourceList.hidden = true;
       this._bookSourceChips = sourceStep.createDiv("qbr-workshop-chips");
@@ -1956,120 +2060,120 @@ export function createWorkshopView(leaf, options) {
       const refreshRow = sourceStep.createEl("label", { cls: "qbr-workshop-book" });
       this._bookRefresh = refreshRow.createEl("input", { attr: { type: "checkbox" } });
       this._bookRefresh.checked = false;
-      refreshRow.createSpan({ text: "忽略缓存重新提取(PDF / Office 会重跑上游,较慢;上游更新过提取行为时才需要)" });
+      refreshRow.createSpan({ text: t("忽略缓存重新提取(PDF / Office 会重跑上游,较慢;上游更新过提取行为时才需要)") });
 
       // ② 目录(自动分章,可编辑)
-      const chapterStep = this.bookStep(controls, "2", "目录", "自动分章");
+      const chapterStep = this.bookStep(controls, "2", t("目录"), t("自动分章"));
       this._bookChaptersHost = chapterStep.createDiv("qbr-workshop-chapters");
       // 书里那几页印刷目录(「目录 …… 12」)与电子书导航重复且格式乱,默认去掉。
       const tocRow = chapterStep.createEl("label", { cls: "qbr-workshop-book" });
       this._bookDropToc = tocRow.createEl("input", { attr: { type: "checkbox" } });
       this._bookDropToc.checked = true;
-      tocRow.createSpan({ text: "去掉书里的印刷目录(与电子书导航重复的那几页)" });
+      tocRow.createSpan({ text: t("去掉书里的印刷目录(与电子书导航重复的那几页)") });
 
       const tocTitleRow = chapterStep.createDiv("qbr-workshop-row");
-      tocTitleRow.createSpan({ cls: "qbr-workshop-hint", text: "目录标题" });
+      tocTitleRow.createSpan({ cls: "qbr-workshop-hint", text: t("目录标题") });
       this._bookTocTitle = tocTitleRow.createEl("input", {
         cls: "qbr-workshop-input",
-        attr: { placeholder: "留空按书籍语言：目录 / Contents" },
+        attr: { placeholder: t("留空按书籍语言：目录 / Contents") },
       });
       this._bookTocTitle.addEventListener("input", () => this.onBookStyleChange());
       const tocDepthRow = chapterStep.createDiv("qbr-workshop-row");
-      tocDepthRow.createSpan({ cls: "qbr-workshop-hint", text: "目录层级" });
+      tocDepthRow.createSpan({ cls: "qbr-workshop-hint", text: t("目录层级") });
       this._bookTocDepth = tocDepthRow.createEl("select", { cls: "qbr-workshop-select" });
-      for (const [value, label] of [["3", "全部层级"], ["2", "只保留前 2 级"], ["1", "只保留 1 级"]]) {
-        this._bookTocDepth.createEl("option", { attr: { value }, text: label });
+      for (const [value, label] of [["3", t("全部层级")], ["2", t("只保留前 2 级")], ["1", t("只保留 1 级")]]) {
+        this._bookTocDepth.createEl("option", { attr: { value }, text: t(label) });
       }
       this._bookTocDepth.addEventListener("change", () => this.onBookStyleChange());
-      tocDepthRow.createSpan({ cls: "qbr-workshop-hint", text: "层级取自 PDF 大纲 / Markdown 标题" });
+      tocDepthRow.createSpan({ cls: "qbr-workshop-hint", text: t("层级取自 PDF 大纲 / Markdown 标题") });
 
       // AI 分章建议:章名不是常见形态时,让模型归纳规则,套用前先给预览(可撤销)。
       const aiChapterRow = chapterStep.createDiv("qbr-workshop-row");
-      aiChapterRow.createSpan({ cls: "qbr-workshop-hint", text: "认不出章名?" });
-      const aiChapters = aiChapterRow.createEl("button", { text: "AI 建议分章" });
+      aiChapterRow.createSpan({ cls: "qbr-workshop-hint", text: t("认不出章名?") });
+      const aiChapters = aiChapterRow.createEl("button", { text: t("AI 建议分章") });
       aiChapters.addEventListener("click", () => void this.startAiChapters());
-      aiChapterRow.createSpan({ cls: "qbr-workshop-hint", text: "判断章名形态,套用前先看预览" });
+      aiChapterRow.createSpan({ cls: "qbr-workshop-hint", text: t("判断章名形态,套用前先看预览") });
       this._bookAiChapters = chapterStep.createDiv("qbr-workshop-ai-suggest qbr-workshop-ai-chapters");
 
       // AI 清理(两步):先本地体检发现问题 → 用户勾选确认 → 再清理并给出前后对比。
       const aiCleanRow = chapterStep.createDiv("qbr-workshop-row");
-      aiCleanRow.createSpan({ cls: "qbr-workshop-hint", text: "有 OCR 错字 / 断行 / 吞标题?" });
-      const aiCleanCheck = aiCleanRow.createEl("button", { text: "检查可疑内容" });
+      aiCleanRow.createSpan({ cls: "qbr-workshop-hint", text: t("有 OCR 错字 / 断行 / 吞标题?") });
+      const aiCleanCheck = aiCleanRow.createEl("button", { text: t("检查可疑内容") });
       aiCleanCheck.addEventListener("click", () => this.checkBookIssues());
-      aiCleanRow.createSpan({ cls: "qbr-workshop-hint", text: "本地体检,不调用 AI" });
+      aiCleanRow.createSpan({ cls: "qbr-workshop-hint", text: t("本地体检,不调用 AI") });
       this._bookAiClean = chapterStep.createDiv("qbr-workshop-ai-suggest qbr-workshop-ai-clean");
 
       // ③ 翻译与转换：AI 段落翻译或本机简繁转换，复用书坊任务队列。
-      const translationStep = this.bookStep(controls, "3", "翻译与转换", "中英 / 英中 / 文白 / 简繁");
+      const translationStep = this.bookStep(controls, "3", t("翻译与转换"), t("中英 / 英中 / 文白 / 简繁"));
       const translationModeRow = translationStep.createDiv("qbr-workshop-row");
-      translationModeRow.createSpan({ cls: "qbr-workshop-hint", text: "处理方式" });
+      translationModeRow.createSpan({ cls: "qbr-workshop-hint", text: t("处理方式") });
       this._bookTranslateMode = translationModeRow.createEl("select", { cls: "qbr-workshop-select" });
       for (const [value, label] of [
-        ["none", "不翻译"],
-        ["translated", "仅译文"],
-        ["stacked", "上下对照"],
-        ["side", "左右对照"],
-        ["script", "简繁转换（本机）"],
+        ["none", t("不翻译")],
+        ["translated", t("仅译文")],
+        ["stacked", t("上下对照")],
+        ["side", t("左右对照")],
+        ["script", t("简繁转换（本机）")],
       ]) {
-        this._bookTranslateMode.createEl("option", { attr: { value }, text: label });
+        this._bookTranslateMode.createEl("option", { attr: { value }, text: t(label) });
       }
       const translateTargetRow = translationStep.createDiv("qbr-workshop-row");
-      translateTargetRow.createSpan({ cls: "qbr-workshop-hint", text: "翻译目标" });
+      translateTargetRow.createSpan({ cls: "qbr-workshop-hint", text: t("翻译目标") });
       this._bookTranslateTarget = translateTargetRow.createEl("select", { cls: "qbr-workshop-select" });
       for (const [value, label] of [
-        ["auto", "自动（按原文）"],
+        ["auto", t("自动（按原文）")],
         ["en", "English"],
-        ["zh", "简体中文（外文→中文）"],
+        ["zh", t("简体中文（外文→中文）")],
         ["de", "Deutsch"],
       ]) {
-        this._bookTranslateTarget.createEl("option", { attr: { value }, text: label });
+        this._bookTranslateTarget.createEl("option", { attr: { value }, text: t(label) });
       }
       this._bookTranslateTargetRow = translateTargetRow;
       const glossaryRow = translationStep.createDiv("qbr-workshop-row");
-      glossaryRow.createSpan({ cls: "qbr-workshop-hint", text: "术语表" });
+      glossaryRow.createSpan({ cls: "qbr-workshop-hint", text: t("术语表") });
       this._bookGlossary = glossaryRow.createEl("textarea", {
         cls: "qbr-workshop-input",
-        attr: { rows: "3", placeholder: "每行：原文=译文，例如：道=Dao" },
+        attr: { rows: "3", placeholder: t("每行：原文=译文，例如：道=Dao") },
       });
       this._bookGlossary.style.minHeight = "3.2em";
       this._bookGlossary.style.resize = "vertical";
-      glossaryRow.createSpan({ cls: "qbr-workshop-hint", text: "可选；统一人名、地名、功法等译名" });
+      glossaryRow.createSpan({ cls: "qbr-workshop-hint", text: t("可选；统一人名、地名、功法等译名") });
       this._bookGlossaryRow = glossaryRow;
       const lineAlignRow = translationStep.createDiv("qbr-workshop-row qbr-workshop-book");
       this._bookLineAlign = lineAlignRow.createEl("input", { attr: { type: "checkbox" } });
-      lineAlignRow.createSpan({ text: "逐行对齐（诗歌 / 短句）" });
-      lineAlignRow.createSpan({ cls: "qbr-workshop-hint", text: "每行单独翻译，适合诗歌；会增加 AI 小块数量" });
+      lineAlignRow.createSpan({ text: t("逐行对齐（诗歌 / 短句）") });
+      lineAlignRow.createSpan({ cls: "qbr-workshop-hint", text: t("每行单独翻译，适合诗歌；会增加 AI 小块数量") });
       this._bookLineAlignRow = lineAlignRow;
       const scriptQuickRow = translationStep.createDiv("qbr-workshop-row");
-      scriptQuickRow.createSpan({ cls: "qbr-workshop-hint", text: "简繁快捷转换" });
-      const simplify = scriptQuickRow.createEl("button", { text: "转为简体" });
+      scriptQuickRow.createSpan({ cls: "qbr-workshop-hint", text: t("简繁快捷转换") });
+      const simplify = scriptQuickRow.createEl("button", { text: t("转为简体") });
       simplify.addEventListener("click", () => this.startBookScriptConversion("s"));
-      const traditional = scriptQuickRow.createEl("button", { text: "转为繁体" });
+      const traditional = scriptQuickRow.createEl("button", { text: t("转为繁体") });
       traditional.addEventListener("click", () => this.startBookScriptConversion("t"));
-      scriptQuickRow.createSpan({ cls: "qbr-workshop-hint", text: "本机直接替换，不需要 AI；EPUB 保留原排版。" });
+      scriptQuickRow.createSpan({ cls: "qbr-workshop-hint", text: t("本机直接替换，不需要 AI；EPUB 保留原排版。") });
       const scriptRow = translationStep.createDiv("qbr-workshop-row");
-      scriptRow.createSpan({ cls: "qbr-workshop-hint", text: "转换为" });
+      scriptRow.createSpan({ cls: "qbr-workshop-hint", text: t("转换为") });
       this._bookScriptTarget = scriptRow.createEl("select", { cls: "qbr-workshop-select" });
-      for (const [value, label] of [["t", "繁體"], ["s", "简体"]]) {
-        this._bookScriptTarget.createEl("option", { attr: { value }, text: label });
+      for (const [value, label] of [["t", t("繁體")], ["s", t("简体")]]) {
+        this._bookScriptTarget.createEl("option", { attr: { value }, text: t(label) });
       }
       this._bookScriptRow = scriptRow;
       const languageRow = translationStep.createDiv("qbr-workshop-row");
-      languageRow.createSpan({ cls: "qbr-workshop-hint", text: "原文语言" });
-      languageRow.createSpan({ cls: "qbr-workshop-hint", text: "自动识别：中文 / English / Deutsch" });
+      languageRow.createSpan({ cls: "qbr-workshop-hint", text: t("原文语言") });
+      languageRow.createSpan({ cls: "qbr-workshop-hint", text: t("自动识别：中文 / English / Deutsch") });
       const classicalRow = translationStep.createDiv("qbr-workshop-row qbr-workshop-book");
       this._bookTranslateClassical = classicalRow.createEl("input", { attr: { type: "checkbox" } });
-      classicalRow.createSpan({ text: "原文为文言文（仅中文原文，生成文白对照）" });
+      classicalRow.createSpan({ text: t("原文为文言文（仅中文原文，生成文白对照）") });
       this._bookTranslateHint = translationStep.createDiv("qbr-workshop-hint");
       const previewRow = translationStep.createDiv("qbr-workshop-row");
       this._bookPreviewRow = previewRow;
-      this._bookPreviewButton = previewRow.createEl("button", { text: "试译开头" });
+      this._bookPreviewButton = previewRow.createEl("button", { text: t("试译开头") });
       this._bookPreviewButton.addEventListener("click", () => void this.startBookPreview());
-      previewRow.createSpan({ cls: "qbr-workshop-hint", text: "只翻译前两章，不写入书库；确认排版后再生成全书。" });
+      previewRow.createSpan({ cls: "qbr-workshop-hint", text: t("只翻译前两章，不写入书库；确认排版后再生成全书。") });
       this._bookPreviewRow.hidden = true;
       const previewStatusRow = translationStep.createDiv("qbr-workshop-row");
-      this._bookPreviewStatus = previewStatusRow.createSpan({ cls: "qbr-workshop-hint", text: "尚未试译" });
-      this._bookPreviewView = previewStatusRow.createEl("button", { text: "查看试译" });
+      this._bookPreviewStatus = previewStatusRow.createSpan({ cls: "qbr-workshop-hint", text: t("尚未试译") });
+      this._bookPreviewView = previewStatusRow.createEl("button", { text: t("查看试译") });
       this._bookPreviewView.hidden = true;
       this._bookPreviewView.addEventListener("click", () => {
         if (this._lastBookPreviewResult) this.openBookPreview(this._lastBookPreviewResult);
@@ -2102,47 +2206,47 @@ export function createWorkshopView(leaf, options) {
       this.syncBookTranslationMode();
 
       // ④ 书名与封面
-      const metaStep = this.bookStep(controls, "4", "书名与封面", "写进扉页、目录与封面");
+      const metaStep = this.bookStep(controls, "4", t("书名与封面"), t("写进扉页、目录与封面"));
       const metaRow = metaStep.createDiv("qbr-workshop-row");
-      metaRow.createSpan({ cls: "qbr-workshop-hint", text: "书名" });
-      this._bookTitle = metaRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "留空用原书名并加语言后缀" } });
-      metaRow.createSpan({ cls: "qbr-workshop-hint", text: "作者" });
-      this._bookAuthor = metaRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "可选" } });
+      metaRow.createSpan({ cls: "qbr-workshop-hint", text: t("书名") });
+      this._bookTitle = metaRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: t("留空用原书名并加语言后缀") } });
+      metaRow.createSpan({ cls: "qbr-workshop-hint", text: t("作者") });
+      this._bookAuthor = metaRow.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: t("可选") } });
 
       // AI 辅助(W2-1):结果只作建议,「应用」前不改任何字段(可选、可撤销)。
       this._aiSuggestion = null;
       this._aiDismissed ||= new Set();
       const aiRow = metaStep.createDiv("qbr-workshop-row");
-      aiRow.createSpan({ cls: "qbr-workshop-hint", text: "AI 辅助" });
-      const aiMeta = aiRow.createEl("button", { text: "AI 推断书名 / 作者" });
+      aiRow.createSpan({ cls: "qbr-workshop-hint", text: t("AI 辅助") });
+      const aiMeta = aiRow.createEl("button", { text: t("AI 推断书名 / 作者") });
       aiMeta.addEventListener("click", () => void this.startAiSuggestion("ai-metadata"));
-      const aiCover = aiRow.createEl("button", { text: "AI 封面文案" });
+      const aiCover = aiRow.createEl("button", { text: t("AI 封面文案") });
       aiCover.addEventListener("click", () => void this.startAiSuggestion("ai-cover-copy"));
-      aiRow.createSpan({ cls: "qbr-workshop-hint", text: "用书稿开头推断;只填空着的字段" });
+      aiRow.createSpan({ cls: "qbr-workshop-hint", text: t("用书稿开头推断;只填空着的字段") });
       this._bookAiSuggestion = metaStep.createDiv("qbr-workshop-ai-suggest qbr-workshop-ai-meta");
 
       const coverRow = metaStep.createDiv("qbr-workshop-row");
-      coverRow.createSpan({ cls: "qbr-workshop-hint", text: "封面" });
+      coverRow.createSpan({ cls: "qbr-workshop-hint", text: t("封面") });
       this._bookCoverMode = coverRow.createEl("select", { cls: "qbr-workshop-select" });
-      for (const [value, label] of [["template", "模板生成"], ["none", "不要封面"], ["auto", "自动(书内首图,否则模板)"], ["image", "指定图片…"]]) {
-        this._bookCoverMode.createEl("option", { attr: { value }, text: label });
+      for (const [value, label] of [["template", t("模板生成")], ["none", t("不要封面")], ["auto", t("自动(书内首图,否则模板)")], ["image", t("指定图片…")]]) {
+        this._bookCoverMode.createEl("option", { attr: { value }, text: t(label) });
       }
       this._bookCoverPalette = coverRow.createEl("select", { cls: "qbr-workshop-select" });
       for (const [id, palette] of Object.entries(COVER_PALETTES)) {
-        this._bookCoverPalette.createEl("option", { attr: { value: id }, text: palette.label });
+        this._bookCoverPalette.createEl("option", { attr: { value: id }, text: t(palette.label) });
       }
       const coverRow2 = metaStep.createDiv("qbr-workshop-row");
-      coverRow2.createSpan({ cls: "qbr-workshop-hint", text: "副标题" });
-      this._bookSubtitle = coverRow2.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: "可选" } });
+      coverRow2.createSpan({ cls: "qbr-workshop-hint", text: t("副标题") });
+      this._bookSubtitle = coverRow2.createEl("input", { cls: "qbr-workshop-input", attr: { placeholder: t("可选") } });
       this._bookCoverImage = "";
-      this._bookCoverPick = coverRow2.createEl("button", { text: "选择图片…" });
+      this._bookCoverPick = coverRow2.createEl("button", { text: t("选择图片…") });
       this._bookCoverPick.addEventListener("click", () => void this.pickCoverImage());
       this._bookCoverLabel = coverRow2.createSpan({ cls: "qbr-workshop-hint", text: "" });
       const coverFitRow = metaStep.createDiv("qbr-workshop-row");
-      coverFitRow.createSpan({ cls: "qbr-workshop-hint", text: "图片显示" });
+      coverFitRow.createSpan({ cls: "qbr-workshop-hint", text: t("图片显示") });
       this._bookCoverFit = coverFitRow.createEl("select", { cls: "qbr-workshop-select" });
-      this._bookCoverFit.createEl("option", { attr: { value: "contain" }, text: "完整显示（留白）" });
-      this._bookCoverFit.createEl("option", { attr: { value: "cover" }, text: "铺满页面（可能裁切）" });
+      this._bookCoverFit.createEl("option", { attr: { value: "contain" }, text: t("完整显示（留白）") });
+      this._bookCoverFit.createEl("option", { attr: { value: "cover" }, text: t("铺满页面（可能裁切）") });
       this._bookCoverFit.addEventListener("change", () => this.onBookStyleChange());
       this._bookCoverFitRow = coverFitRow;
       this._bookCoverMode.addEventListener("change", () => { this.syncBookCoverRow(); this.onBookStyleChange(); });
@@ -2151,66 +2255,66 @@ export function createWorkshopView(leaf, options) {
       // ⑤ 排版样式:只留书里一定看得见的三项。字号 / 行距 / 边距 / 对齐 / 主题都由
       // 阅读器自己的阅读设置决定(UV Reader 用 !important 覆盖,见 reader-appearance.js),
       // 摆在这里只会是「按了没反应」的控件;书里仍会写入一份默认基线供其他阅读器使用。
-      const styleStep = this.bookStep(controls, "5", "排版样式", "首行缩进 / 段间距 / 标题对齐");
+      const styleStep = this.bookStep(controls, "5", t("排版样式"), t("首行缩进 / 段间距 / 标题对齐"));
       this._bookControls = {};
-      this.bookSlider(styleStep, "首行缩进", "indent", { min: 0, max: 4, step: 0.5, suffix: "em" });
-      this.bookSlider(styleStep, "段间距", "spacing", { min: 0, max: 2, step: 0.25, suffix: "em" });
+      this.bookSlider(styleStep, t("首行缩进"), "indent", { min: 0, max: 4, step: 0.5, suffix: "em" });
+      this.bookSlider(styleStep, t("段间距"), "spacing", { min: 0, max: 2, step: 0.25, suffix: "em" });
       const headingRow = styleStep.createDiv("qbr-workshop-row");
-      headingRow.createSpan({ cls: "qbr-workshop-hint", text: "标题" });
+      headingRow.createSpan({ cls: "qbr-workshop-hint", text: t("标题") });
       this._bookHeadingAlign = headingRow.createEl("select", { cls: "qbr-workshop-select" });
-      this._bookHeadingAlign.createEl("option", { attr: { value: "left" }, text: "左对齐" });
-      this._bookHeadingAlign.createEl("option", { attr: { value: "center" }, text: "居中" });
+      this._bookHeadingAlign.createEl("option", { attr: { value: "left" }, text: t("左对齐") });
+      this._bookHeadingAlign.createEl("option", { attr: { value: "center" }, text: t("居中") });
       this._bookHeadingAlign.addEventListener("change", () => this.onBookStyleChange());
 
       const buildRow = controls.createDiv("qbr-workshop-row qbr-workshop-build");
-      const build = buildRow.createEl("button", { cls: "mod-cta", text: "生成 EPUB" });
+      const build = buildRow.createEl("button", { cls: "mod-cta", text: t("生成 EPUB") });
       build.addEventListener("click", () => this.startBookBuild());
-      buildRow.createSpan({ cls: "qbr-workshop-hint", text: "进度在「任务」里查看" });
+      buildRow.createSpan({ cls: "qbr-workshop-hint", text: t("进度在「任务」里查看") });
 
       // 更多工具:换 Kindle 格式、图片打包;Calibre 路径这类维护项收进折叠。
       const toolsCard = root.createDiv("qbr-workshop-card");
-      toolsCard.createEl("h3", { text: "更多工具" });
+      toolsCard.createEl("h3", { text: t("更多工具") });
 
-      const convertBlock = this.bookToolBlock(toolsCard, "EPUB → AZW3 / MOBI", "换成 Kindle 主流格式(Calibre,版式不变)");
+      const convertBlock = this.bookToolBlock(toolsCard, "EPUB → AZW3 / MOBI", t("换成 Kindle 主流格式(Calibre,版式不变)"));
       const pickRow = convertBlock.createDiv("qbr-workshop-row");
-      const pickVault = pickRow.createEl("button", { text: "选择书库文件…" });
+      const pickVault = pickRow.createEl("button", { text: t("选择书库文件…") });
       pickVault.addEventListener("click", () => this.toggleBookList());
-      const pickLocal = pickRow.createEl("button", { text: "打开本地文件…" });
+      const pickLocal = pickRow.createEl("button", { text: t("打开本地文件…") });
       pickLocal.addEventListener("click", () => void this.pickLocalBookFiles());
-      pickRow.createSpan({ cls: "qbr-workshop-hint", text: "书库列表只显示当前书库里的电子书;本地文件就地处理" });
+      pickRow.createSpan({ cls: "qbr-workshop-hint", text: t("书库列表只显示当前书库里的电子书;本地文件就地处理") });
       this._bookList = convertBlock.createDiv("qbr-workshop-booklist");
       this._bookList.hidden = true;
       this._bookChips = convertBlock.createDiv("qbr-workshop-chips");
       const targetRow = convertBlock.createDiv("qbr-workshop-row");
-      targetRow.createSpan({ cls: "qbr-workshop-hint", text: "目标格式" });
+      targetRow.createSpan({ cls: "qbr-workshop-hint", text: t("目标格式") });
       this._bookFormat = targetRow.createEl("select", { cls: "qbr-workshop-select" });
       for (const target of EBOOK_TARGETS) {
-        this._bookFormat.createEl("option", { attr: { value: target.id }, text: target.label });
+        this._bookFormat.createEl("option", { attr: { value: target.id }, text: t(target.label) });
       }
       const startRow = convertBlock.createDiv("qbr-workshop-row");
-      const start = startRow.createEl("button", { cls: "mod-cta", text: "开始转换" });
+      const start = startRow.createEl("button", { cls: "mod-cta", text: t("开始转换") });
       start.addEventListener("click", () => this.startBookTasks());
-      startRow.createSpan({ cls: "qbr-workshop-hint", text: "产物落在源文件旁" });
+      startRow.createSpan({ cls: "qbr-workshop-hint", text: t("产物落在源文件旁") });
 
-      const imageBlock = this.bookToolBlock(toolsCard, "图片 → CBZ / EPUB", "漫画 / 相册打包成书;EPUB 由 CBZ 经 Calibre 转换");
+      const imageBlock = this.bookToolBlock(toolsCard, t("图片 → CBZ / EPUB"), t("漫画 / 相册打包成书;EPUB 由 CBZ 经 Calibre 转换"));
       const imgRow = imageBlock.createDiv("qbr-workshop-row");
-      const pickImages = imgRow.createEl("button", { text: "选择图片…" });
+      const pickImages = imgRow.createEl("button", { text: t("选择图片…") });
       pickImages.addEventListener("click", () => void this.pickBookImages());
-      imgRow.createSpan({ cls: "qbr-workshop-hint", text: "可多选;按文件名自然排序(1 < 2 < 10)" });
+      imgRow.createSpan({ cls: "qbr-workshop-hint", text: t("可多选;按文件名自然排序(1 < 2 < 10)") });
       this._bookImageChips = imageBlock.createDiv("qbr-workshop-chips");
       const imgTargetRow = imageBlock.createDiv("qbr-workshop-row");
-      imgTargetRow.createSpan({ cls: "qbr-workshop-hint", text: "打包为" });
+      imgTargetRow.createSpan({ cls: "qbr-workshop-hint", text: t("打包为") });
       this._bookImageFormat = imgTargetRow.createEl("select", { cls: "qbr-workshop-select" });
       for (const target of IMAGE_BOOK_TARGETS) {
-        this._bookImageFormat.createEl("option", { attr: { value: target.id }, text: target.label });
+        this._bookImageFormat.createEl("option", { attr: { value: target.id }, text: t(target.label) });
       }
       const imgStartRow = imageBlock.createDiv("qbr-workshop-row");
-      const imgStart = imgStartRow.createEl("button", { cls: "mod-cta", text: "开始打包" });
+      const imgStart = imgStartRow.createEl("button", { cls: "mod-cta", text: t("开始打包") });
       imgStart.addEventListener("click", () => this.startImageTasks());
-      imgStartRow.createSpan({ cls: "qbr-workshop-hint", text: "输出:图片目录旁「目录名.cbz」;只有输出 EPUB 时才需要 Calibre" });
+      imgStartRow.createSpan({ cls: "qbr-workshop-hint", text: t("输出:图片目录旁「目录名.cbz」;只有输出 EPUB 时才需要 Calibre") });
 
       const calibreRow = toolsCard.createDiv("qbr-workshop-row");
-      addSettingsLink(calibreRow, "Calibre 路径与检测(换 AZW3 / MOBI、图片转 EPUB 时用)在「设置 → 书坊」。");
+      addSettingsLink(calibreRow, t("Calibre 路径与检测(换 AZW3 / MOBI、图片转 EPUB 时用)在「设置 → 书坊」。"));
 
       this._bookRecent = root.createDiv("qbr-workshop-recent");
       this.renderBookChips();
@@ -2254,7 +2358,7 @@ export function createWorkshopView(leaf, options) {
       list.empty();
       const books = this.bookFiles();
       if (!books.length) {
-        list.createDiv({ cls: "qbr-workshop-hint", text: "书库里还没有电子书。" });
+        list.createDiv({ cls: "qbr-workshop-hint", text: t("书库里还没有电子书。") });
         return;
       }
       for (const file of books) {
@@ -2286,7 +2390,7 @@ export function createWorkshopView(leaf, options) {
       if (!host) return;
       host.empty();
       if (!this._bookSelection.length) {
-        host.createSpan({ cls: "qbr-workshop-hint", text: "未选择文件" });
+        host.createSpan({ cls: "qbr-workshop-hint", text: t("未选择文件") });
         return;
       }
       for (const path of this._bookSelection) {
@@ -2309,11 +2413,22 @@ export function createWorkshopView(leaf, options) {
       return { calibrePath: String(settings.calibrePath || "") };
     }
 
+    convertedOutputPath(rel, ext, category) {
+      const exists = (candidate) => Boolean(app?.vault?.getAbstractFileByPath?.(candidate));
+      return spaceOutputPath(rel, category, ext, { exists }) || convertPath(rel, ext, exists);
+    }
+
+    convertOutputCategory(format, ext) {
+      if (format === "quiz-ai" || format === "quiz-plain") return "quizzes";
+      if (["docx", "pdf", "epub", "azw3", "mobi", "kfx", "cbz"].includes(String(ext || "").toLowerCase())) return "exports";
+      return "extracts";
+    }
+
     probeCalibre() {
       if (!bridge) return;
       void bridge.start({
         kind: "calibre-probe",
-        title: "检测 Calibre",
+        title: t("检测 Calibre"),
         detail: "ebook-convert",
         payload: { settings: this.bookSettings() },
       }).catch((error) => new Notice(String(error?.message || error)));
@@ -2324,17 +2439,17 @@ export function createWorkshopView(leaf, options) {
       if (!bridge) return;
       const files = [...this._bookSelection];
       if (!files.length) {
-        new Notice("请先选择电子书文件");
+        new Notice(t("请先选择电子书文件"));
         return;
       }
       const format = String(this._bookFormat?.value || "azw3");
       const target = EBOOK_TARGETS.find((entry) => entry.id === format) || EBOOK_TARGETS[0];
       const settings = this.bookSettings();
       for (const rel of files) {
-        const out = convertPath(rel, target.ext, (candidate) => Boolean(app?.vault?.getAbstractFileByPath?.(candidate)));
+        const out = this.convertedOutputPath(rel, target.ext, "exports");
         void bridge.start({
           kind: "ebook-convert",
-          title: `转为 ${target.label}`,
+          title: t("转为 {0}", (target.label)),
           detail: rel,
           payload: { settings, source: rel, format, out },
         }).catch((error) => new Notice(String(error?.message || error)));
@@ -2357,11 +2472,11 @@ export function createWorkshopView(leaf, options) {
       if (!host) return;
       host.empty();
       if (!this._bookImages.length) {
-        host.createSpan({ cls: "qbr-workshop-hint", text: "未选择图片" });
+        host.createSpan({ cls: "qbr-workshop-hint", text: t("未选择图片") });
         return;
       }
       const chip = host.createSpan({ cls: "qbr-workshop-chip" });
-      chip.createSpan({ text: `${this._bookImages.length} 张图片` });
+      chip.createSpan({ text: t("{0} 张图片", (this._bookImages.length)) });
       const clear = chip.createEl("button", { cls: "qbr-workshop-chip-x", text: "✕" });
       clear.addEventListener("click", () => {
         this._bookImages = [];
@@ -2373,14 +2488,14 @@ export function createWorkshopView(leaf, options) {
       if (!bridge) return;
       const images = [...this._bookImages];
       if (!images.length) {
-        new Notice("请先选择图片");
+        new Notice(t("请先选择图片"));
         return;
       }
       const format = String(this._bookImageFormat?.value || "cbz");
       void bridge.start({
         kind: "images-cbz",
-        title: format === "epub" ? "图片 → EPUB" : "图片 → CBZ",
-        detail: `${images.length} 张图片`,
+        title: format === "epub" ? t("图片 → EPUB") : t("图片 → CBZ"),
+        detail: t("{0} 张图片", (images.length)),
         payload: { settings: this.bookSettings(), images, format },
       }).catch((error) => new Notice(String(error?.message || error)));
       this.selectTool("tasks");
@@ -2483,7 +2598,7 @@ export function createWorkshopView(leaf, options) {
     setBookPreviewBusy(busy) {
       if (!this._bookPreviewButton) return;
       this._bookPreviewButton.disabled = Boolean(busy);
-      this._bookPreviewButton.setText(busy ? "试译中…" : "试译开头");
+      this._bookPreviewButton.setText(busy ? t("试译中…") : t("试译开头"));
     }
 
     setBookPreviewStatus(text, { view = false } = {}) {
@@ -2494,7 +2609,7 @@ export function createWorkshopView(leaf, options) {
     handlePendingBookPreview(tasks = []) {
       const id = String(this._pendingPreviewTaskId || "");
       if (!id || id === "__starting__") {
-        if (id === "__starting__") this.setBookPreviewStatus("试译中…");
+        if (id === "__starting__") this.setBookPreviewStatus(t("试译中…"));
         return;
       }
       const previewSource = String(this._pendingPreviewSource || "");
@@ -2504,11 +2619,11 @@ export function createWorkshopView(leaf, options) {
       }
       const task = tasks.find((entry) => entry.id === id);
       if (!task) {
-        this.setBookPreviewStatus("等待试译任务…");
+        this.setBookPreviewStatus(t("等待试译任务…"));
         return;
       }
       if (task.status === "queued") {
-        this.setBookPreviewStatus("试译排队中…");
+        this.setBookPreviewStatus(t("试译排队中…"));
         return;
       }
       if (task.status === "running") {
@@ -2521,18 +2636,18 @@ export function createWorkshopView(leaf, options) {
       this.setBookPreviewBusy(false);
       if (task.status === "done" && task.result?.previewHtml) {
         this._lastBookPreviewResult = task.result;
-        this.setBookPreviewStatus("试译已完成", { view: true });
+        this.setBookPreviewStatus(t("试译已完成"), { view: true });
         this.openBookPreview(task.result);
         return;
       }
       if (task.status === "failed") {
-        this.setBookPreviewStatus(task.error ? `试译失败：${task.error}` : "试译失败");
-        new Notice(task.error || "试译失败");
+        this.setBookPreviewStatus(task.error ? t("试译失败：{0}", (task.error)) : t("试译失败"));
+        new Notice(task.error || t("试译失败"));
       } else if (task.status === "cancelled") {
-        this.setBookPreviewStatus("试译已取消");
+        this.setBookPreviewStatus(t("试译已取消"));
       } else if (task.status === "done") {
-        this.setBookPreviewStatus("试译完成，但没有预览内容");
-        new Notice("试译完成，但没有可显示的预览内容");
+        this.setBookPreviewStatus(t("试译完成，但没有预览内容"));
+        new Notice(t("试译完成，但没有可显示的预览内容"));
       }
     }
 
@@ -2540,7 +2655,7 @@ export function createWorkshopView(leaf, options) {
       if (!bridge) return;
       const rel = String(this._bookSources?.[0] || "");
       if (!rel) {
-        new Notice("请先选择书稿");
+        new Notice(t("请先选择书稿"));
         return;
       }
       if (!this._bookTranslateMode || !this._bookScriptTarget) return;
@@ -2549,28 +2664,28 @@ export function createWorkshopView(leaf, options) {
       this.syncBookTranslationMode();
       this.onBookStyleChange();
       this.startBookBuild();
-      new Notice(target === "s" ? "已开始转为简体" : "已开始转为繁体");
+      new Notice(target === "s" ? t("已开始转为简体") : t("已开始转为繁体"));
     }
 
     async startBookPreview() {
       if (!bridge) return;
       const rel = String(this._bookSources?.[0] || "");
       if (!rel) {
-        new Notice("请先选择书稿");
+        new Notice(t("请先选择书稿"));
         return;
       }
       if (!/\.epub$/i.test(rel)) {
-        new Notice("试译预览目前只支持 EPUB 书稿");
+        new Notice(t("试译预览目前只支持 EPUB 书稿"));
         return;
       }
       const translation = this.bookTranslationState();
       if (!["translated", "stacked", "side"].includes(translation.mode)) {
-        new Notice("请选择翻译或对照方式");
+        new Notice(t("请选择翻译或对照方式"));
         return;
       }
       const config = this.aiReadyConfig();
       if (!config) {
-        new Notice("试译需要先配置 AI：设置 → AI 助读");
+        new Notice(t("试译需要先配置 AI：设置 → AI 助读"));
         return;
       }
       const state = this.bookStyleState();
@@ -2579,13 +2694,13 @@ export function createWorkshopView(leaf, options) {
       this._pendingPreviewSource = rel;
       this._pendingPreviewTaskId = "__starting__";
       this.setBookPreviewBusy(true);
-      this.setBookPreviewStatus("试译中…");
+      this.setBookPreviewStatus(t("试译中…"));
       let id = "";
       try {
         id = String(await bridge.start({
           kind: "book-preview",
-          title: "试译开头",
-          detail: `${rel} · 前两章 · ${translation.mode === "translated" ? "仅译文" : translation.mode === "side" ? "左右对照" : "上下对照"}`,
+          title: t("试译开头"),
+          detail: t("{0} · 前两章 · {1}", (rel), (translation.mode === "translated" ? t("仅译文") : translation.mode === "side" ? t("左右对照") : t("上下对照"))),
           payload: {
             source: rel,
             title: state.title,
@@ -2604,7 +2719,7 @@ export function createWorkshopView(leaf, options) {
         this._pendingPreviewTaskId = "";
         this._pendingPreviewSource = "";
         this.setBookPreviewBusy(false);
-        this.setBookPreviewStatus("试译未启动");
+        this.setBookPreviewStatus(t("试译未启动"));
         new Notice(String(error?.message || error));
         return;
       }
@@ -2616,8 +2731,8 @@ export function createWorkshopView(leaf, options) {
         this._pendingPreviewTaskId = "";
         this._pendingPreviewSource = "";
         this.setBookPreviewBusy(false);
-        this.setBookPreviewStatus("试译未启动");
-        new Notice("试译任务没有启动");
+        this.setBookPreviewStatus(t("试译未启动"));
+        new Notice(t("试译任务没有启动"));
         return;
       }
       this._pendingPreviewTaskId = id;
@@ -2638,7 +2753,7 @@ export function createWorkshopView(leaf, options) {
             ? `${result.pair.sourceLabel} → ${result.pair.targetLabel}`
             : ""].filter(Boolean).join(" · ");
           if (caption) this.contentEl.createDiv({ cls: "qbr-workshop-hint", text: caption });
-          const frame = this.contentEl.createEl("iframe", { attr: { title: "试译预览", sandbox: "" } });
+          const frame = this.contentEl.createEl("iframe", { attr: { title: t("试译预览"), sandbox: "" } });
           frame.srcdoc = html;
           frame.style.width = "100%";
           frame.style.height = "calc(88vh - 7em)";
@@ -2666,12 +2781,12 @@ export function createWorkshopView(leaf, options) {
       this.syncBookPreviewRow();
       if (this._bookTranslateHint) {
         this._bookTranslateHint.setText(mode === "none"
-          ? "不翻译时保留原始书稿；需要双语文档或简繁转换时再开启。"
+          ? t("不翻译时保留原始书稿；需要双语文档或简繁转换时再开启。")
           : script
-            ? "EPUB 会保留原排版、目录、图片和换行，只转换文字，不应用本次封面/排版设置；其它格式按文本重建，代码、表格、图片和公式保留原样。不需要 AI，也不生成原文/译文对照，仅支持中文书稿。"
+            ? t("EPUB 会保留原排版、目录、图片和换行，只转换文字，不应用本次封面/排版设置；其它格式按文本重建，代码、表格、图片和公式保留原样。不需要 AI，也不生成原文/译文对照，仅支持中文书稿。")
             : mode === "translated"
-              ? "EPUB 会保留原排版、目录和换行，只替换文字，不应用本次封面/排版设置；其它格式按文本重建。可手动选择目标语言；自动时中文→English，English/Deutsch→中文，勾选文言文则生成现代中文。需要先在「设置 → AI 助读」配置模型。"
-              : "EPUB 会保留原排版、目录和换行，只插入译文，不应用本次封面/排版设置；其它格式按文本重建。可手动选择目标语言；自动时中文→English，English/Deutsch→中文，勾选文言文则生成文白对照。左右对照在窄屏或部分阅读器会自动回退为上下。需要先在「设置 → AI 助读」配置模型。");
+              ? t("EPUB 会保留原排版、目录和换行，只替换文字，不应用本次封面/排版设置；其它格式按文本重建。可手动选择目标语言；自动时中文→English，English/Deutsch→中文，勾选文言文则生成现代中文。需要先在「设置 → AI 助读」配置模型。")
+              : t("EPUB 会保留原排版、目录和换行，只插入译文，不应用本次封面/排版设置；其它格式按文本重建。可手动选择目标语言；自动时中文→English，English/Deutsch→中文，勾选文言文则生成文白对照。左右对照在窄屏或部分阅读器会自动回退为上下。需要先在「设置 → AI 助读」配置模型。"));
       }
     }
 
@@ -2774,29 +2889,29 @@ export function createWorkshopView(leaf, options) {
       if (!bridge) return;
       const rel = String(this._bookSources?.[0] || "");
       if (!rel) {
-        new Notice("请先选择书稿");
+        new Notice(t("请先选择书稿"));
         return;
       }
       const config = this.aiReadyConfig();
       if (!config) {
-        new Notice("AI 还没配置好:先在「设置 → AI 助读」里选好供应商、模型与密钥");
+        new Notice(t("AI 还没配置好:先在「设置 → AI 助读」里选好供应商、模型与密钥"));
         return;
       }
       const text = await this.bookSourceText();
       if (String(this._bookSources?.[0] || "") !== rel) return;
       if (text.trim().length < 20) {
-        new Notice("没有可用的正文:PDF / Office 书稿请先跑一次「内容提取」,或直接选 txt / Markdown");
+        new Notice(t("没有可用的正文:PDF / Office 书稿请先跑一次「内容提取」,或直接选 txt / Markdown"));
         return;
       }
       const fileName = rel.split("/").pop() || rel;
       void bridge.start({
         kind,
-        title: kind === "ai-metadata" ? "AI 推断元数据" : "AI 封面文案",
+        title: kind === "ai-metadata" ? t("AI 推断元数据") : t("AI 封面文案"),
         detail: rel,
         source: rel,
         payload: { config, text, fileName },
       }).catch((error) => new Notice(String(error?.message || error)));
-      new Notice("AI 在后台处理,结果会出现在「书名与封面」这一步(只作建议)");
+      new Notice(t("AI 在后台处理,结果会出现在「书名与封面」这一步(只作建议)"));
     }
 
     // 任务完成 → 记下建议;面板里显式「应用」才写进字段 / 替换目录(可选、可撤销)。
@@ -2828,7 +2943,7 @@ export function createWorkshopView(leaf, options) {
       const actions = host.createDiv("qbr-workshop-row");
       const apply = actions.createEl("button", { cls: "mod-cta", text: applyLabel });
       apply.addEventListener("click", () => void onApply());
-      const skip = actions.createEl("button", { text: "忽略" });
+      const skip = actions.createEl("button", { text: t("忽略") });
       skip.addEventListener("click", () => {
         this._aiDismissed?.add?.(suggestion.taskId);
         this._aiSuggestion = null;
@@ -2839,27 +2954,27 @@ export function createWorkshopView(leaf, options) {
     renderAiFieldSuggestion(host, suggestion) {
       if (!host) return;
       const rows = suggestion.kind === "ai-metadata"
-        ? [["书名", suggestion.data.title], ["作者", suggestion.data.author], ["语言", suggestion.data.language], ["丛书", suggestion.data.series], ["标签", (suggestion.data.tags || []).join(" / ")]]
-        : [["书名", suggestion.data.title], ["副标题", suggestion.data.subtitle], ["系列", suggestion.data.series]];
+        ? [[t("书名"), suggestion.data.title], [t("作者"), suggestion.data.author], [t("语言"), suggestion.data.language], [t("丛书"), suggestion.data.series], [t("标签"), (suggestion.data.tags || []).join(" / ")]]
+        : [[t("书名"), suggestion.data.title], [t("副标题"), suggestion.data.subtitle], [t("系列"), suggestion.data.series]];
       const filled = rows.filter(([, value]) => String(value || "").trim());
       if (!filled.length) {
-        host.createDiv({ cls: "qbr-workshop-hint", text: "AI 没有给出可用的建议(可以重试一次)" });
+        host.createDiv({ cls: "qbr-workshop-hint", text: t("AI 没有给出可用的建议(可以重试一次)") });
         return;
       }
-      host.createDiv({ cls: "qbr-workshop-hint", text: suggestion.kind === "ai-metadata" ? "AI 建议(应用时只填空着的字段):" : "AI 封面文案(应用时只填空着的字段):" });
+      host.createDiv({ cls: "qbr-workshop-hint", text: suggestion.kind === "ai-metadata" ? t("AI 建议(应用时只填空着的字段):") : t("AI 封面文案(应用时只填空着的字段):") });
       for (const [label, value] of filled) host.createDiv({ cls: "qbr-workshop-hint", text: `${label}:${value}` });
-      this.aiSuggestionActions(host, suggestion, "应用", () => this.applyAiSuggestion());
+      this.aiSuggestionActions(host, suggestion, t("应用"), () => this.applyAiSuggestion());
     }
 
     // AI 分章建议:只显示「规则 + 预览」,套用是本地按规则重切(与主进程同一份实现)。
     renderAiChapterSuggestion(host, suggestion) {
       if (!host) return;
       const data = suggestion.data;
-      host.createDiv({ cls: "qbr-workshop-hint", text: `AI 判断的章名形态:${describeChapterRule(data.rule)}` });
-      host.createDiv({ cls: "qbr-workshop-hint", text: `预计 ${data.count} 章(从 ${data.candidates} 条候选里${data.truncated ? "采样" : "逐条"}判断)` });
-      if (data.first?.length) host.createDiv({ cls: "qbr-workshop-hint", text: `开头:${data.first.join(" / ")}` });
-      if (data.last?.length) host.createDiv({ cls: "qbr-workshop-hint", text: `结尾:${data.last.join(" / ")}` });
-      this.aiSuggestionActions(host, suggestion, "套用这份目录", () => this.applyAiChapters());
+      host.createDiv({ cls: "qbr-workshop-hint", text: t("AI 判断的章名形态:{0}", (describeChapterRule(data.rule))) });
+      host.createDiv({ cls: "qbr-workshop-hint", text: t("预计 {0} 章(从 {1} 条候选里{2}判断)", (data.count), (data.candidates), (data.truncated ? t("采样") : t("逐条"))) });
+      if (data.first?.length) host.createDiv({ cls: "qbr-workshop-hint", text: t("开头:{0}", (data.first.join(" / "))) });
+      if (data.last?.length) host.createDiv({ cls: "qbr-workshop-hint", text: t("结尾:{0}", (data.last.join(" / "))) });
+      this.aiSuggestionActions(host, suggestion, t("套用这份目录"), () => this.applyAiChapters());
     }
 
     async applyAiChapters() {
@@ -2869,7 +2984,7 @@ export function createWorkshopView(leaf, options) {
       const source = String(suggestion.source || "");
       if (source !== String(this._bookSources?.[0] || "")) {
         this.resetBookAiSuggestionState();
-        new Notice("书稿已经换过了,没有套用上一本的 AI 目录");
+        new Notice(t("书稿已经换过了,没有套用上一本的 AI 目录"));
         return;
       }
       const text = await this.bookSourceFullText();
@@ -2879,7 +2994,7 @@ export function createWorkshopView(leaf, options) {
       }
       const applied = applyChapterRule(text, rule);
       if (applied.error) {
-        new Notice(`套用失败:${applied.error}`);
+        new Notice(t("套用失败:{0}", (applied.error)));
         return;
       }
       this._bookChapters = applied.chapters.map((chapter) => ({ title: chapter.title, text: chapter.body }));
@@ -2887,30 +3002,30 @@ export function createWorkshopView(leaf, options) {
       this._aiDismissed?.add?.(suggestion.taskId);
       this._aiSuggestion = null;
       this.renderAiSuggestion();
-      new Notice(`已套用 AI 目录:${applied.count} 章(可继续改名 / 合并 / 排序)`);
+      new Notice(t("已套用 AI 目录:{0} 章(可继续改名 / 合并 / 排序)", (applied.count)));
     }
 
     async startAiChapters() {
       if (!bridge) return;
       const rel = String(this._bookSources?.[0] || "");
       if (!rel) {
-        new Notice("请先选择书稿");
+        new Notice(t("请先选择书稿"));
         return;
       }
       const config = this.aiReadyConfig();
       if (!config) {
-        new Notice("AI 还没配置好:先在「设置 → AI 助读」里选好供应商、模型与密钥");
+        new Notice(t("AI 还没配置好:先在「设置 → AI 助读」里选好供应商、模型与密钥"));
         return;
       }
       const fileName = rel.split("/").pop() || rel;
       void bridge.start({
         kind: "ai-chapters",
-        title: "AI 建议分章",
+        title: t("AI 建议分章"),
         detail: rel,
         source: rel,
         payload: { config, source: rel, fileName },
       }).catch((error) => new Notice(String(error?.message || error)));
-      new Notice("AI 在后台判断章名形态,结果会出现在「目录」这一步(套用前先看预览)");
+      new Notice(t("AI 在后台判断章名形态,结果会出现在「目录」这一步(套用前先看预览)"));
     }
 
     // ── AI 清理:第一步「发现问题」(纯本地)────────────────────────────────
@@ -2920,17 +3035,17 @@ export function createWorkshopView(leaf, options) {
       host.empty();
       const chapters = this._bookChapters || [];
       if (!chapters.length) {
-        host.createDiv({ cls: "qbr-workshop-hint", text: "还没有目录:先选书稿,或先跑一次「AI 建议分章」。" });
+        host.createDiv({ cls: "qbr-workshop-hint", text: t("还没有目录:先选书稿,或先跑一次「AI 建议分章」。") });
         return;
       }
       const scan = scanChapterIssues(chapters);
       if (!scan.rows.length) {
         this._bookIssues = null;
-        host.createDiv({ cls: "qbr-workshop-hint", text: "没有发现可疑内容(怪字符 / 乱码片段 / 疑似吞标题 / 疑似断行 都没有)。" });
+        host.createDiv({ cls: "qbr-workshop-hint", text: t("没有发现可疑内容(怪字符 / 乱码片段 / 疑似吞标题 / 疑似断行 都没有)。") });
         return;
       }
       this._bookIssues = { rows: scan.rows, selected: new Set(scan.rows.map((row) => row.index)) };
-      host.createDiv({ cls: "qbr-workshop-hint", text: `发现 ${scan.suspects} 章可疑(${describeIssues({ issues: scan.totals })});勾选后才会清理:` });
+      host.createDiv({ cls: "qbr-workshop-hint", text: t("发现 {0} 章可疑({1});勾选后才会清理:", (scan.suspects), (describeIssues({ issues: scan.totals }))) });
       for (const row of scan.rows.slice(0, 40)) {
         const line = host.createEl("label", { cls: "qbr-workshop-book" });
         const box = line.createEl("input", { attr: { type: "checkbox" } });
@@ -2940,18 +3055,18 @@ export function createWorkshopView(leaf, options) {
           else this._bookIssues?.selected.delete(row.index);
           this.updateCleanSummary();
         });
-        line.createSpan({ text: `第 ${row.index + 1} 章 ${row.title} · ${describeIssues(row.scan)}` });
+        line.createSpan({ text: t("第 {0} 章 {1} · {2}", (row.index + 1), (row.title), (describeIssues(row.scan))) });
         const sample = Object.values(row.scan.issues).flat().find(Boolean);
-        if (sample) line.createSpan({ cls: "qbr-workshop-hint", text: `例:${sample}` });
+        if (sample) line.createSpan({ cls: "qbr-workshop-hint", text: t("例:{0}", (sample)) });
       }
       if (scan.rows.length > 40) {
-        host.createDiv({ cls: "qbr-workshop-hint", text: `…… 还有 ${scan.rows.length - 40} 章可疑(可先清理这些,再重新检查)` });
+        host.createDiv({ cls: "qbr-workshop-hint", text: t("…… 还有 {0} 章可疑(可先清理这些,再重新检查)", (scan.rows.length - 40)) });
       }
       this._cleanSummary = host.createDiv({ cls: "qbr-workshop-hint" });
       const actions = host.createDiv("qbr-workshop-row");
-      const start = actions.createEl("button", { cls: "mod-cta", text: "清理选中的章节" });
+      const start = actions.createEl("button", { cls: "mod-cta", text: t("清理选中的章节") });
       start.addEventListener("click", () => void this.startAiClean());
-      const cancel = actions.createEl("button", { text: "先不清理" });
+      const cancel = actions.createEl("button", { text: t("先不清理") });
       cancel.addEventListener("click", () => {
         this._bookIssues = null;
         this._cleanSummary = null;
@@ -2966,7 +3081,7 @@ export function createWorkshopView(leaf, options) {
       if (!host || !issues) return;
       const picked = issues.rows.filter((row) => issues.selected.has(row.index));
       const blocks = picked.reduce((sum, row) => sum + splitCleanupBlocks(String(this._bookChapters?.[row.index]?.text || "")).length, 0);
-      host.setText(picked.length ? `选中 ${picked.length} 章 · 预计 ${blocks} 块 · 约 ${blocks} 次调用` : "没有选中任何章节");
+      host.setText(picked.length ? t("选中 {0} 章 · 预计 {1} 块 · 约 {2} 次调用", (picked.length), (blocks), (blocks)) : t("没有选中任何章节"));
     }
 
     // ── AI 清理:第二步「实际清理」(只发勾选的章节,结果先看对比)──────────
@@ -2975,12 +3090,12 @@ export function createWorkshopView(leaf, options) {
       const issues = this._bookIssues;
       const picked = (issues?.rows || []).filter((row) => issues.selected.has(row.index));
       if (!picked.length) {
-        new Notice("先勾选要清理的章节");
+        new Notice(t("先勾选要清理的章节"));
         return;
       }
       const config = this.aiReadyConfig();
       if (!config) {
-        new Notice("AI 还没配置好:先在「设置 → AI 助读」里选好供应商、模型与密钥");
+        new Notice(t("AI 还没配置好:先在「设置 → AI 助读」里选好供应商、模型与密钥"));
         return;
       }
       const chapters = picked
@@ -2991,36 +3106,36 @@ export function createWorkshopView(leaf, options) {
         }))
         .filter((chapter) => chapter.text.trim());
       if (!chapters.length) {
-        new Notice("选中的章节没有正文");
+        new Notice(t("选中的章节没有正文"));
         return;
       }
       const blocks = chapters.reduce((sum, chapter) => sum + splitCleanupBlocks(chapter.text).length, 0);
       if (blocks > 200) {
-        new Notice(`要清理 ${blocks} 块,一次跑不完:先少选几章(建议 ≤ 200 块)`);
+        new Notice(t("要清理 {0} 块,一次跑不完:先少选几章(建议 ≤ 200 块)", (blocks)));
         return;
       }
       const rel = String(this._bookSources?.[0] || "");
       void bridge.start({
         kind: "ai-clean",
-        title: "AI 清理",
-        detail: `${chapters.length} 章 · ${blocks} 块`,
+        title: t("AI 清理"),
+        detail: t("{0} 章 · {1} 块", (chapters.length), (blocks)),
         source: rel,
         payload: { config, chapters, source: rel },
       }).catch((error) => new Notice(String(error?.message || error)));
-      new Notice("AI 在后台清理,完成后这里给出清理前后的对比(应用前不会改动目录)");
+      new Notice(t("AI 在后台清理,完成后这里给出清理前后的对比(应用前不会改动目录)"));
     }
 
     renderAiCleanSuggestion(host, suggestion) {
       const data = suggestion.data;
-      host.createDiv({ cls: "qbr-workshop-hint", text: `AI 清理完成:${data.chapters.length} 章 · 改动 ${data.changed} 处${data.rejected ? ` · 丢弃 ${data.rejected} 块(疑似改写,已保留原文)` : ""}` });
+      host.createDiv({ cls: "qbr-workshop-hint", text: t("AI 清理完成:{0} 章 · 改动 {1} 处{2}", (data.chapters.length), (data.changed), (data.rejected ? t(" · 丢弃 {0} 块(疑似改写,已保留原文)", (data.rejected)) : "")) });
       for (const chapter of data.chapters.filter((row) => row.changed).slice(0, 8)) {
-        host.createDiv({ cls: "qbr-workshop-hint", text: `第 ${chapter.index + 1} 章 ${chapter.title} · ${chapter.changed} 处` });
+        host.createDiv({ cls: "qbr-workshop-hint", text: t("第 {0} 章 {1} · {2} 处", (chapter.index + 1), (chapter.title), (chapter.changed)) });
       }
       for (const sample of (data.samples || []).slice(0, 8)) {
-        host.createDiv({ cls: "qbr-workshop-hint", text: `第 ${sample.index + 1} 章:${sample.prefix || ""}【${sample.before}】→【${sample.after}】${sample.suffix || ""}` });
+        host.createDiv({ cls: "qbr-workshop-hint", text: t("第 {0} 章:{1}【{2}】→【{3}】{4}", (sample.index + 1), (sample.prefix || ""), (sample.before), (sample.after), (sample.suffix || "")) });
       }
-      if (!data.changed) host.createDiv({ cls: "qbr-workshop-hint", text: "模型没有提出改动(或者改动都被护栏丢弃了)。" });
-      this.aiSuggestionActions(host, suggestion, "应用清理结果", () => this.applyAiClean());
+      if (!data.changed) host.createDiv({ cls: "qbr-workshop-hint", text: t("模型没有提出改动(或者改动都被护栏丢弃了)。") });
+      this.aiSuggestionActions(host, suggestion, t("应用清理结果"), () => this.applyAiClean());
     }
 
     async applyAiClean() {
@@ -3029,11 +3144,11 @@ export function createWorkshopView(leaf, options) {
       const host = this._bookAiClean;
       if (String(suggestion?.source || "") !== String(this._bookSources?.[0] || "")) {
         this.resetBookAiSuggestionState();
-        new Notice("书稿已经换过了,没有应用上一本的清理结果");
+        new Notice(t("书稿已经换过了,没有应用上一本的清理结果"));
         return;
       }
       if (!file) {
-        new Notice("清理结果不可用(没有落盘)");
+        new Notice(t("清理结果不可用(没有落盘)"));
         return;
       }
       const fsImpl = typeof window !== "undefined" && typeof window.require === "function" ? window.require("fs") : null;
@@ -3043,7 +3158,7 @@ export function createWorkshopView(leaf, options) {
       } catch { /* 读不到 */ }
       const rows = Array.isArray(payload?.chapters) ? payload.chapters : [];
       if (!rows.length) {
-        new Notice("读不到清理结果文件");
+        new Notice(t("读不到清理结果文件"));
         return;
       }
       let applied = 0;
@@ -3064,7 +3179,7 @@ export function createWorkshopView(leaf, options) {
       this._bookIssues = null;
       this._cleanSummary = null;
       host?.empty();
-      new Notice(`已应用清理结果:${applied} 章${skipped ? `,跳过 ${skipped} 章(目录已变化)` : ""}。想还原就重新选一次书稿。`);
+      new Notice(t("已应用清理结果:{0} 章{1}。想还原就重新选一次书稿。", (applied), (skipped ? t(",跳过 {0} 章(目录已变化)", (skipped)) : "")));
     }
 
     applyAiSuggestion() {
@@ -3072,7 +3187,7 @@ export function createWorkshopView(leaf, options) {
       if (!suggestion?.data) return;
       if (String(suggestion.source || "") !== String(this._bookSources?.[0] || "")) {
         this.resetBookAiSuggestionState();
-        new Notice("书稿已经换过了,没有应用上一本的 AI 建议");
+        new Notice(t("书稿已经换过了,没有应用上一本的 AI 建议"));
         return;
       }
       const fill = (input, value) => {
@@ -3089,7 +3204,7 @@ export function createWorkshopView(leaf, options) {
       this._aiDismissed?.add?.(suggestion.taskId);
       this._aiSuggestion = null;
       this.renderAiSuggestion();
-      new Notice(touched.some(Boolean) ? "已填入空的字段(其余保持不变)" : "字段里已经有内容,没有覆盖");
+      new Notice(touched.some(Boolean) ? t("已填入空的字段(其余保持不变)") : t("字段里已经有内容,没有覆盖"));
     }
 
     // 目录编辑:书库书稿可改名/合并/拆分/排序;本地文件在生成时自动识别。
@@ -3104,12 +3219,12 @@ export function createWorkshopView(leaf, options) {
       const file = rel ? app?.vault?.getAbstractFileByPath?.(rel) : null;
       if (!file) {
         this._bookChapters = [];
-        if (rel) host.createDiv({ cls: "qbr-workshop-hint", text: "本地文件的目录在生成时自动识别(此处不可编辑)" });
+        if (rel) host.createDiv({ cls: "qbr-workshop-hint", text: t("本地文件的目录在生成时自动识别(此处不可编辑)") });
         return;
       }
       if (!/\.(txt|md|markdown)$/i.test(rel)) {
         this._bookChapters = [];
-        host.createDiv({ cls: "qbr-workshop-hint", text: "PDF / Office / OFD / 图片的目录在生成时自动识别(内部先提取,无需先跑内容提取)" });
+        host.createDiv({ cls: "qbr-workshop-hint", text: t("PDF / Office / OFD / 图片的目录在生成时自动识别(内部先提取,无需先跑内容提取)") });
         return;
       }
       const text = await this.readSourceText(rel);
@@ -3119,7 +3234,7 @@ export function createWorkshopView(leaf, options) {
       const cleaned = isMarkdown ? unwrapProseFences(text) : text;
       const found = isMarkdown ? splitMarkdownChapters(cleaned, { bookTitle: this._bookTitle?.value || "" }) : [];
       this._bookChapters = found.length >= 2
-        ? found.map((chapter, index) => ({ title: chapter.title || `第 ${index + 1} 章`, text: chapter.text }))
+        ? found.map((chapter, index) => ({ title: chapter.title || t("第 {0} 章", (index + 1)), text: chapter.text }))
         : splitTextChapters(cleaned).map((chapter) => ({ title: chapter.title, text: chapter.body }));
       this.renderChapterRows();
     }
@@ -3131,7 +3246,7 @@ export function createWorkshopView(leaf, options) {
       host.empty();
       if (!this._bookChapters?.length) return;
       const stats = chapterStats(this._bookChapters);
-      host.createDiv({ cls: "qbr-workshop-hint", text: `目录:${stats.chapters} 章 · 约 ${Math.max(1, Math.round(stats.chars / 1000))}k 字(可改名 / 合并 / 拆分 / 排序)` });
+      host.createDiv({ cls: "qbr-workshop-hint", text: t("目录:{0} 章 · 约 {1}k 字(可改名 / 合并 / 拆分 / 排序)", (stats.chapters), (Math.max(1, Math.round(stats.chars / 1000)))) });
       this._bookChapters.forEach((chapter, index) => {
         const row = host.createDiv("qbr-workshop-chapter");
         row.createSpan({ cls: "qbr-workshop-chapter-no", text: String(index + 1) });
@@ -3140,7 +3255,7 @@ export function createWorkshopView(leaf, options) {
         input.addEventListener("change", () => {
           this._bookChapters = renameChapter(this._bookChapters, index, input.value);
         });
-        row.createSpan({ cls: "qbr-workshop-hint", text: `${chapter.text.length} 字` });
+        row.createSpan({ cls: "qbr-workshop-hint", text: t("{0} 字", (chapter.text.length)) });
         const actions = row.createDiv("qbr-workshop-chapter-actions");
         const up = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "↑" });
         up.disabled = index === 0;
@@ -3154,19 +3269,19 @@ export function createWorkshopView(leaf, options) {
           this._bookChapters = moveChapter(this._bookChapters, index, 1);
           this.renderChapterRows();
         });
-        const merge = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "合并" });
+        const merge = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: t("合并") });
         merge.disabled = index === this._bookChapters.length - 1;
         merge.addEventListener("click", () => {
           this._bookChapters = mergeChapters(this._bookChapters, index);
           this.renderChapterRows();
         });
-        const split = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "拆分" });
+        const split = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: t("拆分") });
         split.addEventListener("click", () => {
           this._bookChapters = splitChapter(this._bookChapters, index);
           this.renderChapterRows();
         });
         // 页眉/扉页这类不该成章的直接删(生成时也会自动清一遍)。
-        const remove = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "删除" });
+        const remove = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: t("删除") });
         remove.disabled = this._bookChapters.length <= 1;
         remove.addEventListener("click", () => {
           this._bookChapters = removeChapter(this._bookChapters, index);
@@ -3196,7 +3311,7 @@ export function createWorkshopView(leaf, options) {
       list.empty();
       const sources = this.bookSourceFiles();
       if (!sources.length) {
-        list.createDiv({ cls: "qbr-workshop-hint", text: "书库里还没有可成书的书籍(EPUB / PDF / 图片)。txt / Markdown / Office 等请用「打开本地文件…」。" });
+        list.createDiv({ cls: "qbr-workshop-hint", text: t("书库里还没有可成书的书籍(EPUB / PDF / 图片)。txt / Markdown / Office 等请用「打开本地文件…」。") });
         return;
       }
       this._bookSources ||= [];
@@ -3239,7 +3354,7 @@ export function createWorkshopView(leaf, options) {
       host.empty();
       const sources = this._bookSources || [];
       if (!sources.length) {
-        host.createSpan({ cls: "qbr-workshop-hint", text: "未选择书稿" });
+        host.createSpan({ cls: "qbr-workshop-hint", text: t("未选择书稿") });
         this.syncBookPreviewRow();
         return;
       }
@@ -3260,18 +3375,18 @@ export function createWorkshopView(leaf, options) {
         .map((picked) => String(picked).replace(/\\/g, "/"))
         .filter((path) => wanted.includes(path.split(".").pop()?.toLowerCase() || ""));
       if (!valid.length) {
-        if (paths.length) new Notice("这个格式暂不支持制作电子书。");
+        if (paths.length) new Notice(t("这个格式暂不支持制作电子书。"));
         return;
       }
-      if (valid.length > 1) new Notice(`一次只能制作一本，已选择「${valid[0].split("/").pop()}」。`);
+      if (valid.length > 1) new Notice(t("一次只能制作一本，已选择「{0}」。", (valid[0].split("/").pop())));
       this.addBookSource(valid[0]);
     }
 
-    startBookBuild() {
+    async startBookBuild() {
       if (!bridge) return;
       const rel = this._bookSources?.[0];
       if (!rel) {
-        new Notice("请先选择书稿(PDF / Office / txt / Markdown / 图片均可)");
+        new Notice(t("请先选择书稿(PDF / Office / txt / Markdown / 图片均可)"));
         return;
       }
       const state = this.bookStyleState();
@@ -3279,56 +3394,116 @@ export function createWorkshopView(leaf, options) {
       const scriptMode = translation.mode === "script";
       const translationConfig = translation.mode === "none" || scriptMode ? null : this.aiReadyConfig();
       if (translation.mode !== "none" && !scriptMode && !translationConfig) {
-        new Notice("翻译需要先配置 AI：设置 → AI 助读");
+        new Notice(t("翻译需要先配置 AI：设置 → AI 助读"));
         return;
       }
-      void bridge.start({
-        kind: "book-build",
-        title: translation.mode === "none" ? "生成电子书" : scriptMode ? "生成简繁转换电子书" : translation.mode === "translated" ? "生成译文电子书" : "生成双语电子书",
-        detail: `${rel}${translation.mode === "none" ? "" : scriptMode ? " · 简繁转换" : translation.mode === "translated" ? " · 仅译文" : ` · ${translation.mode === "side" ? "左右" : "上下"}对照`}`,
-        payload: {
-          settings: this.formulaSettings(),
-          source: rel,
-          title: state.title,
-          author: state.author,
-          styles: {
-            indent: state.indent,
-            spacing: state.spacing,
-            headingAlign: state.headingAlign,
-            translationLayout: translation.mode === "side" ? "side" : "stacked",
+      const startNow = () => {
+        void bridge.start({
+          kind: "book-build",
+          title: translation.mode === "none" ? t("生成电子书") : scriptMode ? t("生成简繁转换电子书") : translation.mode === "translated" ? t("生成译文电子书") : t("生成双语电子书"),
+          detail: `${rel}${translation.mode === "none" ? "" : scriptMode ? t(" · 简繁转换") : translation.mode === "translated" ? t(" · 仅译文") : t(" · {0}对照", (translation.mode === "side" ? t("左右") : t("上下")))}`,
+          payload: {
+            settings: this.formulaSettings(),
+            source: rel,
+            title: state.title,
+            author: state.author,
+            styles: {
+              indent: state.indent,
+              spacing: state.spacing,
+              headingAlign: state.headingAlign,
+              translationLayout: translation.mode === "side" ? "side" : "stacked",
+            },
+            cover: {
+              mode: state.coverMode,
+              // Only the image mode uses a picked file. Keeping the path in
+              // template/auto payloads made old polish manifests ambiguous.
+              imagePath: state.coverMode === "image" ? state.coverImage : "",
+              subtitle: state.subtitle,
+              palette: state.coverPalette,
+              fit: state.coverFit,
+            },
+            tocTitle: state.tocTitle,
+            tocDepth: Number(state.tocDepth) || 3,
+            chapters: (this._bookChapters || []).length
+              ? (this._bookChapters || []).map((chapter) => ({ title: chapter.title, text: chapter.text }))
+              : undefined,
+            translation: translation.mode === "none" ? null : {
+              mode: translation.mode,
+              // The source language is detected from the extracted text; only
+              // the target language and 文言文/白话 are manual choices. Script
+              // conversion needs no AI.
+              target: translation.target,
+              classical: translation.classical,
+              script: translation.script,
+              glossary: translation.glossary,
+              lineAlign: translation.lineAlign,
+              config: translationConfig,
+              bookTitle: state.title,
+            },
+            // 书里那几页印刷目录(与电子书导航重复):默认去掉,面板里可关。
+            dropPrintedToc: this._bookDropToc ? Boolean(this._bookDropToc.checked) : true,
+            // 忽略缓存重新提取(上游更新过提取行为时用)。
+            refresh: this._bookRefresh ? Boolean(this._bookRefresh.checked) : false,
           },
-          cover: {
-            mode: state.coverMode,
-            imagePath: state.coverImage,
-            subtitle: state.subtitle,
-            palette: state.coverPalette,
-            fit: state.coverFit,
-          },
-          tocTitle: state.tocTitle,
-          tocDepth: Number(state.tocDepth) || 3,
-          chapters: (this._bookChapters || []).length
-            ? (this._bookChapters || []).map((chapter) => ({ title: chapter.title, text: chapter.text }))
-            : undefined,
-          translation: translation.mode === "none" ? null : {
-            mode: translation.mode,
-            // The source language is detected from the extracted text; only
-            // the target language and 文言文/白话 are manual choices. Script
-            // conversion needs no AI.
-            target: translation.target,
-            classical: translation.classical,
-            script: translation.script,
-            glossary: translation.glossary,
-            lineAlign: translation.lineAlign,
-            config: translationConfig,
-            bookTitle: state.title,
-          },
-          // 书里那几页印刷目录(与电子书导航重复):默认去掉,面板里可关。
-          dropPrintedToc: this._bookDropToc ? Boolean(this._bookDropToc.checked) : true,
-          // 忽略缓存重新提取(上游更新过提取行为时用)。
-          refresh: this._bookRefresh ? Boolean(this._bookRefresh.checked) : false,
-        },
-      }).catch((error) => new Notice(String(error?.message || error)));
-      this.selectTool("tasks");
+        }).catch((error) => new Notice(String(error?.message || error)));
+        this.selectTool("tasks");
+      };
+
+      let existing = null;
+      try {
+        existing = await window.qbrDesktop?.polish?.findBySource?.(rel);
+      } catch {
+        existing = null;
+      }
+      if (!existing?.manifestPath) {
+        startNow();
+        return;
+      }
+      this.confirmPolishOverwrite(existing, startNow);
+    }
+
+    confirmPolishOverwrite(existing, onContinue) {
+      const saveCopy = async () => {
+        try {
+          const saved = await window.qbrDesktop?.polish?.saveAs?.(existing.manifestPath);
+          if (!saved) {
+            new Notice(t("已取消另存，未开始生成"));
+            return false;
+          }
+          new Notice(t("精修 Markdown 已另存：{0}", (saved)));
+          return true;
+        } catch (error) {
+          new Notice(t("另存失败：{0}", (String(error?.message || error))));
+          return false;
+        }
+      };
+      const modal = new (class extends Modal {
+        onOpen() {
+          this.titleEl?.setText("这本书已有精修文件");
+          this.contentEl.createDiv({
+            cls: "qbr-workshop-hint",
+            text: t("重新生成电子书会覆盖「{0}」现有的 polish.md。", (existing.title || t("这本书"))),
+          });
+          this.contentEl.createDiv({
+            cls: "qbr-workshop-hint",
+            text: t("如果还要保留当前手工修改，请先另存一份；“直接覆盖”会在任务里自动备份旧的 polish.md。"),
+          });
+          const actions = this.contentEl.createDiv("qbr-workshop-row");
+          const save = actions.createEl("button", { cls: "mod-cta", text: t("另存副本并继续") });
+          save.addEventListener("click", async () => {
+            this.close();
+            if (await saveCopy()) onContinue();
+          });
+          const overwrite = actions.createEl("button", { text: t("直接覆盖") });
+          overwrite.addEventListener("click", () => {
+            this.close();
+            onContinue();
+          });
+          const cancel = actions.createEl("button", { text: t("取消") });
+          cancel.addEventListener("click", () => this.close());
+        }
+      })(app);
+      modal.open();
     }
 
     // ── 格式转换(DocVortex,W0-4)──────────────────────────────────────
@@ -3337,35 +3512,35 @@ export function createWorkshopView(leaf, options) {
       const root = panel.createDiv("qbr-workshop-tool");
 
       const presetCard = root.createDiv("qbr-workshop-card");
-      presetCard.createEl("h3", { text: "选择预设" });
+      presetCard.createEl("h3", { text: t("选择预设") });
       this._convertPreset = "convert";
       this.renderPresetMatrix(presetCard, [
-        { id: "convert", label: "文档互转(DocVortex)", hint: "保持内容与版式:Office/ODF/HTML/EPUB/OFD/Markdown/纯文本 → md / html / docx / pdf / latex", ready: true },
-        { id: "epub-md", label: "EPUB → Markdown", hint: "把 EPUB 拆成 Markdown:标题 / 列表 / 图片保留,公式进 LaTeX(目标格式已预选 md)", ready: true },
-        { id: "img", label: "图片 → PDF", hint: "打包成 PDF:照片成书、扫描页合成(每张一页)", ready: true },
+        { id: "convert", label: t("文档互转(DocVortex)"), hint: t("保持内容与版式:Office/ODF/HTML/EPUB/OFD/Markdown/纯文本 → md / html / docx / pdf / latex"), ready: true },
+        { id: "epub-md", label: "EPUB → Markdown", hint: t("把 EPUB 拆成 Markdown:标题 / 列表 / 图片保留,公式进 LaTeX(目标格式已预选 md)"), ready: true },
+        { id: "img", label: t("图片 → PDF"), hint: t("打包成 PDF:照片成书、扫描页合成(每张一页)"), ready: true },
       ], { selected: this._convertPreset, onSelect: (id) => { this._convertPreset = id; this.syncConvertPreset(); } });
 
       const inputCard = root.createDiv("qbr-workshop-card");
-      inputCard.createEl("h3", { text: "选择文件" });
+      inputCard.createEl("h3", { text: t("选择文件") });
       const pickRow = inputCard.createDiv("qbr-workshop-row");
-      const pickVault = pickRow.createEl("button", { text: "选择书库文件…" });
+      const pickVault = pickRow.createEl("button", { text: t("选择书库文件…") });
       pickVault.addEventListener("click", () => this.toggleConvertBookList());
-      const pickLocal = pickRow.createEl("button", { text: "打开本地文件…" });
+      const pickLocal = pickRow.createEl("button", { text: t("打开本地文件…") });
       pickLocal.addEventListener("click", () => void this.pickLocalConvertFiles());
-      pickRow.createSpan({ cls: "qbr-workshop-hint", text: "书库列表只显示当前书库;其它文件请用「打开本地文件…」" });
-      inputCard.createDiv({ cls: "qbr-workshop-hint", text: "Markdown / 纯文本也能转:DocVortex 不收 .md / .txt,书坊先渲染成 HTML(公式仍是公式)再交给它。" });
+      pickRow.createSpan({ cls: "qbr-workshop-hint", text: t("书库列表只显示当前书库;其它文件请用「打开本地文件…」") });
+      inputCard.createDiv({ cls: "qbr-workshop-hint", text: t("Markdown / 纯文本也能转:DocVortex 不收 .md / .txt,书坊先渲染成 HTML(公式仍是公式)再交给它。") });
       this._convertBookList = inputCard.createDiv("qbr-workshop-booklist");
       this._convertBookList.hidden = true;
       this._convertChips = inputCard.createDiv("qbr-workshop-chips");
 
       const optionCard = root.createDiv("qbr-workshop-card");
-      optionCard.createEl("h3", { text: "转换设置" });
+      optionCard.createEl("h3", { text: t("转换设置") });
       const formatRow = optionCard.createDiv("qbr-workshop-row");
       this._convertFormatRow = formatRow;
-      formatRow.createSpan({ cls: "qbr-workshop-hint", text: "目标格式" });
+      formatRow.createSpan({ cls: "qbr-workshop-hint", text: t("目标格式") });
       this._convertFormat = formatRow.createEl("select", { cls: "qbr-workshop-select" });
       for (const format of CONVERT_FORMATS) {
-        this._convertFormat.createEl("option", { attr: { value: format.id }, text: format.label });
+        this._convertFormat.createEl("option", { attr: { value: format.id }, text: t(format.label) });
       }
       const savedFormat = localStorage.getItem("qbr-workshop-convert-format");
       const effectiveFormat = savedFormat === "quiz" ? "quiz-ai" : savedFormat;
@@ -3375,39 +3550,45 @@ export function createWorkshopView(leaf, options) {
         this._pendingConvertFormat = "";
       }
       this._convertFormat.addEventListener("change", () => this.rememberConvertFormat());
-      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "输出与源文件同目录,用目标扩展名;同名自动加序号。" });
-      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "AI 答题页(实验)需要先在「设置 → AI 助读」配置模型;生成约 1–3 分钟,图片会内联进 HTML。" });
+      optionCard.createDiv({ cls: "qbr-workshop-hint", text: t("输出与源文件同目录,用目标扩展名;同名自动加序号。") });
+      optionCard.createDiv({ cls: "qbr-workshop-hint", text: t("AI 答题页(实验)需要先在「设置 → AI 助读」配置模型;生成约 1–3 分钟,图片会内联进 HTML。") });
       const parseRow = optionCard.createDiv("qbr-workshop-row");
       this._convertParseRow = parseRow;
-      parseRow.createSpan({ cls: "qbr-workshop-hint", text: "解析方式" });
+      parseRow.createSpan({ cls: "qbr-workshop-hint", text: t("解析方式") });
       this._convertParse = parseRow.createEl("select", { cls: "qbr-workshop-select" });
-      this._convertParse.createEl("option", { attr: { value: "local" }, text: "本地解析(DocVortex,通用)" });
-      this._convertParse.createEl("option", { attr: { value: "text" }, text: "文本型(本地 fitz,PDF:试卷 / 公文 / 讲义)" });
-      this._convertParse.createEl("option", { attr: { value: "mineru" }, text: "公式优先(MinerU 云端,PDF)" });
-      this._convertParse.createEl("option", { attr: { value: "mineru-local" }, text: "公式优先(本地 MinerU 服务,PDF)" });
+      this._convertParse.createEl("option", { attr: { value: "local" }, text: t("本地解析(DocVortex,通用)") });
+      this._convertParse.createEl("option", { attr: { value: "text" }, text: t("文本型(本地 fitz,PDF:试卷 / 公文 / 讲义)") });
+      this._convertParse.createEl("option", { attr: { value: "mineru" }, text: t("公式优先(MinerU 云端,PDF)") });
+      this._convertParse.createEl("option", { attr: { value: "layout" }, text: t("扫描版式（保留图片与排版，PDF）") });
+      this._convertParse.createEl("option", { attr: { value: "mineru-local" }, text: t("公式优先(本地 MinerU 服务,PDF)") });
       const savedParse = localStorage.getItem("qbr-workshop-parse");
-      this._convertParse.value = ["text", "mineru", "mineru-local"].includes(String(savedParse)) ? String(savedParse) : "local";
+      this._convertParse.value = ["text", "mineru", "mineru-local", "layout"].includes(String(savedParse)) ? String(savedParse) : "local";
       this._convertParse.addEventListener("change", () => {
+        if (this._convertParse.value === "layout" && this._convertFormat) {
+          this._convertFormat.value = "pdf";
+          this.rememberConvertFormat();
+        }
         localStorage.setItem("qbr-workshop-parse", String(this._convertParse.value));
         this.syncConvertTokenRow();
       });
-      optionCard.createDiv({ cls: "qbr-workshop-hint", text: "怎么选:有数学公式的论文 / 教材 → 公式优先;试卷 / 公文 / 讲义(文字为主、符号少)→ 文本型(本地,不会把「A. C++」这类文字裁成图片);Office / HTML / EPUB 等文档 → 本地解析。" });
+      optionCard.createDiv({ cls: "qbr-workshop-hint", text: t("怎么选:有数学公式的论文 / 教材 → 公式优先;试卷 / 公文 / 讲义(文字为主、符号少)→ 文本型(本地,不会把「A. C++」这类文字裁成图片);Office / HTML / EPUB 等文档 → 本地解析。") });
+      optionCard.createDiv({ cls: "qbr-workshop-hint", text: t("适合扫描书刊：识别文字后在原位重新排字，保留插图、色块和版式；只生成 PDF，需要 MinerU。") });
       // 全局配置与链路检测集中在「设置 → 书坊」(MinerU / pdf_tool / DocVortex / Calibre);
       // 这个面板只留每次任务要选的:预设、文件、目标格式、解析方式。
       const settingsRow = optionCard.createDiv("qbr-workshop-row");
-      addSettingsLink(settingsRow, "MinerU 凭据 / 本地服务、DocVortex 路径、Calibre 路径与各链路检测都在那里(对所有工具生效)。");
+      addSettingsLink(settingsRow, t("MinerU 凭据 / 本地服务、DocVortex 路径、Calibre 路径与各链路检测都在那里(对所有工具生效)。"));
 
       // 预设决定后续操作:图片 → PDF 只用「选图片 + 打包」,目标格式 / 解析方式 / MinerU
       // 那些控件与它无关 —— 收集起来按预设显隐(渐进披露)。
       this._convertHints = [...optionCard.querySelectorAll("div.qbr-workshop-hint")];
-      this._convertImgHint = optionCard.createDiv({ cls: "qbr-workshop-hint", text: "图片 → PDF:选中的每张图片合成一页(PNG / JPG / WebP / GIF / BMP / TIFF / JP2;页面按 150dpi 换算),产物是 PDF,落在首图旁边(同名加序号)。不经过 DocVortex、不需要凭据、秒级。" });
+      this._convertImgHint = optionCard.createDiv({ cls: "qbr-workshop-hint", text: t("图片 → PDF:选中的每张图片合成一页(PNG / JPG / WebP / GIF / BMP / TIFF / JP2;页面按 150dpi 换算),产物是 PDF,落在首图旁边(同名加序号)。不经过 DocVortex、不需要凭据、秒级。") });
       this._convertImgHint.hidden = true;
 
       const startRow = root.createDiv("qbr-workshop-row");
-      const start = startRow.createEl("button", { cls: "mod-cta", text: "开始转换" });
+      const start = startRow.createEl("button", { cls: "mod-cta", text: t("开始转换") });
       this._convertStart = start;
       start.addEventListener("click", () => this.startConvertTasks());
-      startRow.createSpan({ cls: "qbr-workshop-hint", text: "批量:可一次选多本,逐个入队。" });
+      startRow.createSpan({ cls: "qbr-workshop-hint", text: t("批量:可一次选多本,逐个入队。") });
       this.syncConvertPreset();
 
       this._convertRecent = root.createDiv("qbr-workshop-recent");
@@ -3431,7 +3612,7 @@ export function createWorkshopView(leaf, options) {
       list.empty();
       const books = this.convertBooks();
       if (!books.length) {
-        list.createDiv({ cls: "qbr-workshop-hint", text: "书库里还没有可转换的文档。" });
+        list.createDiv({ cls: "qbr-workshop-hint", text: t("书库里还没有可转换的文档。") });
         return;
       }
       for (const file of books) {
@@ -3463,7 +3644,7 @@ export function createWorkshopView(leaf, options) {
       if (!host) return;
       host.empty();
       if (!this._convertSelection.length) {
-        host.createSpan({ cls: "qbr-workshop-hint", text: "未选择文件" });
+        host.createSpan({ cls: "qbr-workshop-hint", text: t("未选择文件") });
         return;
       }
       for (const path of this._convertSelection) {
@@ -3490,8 +3671,8 @@ export function createWorkshopView(leaf, options) {
       if (!bridge) return;
       void bridge.start({
         kind: "docvortex-probe",
-        title: "检测 DocVortex",
-        detail: "文档互转",
+        title: t("检测 DocVortex"),
+        detail: t("文档互转"),
         payload: { settings: this.docvortexSettings() },
       }).catch((error) => new Notice(String(error?.message || error)));
       this.selectTool("tasks");
@@ -3504,7 +3685,7 @@ export function createWorkshopView(leaf, options) {
     // 凭据 / 本地服务地址只在 MinerU 相关模式露出(渐进披露)。
     syncConvertTokenRow() {
       const mode = String(this._convertParse?.value || "local");
-      const mineru = this._convertPreset !== "img" && (mode === "mineru" || mode === "mineru-local");
+      const mineru = this._convertPreset !== "img" && (mode === "mineru" || mode === "mineru-local" || mode === "layout");
       if (this._convertTokenRow) this._convertTokenRow.hidden = !mineru;
       if (this._convertLocalRow) this._convertLocalRow.hidden = !mineru;
       if (this._convertLocalExeRow) this._convertLocalExeRow.hidden = !mineru;
@@ -3531,7 +3712,7 @@ export function createWorkshopView(leaf, options) {
       if (this._convertImgHint) this._convertImgHint.hidden = !img;
       if (this._convertDetectRow) this._convertDetectRow.hidden = img;
       if (this._convertPathRow) this._convertPathRow.hidden = img;
-      if (this._convertStart) this._convertStart.setText(img ? "打包为 PDF" : "开始转换");
+      if (this._convertStart) this._convertStart.setText(img ? t("打包为 PDF") : t("开始转换"));
       this.syncConvertTokenRow();
     }
 
@@ -3545,13 +3726,13 @@ export function createWorkshopView(leaf, options) {
         status.setText("这个宿主不支持本地服务检测");
         return;
       }
-      status.setText(start ? "启动中…" : "检测中…");
+      status.setText(start ? t("启动中…") : t("检测中…"));
       try {
         const settings = this.formulaSettings();
         const result = start ? await mineru.ensure(settings) : await mineru.status(settings);
         status.setText(this.describeMineruStatus(result));
       } catch (error) {
-        status.setText(`检测失败:${String(error?.message || error)}`);
+        status.setText(t("检测失败:{0}", (String(error?.message || error))));
       }
     }
 
@@ -3559,7 +3740,7 @@ export function createWorkshopView(leaf, options) {
     async clearMineruCaches() {
       const mineru = typeof window !== "undefined" ? window.qbrDesktop?.mineru || null : null;
       if (!mineru?.clearCaches) {
-        new Notice("这个宿主不支持清理 MinerU 缓存");
+        new Notice(t("这个宿主不支持清理 MinerU 缓存"));
         return;
       }
       try {
@@ -3567,27 +3748,27 @@ export function createWorkshopView(leaf, options) {
         const total = Number(result?.totalBytes) || 0;
         const size = total >= 1024 * 1024 ? `${(total / 1024 / 1024).toFixed(1)} MB` : `${Math.max(0, Math.round(total / 1024))} KB`;
         const parts = [];
-        if (result?.cleared?.length) parts.push(`已清理 ${size}`);
-        else parts.push("没有可清理的缓存");
-        if (result?.skippedService) parts.push("服务在运行,上传目录已跳过(停掉服务后可再清)");
-        if (Array.isArray(result?.skipped) && result.skipped.length) parts.push(`${result.skipped.length} 个目录被占用,跳过`);
-        new Notice(`MinerU 缓存:${parts.join(";")}`);
+        if (result?.cleared?.length) parts.push(t("已清理 {0}", (size)));
+        else parts.push(t("没有可清理的缓存"));
+        if (result?.skippedService) parts.push(t("服务在运行,上传目录已跳过(停掉服务后可再清)"));
+        if (Array.isArray(result?.skipped) && result.skipped.length) parts.push(t("{0} 个目录被占用,跳过", (result.skipped.length)));
+        new Notice(t("MinerU 缓存:{0}", (parts.join(";"))));
         this._convertLocalStatus?.setText(parts.join(" · "));
       } catch (error) {
-        new Notice(`清理失败:${String(error?.message || error)}`);
+        new Notice(t("清理失败:{0}", (String(error?.message || error))));
       }
     }
 
     describeMineruStatus(result) {      const url = String(result?.url || "");
-      const version = result?.version ? ` · 版本 ${result.version}` : "";
+      const version = result?.version ? t(" · 版本 {0}", (result.version)) : "";
       const detail = result?.detail ? ` · ${result.detail}` : "";
       switch (String(result?.status || "")) {
-        case "running": return `运行中${version}(${url}${detail})`;
-        case "starting": return "启动中…首次加载模型约 10–15 秒";
-        case "external": return `外部服务(${url})，不由应用管理`;
-        case "missing": return String(result?.detail || "没找到 mineru-kit:在下面填程序路径");
-        case "error": return `启动失败:${String(result?.detail || "未知错误")}`;
-        default: return `未运行(${url})；点「启动服务」拉起`;
+        case "running": return t("运行中{0}({1}{2})", (version), (url), (detail));
+        case "starting": return t("启动中…首次加载模型约 10–15 秒");
+        case "external": return t("外部服务({0})，不由应用管理", (url));
+        case "missing": return String(result?.detail || t("没找到 mineru-kit:在下面填程序路径"));
+        case "error": return t("启动失败:{0}", (String(result?.detail || t("未知错误"))));
+        default: return t("未运行({0})；点「启动服务」拉起", (url));
       }
     }
 
@@ -3595,7 +3776,7 @@ export function createWorkshopView(leaf, options) {
       if (!bridge) return;
       void bridge.start({
         kind: "formula-probe",
-        title: "检测公式链路",
+        title: t("检测公式链路"),
         detail: "MinerU + DocVortex",
         payload: { settings: this.formulaSettings() },
       }).catch((error) => new Notice(String(error?.message || error)));
@@ -3606,20 +3787,20 @@ export function createWorkshopView(leaf, options) {
       if (!bridge) return;
       const files = [...this._convertSelection];
       if (!files.length) {
-        new Notice("请先选择文件");
+        new Notice(t("请先选择文件"));
         return;
       }
       // 「图片 → PDF」预设:选中的图片合成一个 PDF(W1-5),不经过 DocVortex。
       if (this._convertPreset === "img") {
         const images = files.filter((rel) => /\.(png|jpe?g|webp|gif|bmp|tiff?|jp2)$/i.test(rel));
         if (!images.length) {
-          new Notice("图片 → PDF 需要图片文件(PNG / JPG / WebP / BMP / TIFF)");
+          new Notice(t("图片 → PDF 需要图片文件(PNG / JPG / WebP / BMP / TIFF)"));
           return;
         }
         void bridge.start({
           kind: "images-pdf",
-          title: "图片 → PDF",
-          detail: `${images.length} 张`,
+          title: t("图片 → PDF"),
+          detail: t("{0} 张", (images.length)),
           payload: { images, settings: this.docvortexSettings() },
         }).catch((error) => new Notice(String(error?.message || error)));
         this.selectTool("tasks");
@@ -3627,7 +3808,7 @@ export function createWorkshopView(leaf, options) {
       }
       // 「EPUB → Markdown」预设:输入应当是 EPUB(目标格式在预设里已预选,选错会在这里拦住)。
       if (this._convertPreset === "epub-md" && !files.some((rel) => /\.epub$/i.test(rel))) {
-        new Notice("EPUB → Markdown 需要 EPUB 文件");
+        new Notice(t("EPUB → Markdown 需要 EPUB 文件"));
         return;
       }
       const format = String(this._convertFormat?.value || "markdown");
@@ -3635,27 +3816,37 @@ export function createWorkshopView(leaf, options) {
       const settings = this.docvortexSettings();
       const formula = this.formulaSettings();
       const parseMode = String(this._convertParse?.value || "local");
+      if (parseMode === "layout" && format !== "pdf") {
+        new Notice(t("保留版式只生成 PDF：请把目标格式选为 PDF。"));
+        return;
+      }
       for (const rel of files) {
-        if (format === "quiz-ai") {
-          const out = convertPath(rel, "AI答题页.html", (candidate) => Boolean(app?.vault?.getAbstractFileByPath?.(candidate)));
+        if (format === "quiz-ai" || format === "quiz-plain") {
+          const plain = format === "quiz-plain";
+          const out = this.convertedOutputPath(rel, plain ? "普通答题页.html" : "AI答题页.html", "quizzes");
           void bridge.start({
             kind: "quiz-llm-export",
-            title: "AI 答题页",
+            title: t(plain ? "普通答题页" : "AI 答题页"),
             detail: rel,
-            payload: { settings: formula, source: rel, out, config: this.aiReadyConfig() },
+            payload: { settings: formula, source: rel, out, plain, config: this.aiReadyConfig() },
           }).catch((error) => new Notice(String(error?.message || error)));
           continue;
         }
-        const out = convertPath(rel, ext, (candidate) => Boolean(app?.vault?.getAbstractFileByPath?.(candidate)));
+        const out = this.convertedOutputPath(rel, ext, this.convertOutputCategory(format, ext));
         const isPdf = /\.pdf$/i.test(rel);
+        if (parseMode === "layout" && !isPdf) {
+          new Notice(t("保留版式只适用于 PDF 源文件：请选择 PDF 文件。"));
+          continue;
+        }
         const useFormula = (parseMode === "mineru" || parseMode === "mineru-local") && isPdf;
         const useText = parseMode === "text" && isPdf;
+        const useLayout = parseMode === "layout" && isPdf;
         const formulaPayload = useFormula ? { ...formula, mineruSource: parseMode === "mineru-local" ? "local" : "" } : formula;
         void bridge.start({
-          kind: useFormula ? "formula-convert" : useText ? "text-convert" : "docvortex-convert",
-          title: useFormula ? "公式文档" : useText ? "文本型文档" : "文档互转",
+          kind: useLayout ? "layout-convert" : useFormula ? "formula-convert" : useText ? "text-convert" : "docvortex-convert",
+          title: useLayout ? t("扫描版式文档") : useFormula ? t("公式文档") : useText ? t("文本型文档") : t("文档互转"),
           detail: rel,
-          payload: { settings: useFormula || useText ? formulaPayload : settings, source: rel, format, out },
+          payload: { settings: useFormula || useText || useLayout ? formulaPayload : settings, source: rel, format, out },
         }).catch((error) => new Notice(String(error?.message || error)));
       }
       this.selectTool("tasks");
@@ -3690,7 +3881,7 @@ export function createWorkshopView(leaf, options) {
       };
       this._saveOutputAdoption();
       if (this._lastState) this.renderTasks(this._lastState);
-      new Notice("这个任务的产物不会再自动导入书库；可在任务行点「恢复自动导入」。");
+      new Notice(t("这个任务的产物不会再自动导入书库；可在任务行点「恢复自动导入」。"));
     }
 
     restoreBookBuildOutput(taskId) {
@@ -3702,7 +3893,7 @@ export function createWorkshopView(leaf, options) {
       };
       this._saveOutputAdoption();
       if (this._lastState) this.renderTasks(this._lastState);
-      new Notice("已恢复这个任务的自动导入。");
+      new Notice(t("已恢复这个任务的自动导入。"));
     }
 
     // 电子书制作完成后,把产物放进当前书库。源文件本来就在书库时 import 只返回
@@ -3742,6 +3933,62 @@ export function createWorkshopView(leaf, options) {
       }
     }
 
+    // 精修列表来自缓存目录里的 polish.json：即使重启、任务历史清空，也能回来继续。
+    async renderPolishRecent() {
+      const host = this._polishRecent;
+      if (!host) return;
+      const api = typeof window === "undefined" ? null : window.qbrDesktop?.polish;
+      if (!api?.list) return;
+      let items = [];
+      try {
+        items = await api.list();
+      } catch {
+        return;
+      }
+      const signature = JSON.stringify(items.map((item) => [item.manifestPath, item.reviewed, item.ignored, item.updatedAt]));
+      if (signature === this._polishRecentSignature) return;
+      this._polishRecentSignature = signature;
+      host.empty();
+      if (!items.length) {
+        host.createDiv({ cls: "qbr-workshop-hint", text: t("生成电子书后，任务列表会出现“精修”；也可以从这里的最近记录继续。") });
+        return;
+      }
+      for (const item of items.slice(0, 5)) {
+        const row = host.createDiv("qbr-polish-recent-row");
+        const text = row.createDiv("qbr-polish-recent-text");
+        text.createEl("b", { text: item.title || t("未命名书稿") });
+        const detail = [
+          t("待确认 {0}", (item.remaining)),
+          item.chapterIssues ? t("编号问题 {0}", (item.chapterIssues)) : "",
+          item.reviewed ? t("已处理 {0}", (item.reviewed)) : "",
+          item.ignored ? t("已忽略 {0}", (item.ignored)) : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        text.createSpan({ text: detail });
+        const open = row.createEl("button", { cls: "qbr-workshop-task-btn", text: t("继续精修") });
+        open.addEventListener("click", () => {
+          void window.qbrOpenPolish?.({ manifestPath: item.manifestPath });
+        });
+        if (api.trash) {
+          const remove = row.createEl("button", { cls: "qbr-workshop-task-btn is-danger", text: t("删除") });
+          remove.addEventListener("click", () => {
+            const name = item.title || t("未命名书稿");
+            const confirmed = typeof window !== "undefined" && window.confirm
+              ? window.confirm(t("删除精修工作区《{0}》？\n\n会删除 polish 目录里的 Markdown、备份和会话，不会删除提取缓存和已经生成的 EPUB。", (name)))
+              : false;
+            if (!confirmed) return;
+            void api.trash(item.manifestPath)
+              .then(() => {
+                this._polishRecentSignature = "";
+                return this.renderPolishRecent();
+              })
+              .catch((error) => new Notice(t("删除失败：{0}", (String(error?.message || error)))));
+          });
+        }
+      }
+    }
+
     // 任务状态由主进程推送:徽标、任务面板与底部任务条一起刷新。
     renderTasks(state, options = {}) {
       const tasks = Array.isArray(state?.tasks) ? state.tasks : [];
@@ -3763,10 +4010,10 @@ export function createWorkshopView(leaf, options) {
       const visibleTasks = tasks.filter((task) => task.kind !== "quiz-export");
       const running = visibleTasks.filter((task) => task.status === "running");
       const queued = visibleTasks.filter((task) => task.status === "queued");
-      if (this._taskBadge) this._taskBadge.setText(running.length ? `${running.length} 运行中` : "");
+      if (this._taskBadge) this._taskBadge.setText(running.length ? t("{0} 运行中", (running.length)) : "");
       if (this._taskList) {
         this._taskList.empty();
-        if (!visibleTasks.length) this._taskList.createDiv({ cls: "qbr-workshop-soon", text: "还没有任务。" });
+        if (!visibleTasks.length) this._taskList.createDiv({ cls: "qbr-workshop-soon", text: t("还没有任务。") });
         for (const task of visibleTasks.slice(0, 20)) this.renderTaskRow(this._taskList, task);
         if (this._focusTaskId) {
           const target = Array.from(this._taskList.querySelectorAll(".qbr-workshop-task"))
@@ -3774,11 +4021,14 @@ export function createWorkshopView(leaf, options) {
           if (target) requestAnimationFrame(() => target.scrollIntoView?.({ block: "center" }));
         }
       }
+      if (this._polishRecent && this._tool === "tasks" && !running.length && !queued.length) {
+        void this.renderPolishRecent();
+      }
       if (this._ocrRecent) {
         this._ocrRecent.empty();
         const recent = tasks.filter((task) => task.kind === "ocr-cache" || task.kind === "ocr-export").slice(0, 3);
         if (recent.length) {
-          this._ocrRecent.createEl("h3", { text: "最近" });
+          this._ocrRecent.createEl("h3", { text: t("最近") });
           for (const task of recent) this.renderTaskRow(this._ocrRecent, task);
         }
       }
@@ -3788,7 +4038,7 @@ export function createWorkshopView(leaf, options) {
           .filter((task) => task.kind === "docvortex-convert" || task.kind === "docvortex-probe" || task.kind === "formula-convert")
           .slice(0, 3);
         if (recent.length) {
-          this._convertRecent.createEl("h3", { text: "最近" });
+          this._convertRecent.createEl("h3", { text: t("最近") });
           for (const task of recent) this.renderTaskRow(this._convertRecent, task);
         }
       }
@@ -3796,29 +4046,29 @@ export function createWorkshopView(leaf, options) {
         const probe = tasks.find((task) => task.kind === "docvortex-probe");
         if (!probe) this._convertStatus.setText("未检测");
         else if (probe.status === "running" || probe.status === "queued") this._convertStatus.setText("检测中…");
-        else if (probe.status === "done") this._convertStatus.setText(`已就绪：${probe.output || "docvortex"}`);
-        else this._convertStatus.setText(`未就绪：${probe.error || "未找到"}`);
+        else if (probe.status === "done") this._convertStatus.setText(t("已就绪：{0}", (probe.output || "docvortex")));
+        else this._convertStatus.setText(t("未就绪：{0}", (probe.error || t("未找到"))));
       }
       if (this._formulaStatus) {
         const probe = tasks.find((task) => task.kind === "formula-probe");
         if (!probe) this._formulaStatus.setText("");
         else if (probe.status === "running" || probe.status === "queued") this._formulaStatus.setText("检测中…");
-        else if (probe.status === "done") this._formulaStatus.setText(`公式链路就绪：${probe.output || "MinerU + DocVortex"}`);
-        else this._formulaStatus.setText(`公式链路不可用：${probe.error || "未就绪"}`);
+        else if (probe.status === "done") this._formulaStatus.setText(t("公式链路就绪：{0}", (probe.output || "MinerU + DocVortex")));
+        else this._formulaStatus.setText(t("公式链路不可用：{0}", (probe.error || t("未就绪"))));
       }
       if (this._bookStatus) {
         const probe = tasks.find((task) => task.kind === "calibre-probe");
         if (!probe) this._bookStatus.setText("未检测");
         else if (probe.status === "running" || probe.status === "queued") this._bookStatus.setText("检测中…");
-        else if (probe.status === "done") this._bookStatus.setText(`已就绪：${probe.output || "ebook-convert"}`);
-        else this._bookStatus.setText(`未就绪：${probe.error || "未找到"}`);
+        else if (probe.status === "done") this._bookStatus.setText(t("已就绪：{0}", (probe.output || "ebook-convert")));
+        else this._bookStatus.setText(t("未就绪：{0}", (probe.error || t("未找到"))));
       }
       if (this._extractStatus) {
         const probe = tasks.find((task) => task.kind === "extract-probe");
         if (!probe) this._extractStatus.setText("未检测");
         else if (probe.status === "running" || probe.status === "queued") this._extractStatus.setText("检测中…");
-        else if (probe.status === "done") this._extractStatus.setText(`已就绪：${probe.output || "pdf_tool + DocVortex"}`);
-        else this._extractStatus.setText(`未就绪：${probe.error || "未找到"}`);
+        else if (probe.status === "done") this._extractStatus.setText(t("已就绪：{0}", (probe.output || "pdf_tool + DocVortex")));
+        else this._extractStatus.setText(t("未就绪：{0}", (probe.error || t("未找到"))));
       }
       if (this._extractRecent) {
         this._extractRecent.empty();
@@ -3826,7 +4076,7 @@ export function createWorkshopView(leaf, options) {
           .filter((task) => task.kind === "extract-pdf" || task.kind === "extract-docvortex")
           .slice(0, 3);
         if (recent.length) {
-          this._extractRecent.createEl("h3", { text: "最近" });
+          this._extractRecent.createEl("h3", { text: t("最近") });
           for (const task of recent) this.renderTaskRow(this._extractRecent, task);
         }
       }
@@ -3837,10 +4087,10 @@ export function createWorkshopView(leaf, options) {
       if (this._bookRecent) {
         this._bookRecent.empty();
         const recent = tasks
-          .filter((task) => task.kind === "ebook-convert" || task.kind === "images-cbz" || task.kind === "book-build")
+          .filter((task) => task.kind === "ebook-convert" || task.kind === "images-cbz" || task.kind === "book-build" || task.kind === "book-polish")
           .slice(0, 3);
         if (recent.length) {
-          this._bookRecent.createEl("h3", { text: "最近" });
+          this._bookRecent.createEl("h3", { text: t("最近") });
           for (const task of recent) this.renderTaskRow(this._bookRecent, task);
         }
       }
@@ -3866,8 +4116,8 @@ export function createWorkshopView(leaf, options) {
       }
       const elapsed = formatElapsed(Date.now() - (Number(active.startedAt) || Number(active.createdAt) || Date.now()));
       this._taskBarMeta.setText(active.status === "running"
-        ? `${total ? `${done}/${total}` : `已用 ${elapsed}`} · 共 ${running.length + queued.length} 个任务`
-        : `排队中 · 共 ${running.length + queued.length} 个任务`);
+        ? `${total ? `${done}/${total}` : t("已用 {0}", (elapsed))} · 共 ${running.length + queued.length} 个任务`
+        : t("排队中 · 共 {0} 个任务", (running.length + queued.length)));
     }
 
     // 运行中的任务每秒刷新一次:秒表与滑动条动起来。只更新底部状态条,
@@ -3885,40 +4135,74 @@ export function createWorkshopView(leaf, options) {
       const row = host.createDiv("qbr-workshop-task");
       row.dataset.taskId = String(task.id || "");
       if (this._focusTaskId && String(task.id || "") === this._focusTaskId) row.addClass("is-focused");
-      row.createSpan({ cls: "qbr-workshop-task-kind", text: WORKSHOP_KIND_LABELS[task.kind] || task.kind });
+      row.createSpan({ cls: "qbr-workshop-task-kind", text: t(WORKSHOP_KIND_LABELS[task.kind] || task.kind) });
       const name = row.createDiv("qbr-workshop-task-name");
-      if (task.origin === "assistant") name.createSpan({ cls: "qbr-workshop-task-origin", text: "AI 提交" });
-      name.createEl("b", { text: task.title || task.kind });
-      if (task.detail) name.createSpan({ cls: "qbr-workshop-task-detail", text: ` · ${task.detail}` });
+      if (task.origin === "assistant") name.createSpan({ cls: "qbr-workshop-task-origin", text: t("AI 提交") });
+      name.createEl("b", { text: t(task.title || task.kind) });
+      if (task.detail) name.createSpan({ cls: "qbr-workshop-task-detail", text: ` · ${t(task.detail)}` });
       const total = Number(task.total) || 0;
       const done = Number(task.done) || 0;
       const track = row.createDiv("qbr-workshop-task-track");
       const fill = track.createDiv("qbr-workshop-task-fill");
       if (task.status === "running" && !total) fill.addClass("is-indeterminate");
       else fill.style.width = total ? `${Math.round((done / total) * 100)}%` : "0%";
-      row.createSpan({ cls: `qbr-workshop-task-state is-${task.status}`, text: workshopTaskState(task) });
+      row.createSpan({ cls: `qbr-workshop-task-state is-${task.status}`, text: workshopTaskState(task, Date.now(), t) });
       const actions = row.createDiv("qbr-workshop-task-actions");
       if (task.status === "running" || task.status === "queued") {
-        const cancel = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "取消" });
+        const cancel = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: t("取消") });
         cancel.addEventListener("click", () => { void bridge?.cancel?.(task.id).catch(() => {}); });
       }
       if (task.status === "failed" || task.status === "cancelled") {
-        const retry = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "重试" });
+        const retry = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: t("重试") });
         retry.addEventListener("click", () => { void bridge?.retry?.(task.id).catch(() => {}); });
       }
+      if (["done", "failed", "cancelled"].includes(task.status)) {
+        const remove = actions.createEl("button", { cls: "qbr-workshop-task-btn is-danger", text: t("删除") });
+        remove.addEventListener("click", () => {
+          const confirmed = typeof window !== "undefined" && window.confirm
+            ? window.confirm(t("删除任务“{0}”？\n\n只删除任务记录，不会删除已经生成的文件。", (task.title || task.kind)))
+            : false;
+          if (!confirmed) return;
+          void bridge?.remove?.(task.id)
+            .then((state) => { if (state) this.renderTasks(state); })
+            .catch((error) => new Notice(t("删除失败：{0}", (String(error?.message || error)))));
+        });
+      }
       if (task.kind === "book-preview" && task.status === "done" && task.result?.previewHtml) {
-        const preview = actions.createEl("button", { cls: "qbr-workshop-task-btn mod-cta", text: "查看试译" });
+        const preview = actions.createEl("button", { cls: "qbr-workshop-task-btn mod-cta", text: t("查看试译") });
         preview.addEventListener("click", () => this.openBookPreview(task.result));
       }
       if (task.kind === "book-build" && task.status === "done" && task.output) {
         const ignored = (this._outputAdoption?.ignored || []).includes(String(task.id || ""));
         if (ignored) {
-          const restore = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "恢复自动导入" });
+          const restore = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: t("恢复自动导入") });
           restore.addEventListener("click", () => this.restoreBookBuildOutput(task.id));
         } else {
-          const ignore = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "忽略自动导入" });
+          const ignore = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: t("忽略自动导入") });
           ignore.addEventListener("click", () => this.ignoreBookBuildOutput(task.id));
         }
+      }
+      const polish = task.status === "done" ? task.result?.polish : null;
+      if (polish?.path) {
+        if (task.kind === "book-build") {
+          const audit = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: t("检查结构") });
+          audit.addEventListener("click", () => {
+            void bridge?.start?.({
+              kind: "book-polish",
+              title: t("精修结构检查"),
+              detail: task.title || "",
+              notify: false,
+              payload: { phase: "audit", manifestPath: polish.path },
+            }).then(() => this.selectTool("tasks")).catch((error) => new Notice(String(error?.message || error)));
+          });
+        }
+        const polishButton = actions.createEl("button", {
+          cls: "qbr-workshop-task-btn mod-cta",
+          text: task.kind === "book-polish" ? t("继续精修") : t("精修"),
+        });
+        polishButton.addEventListener("click", () => {
+          void window.qbrOpenPolish?.({ manifestPath: polish.path });
+        });
       }
       if (task.status === "done" && /[\\/]/.test(String(task.output || ""))) {
         const libraryOutput = this._bookLibraryOutputs?.get(task.id) || "";
@@ -3926,7 +4210,7 @@ export function createWorkshopView(leaf, options) {
         const isQuizPage = (task.kind === "quiz-llm-export" || task.kind === "quiz-export") && /\.html?$/i.test(target);
         const open = actions.createEl("button", {
           cls: "qbr-workshop-task-btn",
-          text: isQuizPage ? "打开答题页" : "打开产物",
+          text: isQuizPage ? t("打开答题页") : t("打开产物"),
         });
         open.addEventListener("click", () => {
           const isBook = /\.(epub|pdf|fb2|fbz|mobi|azw|azw3|cbz)$/i.test(target);
@@ -3934,10 +4218,10 @@ export function createWorkshopView(leaf, options) {
           else if (isBook && window.qbrDesktop?.openBookPath) void window.qbrDesktop.openBookPath(target);
           else void window.qbrDesktop?.openPath?.(target);
         });
-        const reveal = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: "在文件夹中显示" });
+        const reveal = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: t("在文件夹中显示") });
         reveal.addEventListener("click", () => { void window.qbrDesktop?.showItemInFolder?.(target); });
         row.createDiv({ cls: "qbr-workshop-task-output", text: target });
-      } else if (task.error) row.createDiv({ cls: "qbr-workshop-task-error", text: task.error });
+      } else if (task.error) row.createDiv({ cls: "qbr-workshop-task-error", text: t(task.error) });
       else if (task.output) row.createDiv({ cls: "qbr-workshop-task-output", text: task.output });
     }
   }

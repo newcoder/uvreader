@@ -53,7 +53,7 @@ test("a note panel renders the file when its state arrives and on every reopen",
       modify: async (file, value) => { texts[file.path] = value; },
     },
   };
-  const { createNoteView } = vm.runInNewContext(`${factory}\n({ createNoteView })`, { ItemView, setTimeout, clearTimeout });
+  const { createNoteView } = vm.runInNewContext(`${factory}\n({ createNoteView })`, { ItemView, setTimeout, clearTimeout, renderMathIn: () => {} });
   const view = createNoteView({}, { app, renderMarkdown: (text) => `<p>${text}</p>` });
   await view.setState({ path: "notes/a.md" });
   assert.match(view.contentEl.textContent, /正文 a/);
@@ -79,7 +79,7 @@ test("the note editor saves and returns to a fresh preview", async () => {
       modify: async (_file, value) => { texts[file.path] = value; },
     },
   };
-  const { createNoteView } = vm.runInNewContext(`${factory}\n({ createNoteView })`, { ItemView, setTimeout, clearTimeout });
+  const { createNoteView } = vm.runInNewContext(`${factory}\n({ createNoteView })`, { ItemView, setTimeout, clearTimeout, renderMathIn: () => {} });
   const view = createNoteView({}, { app, renderMarkdown: (text) => `<p>${text}</p>`, leaf: { detach() {} } });
   view.leaf = { detach() {} };
   await view.setState({ path: file.path });

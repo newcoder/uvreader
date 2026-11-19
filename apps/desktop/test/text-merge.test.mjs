@@ -93,6 +93,33 @@ test("mergeParagraph bails out instead of guessing", () => {
   assert.equal(merged, null, "定位不上就返回 null，调用方保留 MinerU 原文");
 });
 
+test("code option blocks use the text layer instead of MinerU formula OCR", () => {
+  const pages = [[
+    "40. ②处应填（ ）",
+    "A.",
+    "i == 0 || cmp(A[i], A[i - 1])",
+    "B.",
+    "t == 0 || equals(A[i], A[t - 1])",
+    "C.",
+    "i == 0 || !cmp(A[i], A[i - 1])",
+    "D.",
+    "t == 0 || !equals(A[i], A[t - 1])",
+    "41. ③处应填（ ）",
+    "A. b - (b - a) / 2 + 1",
+  ].join("\n")];
+  const blocks = [{
+    id: "p12-b3",
+    type: "text",
+    page: 1,
+    text: "40.②处应填（ ）A. $\\mathrm{i} \\equiv \\mathrm{o} \\quad \\mathrm{|} \\quad \\mathrm{comp}(\\mathrm{A[i]}, \\mathrm{A[i-1]})$ B. $\\mathbf{t} = \\mathbf{\\theta} \\mid \\mid \\mathsf{equal}$",
+  }];
+  const merged = mergeBlocksWithTextLayer(blocks, pages, { log: () => {} });
+  assert.match(merged[0].text, /i == 0 \|\| cmp\(A\[i\], A\[i - 1\]\)/);
+  assert.match(merged[0].text, /t == 0 \|\| !equals\(A\[i\], A\[t - 1\]\)/);
+  assert.doesNotMatch(merged[0].text, /\\mathrm|\bmid\b|\\theta/);
+  assert.doesNotMatch(merged[0].text, /41\./, "stop at the next question number");
+});
+
 test("mergeBlocksWithTextLayer merges prose blocks, captions and mislabelled code blocks", () => {
   const pages = [
     "The wafer was cleaned first. In the experiments, the wafer was spun at the speed of 3000 rpm for 30 s to promote adhesion.\nFig. 1. A picture.",

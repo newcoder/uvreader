@@ -249,6 +249,18 @@ export function createWorkshopQueue({ file = "", onState = () => {}, onFinished 
     return start({ kind: task.kind, title: task.title, detail: task.detail, bookPath: task.bookPath, source: task.source, payload: task.payload, notify: task.notify, origin: task.origin });
   }
 
+  function remove(id) {
+    const task = byId.get(String(id || ""));
+    if (!task || !TERMINAL.has(task.status)) return false;
+    byId.delete(task.id);
+    const index = tasks.indexOf(task);
+    if (index >= 0) tasks.splice(index, 1);
+    const queuedIndex = queue.indexOf(task.id);
+    if (queuedIndex >= 0) queue.splice(queuedIndex, 1);
+    emit();
+    return true;
+  }
+
   function clearHistory() {
     for (let i = tasks.length - 1; i >= 0; i -= 1) {
       if (!TERMINAL.has(tasks[i].status)) continue;
@@ -264,6 +276,7 @@ export function createWorkshopQueue({ file = "", onState = () => {}, onFinished 
     start,
     cancel,
     retry,
+    remove,
     snapshot,
     register,
     hasRunner,

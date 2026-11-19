@@ -7,7 +7,9 @@ import path from "node:path";
 import temml from "temml";
 
 import { QUIZ_LLM_PROMPT } from "../../../../packages/reader/src/quiz-llm-prompt.js";
-import { extractQuizManifest, quizLayoutStyle, quizManifestGuardScript, quizManifestScript, validateQuizManifest } from "../../../../packages/reader/src/quiz-manifest.js";
+import { QUIZ_LLM_PLAIN_PROMPT } from "../../../../packages/reader/src/quiz-llm-prompt-plain.js";
+import { extractQuizManifest, plainQuizManifest, quizLayoutStyle, quizManifestGuardScript, quizManifestScript, repairQuizManifestFromHtml, validateQuizManifest } from "../../../../packages/reader/src/quiz-manifest.js";
+import { cleanTemmlErrors } from "../shared/quiz-html.js";
 
 const IMAGE_MIME = {
   png: "image/png",
@@ -19,8 +21,9 @@ const IMAGE_MIME = {
   svg: "image/svg+xml",
 };
 
-export function buildQuizLlmPrompt(markdown) {
-  return QUIZ_LLM_PROMPT.replace("{{MARKDOWN}}", () => String(markdown || ""));
+export function buildQuizLlmPrompt(markdown, { plain = false } = {}) {
+  const template = plain ? QUIZ_LLM_PLAIN_PROMPT : QUIZ_LLM_PROMPT;
+  return template.replace("{{MARKDOWN}}", () => String(markdown || ""));
 }
 
 export function extractQuizLlmHtml(raw) {
@@ -29,9 +32,17 @@ export function extractQuizLlmHtml(raw) {
   if (fence) value = fence[1].trim();
   const start = value.search(/<!doctype\s+html/i);
   const html = start >= 0 ? value.slice(start) : value;
-  const end = html.search(/<\/html\s*>/i);
-  if (end >= 0) return `${html.slice(0, end + "</html>".length)}\n`;
-  return html;
+  const closes = [...html.matchAll(/<\/html\s*>/gi)];
+  if (!closes.length) return html;
+  const last = closes[closes.length - 1];
+  const end = last.index + last[0].length;
+  let page = html.slice(0, end);
+  // Models sometimes append the structured manifest after </html> instead of
+  // placing it in <head>. Keep that trailing script instead of dropping it.
+  const tail = html.slice(end);
+  const trailingManifest = /<script\b[^>]*\bid\s*=\s*(["'])quiz-manifest\1[^>]*>[\s\S]*?<\/script\s*>/i.exec(tail);
+  if (trailingManifest) page += `\n${trailingManifest[0]}`;
+  return `${page}\n`;
 }
 
 function escapeHtml(value) {
@@ -73,18 +84,127 @@ function formatCode(code) {
 
 function renderMath(latex, displayMode, stats) {
   try {
-    return temml.renderToString(unescapeHtml(latex), { displayMode, throwOnError: false });
+    const html = temml.renderToString(unescapeHtml(latex), { displayMode, throwOnError: true });
+    if (!html || /\btemml-error\b/i.test(html)) {
+      stats.mathFailed += 1;
+      return "";
+    }
+    return html;
   } catch {
     stats.mathFailed += 1;
     return "";
   }
 }
 
+const MATH_CJK = /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/;
+
+function mathTextFallback(latex) {
+  // A malformed source often pairs dollars around prose ("... ABCD$ 中, $P A").
+  // Drop the stray delimiters so the reader sees readable text, not markup.
+  return String(latex).replace(/\$/g, "");
+}
+
+function looksLikeMath(latex) {
+  const value = String(latex || "");
+  // A stray dollar inside a matched run means the source has mismatched
+  // delimiters; rendering it as math would only produce a red parse error.
+  if (value.includes("$")) return false;
+  // CJK prose between dollars is not math unless the model wrapped it in
+  // \text{...}. This catches "中," fragments left by broken delimiters.
+  if (MATH_CJK.test(value) && !/\\[a-zA-Z]*(?:text|mathrm|operatorname)/.test(value)) return false;
+  return true;
+}
+
+function normalizeIsotope(text) {
+  // OCR often writes an isotope as ^{90}39Y instead of ^{90}_{39}Y. Restrict
+  // this to the common mass-number + atomic-number + element shape so normal
+  // superscripts (x^2 y) are left alone.
+  let value = String(text || "").replace(
+    /\^\s*\{\s*(\d{1,3})\s*\}\s*(\d{1,3})\s*(?:\\mathrm\s*\{\s*([A-Za-z]{1,2})\s*\}|([A-Za-z]{1,2}))/g,
+    (full, mass, atomic, wrapped, bare) => `^{${mass}}_{${atomic}}${wrapped ? `\\mathrm{${wrapped}}` : (bare || "")}`,
+  );
+  // "90 (^{90}_{39}Y)" is a duplicated mass number from OCR. The notation
+  // inside the parentheses already carries it.
+  value = value.replace(/\b\d{1,3}\s*\(\s*(\^\{\d{1,3}\}_\{\d{1,3}\}[A-Za-z]{1,2})\s*\)/g, "$1");
+  return value;
+}
+
+function normalizeRawMath(value) {
+  let text = unescapeHtml(value);
+  text = text.replace(/\\begin\{[^}]+\}|\\end\{[^}]+\}/g, " ");
+  text = text.replace(/\\[ ,;:!]/g, " ");
+  text = text.replace(/([\^_])\s*\{\s*([^{}]*?)\s*\}/g, (full, op, content) => `${op}{${content.replace(/\s+/g, "")}}`);
+  text = text.replace(/([\^_])\s*([A-Za-z0-9])/g, "$1{$2}");
+  // OCR often puts spaces between the digits of an isotope's atomic number.
+  text = text.replace(/(\^\s*\{\s*\d+\s*\}\s*)((?:\d\s*)+)/g, (full, prefix, digits) => `${prefix}${digits.replace(/\s+/g, "")}`);
+  text = normalizeIsotope(text);
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function fallbackRawMath(value) {
+  let text = unescapeHtml(value);
+  text = text.replace(/\\begin\{[^}]+\}|\\end\{[^}]+\}/g, " ");
+  text = normalizeIsotope(text);
+  text = text.replace(/\\mathrm\s*\{\s*([^{}]*?)\s*\}/g, "$1");
+  text = text.replace(/\\text\s*\{\s*([^{}]*?)\s*\}/g, "$1");
+  text = text.replace(/\\operatorname\s*\{\s*([^{}]*?)\s*\}/g, "$1");
+  text = text
+    .replace(/\\rightarrow\b|\\to\b/g, "→")
+    .replace(/\\leftarrow\b/g, "←")
+    .replace(/\\times\b/g, "×")
+    .replace(/\\cdot\b/g, "·")
+    .replace(/\\pm\b/g, "±")
+    .replace(/\\(?:le|leq)\b/g, "≤")
+    .replace(/\\(?:ge|geq)\b/g, "≥")
+    .replace(/\\(?:ne|neq)\b/g, "≠")
+    .replace(/\\approx\b/g, "≈")
+    .replace(/\\infty\b/g, "∞");
+  text = text.replace(/\\[a-zA-Z]+\s*/g, " ");
+  text = text.replace(/\\[ ,;:!]/g, " ");
+  const tokens = [];
+  const stash = (html) => {
+    const token = `%%QBR_MATH_${tokens.length}%%`;
+    tokens.push(html);
+    return token;
+  };
+  text = text.replace(/\^\s*\{\s*([^{}]*?)\s*\}/g, (full, content) => stash(`<sup>${escapeHtml(content.replace(/\s+/g, ""))}</sup>`));
+  text = text.replace(/_\s*\{\s*([^{}]*?)\s*\}/g, (full, content) => stash(`<sub>${escapeHtml(content.replace(/\s+/g, ""))}</sub>`));
+  text = text.replace(/\^\s*([A-Za-z0-9+\-])/g, (full, content) => stash(`<sup>${escapeHtml(content)}</sup>`));
+  text = text.replace(/_\s*([A-Za-z0-9+\-])/g, (full, content) => stash(`<sub>${escapeHtml(content)}</sub>`));
+  text = escapeHtml(text.replace(/[{}]/g, ""));
+  for (let index = 0; index < tokens.length; index += 1) {
+    text = text.replace(`%%QBR_MATH_${index}%%`, tokens[index]);
+  }
+  return text;
+}
+
+function repairMtextMath(html, stats) {
+  return String(html || "").replace(/<math\b([^>]*)>([\s\S]*?)<\/math>/gi, (full, attrs, inner) => {
+    const mtext = /^<mtext\b[^>]*>([\s\S]*?)<\/mtext>$/i.exec(String(inner || "").trim());
+    if (!mtext) return full;
+    const raw = unescapeHtml(mtext[1]);
+    // A real <mtext> is just text; only repair blocks that still contain
+    // LaTeX-like syntax copied from a failed OCR/formula pass.
+    if (!/[\\^_{}]/.test(raw)) return full;
+    const display = /display\s*=\s*["']block["']/i.test(attrs);
+    const rendered = renderMath(normalizeRawMath(raw), display, stats);
+    stats.mathRepaired += 1;
+    if (rendered) return rendered;
+    stats.mathFallback += 1;
+    const fallback = fallbackRawMath(raw);
+    return display
+      ? `<div class="qbr-math-fallback" style="text-align:center">${fallback}</div>`
+      : `<span class="qbr-math-fallback">${fallback}</span>`;
+  });
+}
+
 function mathInText(text, stats) {
   const re = /\$\$([\s\S]+?)\$\$|\$([^$\n]+?)\$|\\\(([\s\S]+?)\\\)|\\\[([\s\S]+?)\\\]/g;
   return text.replace(re, (full, display, inline, paren, bracket) => {
-    const latex = String(display ?? inline ?? paren ?? bracket ?? "").trim();
+    const raw = String(display ?? inline ?? paren ?? bracket ?? "");
+    const latex = raw.trim();
     if (!latex) return full;
+    if (!looksLikeMath(latex)) return mathTextFallback(raw);
     const math = renderMath(latex, Boolean(display || bracket), stats);
     if (!math) return full;
     stats.math += 1;
@@ -308,6 +428,26 @@ function enhanceQuizUi(html) {
   return output;
 }
 
+function addOptionValues(html, stats) {
+  let count = 0;
+  const output = String(html || "").replace(/<input\b([^>]*)>/gi, (tag, attrs) => {
+    const data = /(?:^|\s)data-value\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attrs);
+    if (!data) return tag;
+    const value = data[1] ?? data[2] ?? data[3] ?? "";
+    const current = /(?:^|\s)value\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attrs);
+    const currentValue = current ? (current[1] ?? current[2] ?? current[3] ?? "") : "";
+    if (currentValue === value) return tag;
+    const selfClosing = /\/\s*$/.test(attrs);
+    const body = attrs
+      .replace(/\/\s*$/, "")
+      .replace(/\s+value\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/i, "");
+    count += 1;
+    return `<input${body} value="${escapeHtml(value)}"${selfClosing ? " /" : ""}>`;
+  });
+  stats.optionValues = (stats.optionValues || 0) + count;
+  return output;
+}
+
 function addMissingElements(html, stats) {
   const ids = [...html.matchAll(/getElementById\(\s*['"]([^'"]+)['"]\s*\)/g)].map((match) => match[1]);
   let output = html;
@@ -321,10 +461,76 @@ function addMissingElements(html, stats) {
   return output;
 }
 
-export function postprocessQuizLlmHtml(html, { baseDir = "", dropImages = [] } = {}) {
+const ANSWER_CLASS_TOKEN = /^(?:solution|analysis|explanation|q-explain|answer|answer-block|answer-content|answer-panel|answer-line|quiz-answer|correct-answer)$/i;
+const ANSWER_DATA = /\bdata-(?:quiz-)?(?:correct-)?answer(?:-for)?\b|\bdata-source\s*=\s*["']generated["']/i;
+const VOID_TAG = /^(?:area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)$/i;
+
+function isAnswerAttrs(attrs) {
+  const classMatch = /\bclass\s*=\s*("([^"]*)"|'([^']*)')/i.exec(attrs);
+  const className = classMatch ? (classMatch[2] ?? classMatch[3] ?? "") : "";
+  if (className.split(/\s+/).some((token) => token && ANSWER_CLASS_TOKEN.test(token))) return true;
+  return ANSWER_DATA.test(attrs);
+}
+
+function removeAnswerElements(html) {
+  // A plain page must not leave a half-removed answer block behind. Walk tags
+  // with a depth counter so nested <div> wrappers disappear with their parent.
+  const tagRe = /<!--[\s\S]*?-->|<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>|<\/?([a-zA-Z][\w:-]*)\b[^>]*>/gi;
+  const ranges = [];
+  let match;
+  while ((match = tagRe.exec(html))) {
+    if (match[1]) continue;
+    const name = String(match[2] || "").toLowerCase();
+    if (!name || match[0].startsWith("</") || VOID_TAG.test(name)) continue;
+    const attrs = match[0].slice(1 + name.length, -1);
+    if (!isAnswerAttrs(attrs)) continue;
+    let depth = 1;
+    let end = -1;
+    const innerRe = new RegExp(`<\\/?${name}\\b[^>]*>`, "gi");
+    innerRe.lastIndex = tagRe.lastIndex;
+    let inner;
+    while ((inner = innerRe.exec(html))) {
+      if (/^<\//.test(inner[0])) {
+        depth -= 1;
+        if (depth === 0) {
+          end = inner.index + inner[0].length;
+          break;
+        }
+      } else if (!/\/\s*>$/.test(inner[0])) {
+        depth += 1;
+      }
+    }
+    if (end < 0) continue;
+    ranges.push([match.index, end]);
+    tagRe.lastIndex = end;
+  }
+  let output = html;
+  for (const [start, end] of ranges.reverse()) output = `${output.slice(0, start)}${output.slice(end)}`;
+  return output;
+}
+
+function stripPlainAnswers(html, stats) {
+  const before = String(html || "");
+  let output = removeAnswerElements(before);
+  output = output.replace(/\sdata-(?:quiz-)?(?:correct-)?answer(?:-for)?\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+  output = output.replace(/\sdata-correct\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+  output = output.replace(/\bclass\s*=\s*("([^"]*)"|'([^']*)')/gi, (full, quoted, doubleQuoted, singleQuoted) => {
+    const value = doubleQuoted ?? singleQuoted ?? "";
+    const cleaned = value.split(/\s+/)
+      .filter((token) => token && !/^(?:correct|right|wrong|answer|solution|analysis)$/i.test(token))
+      .join(" ");
+    return cleaned ? `class="${cleaned}"` : "";
+  });
+  stats.answersRemoved = Math.max(0, before.length - output.length);
+  return output;
+}
+
+export function postprocessQuizLlmHtml(html, { baseDir = "", dropImages = [], plain = false } = {}) {
   const stats = {
     math: 0,
     mathFailed: 0,
+    mathRepaired: 0,
+    mathFallback: 0,
     code: 0,
     codeSkipped: 0,
     generatedHidden: 0,
@@ -334,17 +540,36 @@ export function postprocessQuizLlmHtml(html, { baseDir = "", dropImages = [] } =
     imagesMissing: 0,
     blankSymbols: 0,
     inlineSolutions: 0,
+    answersRemoved: 0,
+    manifestRepaired: 0,
+    optionValues: 0,
   };
   let output = String(html || "");
-  const manifest = extractQuizManifest(output);
+  let manifest = extractQuizManifest(output);
+  if (plain) {
+    output = stripPlainAnswers(output, stats);
+    manifest = plainQuizManifest(manifest);
+  }
+  output = repairMtextMath(output, stats);
   output = convertMathOutsideProtectedTags(output, stats);
+  output = cleanTemmlErrors(output);
   output = formatCodeBlocks(output, stats);
   output = decorateBlanks(output, stats);
+  output = addOptionValues(output, stats);
   output = addMissingElements(output, stats);
-  output = liftInlineSolutions(output, stats);
-  output = hideGenerated(output, stats);
+  if (!plain) {
+    output = liftInlineSolutions(output, stats);
+    output = hideGenerated(output, stats);
+  }
   output = enhanceQuizUi(output);
   output = inlineImages(output, { baseDir, dropImages }, stats);
+  // Some models leave the first manifest entries empty even though the page
+  // cards contain the stem and options. Recover those fields from the rendered
+  // HTML before validating; this keeps a complete page from being discarded.
+  if (manifest) {
+    const repair = repairQuizManifestFromHtml(manifest, output);
+    stats.manifestRepaired = repair.repaired;
+  }
   // Keep the manifest byte-for-byte semantic after the HTML transforms above;
   // formatCodeBlocks/inlineImages must not rewrite JSON stored in the page.
   if (manifest) {
@@ -357,11 +582,33 @@ export function postprocessQuizLlmHtml(html, { baseDir = "", dropImages = [] } =
       : `${quizManifestScript(manifest)}${withoutManifest}`;
   }
   const validation = manifest
-    ? validateQuizManifest(manifest, { html: output, checkHtml: true, allowMissingAnswers: true })
+    ? validateQuizManifest(manifest, {
+      html: output,
+      checkHtml: true,
+      checkContent: true,
+      allowMissingAnswers: true,
+      requireAnswers: !plain,
+    })
     : { ok: false, errors: ["quiz-manifest is missing"] };
   stats.manifest = Boolean(manifest);
+  stats.manifestQuestions = Array.isArray(manifest?.questions) ? manifest.questions.length : 0;
   stats.manifestErrors = validation.errors;
+  stats.manifestContentErrors = validation.contentErrors || [];
   stats.manifestWarnings = validation.warnings || [];
+  stats.manifestGrading = plain ? "ai" : "local";
+  if (plain) {
+    const plainStyle = `<style data-qbr-plain>
+[data-qbr-grading="ai"] .solution,
+[data-qbr-grading="ai"] .analysis,
+[data-qbr-grading="ai"] .q-explain,
+[data-qbr-grading="ai"] [data-source="generated"],
+[data-qbr-grading="ai"] [data-quiz-answer] { display: none !important; }
+</style>`;
+    output = /<\/head>/i.test(output) ? output.replace(/<\/head>/i, `${plainStyle}</head>`) : `${plainStyle}${output}`;
+    output = /<body\b/i.test(output)
+      ? output.replace(/<body\b([^>]*)>/i, (tag, attrs) => `<body${/\bdata-qbr-grading\s*=/.test(attrs) ? attrs : `${attrs} data-qbr-grading="ai"`}>`)
+      : output.replace(/<html\b([^>]*)>/i, (tag, attrs) => `<html${attrs} data-qbr-grading="ai">`);
+  }
   if (!/data-qbr-quiz-layout/i.test(output)) {
     const layout = quizLayoutStyle();
     output = /<\/head>/i.test(output) ? output.replace(/<\/head>/i, `${layout}</head>`) : `${layout}${output}`;

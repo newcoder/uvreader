@@ -43,7 +43,7 @@ export function createAiStreamingMarkdownRendererFactory({
       element.empty();
       try {
         await MarkdownRenderer.render(owner.app, snapshot, element, sourcePath, component);
-        if (!disposed) enhanceAiMarkdown(element);
+        if (!disposed) enhanceAiMarkdown(element, owner);
       } catch (error) {
         console.error("UV Reader: streaming Markdown rendering failed", error);
         if (!disposed) {

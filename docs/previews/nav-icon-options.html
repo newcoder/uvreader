@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>一级导航图标候选 · 无文字图标态</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 28px 32px 40px; background: #f8f6f0; color: #24231f;
+         font: 14px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  h1 { font-size: 18px; margin: 0 0 6px; letter-spacing: -0.02em; }
+  h2 { font-size: 15px; margin: 30px 0 12px; }
+  .lead { color: #746f66; font-size: 12px; margin: 0 0 18px; }
+  .rail-demo { display: flex; gap: 18px; align-items: flex-start; margin: 14px 0 26px; }
+  .rail { width: 58px; padding: 14px 6px; border: 1px solid #ddd6c8; border-radius: 12px;
+          background: #efebe2; display: flex; flex-direction: column; gap: 6px; align-items: center; }
+  .rail button { width: 44px; height: 38px; border: 0; border-radius: 9px; background: transparent;
+                 color: #6f6a60; display: grid; place-items: center; }
+  .rail button.active { background: #fff; color: #24231f; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+  .rail svg { width: 19px; height: 19px; }
+  .rail-label { color: #746f66; font-size: 11px; text-align: center; width: 58px; }
+  .set { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+  .set-name { color: #4f6758; font-size: 11px; font-weight: 650; text-align: center; }
+  .row { display: flex; gap: 14px; flex-wrap: wrap; }
+  .card { width: 210px; padding: 14px; border: 1px solid #ddd6c8; border-radius: 12px; background: #fff; }
+  .card.recommended { border-color: #4f6758; box-shadow: inset 0 0 0 1px #4f6758; }
+  .card .name { font-weight: 650; }
+  .card .en { color: #746f66; font-size: 11px; margin-top: 1px; }
+  .sizes { display: flex; align-items: flex-end; gap: 16px; margin: 14px 2px 10px; color: #3d3a34; }
+  .sizes svg { display: block; }
+  .sizes .s19 svg { width: 19px; height: 19px; }
+  .sizes .s24 svg { width: 24px; height: 24px; }
+  .sizes .s32 svg { width: 32px; height: 32px; }
+  .sizes .s48 svg { width: 48px; height: 48px; }
+  .note { color: #746f66; font-size: 11px; min-height: 32px; }
+  .tag { display: inline-block; margin-top: 8px; padding: 2px 7px; border-radius: 99px; background: #edf2ed;
+         color: #4f6758; font-size: 10.5px; }
+  .section { margin-bottom: 22px; }
+</style>
+</head>
+<body>
+  <h1>一级图标：无文字图标态候选</h1>
+  <p class="lead">左侧导航现在是 58px 纯图标。下面每个候选同时给出 19px（实际大小）、24px、32px、48px。重点看 19px 能不能一眼认出来。</p>
+
+  <h2>图标态导航模拟</h2>
+  <div class="rail-demo">
+    <div class="rail">
+      <button class="active" title="悦空间"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8.6C10.4 7.2 8.3 6.4 6.1 6.4H4.2v11.2h1.9c2.2 0 4.3.8 5.9 2.1 1.6-1.3 3.7-2.1 5.9-2.1h1.9V6.4h-1.9c-2.2 0-4.3.8-5.9 2.2Z"/><path d="M12 8.6v11.1"/><path d="M18.9 2.2l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" fill="currentColor" stroke="none"/></svg></button>
+      <button title="书库"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4.3" y="4.6" width="3.3" height="14.8" rx="0.8"/><rect x="9.3" y="4.6" width="3.3" height="14.8" rx="0.8"/><path d="M15.1 5.5l3.2.85-3.75 14.2-3.2-.85z"/></svg></button>
+      <button title="书坊"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 10.2C9.6 9 7.8 8.3 5.9 8.3H4.2v9.4h1.7c1.9 0 3.7.7 5.1 1.9 1.4-1.2 3.2-1.9 5.1-1.9h1.7V8.3h-1.7c-1.9 0-3.7.7-5.1 1.9Z"/><path d="M11 10.2v9.3"/><path d="M13.4 20.2l5.6-5.6"/><path d="M20.9 9.1l.65 1.65 1.65.65-1.65.65-.65 1.65-.65-1.65-1.65-.65 1.65-.65z" fill="currentColor" stroke="none"/></svg></button>
+    </div>
+    <div class="rail-label">当前图标<br>（书+星 / 三本书 / 书+魔杖）</div>
+  </div>
+
+  <h2>推荐组合（实际 19px）</h2>
+  <div class="rail-demo">
+    <div class="set">
+      <div class="rail">
+        <button class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h3.2l1.7 1.8h8.1A2.5 2.5 0 0 1 21 9.3v8.2a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/><path d="M12 11.2c-1-.8-2.2-1.2-3.4-1.2H8v5.5h.6c1.2 0 2.4.4 3.4 1.2 1-.8 2.2-1.2 3.4-1.2h.6V10h-.6c-1.2 0-2.4.4-3.4 1.2Z"/><path d="M12 11.2V17"/></svg></button>
+        <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4.2" y="3.8" width="15.6" height="16.4" rx="1.4"/><path d="M4.2 9.3h15.6M4.2 14.7h15.6"/><path d="M7.4 6v3.3M10.6 5.6v3.7M13.8 6v3.3"/><path d="M7.4 11.4v3.3M10.6 11v3.7M13.8 11.4v3.3"/></svg></button>
+        <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.8 12.4C9.6 11.3 8 10.7 6.4 10.7H4.8v8h1.6c1.6 0 3.2.6 4.4 1.7 1.2-1.1 2.8-1.7 4.4-1.7h1.6v-8h-1.6c-1.6 0-3.2.6-4.4 1.7Z"/><path d="M10.8 12.4v8"/><path d="M14.2 9.8 20.5 3.5"/><path d="M15.2 2.8h4.2a1 1 0 0 1 1 1v2.2a1 1 0 0 1-1 1h-4.2z"/></svg></button>
+      </div>
+      <div class="set-name">一 · 语义优先<br>文件夹 / 书架 / 工具书</div>
+    </div>
+    <div class="set">
+      <div class="rail">
+        <button class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3"/><path d="M3 16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v2H7v-2a2 2 0 0 0-4 0Z"/><path d="M5 18v2M19 18v2"/></svg></button>
+        <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M4 9h16"/><path d="M4 9 12 3l8 6"/><path d="M6 9v12M10 9v12M14 9v12M18 9v12"/><path d="M8 21v-5h8v5"/></svg></button>
+        <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.8 13.1C8.7 12.1 7.3 11.5 5.9 11.5H4.5v7.3h1.4c1.4 0 2.8.6 3.9 1.6 1.1-1 2.5-1.6 3.9-1.6h1.4v-7.3h-1.4c-1.4 0-2.8.6-3.9 1.6Z"/><path d="M9.8 13.1v7.2"/><circle cx="17.6" cy="6.3" r="2"/><path d="M17.6 3.3v1.1M17.6 8.2v1.1M14.6 6.3h1.1M19.5 6.3h1.1M15.5 4.2l.8.8M18.9 7.6l.8.8M15.5 8.4l.8-.8M18.9 5l.8-.8"/></svg></button>
+      </div>
+      <div class="set-name">二 · 易读优先<br>扶手椅 / 图书馆 / 齿轮书</div>
+    </div>
+    <div class="set">
+      <div class="rail">
+        <button class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8.6C10.4 7.2 8.3 6.4 6.1 6.4H4.2v11.2h1.9c2.2 0 4.3.8 5.9 2.1 1.6-1.3 3.7-2.1 5.9-2.1h1.9V6.4h-1.9c-2.2 0-4.3.8-5.9 2.2Z"/><path d="M12 8.6v11.1"/><path d="M18.9 2.2l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" fill="currentColor" stroke="none"/></svg></button>
+        <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4.3" y="4.6" width="3.3" height="14.8" rx="0.8"/><rect x="9.3" y="4.6" width="3.3" height="14.8" rx="0.8"/><path d="M15.1 5.5l3.2.85-3.75 14.2-3.2-.85z"/></svg></button>
+        <button><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 10.2C9.6 9 7.8 8.3 5.9 8.3H4.2v9.4h1.7c1.9 0 3.7.7 5.1 1.9 1.4-1.2 3.2-1.9 5.1-1.9h1.7V8.3h-1.7c-1.9 0-3.7.7-5.1 1.9Z"/><path d="M11 10.2v9.3"/><path d="M13.4 20.2l5.6-5.6"/><path d="M20.9 9.1l.65 1.65 1.65.65-1.65.65-.65 1.65-.65-1.65-1.65-.65 1.65-.65z" fill="currentColor" stroke="none"/></svg></button>
+      </div>
+      <div class="set-name">三 · 保持现状<br>书+星 / 三本书 / 书+魔杖</div>
+    </div>
+  </div>
+
+  <section class="section">
+    <h2>悦空间 · Reading Space</h2>
+    <div class="row">
+      <div class="card recommended">
+        <div class="name">A · 书 + 星光</div><div class="en">当前</div>
+        <div class="sizes"><span class="s19"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8.6C10.4 7.2 8.3 6.4 6.1 6.4H4.2v11.2h1.9c2.2 0 4.3.8 5.9 2.1 1.6-1.3 3.7-2.1 5.9-2.1h1.9V6.4h-1.9c-2.2 0-4.3.8-5.9 2.2Z"/><path d="M12 8.6v11.1"/><path d="M18.9 2.2l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" fill="currentColor" stroke="none"/></svg></span><span class="s24"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8.6C10.4 7.2 8.3 6.4 6.1 6.4H4.2v11.2h1.9c2.2 0 4.3.8 5.9 2.1 1.6-1.3 3.7-2.1 5.9-2.1h1.9V6.4h-1.9c-2.2 0-4.3.8-5.9 2.2Z"/><path d="M12 8.6v11.1"/><path d="M18.9 2.2l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" fill="currentColor" stroke="none"/></svg></span><span class="s32"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8.6C10.4 7.2 8.3 6.4 6.1 6.4H4.2v11.2h1.9c2.2 0 4.3.8 5.9 2.1 1.6-1.3 3.7-2.1 5.9-2.1h1.9V6.4h-1.9c-2.2 0-4.3.8-5.9 2.2Z"/><path d="M12 8.6v11.1"/><path d="M18.9 2.2l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" fill="currentColor" stroke="none"/></svg></span></div>
+        <div class="note">阅读 + “悦”，但“空间”含义弱。</div><span class="tag">品牌感</span>
+      </div>
+      <div class="card">
+        <div class="name">B · 文件夹 + 书</div><div class="en">Space / project</div>
+        <div class="sizes"><span class="s19"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h3.2l1.7 1.8h8.1A2.5 2.5 0 0 1 21 9.3v8.2a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/><path d="M12 11.2c-1-.8-2.2-1.2-3.4-1.2H8v5.5h.6c1.2 0 2.4.4 3.4 1.2 1-.8 2.2-1.2 3.4-1.2h.6V10h-.6c-1.2 0-2.4.4-3.4 1.2Z"/><path d="M12 11.2V17"/></svg></span><span class="s24"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h3.2l1.7 1.8h8.1A2.5 2.5 0 0 1 21 9.3v8.2a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/><path d="M12 11.2c-1-.8-2.2-1.2-3.4-1.2H8v5.5h.6c1.2 0 2.4.4 3.4 1.2 1-.8 2.2-1.2 3.4-1.2h.6V10h-.6c-1.2 0-2.4.4-3.4 1.2Z"/><path d="M12 11.2V17"/></svg></span><span class="s32"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h3.2l1.7 1.8h8.1A2.5 2.5 0 0 1 21 9.3v8.2a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/><path d="M12 11.2c-1-.8-2.2-1.2-3.4-1.2H8v5.5h.6c1.2 0 2.4.4 3.4 1.2 1-.8 2.2-1.2 3.4-1.2h.6V10h-.6c-1.2 0-2.4.4-3.4 1.2Z"/><path d="M12 11.2V17"/></svg></span></div>
+        <div class="note">最贴近“空间/项目”：一个装书的文件夹。</div><span class="tag">含义最准</span>
+      </div>
+      <div class="card">
+        <div class="name">C · 房子 + 书</div><div class="en">Home reading</div>
+        <div class="sizes"><span class="s19"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 9.8V20h13V9.8"/><path d="M12 12.3c-1.1-.8-2.5-1.2-3.8-1.2H7.5v6h.7c1.3 0 2.7.4 3.8 1.2 1.1-.8 2.5-1.2 3.8-1.2h.7v-6h-.7c-1.3 0-2.7.4-3.8 1.2Z"/><path d="M12 12.3v6"/></svg></span><span class="s24"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 9.8V20h13V9.8"/><path d="M12 12.3c-1.1-.8-2.5-1.2-3.8-1.2H7.5v6h.7c1.3 0 2.7.4 3.8 1.2 1.1-.8 2.5-1.2 3.8-1.2h.7v-6h-.7c-1.3 0-2.7.4-3.8 1.2Z"/><path d="M12 12.3v6"/></svg></span><span class="s32"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 9.8V20h13V9.8"/><path d="M12 12.3c-1.1-.8-2.5-1.2-3.8-1.2H7.5v6h.7c1.3 0 2.7.4 3.8 1.2 1.1-.8 2.5-1.2 3.8-1.2h.7v-6h-.7c-1.3 0-2.7.4-3.8 1.2Z"/><path d="M12 12.3v6"/></svg></span></div>
+        <div class="note">“我的阅读空间/书房”，但和书库仍有书籍重叠。</div><span class="tag">直观</span>
+      </div>
+      <div class="card">
+        <div class="name">D · 扶手椅</div><div class="en">Reading corner</div>
+        <div class="sizes"><span class="s19"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3"/><path d="M3 16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v2H7v-2a2 2 0 0 0-4 0Z"/><path d="M5 18v2M19 18v2"/></svg></span><span class="s24"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3"/><path d="M3 16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v2H7v-2a2 2 0 0 0-4 0Z"/><path d="M5 18v2M19 18v2"/></svg></span><span class="s32"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3"/><path d="M3 16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v2H7v-2a2 2 0 0 0-4 0Z"/><path d="M5 18v2M19 18v2"/></svg></span></div>
+        <div class="note">阅读角，19px 最清晰，但不像“空间管理”。</div><span class="tag">最易读</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>书库 · Library</h2>
+    <div class="row">
+      <div class="card recommended">
+        <div class="name">A · 三本书</div><div class="en">当前</div>
+        <div class="sizes"><span class="s19"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4.3" y="4.6" width="3.3" height="14.8" rx="0.8"/><rect x="9.3" y="4.6" width="3.3" height="14.8" rx="0.8"/><path d="M15.1 5.5l3.2.85-3.75 14.2-3.2-.85z"/></svg></span><span class="s24"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4.3" y="4.6" width="3.3" height="14.8" rx="0.8"/><rect x="9.3" y="4.6" width="3.3" height="14.8" rx="0.8"/><path d="M15.1 5.5l3.2.85-3.75 14.2-3.2-.85z"/></svg></span><span class="s32"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4.3" y="4.6" width="3.3" height="14.8" rx="0.8"/><rect x="9.3" y="4.6" width="3.3" height="14.8" rx="0.8"/><path d="M15.1 5.5l3.2.85-3.75 14.2-3.2-.85z"/></svg></span></div>
+        <div class="note">已经很像“书”，但与悦空间的书图标有重叠。</div><span class="tag">现状</span>
+      </div>
+      <div class="card">
+        <div class="name">B · 书架</div><div class="en">Bookshelf</div>
+        <div class="sizes"><span class="s19"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4.2" y="3.8" width="15.6" height="16.4" rx="1.4"/><path d="M4.2 9.3h15.6M4.2 14.7h15.6"/><path d="M7.4 6v3.3M10.6 5.6v3.7M13.8 6v3.3"/><path d="M7.4 11.4v3.3M10.6 11v3.7M13.8 11.4v3.3"/></svg></span><span class="s24"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4.2" y="3.8" width="15.6" height="16.4" rx="1.4"/><path d="M4.2 9.3h15.6M4.2 14.7h15.6"/><path d="M7.4 6v3.3M10.6 5.6v3.7M13.8 6v3.3"/><path d="M7.4 11.4v3.3M10.6 11v3.7M13.8 11.4v3.3"/></svg></span><span class="s32"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4.2" y="3.8" width="15.6" height="16.4" rx="1.4"/><path d="M4.2 9.3h15.6M4.2 14.7h15.6"/><path d="M7.4 6v3.3M10.6 5.6v3.7M13.8 6v3.3"/><path d="M7.4 11.4v3.3M10.6 11v3.7M13.8 11.4v3.3"/></svg></span></div>
+        <div class="note">最像“库”，有收纳感；19px 略密。</div><span class="tag">推荐</span>
+      </div>
+      <div class="card">
+        <div class="name">C · 图书馆建筑</div><div class="en">Library building</div>
+        <div class="sizes"><span class="s19"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M4 9h16"/><path d="M4 9 12 3l8 6"/><path d="M6 9v12M10 9v12M14 9v12M18 9v12"/><path d="M8 21v-5h8v5"/></svg></span><span class="s24"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M4 9h16"/><path d="M4 9 12 3l8 6"/><path d="M6 9v12M10 9v12M14 9v12M18 9v12"/><path d="M8 21v-5h8v5"/></svg></span><span class="s32"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M4 9h16"/><path d="M4 9 12 3l8 6"/><path d="M6 9v12M10 9v12M14 9v12M18 9v12"/><path d="M8 21v-5h8v5"/></svg></span></div>
+        <div class="note">“图书馆”语义最强，但与悦空间的“空间”图标差异大。</div><span class="tag">语义强</span>
+      </div>
+      <div class="card">
+        <div class="name">D · 书堆 + 书签</div><div class="en">Book stack</div>
+        <div class="sizes"><span class="s19"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5h16"/><rect x="5" y="15" width="14" height="3.4" rx="0.8"/><rect x="4" y="11" width="13" height="3.4" rx="0.8"/><rect x="6.5" y="7" width="11" height="3.4" rx="0.8"/><path d="M9.5 7V4.2h2.4V7"/></svg></span><span class="s24"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5h16"/><rect x="5" y="15" width="14" height="3.4" rx="0.8"/><rect x="4" y="11" width="13" height="3.4" rx="0.8"/><rect x="6.5" y="7" width="11" height="3.4" rx="0.8"/><path d="M9.5 7V4.2h2.4V7"/></svg></span><span class="s32"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5h16"/><rect x="5" y="15" width="14" height="3.4" rx="0.8"/><rect x="4" y="11" width="13" height="3.4" rx="0.8"/><rect x="6.5" y="7" width="11" height="3.4" rx="0.8"/><path d="M9.5 7V4.2h2.4V7"/></svg></span></div>
+        <div class="note">“收藏/书堆”，但容易像“列表”或“归档”。</div><span class="tag">收纳感</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>书坊 · Workshop</h2>
+    <div class="row">
+      <div class="card recommended">
+        <div class="name">A · 书 + 魔杖</div><div class="en">当前</div>
+        <div class="sizes"><span class="s19"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 10.2C9.6 9 7.8 8.3 5.9 8.3H4.2v9.4h1.7c1.9 0 3.7.7 5.1 1.9 1.4-1.2 3.2-1.9 5.1-1.9h1.7V8.3h-1.7c-1.9 0-3.7.7-5.1 1.9Z"/><path d="M11 10.2v9.3"/><path d="M13.4 20.2l5.6-5.6"/><path d="M20.9 9.1l.65 1.65 1.65.65-1.65.65-.65 1.65-.65-1.65-1.65-.65 1.65-.65z" fill="currentColor" stroke="none"/></svg></span><span class="s24"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 10.2C9.6 9 7.8 8.3 5.9 8.3H4.2v9.4h1.7c1.9 0 3.7.7 5.1 1.9 1.4-1.2 3.2-1.9 5.1-1.9h1.7V8.3h-1.7c-1.9 0-3.7.7-5.1 1.9Z"/><path d="M11 10.2v9.3"/><path d="M13.4 20.2l5.6-5.6"/><path d="M20.9 9.1l.65 1.65 1.65.65-1.65.65-.65 1.65-.65-1.65-1.65-.65 1.65-.65z" fill="currentColor" stroke="none"/></svg></span><span class="s32"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 10.2C9.6 9 7.8 8.3 5.9 8.3H4.2v9.4h1.7c1.9 0 3.7.7 5.1 1.9 1.4-1.2 3.2-1.9 5.1-1.9h1.7V8.3h-1.7c-1.9 0-3.7.7-5.1 1.9Z"/><path d="M11 10.2v9.3"/><path d="M13.4 20.2l5.6-5.6"/><path d="M20.9 9.1l.65 1.65 1.65.65-1.65.65-.65 1.65-.65-1.65-1.65-.65 1.65-.65z" fill="currentColor" stroke="none"/></svg></span></div>
+        <div class="note">“书 + 魔法”，有趣但像阅读/魔法，不像处理工具。</div><span class="tag">品牌感</span>
+      </div>
+      <div class="card">
+        <div class="name">B · 书 + 扳手</div><div class="en">Book tools</div>
+        <div class="sizes"><span class="s19"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.8 12.4C9.6 11.3 8 10.7 6.4 10.7H4.8v8h1.6c1.6 0 3.2.6 4.4 1.7 1.2-1.1 2.8-1.7 4.4-1.7h1.6v-8h-1.6c-1.6 0-3.2.6-4.4 1.7Z"/><path d="M10.8 12.4v8"/><path d="M14.2 9.8 20.5 3.5"/><path d="M15.2 2.8h4.2a1 1 0 0 1 1 1v2.2a1 1 0 0 1-1 1h-4.2z"/></svg></span><span class="s24"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.8 12.4C9.6 11.3 8 10.7 6.4 10.7H4.8v8h1.6c1.6 0 3.2.6 4.4 1.7 1.2-1.1 2.8-1.7 4.4-1.7h1.6v-8h-1.6c-1.6 0-3.2.6-4.4 1.7Z"/><path d="M10.8 12.4v8"/><path d="M14.2 9.8 20.5 3.5"/><path d="M15.2 2.8h4.2a1 1 0 0 1 1 1v2.2a1 1 0 0 1-1 1h-4.2z"/></svg></span><span class="s32"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.8 12.4C9.6 11.3 8 10.7 6.4 10.7H4.8v8h1.6c1.6 0 3.2.6 4.4 1.7 1.2-1.1 2.8-1.7 4.4-1.7h1.6v-8h-1.6c-1.6 0-3.2.6-4.4 1.7Z"/><path d="M10.8 12.4v8"/><path d="M14.2 9.8 20.5 3.5"/><path d="M15.2 2.8h4.2a1 1 0 0 1 1 1v2.2a1 1 0 0 1-1 1h-4.2z"/></svg></span></div>
+        <div class="note">工具 + 书，最像“处理书的工具间”。19px 线条略多。</div><span class="tag">含义明确</span>
+      </div>
+      <div class="card">
+        <div class="name">C · 书 + 齿轮</div><div class="en">Book processing</div>
+        <div class="sizes"><span class="s19"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.8 13.1C8.7 12.1 7.3 11.5 5.9 11.5H4.5v7.3h1.4c1.4 0 2.8.6 3.9 1.6 1.1-1 2.5-1.6 3.9-1.6h1.4v-7.3h-1.4c-1.4 0-2.8.6-3.9 1.6Z"/><path d="M9.8 13.1v7.2"/><circle cx="17.6" cy="6.3" r="2"/><path d="M17.6 3.3v1.1M17.6 8.2v1.1M14.6 6.3h1.1M19.5 6.3h1.1M15.5 4.2l.8.8M18.9 7.6l.8.8M15.5 8.4l.8-.8M18.9 5l.8-.8"/></svg></span><span class="s24"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.8 13.1C8.7 12.1 7.3 11.5 5.9 11.5H4.5v7.3h1.4c1.4 0 2.8.6 3.9 1.6 1.1-1 2.5-1.6 3.9-1.6h1.4v-7.3h-1.4c-1.4 0-2.8.6-3.9 1.6Z"/><path d="M9.8 13.1v7.2"/><circle cx="17.6" cy="6.3" r="2"/><path d="M17.6 3.3v1.1M17.6 8.2v1.1M14.6 6.3h1.1M19.5 6.3h1.1M15.5 4.2l.8.8M18.9 7.6l.8.8M15.5 8.4l.8-.8M18.9 5l.8-.8"/></svg></span><span class="s32"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.8 13.1C8.7 12.1 7.3 11.5 5.9 11.5H4.5v7.3h1.4c1.4 0 2.8.6 3.9 1.6 1.1-1 2.5-1.6 3.9-1.6h1.4v-7.3h-1.4c-1.4 0-2.8.6-3.9 1.6Z"/><path d="M9.8 13.1v7.2"/><circle cx="17.6" cy="6.3" r="2"/><path d="M17.6 3.3v1.1M17.6 8.2v1.1M14.6 6.3h1.1M19.5 6.3h1.1M15.5 4.2l.8.8M18.9 7.6l.8.8M15.5 8.4l.8-.8M18.9 5l.8-.8"/></svg></span></div>
+        <div class="note">“处理/设置”感强，但齿轮容易被理解成设置。</div><span class="tag">处理感</span>
+      </div>
+      <div class="card">
+        <div class="name">D · 书 + 铅笔</div><div class="en">Book making</div>
+        <div class="sizes"><span class="s19"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.8 12.8C9.6 11.7 8 11.1 6.4 11.1H4.8v8h1.6c1.6 0 3.2.6 4.4 1.7 1.2-1.1 2.8-1.7 4.4-1.7h1.6v-8h-1.6c-1.6 0-3.2.6-4.4 1.7Z"/><path d="M10.8 12.8v8"/><path d="m14.5 9.5 3.2-3.2 2.5 2.5-3.2 3.2-3.4.9z"/><path d="m16.2 7.8 2.5 2.5"/></svg></span><span class="s24"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.8 12.8C9.6 11.7 8 11.1 6.4 11.1H4.8v8h1.6c1.6 0 3.2.6 4.4 1.7 1.2-1.1 2.8-1.7 4.4-1.7h1.6v-8h-1.6c-1.6 0-3.2.6-4.4 1.7Z"/><path d="M10.8 12.8v8"/><path d="m14.5 9.5 3.2-3.2 2.5 2.5-3.2 3.2-3.4.9z"/><path d="m16.2 7.8 2.5 2.5"/></svg></span><span class="s32"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.8 12.8C9.6 11.7 8 11.1 6.4 11.1H4.8v8h1.6c1.6 0 3.2.6 4.4 1.7 1.2-1.1 2.8-1.7 4.4-1.7h1.6v-8h-1.6c-1.6 0-3.2.6-4.4 1.7Z"/><path d="M10.8 12.8v8"/><path d="m14.5 9.5 3.2-3.2 2.5 2.5-3.2 3.2-3.4.9z"/><path d="m16.2 7.8 2.5 2.5"/></svg></span></div>
+        <div class="note">“制作书”更明确，但只覆盖创作，不覆盖转换/OCR。</div><span class="tag">制作感</span>
+      </div>
+    </div>
+  </section>
+</body>
+</html>

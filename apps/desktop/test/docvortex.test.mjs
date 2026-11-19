@@ -360,6 +360,58 @@ test("the convert runner cleans PDF furniture before DocVortex sees the file", a
   assert.equal(calls[1].source, path.join(dir, "讲义.docx"), "非 PDF 原样交给 DocVortex");
 });
 
+test("PDF → Markdown falls back to the local text layer when DocVortex is missing", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-docvortex-fallback-"));
+  const source = path.join(dir, "s41598.pdf");
+  fs.writeFileSync(source, "%PDF-1.4");
+  const queue = createWorkshopQueue({ file: path.join(dir, "tasks.json"), onState: () => {}, log: { warn() {} } });
+  registerDocvortexRunners(queue, {
+    docvortex: {
+      probe: async () => ({ ok: false, detail: "未找到 docvortex(可 pip install docvortex 或填写路径)" }),
+      convert: async () => ({ ok: false, error: "未找到 docvortex(可 pip install docvortex 或填写路径)" }),
+    },
+    vaultRoot: dir,
+    pdfText: {
+      read: async () => ({
+        ok: true,
+        pages: [{ width: 595, height: 842, lines: [{ text: "正文段落", fonts: { SimSun: 10 }, size: 10, x1: 100, y0: 0, y1: 12, rotated: false }] }],
+      }),
+    },
+    cleaner: {
+      clean: async () => ({ ok: true, path: source, removed: 0 }),
+    },
+    log: () => {},
+  });
+  const id = queue.start({ kind: "docvortex-convert", title: "把文档转成 Markdown", payload: { source: "s41598.pdf", format: "markdown", settings: {} } });
+  const task = await waitForTask(queue, id);
+  assert.equal(task.status, "done", task.error);
+  assert.equal(path.basename(task.output), "s41598.md");
+  assert.match(fs.readFileSync(task.output, "utf8"), /正文段落/);
+});
+
+test("an empty engine URL still uses the default local engine for DocVortex conversion", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-docvortex-engine-"));
+  const source = path.join(dir, "paper.pdf");
+  const out = path.join(dir, "paper.md");
+  fs.writeFileSync(source, "%PDF-1.4");
+  let called = false;
+  const docvortex = createDocvortex({
+    engine: {
+      runJob: async (settings, kind, args) => {
+        called = true;
+        assert.equal(settings.engineUrl, "", "blank means the default local URL");
+        assert.equal(kind, "convert");
+        fs.writeFileSync(args.out, "# engine markdown\n");
+        return { ok: true, result: { out: args.out } };
+      },
+    },
+  });
+  const result = await docvortex.convert({ engineUrl: "" }, { source, format: "markdown", out });
+  assert.equal(result.ok, true, result.error);
+  assert.equal(called, true, "the engine is tried even when engineUrl is blank");
+  assert.match(fs.readFileSync(out, "utf8"), /engine markdown/);
+});
+
 test("the convert runner wraps an image in a temporary PDF before DocVortex OCR", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-docvortex-image-"));
   const source = path.join(dir, "试卷.png");

@@ -15,6 +15,14 @@ export const BOOK_EXTENSIONS = Object.freeze([
   ...IMAGE_BOOK_EXTENSIONS,
 ]);
 
+// Office/OpenDocument files are not parsed by the reader yet. They are handed
+// to the operating system's default application instead, so a space or the
+// open-file dialog can still open them without adding a document engine.
+export const EXTERNAL_DOC_EXTENSIONS = Object.freeze([
+  "doc", "docx", "docm", "odt", "rtf", "ofd",
+  "xls", "xlsx", "ppt", "pptx", "csv",
+]);
+
 export function extensionOf(filePath) {
   const name = String(filePath || "").split(/[\\/]/).pop() || "";
   const dot = name.lastIndexOf(".");
@@ -23,4 +31,12 @@ export function extensionOf(filePath) {
 
 export function isBookFile(filePath) {
   return BOOK_EXTENSIONS.includes(extensionOf(filePath));
+}
+
+export function isExternalDocFile(filePath) {
+  return EXTERNAL_DOC_EXTENSIONS.includes(extensionOf(filePath));
+}
+
+export function isOpenableFile(filePath) {
+  return isBookFile(filePath) || isExternalDocFile(filePath);
 }

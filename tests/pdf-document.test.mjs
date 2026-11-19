@@ -36,8 +36,11 @@ test("readPdfPage reports progress, geometry and text for a readable page", asyn
     cleanup() { cleaned += 1; },
   };
   const progress = [];
-  const part = await reader.readPdfPage({ getPage: async () => page }, 2, undefined, (n, t) => progress.push([n, t]), 2);
+  const sharedText = [];
+  const part = await reader.readPdfPage({ getPage: async () => page }, 2, undefined, (n, t) => progress.push([n, t]), 2,
+    (pageNumber, content) => sharedText.push([pageNumber, content.items.length]));
   assert.deepEqual(progress, [[2, 2]]);
+  assert.deepEqual(sharedText, [[2, 2]], "the background pass hands its text extraction to the lazy render cache");
   assert.deepEqual(part, {
     width: 612,
     height: 792,
@@ -149,9 +152,117 @@ test("the lazy view refuses to render after destroy", async () => {
   await assert.rejects(lazy.render(1, { createElement: () => ({}) }), /Reader closed/);
 });
 
+function screenRenderFixture(pageText) {
+  const calls = [];
+  let textExtractions = 0;
+  const ownerDocument = {
+    createElement() {
+      return {
+        width: 0,
+        height: 0,
+        className: "",
+        style: {},
+        setAttribute() {},
+        appendChild() {},
+        getContext: () => ({ fillStyle: "", fillRect() {} }),
+        toDataURL(type, quality) {
+          calls.push([type, quality]);
+          return type === "image/png" ? "data:image/png;base64,AAA" : "data:image/jpeg;base64,AAA";
+        },
+      };
+    },
+  };
+  const page = {
+    getViewport: ({ scale }) => ({ width: 600 * scale, height: 800 * scale }),
+    getTextContent: async () => { textExtractions += 1; return { items: [{ str: "text" }] }; },
+    render: () => ({ promise: Promise.resolve(), cancel() {} }),
+    cleanup() {},
+  };
+  const reader = makeReader();
+  const lazy = reader.createPdfLazyView({ getPage: async () => page }, { destroy: async () => {} }, pageText);
+  return { lazy, ownerDocument, calls, textExtractionCount: () => textExtractions };
+}
+
+test("a screen-sized page renders at HiDPI resolution and uses lossless PNG for text", async () => {
+  const { lazy, ownerDocument, calls, textExtractionCount } = screenRenderFixture(["text on page one"]);
+  const result = await lazy.render(1, ownerDocument, {
+    cssWidth: 300,
+    cssHeight: 400,
+    devicePixelRatio: 2,
+    withTextLayer: false,
+  });
+  assert.equal(result.pixelWidth, 1200);
+  assert.equal(result.pixelHeight, 1600);
+  assert.equal(result.scale, 2);
+  assert.equal(result.limited, false);
+  assert.equal(result.mimeType, "image/png");
+  assert.deepEqual(calls, [["image/png", undefined]]);
+  assert.equal(textExtractionCount(), 0, "a bitmap-only repaint must not rebuild the text layer");
+});
+
+test("page text extraction is reused across bitmap re-renders", async () => {
+  const { lazy, ownerDocument, textExtractionCount } = screenRenderFixture(["text on page one"]);
+  const first = await lazy.render(1, ownerDocument, { cssWidth: 300, cssHeight: 400, devicePixelRatio: 2 });
+  const second = await lazy.render(1, ownerDocument, { cssWidth: 300, cssHeight: 400, devicePixelRatio: 2 });
+  assert.equal(first.mimeType, "image/png");
+  assert.equal(second.mimeType, "image/png");
+  assert.equal(textExtractionCount(), 1, "the second paint reuses the cached text content");
+});
+
+test("a page without a text layer keeps JPEG output for scans", async () => {
+  const { lazy, ownerDocument, calls } = screenRenderFixture([""]);
+  const result = await lazy.render(1, ownerDocument, {
+    cssWidth: 300,
+    cssHeight: 400,
+    devicePixelRatio: 1.5,
+  });
+  assert.equal(result.mimeType, "image/jpeg");
+  assert.deepEqual(calls, [["image/jpeg", 0.92]]);
+});
+
+test("a render that omits screen measurements keeps the legacy JPEG thumbnail", async () => {
+  const { lazy, ownerDocument, calls } = screenRenderFixture([""]);
+  const result = await lazy.render(1, ownerDocument);
+  assert.equal(result.pixelWidth, 1200);
+  assert.equal(result.pixelHeight, 1600);
+  assert.equal(result.limited, false);
+  assert.deepEqual(calls, [["image/jpeg", 0.82]]);
+});
+
 test("openPdfLoadingTask checks the abort signal before any work", async () => {
   const reader = makeReader();
   const controller = new AbortController();
   controller.abort();
   await assert.rejects(reader.openPdfLoadingTask({ vault: {} }, {}, controller.signal), (error) => error.name === "AbortError");
+});
+
+test("the PDF sidecar loader reads figures through the vault and the adapter", async () => {
+  const reader = makeReader();
+  const payload = {
+    figures: [
+      { page: 20, bbox: [0.1, 0.1, 0.5, 0.5], name: "插图" },
+      { page: 0, bbox: [0.1, 0.1, 0.5, 0.5] },
+    ],
+  };
+  const expected = { figures: [{ page: 20, bbox: [0.1, 0.1, 0.5, 0.5], name: "插图", type: "image" }] };
+  const vaultApp = {
+    vault: {
+      getAbstractFileByPath: (filePath) => (filePath.endsWith(".figures.json") ? { path: filePath } : null),
+      read: async () => JSON.stringify(payload),
+      adapter: { exists: async () => false, read: async () => "" },
+    },
+  };
+  assert.deepEqual(await reader.readPdfFigureManifest(vaultApp, { path: "Books/书.pdf" }), expected);
+
+  const adapterApp = {
+    vault: {
+      getAbstractFileByPath: () => null,
+      adapter: {
+        exists: async (filePath) => filePath.endsWith(".figures.json"),
+        read: async () => JSON.stringify(payload),
+      },
+    },
+  };
+  assert.deepEqual(await reader.readPdfFigureManifest(adapterApp, { path: "C:\\书.pdf" }), expected);
+  assert.equal(await reader.readPdfFigureManifest(vaultApp, { path: "Books/书.epub" }), null);
 });

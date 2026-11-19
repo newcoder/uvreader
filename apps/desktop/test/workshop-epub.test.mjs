@@ -7,9 +7,10 @@ import test from "node:test";
 
 import JSZip from "jszip";
 
+import { MERGE_VERSION } from "../src/main/extract-doc.js";
 import { createWorkshopQueue } from "../src/main/workshop.js";
 import { countRawFormulas } from "../src/main/text-book.js";
-import { normalizeBookChapters, registerEpubRunners } from "../src/main/workshop-epub.js";
+import { addNavAnchors, chaptersToNavItems, completeNavItems, linkReferenceCitations, normalizeBookChapters, pickPrimaryToc, registerEpubRunners } from "../src/main/workshop-epub.js";
 import { waitForTask } from "./wait-for-task.mjs";
 
 function tempDir(prefix = "qbr-epub-run-") {
@@ -503,6 +504,142 @@ test("the book-build runner extracts pdf sources with the pdf_tool checkout", as
   assert.match(nav, /第二章 等级/);
 });
 
+test("normalizeBookChapters keeps a long first chapter titled like the book", () => {
+  const normalized = normalizeBookChapters([
+    { title: "Deep Learning in Label-free Cell Classification", text: "Abstract ".repeat(80) },
+    { title: "Results", text: "Results body." },
+  ], "Deep Learning in Label-free Cell Classification");
+  assert.equal(normalized.chapters.length, 2);
+  assert.equal(normalized.chapters[0].title, "Deep Learning in Label-free Cell Classification");
+});
+
+test("completeNavItems adds front matter headings and image plates to a chapter nav", () => {
+  const chapters = [
+    {
+      title: "序",
+      html: [
+        "<h1>序</h1><p>序文。</p>",
+        "<h2>总 序</h2><p>总序。</p>",
+        '<h2>齐白石《樱桃枇杷荔枝图》</h2><p><img src="images/1.jpg" alt="插图"/></p>',
+        "<h2>【注释】</h2><p>1]注文。</p>",
+        "<h2>序</h2><p>真正的序。</p>",
+      ].join(""),
+    },
+    { title: "序", html: "<h1>序</h1><p>第二篇序。</p>" },
+    { title: "第一章 生平概述", html: "<h1>第一章 生平概述</h1><p>正文。</p>" },
+  ];
+  const nav = [
+    { title: "序", file: "chapter-002.xhtml", level: 1 },
+    { title: "第一章 生平概述", file: "chapter-003.xhtml", level: 1 },
+  ];
+  const completed = completeNavItems(nav, chapters, { bookTitle: "纳兰性德传" });
+  const anchored = addNavAnchors(completed, chapters, { bookTitle: "纳兰性德传" });
+  const front = anchored.filter((item) => item.file.startsWith("chapter-001.xhtml"));
+  assert.ok(front.some((item) => item.title === "序"));
+  assert.ok(front.some((item) => item.title === "总 序"));
+  assert.ok(front.some((item) => item.title.includes("齐白石")));
+  assert.ok(anchored.some((item) => item.file === "chapter-001.xhtml#nav-figures"));
+  assert.match(chapters[0].html, /id="nav-figures"/);
+  assert.ok(!anchored.some((item) => item.title === "【注释】"));
+});
+
+test("completeNavItems restores a missing 图版 anchor in an existing nav", () => {
+  const chapters = [
+    {
+      title: "序",
+      html: '<h1>序</h1><p><img src="images/1.jpg" alt="插图"/></p><h2>总 序</h2><p>总序。</p>',
+    },
+    { title: "第一章 生平", html: "<h1>第一章 生平</h1><p>正文。</p>" },
+  ];
+  const nav = [
+    { title: "序", file: "chapter-001.xhtml", level: 1 },
+    { title: "图版", file: "chapter-001.xhtml", level: 2 },
+    { title: "第一章 生平", file: "chapter-002.xhtml", level: 1 },
+  ];
+  const completed = completeNavItems(nav, chapters, { bookTitle: "纳兰性德传" });
+  const figures = completed.find((item) => item.title === "图版");
+  assert.equal(figures.file, "chapter-001.xhtml#nav-figures");
+  assert.match(chapters[0].html, /id="nav-figures"/);
+});
+
+test("completeNavItems orders front matter by document position", () => {
+  const chapters = [
+    {
+      title: "序",
+      html: [
+        "<h2>序</h2><p>版权信息。</p>",
+        '<p><img src="images/1.jpg" alt="插图"/></p>',
+        "<h2>齐白石《樱桃枇杷荔枝图》</h2>",
+        "<h2>总 序</h2><p>总序。</p>",
+        "<h2>序</h2><p>真正的序。</p>",
+      ].join(""),
+    },
+    { title: "第一章 生平", html: "<h1>第一章 生平</h1><p>正文。</p>" },
+  ];
+  const nav = [
+    { title: "序", file: "chapter-001.xhtml", level: 1 },
+    { title: "第一章 生平", file: "chapter-002.xhtml", level: 1 },
+  ];
+  const completed = completeNavItems(nav, chapters, { bookTitle: "纳兰性德传" });
+  assert.deepEqual(completed.slice(0, 4).map((item) => item.title), ["图版", "齐白石《樱桃枇杷荔枝图》", "总 序", "序"]);
+});
+
+test("addNavAnchors links PDF outline subentries to body text", () => {
+  const bookTitle = "Deep Learning in Label-free Cell Classification";
+  const chapters = [
+    { title: "第 1 章", html: "<h1>第 1 章</h1><p>Abstract</p>" },
+    { title: "Results", html: "<h1>Results</h1><p><strong>Feature Extraction.</strong> Body.</p>" },
+    { title: "References", html: "<h1>References</h1><ol><li>One</li></ol>" },
+  ];
+  const nav = addNavAnchors([
+    { title: bookTitle, file: "chapter-002.xhtml", level: 1 },
+    { title: "Feature Extraction", file: "chapter-003.xhtml", level: 2 },
+    { title: "References", file: "chapter-003.xhtml", level: 2 },
+  ], chapters, { bookTitle });
+  assert.equal(nav[0].file, "chapter-001.xhtml");
+  assert.match(nav[1].file, /^chapter-002\.xhtml#nav-02$/);
+  assert.match(chapters[1].html, /<strong><a id="nav-02"><\/a>Feature Extraction/);
+  assert.equal(nav[2].file, "chapter-003.xhtml");
+});
+
+test("addNavAnchors points 序 at the heading after the image plates", () => {
+  const chapters = [{
+    title: "序",
+    html: '<p>版权信息。</p><p><img src="images/1.jpg" alt="插图"/></p><h2>总 序</h2><p>总序。</p><h2>序</h2><p>正文。</p>',
+  }];
+  const nav = addNavAnchors([{ title: "序", file: "chapter-001.xhtml", level: 1 }], chapters, { bookTitle: "纳兰性德传" });
+  assert.match(nav[0].file, /^chapter-001\.xhtml#nav-01$/);
+  assert.match(chapters[0].html, /<h2><a id="nav-01"><\/a>序<\/h2>/);
+});
+
+test("linkReferenceCitations wires superscripts to reference list anchors", () => {
+  const chapters = [
+    {
+      title: "Introduction",
+      html: [
+        "<h1>Introduction</h1>",
+        "<p><strong>Claire Lifan Chen</strong><sup>1</sup></p>",
+        "<p>Body<sup>2</sup> and <sup>3,4</sup>.</p>",
+        "<blockquote><p><sup>5</sup>Affiliation</p></blockquote>",
+      ].join(""),
+    },
+    {
+      title: "References",
+      html: "<h1>References</h1><ol><li>One</li><li>Two</li><li>Three</li><li>Four</li><li>Five</li></ol>",
+    },
+  ];
+  linkReferenceCitations(chapters);
+  assert.match(chapters[1].html, /<li id="ref-1">One<\/li>/);
+  assert.match(chapters[1].html, /<li id="ref-5">Five<\/li>/);
+  assert.match(chapters[0].html, /Body<sup><a id="cite-2" class="qbr-citation" href="chapter-002\.xhtml#ref-2">2<\/a><\/sup>/);
+  assert.match(chapters[0].html, /<sup><a id="cite-3" class="qbr-citation" href="chapter-002\.xhtml#ref-3">3<\/a>,<a id="cite-4" class="qbr-citation" href="chapter-002\.xhtml#ref-4">4<\/a><\/sup>/);
+  assert.match(chapters[1].html, /<li id="ref-2">Two<a class="qbr-citation-back" href="chapter-001\.xhtml#cite-2" aria-label="返回正文">↩<\/a><\/li>/);
+  assert.doesNotMatch(chapters[1].html, /href="chapter-001\.xhtml#cite-1"/);
+  assert.doesNotMatch(chapters[1].html, /href="chapter-001\.xhtml#cite-5"/);
+  assert.doesNotMatch(chapters[0].html, /<a class="qbr-citation"[^>]*>1<\/a>/);
+  assert.doesNotMatch(chapters[0].html, /blockquote[\s\S]*qbr-citation/);
+});
+
 test("the book-build runner no longer embeds fonts", async () => {
   const vault = tempDir("qbr-epub-vault2-");
   const source = path.join(vault, "有字体.md");
@@ -583,6 +720,15 @@ test("normalizeBookChapters cleans titles and drops title pages", () => {
   const result = normalizeBookChapters(chapters, "数学在科学和社会中的作用");
   assert.equal(result.dropped, 2, "短扉页与书名页都丢掉");
   assert.deepEqual(result.chapters.map((chapter) => chapter.title), ["重点 一章", "读读大师 走近数学", "集合论的一种公理化 ①"]);
+});
+
+test("chaptersToNavItems skips synthetic cover titles", () => {
+  const items = chaptersToNavItems([
+    { title: "第 1 章", syntheticTitle: true },
+    { title: "第一章 内务府" },
+  ]);
+  assert.deepEqual(items.map((item) => item.title), ["第一章 内务府"]);
+  assert.equal(items[0].file, "chapter-002.xhtml", "章节文件序号不变,只从导航里隐藏封面");
 });
 
 test("the nav drops repeated headers and cleans formula markers in titles", async () => {
@@ -793,6 +939,7 @@ test("upstream toc entries win over the printed page", async () => {
   fs.mkdirSync(extractDir, { recursive: true });
   fs.copyFileSync(merged, path.join(extractDir, "merged.md"));
   fs.copyFileSync(docJson, path.join(extractDir, "论文_doc.json"));
+  fs.writeFileSync(path.join(extractDir, "merge-version.txt"), String(MERGE_VERSION));
 
   const id = queue.start({ kind: "book-build", title: "生成电子书", payload: { source, settings: { ocrSidecarDir: vault }, title: "测试书" } });
   const task = await waitForTask(queue, id);
@@ -842,4 +989,26 @@ test("a GB18030 txt source is decoded instead of shipping mojibake", async () =>
   const first = await zip.file("OEBPS/chapter-001.xhtml").async("string");
   assert.match(first, /正文从这里开始。/);
   assert.ok(!first.includes("\uFFFD"));
+});
+
+test("pickPrimaryToc prefers a real printed TOC over a generic PDF outline", () => {
+  const outline = [
+    { label: "封面", key: "封面", page: 1, level: 1 },
+    { label: "书名", key: "书名", page: 3, level: 1 },
+    { label: "版权", key: "版权", page: 4, level: 1 },
+    { label: "前言", key: "前言", page: 5, level: 1 },
+    { label: "目录", key: "目录", page: 14, level: 1 },
+    { label: "正文", key: "正文", page: 15, level: 1 },
+  ];
+  const upstream = [
+    { label: "前言", key: "前言", page: 1, level: 1 },
+    { label: "第一章 观察者", key: "观察者", page: 1, level: 1 },
+    { label: "第二章 土地", key: "土地", page: 25, level: 1 },
+    { label: "第三章 寡妇", key: "寡妇", page: 47, level: 1 },
+    { label: "注释", key: "注释", page: 115, level: 1 },
+    { label: "参考书目", key: "参考书目", page: 139, level: 1 },
+  ];
+  const picked = pickPrimaryToc({ outlineEntries: outline, upstreamToc: upstream });
+  assert.equal(picked.source, "upstream");
+  assert.equal(picked.entries, upstream);
 });

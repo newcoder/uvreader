@@ -93,7 +93,7 @@ test("standalone exam images expose extraction, conversion and answer-page outco
   assert.equal(image.find((capability) => capability.id === "navigation-toc").recommended, false);
 });
 
-test("search and navigation disappear once the document already has them", () => {
+test("search disappears when ready; navigation stays available to repair an existing TOC", () => {
   const ready = workshopCapabilitiesFor({
     extension: "pdf",
     readerView: {
@@ -104,21 +104,39 @@ test("search and navigation disappear once the document already has them", () =>
   });
   assert.equal(ready.find((item) => item.id === "make-searchable").hidden, true);
   assert.equal(ready.find((item) => item.id === "searchable-copy").hidden, true);
-  assert.equal(ready.find((item) => item.id === "navigation-toc").hidden, true);
   assert.equal(ready.find((item) => item.id === "make-searchable").recommended, false);
+  const repair = ready.find((item) => item.id === "navigation-toc");
+  assert.equal(repair.hidden, false, "an incomplete existing TOC must still be repairable");
+  assert.equal(repair.title, "修复导航目录");
+  assert.match(repair.prompt, /补全/);
 
   const scanned = workshopCapabilitiesFor({
     extension: "pdf",
     readerView: { pager: { total: 3 }, _pdfLazy: { _pageText: ["", "", ""] } },
   });
   assert.equal(scanned.find((item) => item.id === "make-searchable").hidden, false);
-  assert.equal(scanned.find((item) => item.id === "navigation-toc").hidden, false);
+  const create = scanned.find((item) => item.id === "navigation-toc");
+  assert.equal(create.hidden, false);
+  assert.equal(create.title, "制作导航目录");
 
   const epubWithToc = workshopCapabilitiesFor({
     extension: "epub",
     readerView: { tocItems: [{ label: "Chapter 1", cfi: "epubcfi(/6/2)" }] },
   });
-  assert.equal(epubWithToc.find((item) => item.id === "navigation-toc").hidden, true);
+  const epubRepair = epubWithToc.find((item) => item.id === "navigation-toc");
+  assert.equal(epubRepair.hidden, false);
+  assert.equal(epubRepair.title, "修复导航目录");
+});
+
+test("the exam outcome accepts Word documents as well as PDFs", () => {
+  for (const extension of ["docx", "doc"]) {
+    const capabilities = workshopCapabilitiesFor({ extension });
+    const exam = capabilities.find((capability) => capability.id === "exam-answer-page");
+    assert.equal(exam.hidden, false, extension);
+    assert.equal(exam.recommended, true, extension);
+    assert.equal(exam.tool, "convert");
+    assert.equal(exam.convertFormat, "quiz-ai");
+  }
 });
 
 test("the exam outcome opens the quiz format and all groups have items", () => {

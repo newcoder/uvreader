@@ -19,7 +19,10 @@ export function createReadSettingsModal({
   async _apply(нуженПересчёт) {
     const v = this.view;
     window.clearTimeout(this._saveT);
-    this._saveT = window.setTimeout(() => { v.plugin.saveAll(); }, 500);
+    this._saveT = window.setTimeout(() => {
+      const save = typeof v.plugin.saveSettings === "function" ? v.plugin.saveSettings.bind(v.plugin) : v.plugin.saveAll.bind(v.plugin);
+      void save();
+    }, 500);
     if (typeof v.applyVars === "function") v.applyVars();
     if (typeof v._applyTheme === "function") v._applyTheme();
     if (нуженПересчёт && v.bookHtml) {
@@ -28,6 +31,18 @@ export function createReadSettingsModal({
       await persistCurrentReaderPosition(v);
     }
     this._paintPreview();
+  }
+  _saveSettingsSoon() {
+    const v = this.view;
+    window.clearTimeout(this._settingsSaveT);
+    this._settingsSaveT = window.setTimeout(() => {
+      const save = typeof v.plugin.saveSettings === "function" ? v.plugin.saveSettings.bind(v.plugin) : v.plugin.saveAll.bind(v.plugin);
+      void save();
+    }, 500);
+  }
+  _saveSettingsNow() {
+    const v = this.view;
+    return typeof v.plugin.saveSettings === "function" ? v.plugin.saveSettings() : v.plugin.saveAll();
   }
   _paintPreview() {
     const p = this.previewEl;
@@ -105,7 +120,7 @@ export function createReadSettingsModal({
           .setValue(state.enabled)
           .onChange(async (value) => {
             s.aiEnabled = value;
-            await plugin.saveAll();
+            await this._saveSettingsNow();
             this._draw();
           }));
     }
@@ -119,7 +134,7 @@ export function createReadSettingsModal({
           .setValue(s.aiThinking[s.aiProvider] !== false)
           .onChange(async (value) => {
             s.aiThinking[s.aiProvider] = value;
-            await plugin.saveAll();
+            await this._saveSettingsNow();
           }));
     }
 
@@ -132,7 +147,7 @@ export function createReadSettingsModal({
           .setValue(s.aiInto || "中文")
           .onChange(async (value) => {
             s.aiInto = value.trim() || "中文";
-            await plugin.saveAll();
+            this._saveSettingsSoon();
           }));
 
 
@@ -263,7 +278,7 @@ export function createReadSettingsModal({
     lineRange.addEventListener("input", () => {
       const value = Math.round(Number(lineRange.value) * 20) / 20;
       settings.lineHeight = value;
-      updateLineValue(value); void this._apply(true);
+      updateLineValue(value); void this._apply(false);
     });
     lineRange.addEventListener("change", async () => {
       settings.lineHeight = Math.round(Number(lineRange.value) * 20) / 20; await this._apply(true);

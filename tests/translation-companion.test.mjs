@@ -3,7 +3,6 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
-import { highlightBacklink } from '../packages/reader/src/highlight-navigation.js';
 const source = fs.readFileSync(new URL('../packages/reader/src/wire.js', import.meta.url), 'utf8');
 const pluginSource = fs.readFileSync(new URL("../packages/reader/src/plugin.js", import.meta.url), "utf8");
 const viewSource = fs.readFileSync(new URL('../packages/reader/src/reader-view.js', import.meta.url), 'utf8');
@@ -17,7 +16,7 @@ function harness() {
   const leaf = { view: Object.assign(new MarkdownView(), { file: note, editor }) }; leaves.push(leaf);
   const app = { workspace: { getLeavesOfType: () => leaves }, vault: { getName: () => '中文 & QA', getAbstractFileByPath: path => files.get(path), process: async (file, fn) => contents.set(file.path, fn(contents.get(file.path) || '')) }, fileManager: { generateMarkdownLink: f => `[[${f.path}]]` }, internalPlugins: { plugins: { 'daily-notes': { enabled: true, instance: { getDailyNote: async () => { dailyCalls++; const file = new TFile('Daily/custom-date.md'); files.set(file.path,file); contents.set(file.path,contents.get(file.path) || 'Daily template\n'); return file; } } } } } };
   const plugin = { app, settings: {}, _lastNoteLeaf: leaf };
-  const sandbox = { TFile, MarkdownView, highlightBacklink, isUnsafeReadingNote: () => false };
+  const sandbox = { TFile, MarkdownView, isUnsafeReadingNote: () => false };
   const code = source.slice(source.indexOf('function currentTranslationNote('), source.indexOf('function qiaomuReaderSelectionRect('));
   const api = vm.runInNewContext(`${code}; ({currentTranslationNote, dailyNoteProvider, translationNoteBlock, saveTranslationNote})`, sandbox);
   const book = new TFile('Books/A & B.epub'); files.set(book.path,book);
@@ -31,8 +30,8 @@ test('translation saves to captured editor, preserving unsaved text and preventi
   await h.api.saveTranslationNote(h.modal,'current','译文');
   assert.ok(h.editor.getValue().startsWith('Unsaved personal draft'));
   assert.equal(h.editor.getValue().split('译文').length,2);
-  assert.match(h.editor.getValue(), /obsidian:\/\/qiaomu-reader\?vault=/);
-  assert.match(h.editor.getValue(), /cfi=epubcfi%28/);
+  assert.match(h.editor.getValue(), /\[\[Books\/A & B\.epub\]\]/);
+  assert.doesNotMatch(h.editor.getValue(), /obsidian:\/\//);
 });
 test('closed or changed current-note targets fail rather than write somewhere else', async()=>{
   const h=harness();h.leaf.view.file=new TFile('different.md');
@@ -50,10 +49,12 @@ test('daily destination uses core template and path, serializes writes, and resp
   h.modal.app.internalPlugins.plugins['daily-notes'].enabled=false;
   await assert.rejects(h.api.saveTranslationNote(h.modal,'daily','三'));
 });
-test('translation source is a stable snapshot and does not reference a highlight ID',()=>{
+test('translation source is a stable snapshot without an Obsidian backlink',()=>{
   const h=harness();h.modal.source.id='deleted-highlight';
   const text=h.api.translationNoteBlock(h.modal.plugin,h.modal.bookFile,h.modal.source,'译文');
-  assert.ok(!text.includes('highlight='));assert.ok(text.includes('book=Books%2FA%20%26%20B.epub'));
+  assert.doesNotMatch(text, /obsidian:\/\//);
+  assert.doesNotMatch(text, /highlight=/);
+  assert.match(text, /\[\[Books\/A & B\.epub\]\]/);
 });
 test('automatic companion respects mobile, narrow windows, closed preference, loading and active book',async()=>{
   const start=pluginSource.indexOf('  async _showCompanionForBook(');

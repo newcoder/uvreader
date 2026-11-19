@@ -5,7 +5,7 @@ import { shouldFollowContext } from "./reader-experience.js";
 import { svgIcon } from "./reader-icons.js";
 
 export function createAiChatView({
-  ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, AiChatHistoryModal, ReaderView, aiChatTitle, aiConfig, aiConnectionErrorMessage, aiSetupState, aiTurnsHaveDocumentContext, bindAiAttachmentIntake, bindAiSlashPrompts, bindReaderAiComposer, bookNoteLinkFor, captureAiScreenshot, clearAiSource, createAiChatLog, newAiSessionKey, normalizeAiChatHistory, normalizeAiTurnContext, normalizeAiTurnLocation, normalizeToolTurnContent, openAiAttachMenu, pickAiAttachments, prepareAiTools, qiaomuReaderTranslate, readerAiPanelContext, readerDefaultAiContext, readerHud, renderAiComposerPrompts, renderAiContextQuote, renderAiHeadMeta, renderAiMarkdown, renderAiUserTurn, renderAiWorkshopPreview, stripAiAttachmentData, testAndEnableAi,
+  ItemView, Notice, TFile, setIcon, AI_CHAT_VIEW_TYPE, AiChatHistoryModal, ReaderView, aiChatTitle, aiConfig, aiConnectionErrorMessage, aiSetupState, aiTurnsHaveDocumentContext, bindAiAttachmentIntake, bindAiSlashPrompts, bindReaderAiComposer, bookNoteLinkFor, captureAiScreenshot, clearAiSource, createAiChatLog, newAiSessionKey, normalizeAiChatHistory, normalizeAiTurnContext, normalizeAiTurnLocation, normalizeToolTurnContent, openAiAttachMenu, pickAiAttachments, prepareAiTools, qiaomuReaderTranslate, readerAiPanelContext, readerDefaultAiContext, readerPageContext, readerHud, renderAiComposerPrompts, renderAiContextQuote, renderAiHeadMeta, renderAiMarkdown, renderAiUserTurn, renderAiWorkshopPreview, stripAiAttachmentData, testAndEnableAi,
 }) {
   const DOC_TOOL_TIP_DELAY_MS = 1600;
   let docToolTipId = 0;
@@ -105,6 +105,7 @@ export function createAiChatView({
     this.turns = [];
     this.attachments = [];
     this.pendingContext = null;
+    this.contextScope = "auto";
     this.structuredContext = true;
     this.scannedPdf = false;
     this.aiSessionKey = window.crypto?.randomUUID?.() || `reader-${Date.now()}-${Math.random()}`;
@@ -178,7 +179,7 @@ export function createAiChatView({
     const form = host.createDiv();
     const draw = () => {
       form.empty();
-      this.plugin.settingsTab._groupAi(form, draw, { enableOnSuccess: true, onReady: () => this._renderConversation() });
+      this.plugin.settingsTab._groupAi(form, draw, { enableOnSuccess: true, showWebSearch: false, onReady: () => this._renderConversation() });
       if (!aiConfig(this.plugin).provider) return;
       const start = form.createEl("button", { cls: "mod-cta qiaomu-reader-companion-start", text: qiaomuReaderTranslate("ai-start-using") });
       start.addEventListener("click", async () => {
@@ -233,6 +234,33 @@ export function createAiChatView({
       bubble.createDiv({
         cls: "qiaomu-reader-ai-workshop-hint",
         text: "当前文档暂时没有可用的操作。",
+      });
+    } else if (this.plugin?.settings?.aiToolsEnabled === false) {
+      // The operations above need the model to call prepare_workshop_task.
+      // Without the tool switch the model would just answer inline, which is
+      // exactly the silent failure this panel must avoid.
+      this._documentTools = null;
+      bubble.createDiv({
+        cls: "qiaomu-reader-ai-workshop-hint",
+        text: "「文档工具」需要允许 AI 使用工具，否则助手只能在对话里直接回答，无法提交书坊任务。",
+      });
+      const enable = bubble.createEl("button", { cls: "mod-cta", text: "允许使用工具" });
+      enable.addEventListener("click", async () => {
+        enable.disabled = true;
+        try {
+          this.plugin.settings.aiToolsEnabled = true;
+          const save = typeof this.plugin.saveSettings === "function"
+            ? this.plugin.saveSettings()
+            : this.plugin.saveAll?.();
+          await save;
+          bubble.empty();
+          bubble.createDiv({ cls: "qiaomu-reader-ai-workshop-intro", text: "已允许 AI 使用工具。选择一个操作，或输入编号后发送：" });
+          this._renderWorkshopDiscovery(bubble, capabilities);
+          new Notice("已允许 AI 使用工具，可以提交书坊任务了");
+        } catch (error) {
+          enable.disabled = false;
+          new Notice(`开启失败：${String(error?.message || error)}`);
+        }
       });
     } else {
       bubble.createDiv({ cls: "qiaomu-reader-ai-workshop-intro", text: "选择一个操作，或输入编号后发送：" });
@@ -361,6 +389,10 @@ export function createAiChatView({
       return true;
     }
     const prompt = item.capability.prompt || `我想${item.capability.title}。`;
+    if (this.plugin?.settings?.aiToolsEnabled === false) {
+      new Notice("请先允许 AI 使用工具，再使用文档工具。");
+      return false;
+    }
     return this._send(prompt);
   }
 
@@ -383,6 +415,16 @@ export function createAiChatView({
       if (!options.silent) new Notice(qiaomuReaderTranslate("stop-the-current-answer-before-changing-the-passage"));
       return;
     }
+    // "Current page" is a persistent scope for this conversation. The reader
+    // sends the full PDF context on every page turn, so replace that payload
+    // with the visible page unless the reader explicitly attached a selection.
+    if (options.follow && !options.selection && this.contextScope === "page"
+      && this.readerView?.file?.path === value?.bookFile?.path) {
+      const page = typeof readerPageContext === "function" ? readerPageContext(this.readerView) : null;
+      value = page
+        ? { ...value, ...page, kind: "page" }
+        : { ...value, kind: "page", text: "", scanned: true };
+    }
     const context = normalizeAiTurnContext(value);
     this.scannedPdf = value?.scanned === true;
     const bookFile = value?.bookFile || null;
@@ -392,6 +434,7 @@ export function createAiChatView({
     this._rememberDraft();
     const draft = this.drafts.get(bookPath) || "";
     if (options.follow && !shouldFollowContext(this.contextMode, sameBook)) return;
+    if (!sameBook) this.contextScope = "auto";
     this.contextMode = context?.kind === "selection" ? "selection" : "follow";
     const unavailable = value?.unavailable === true;
     // A persistent ACP conversation already knows the document after its first
@@ -910,6 +953,13 @@ export function createAiChatView({
     const rendered = renderAiContextQuote(host, context, {
       className: "qiaomu-reader-ai-context-attached",
       clearable: true,
+      ...(context.kind === "document" && typeof readerPageContext === "function"
+        ? { onUsePage: () => this._usePageContext() }
+        : {}),
+      ...(context.kind === "page" && this.contextScope === "page"
+        && String(this.readerView?.pdfDocumentContext?.text || "").trim()
+        ? { onUseFull: () => this._useFullContext() }
+        : {}),
       onClear: () => {
         this.pendingContext = null;
         this.text = "";
@@ -920,6 +970,36 @@ export function createAiChatView({
     });
     this.pendingContextEl = rendered?.card || null;
     this.contextClearEl = rendered?.clear || null;
+  }
+  _usePageContext() {
+    if (!this.readerView || this.readerView.file?.path !== this.bookFile?.path) return false;
+    if (typeof readerPageContext !== "function") return false;
+    const page = readerPageContext(this.readerView);
+    if (!page?.text) {
+      new Notice(qiaomuReaderTranslate("current-page-has-no-text"));
+      return false;
+    }
+    this.contextScope = "page";
+    this.contextMode = "follow";
+    this.pendingContext = page;
+    this.text = page.text;
+    this._refreshPendingContext();
+    return true;
+  }
+  _useFullContext() {
+    if (!this.readerView || this.readerView.file?.path !== this.bookFile?.path) return false;
+    if (typeof readerDefaultAiContext !== "function") return false;
+    const full = readerDefaultAiContext(this.readerView);
+    if (full?.kind !== "document" || !String(full.text || "").trim()) {
+      new Notice(qiaomuReaderTranslate("full-pdf-has-no-text"));
+      return false;
+    }
+    this.contextScope = "auto";
+    this.contextMode = "follow";
+    this.pendingContext = full;
+    this.text = full.text;
+    this._refreshPendingContext();
+    return true;
   }
   _refreshPendingContext() {
     if (this.quickPromptRow?.parentElement) renderAiComposerPrompts(this.quickPromptRow.parentElement, this);
@@ -935,7 +1015,10 @@ export function createAiChatView({
     // transition first, so the source matches the destination screen.
     if (!this.readerView.engine && this.readerView.pager?.flow && !this.readerView.pager.scrollMode) this.readerView.pager.applyTransform(false);
     void this.readerView.pager?.flow?.offsetHeight;
-    this.setContext(readerAiPanelContext(this.readerView), { follow: true, silent: true, focusInput: false });
+    const context = this.contextScope === "page"
+      ? readerPageContext(this.readerView) || readerAiPanelContext(this.readerView)
+      : readerAiPanelContext(this.readerView);
+    this.setContext(context, { follow: true, silent: true, focusInput: false });
   }
   // Keeping the sidebar open after an answer is saved preserves the reading
   // thread; closing the leaf remains an explicit Obsidian action.
