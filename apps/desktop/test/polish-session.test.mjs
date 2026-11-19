@@ -504,12 +504,15 @@ test("listPolishBundles reports live review counts from the current markdown", (
 test("findPolishBundleForSource matches the absolute build source and copies markdown", () => {
   const { root, dir, manifestPath } = fixture();
   try {
+    const booksDir = path.join(root, "books");
+    fs.mkdirSync(booksDir, { recursive: true });
+    const sourcePath = path.join(booksDir, "a.pdf");
     const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-    manifest.build = { source: "D:/books/a.pdf" };
+    manifest.build = { source: sourcePath };
     fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
-    const found = findPolishBundleForSource(root, "a.pdf", "D:/books");
+    const found = findPolishBundleForSource(root, "a.pdf", booksDir);
     assert.equal(found?.manifestPath, manifestPath);
-    assert.equal(findPolishBundleForSource(root, "b.pdf", "D:/books"), null);
+    assert.equal(findPolishBundleForSource(root, "b.pdf", booksDir), null);
 
     const target = path.join(dir, "copy.md");
     copyPolishMarkdown(manifestPath, target);
