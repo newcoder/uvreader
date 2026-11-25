@@ -82,6 +82,9 @@ jobs:
 
   release:
     needs: build
+    # A scarce macos-arm64 runner can cancel its leg without failing the build.
+    # Publish the artifacts that did build instead of skipping the whole release.
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
