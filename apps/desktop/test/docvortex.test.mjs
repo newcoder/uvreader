@@ -175,6 +175,39 @@ test("the convert runner restores real Word lists for text sources only", async 
   assert.match(untouched, /w:t[^>]*>1\. 第一项</, "原样保留");
 });
 
+test("probe accepts the engine's installed DocVortex without a local install", async () => {
+  let spawned = 0;
+  const docvortex = createDocvortex({
+    spawnImpl: () => { spawned += 1; throw new Error("no local binary"); },
+    engine: {
+      health: async () => ({ ok: true, data: { capabilities: { docvortex: { ok: true, detail: "DocVortex 0.6.26 · components" } } } }),
+    },
+  });
+  const result = await docvortex.probe({ engineUrl: "http://127.0.0.1:8760" });
+  assert.equal(result.ok, true);
+  assert.equal(result.kind, "engine");
+  assert.match(result.detail, /0\.6\.26/);
+  assert.equal(spawned, 0, "装有引擎组件时不再探测本机 PATH/Python");
+});
+
+test("convert keeps the engine error instead of claiming DocVortex is missing", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "qbr-docvortex-engine-"));
+  const source = path.join(dir, "book.docx");
+  const out = path.join(dir, "book.md");
+  fs.writeFileSync(source, "docx");
+  const docvortex = createDocvortex({
+    spawnImpl: () => { throw new Error("no local binary"); },
+    engine: {
+      health: async () => ({ ok: true, data: { capabilities: { docvortex: { ok: false } } } }),
+      runJob: async () => ({ ok: false, error: "DocVortex 启动失败：missing model" }),
+    },
+  });
+  const result = await docvortex.convert({ engineUrl: "http://127.0.0.1:8760" }, { source, format: "markdown", out });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /引擎 DocVortex 转换失败/);
+  assert.doesNotMatch(result.error, /未找到 docvortex/);
+});
+
 test("probe falls back through the candidates and reports the first that answers", async () => {
   const { spawnImpl, calls } = fakeSpawn((call, child) => {
     if (call.command === "docvortex") {

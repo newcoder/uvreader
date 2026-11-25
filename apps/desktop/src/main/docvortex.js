@@ -102,8 +102,8 @@ function tail(text, limit = 300) {
 }
 
 export function createDocvortex({ spawnImpl = spawn, timeoutMs = 10 * 60_000, probeTimeoutMs = 8_000, engine = null } = {}) {
-  // 逐个候选跑 `--version`;第一个成功的即解析结果。
-  function probe(settings = {}) {
+  // 逐个候选跑 `--version`;第一个成功的即解析结果。只查本机。
+  function probeLocal(settings = {}) {
     const candidates = docvortexCandidates(settings);
     return new Promise((resolve) => {
       let index = 0;
@@ -138,6 +138,27 @@ export function createDocvortex({ spawnImpl = spawn, timeoutMs = 10 * 60_000, pr
       };
       attempt();
     });
+  }
+
+  // 引擎优先:DocVortex 常装在引擎的 components/ 里,本机 PATH/Python 没有它。
+  // 只查本机会把「已经装了」误报成「未找到」,设置页反复出现同一个提示。
+  async function probe(settings = {}) {
+    if (engine) {
+      try {
+        const health = await engine.health(settings);
+        const capability = health?.data?.capabilities?.docvortex;
+        if (health?.ok && capability?.ok) {
+          return {
+            ok: true,
+            kind: "engine",
+            command: "engine",
+            via: "engine",
+            detail: String(capability.detail || "引擎内置 DocVortex"),
+          };
+        }
+      } catch { /* engine down: fall back to the local probe */ }
+    }
+    return probeLocal(settings);
   }
 
   function run(candidate, args, { signal } = {}) {
@@ -179,14 +200,20 @@ export function createDocvortex({ spawnImpl = spawn, timeoutMs = 10 * 60_000, pr
     // 引擎优先(可独立部署):引擎按自己的配置调 DocVortex;失败/没配再回退本机 CLI。
     // engineUrl 留空表示默认 http://127.0.0.1:8760，不要因为它为空就跳过引擎 ——
     // 打包版/本机引擎经常就是默认端口，而 DocVortex 只装在引擎组件里。
+    let engineError = "";
     if (engine) {
       const ran = await engine.runJob(settings, "convert", { source, format, out, parseMode }, { signal });
       if (ran.ok && ran.result?.out && fs.existsSync(ran.result.out)) return { ok: true, out: ran.result.out, via: "engine" };
       if (ran.cancelled) return { ok: false, error: "已取消", cancelled: true };
+      engineError = String(ran.error || "").trim();
     }
-    const resolved = await probe(settings);
-    if (!resolved.ok) return { ok: false, error: resolved.detail };
-    const result = await run(resolved, convertArgs(source, format, out, { parseMode }), { signal });
+    // 本机回退只查本机;probe() 会先问引擎,不能拿它的 engine 结果去 spawn。
+    const local = await probeLocal(settings);
+    if (!local.ok) {
+      if (engineError) return { ok: false, error: `引擎 DocVortex 转换失败：${engineError}` };
+      return { ok: false, error: local.detail };
+    }
+    const result = await run(local, convertArgs(source, format, out, { parseMode }), { signal });
     if (!result.ok) return result;
     if (!fs.existsSync(out)) return { ok: false, error: "转换完成但没有生成文件" };
     return { ok: true, out, via: "local" };

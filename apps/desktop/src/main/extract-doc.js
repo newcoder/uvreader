@@ -530,7 +530,8 @@ export async function mergePdfMarkdown({ docPath, source, python = "python", wor
 
 // 供向导调用:把任意来源转成 Markdown(中间产物放缓存目录,用户无感)。
 export async function extractMarkdown(source, { kind, settings = {}, docvortex, workDir, signal, log = () => {}, spawnImpl = spawn, textLayer = null, refresh = false, engine = null, report = null } = {}) {
-  const resolvedKind = kind || extractionKind(source);
+  const resolvedKind = extractionKind(source) || kind || "";
+  log("extract: kind", resolvedKind || "(unknown)", path.basename(String(source || "")));
   // 提取产物里的「假代码块」(MinerU 把正文段落包进围栏)按段落还原,公式才会渲染。
   const repairMarkdown = (text) => {
     let cleaned = unwrapProseFences(text);
