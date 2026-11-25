@@ -397,8 +397,7 @@ export function adoptPdfToolOutputs(outDir, name, { renameAssets = true } = {}) 
 }
 
 // 外部命令执行(spawn 可注入,便于单测)。
-export function runExtractCommand(command, args, { cwd, env, signal, timeoutMs = 30 * 60_000, log = () => {}, spawnImpl = spawn } = {}) {
-  return new Promise((resolve) => {
+export function runExtractCommand(command, args, { cwd, env, signal, timeoutMs = 30 * 60_000, log = () => {}, spawnImpl = spawn } = {}) {  return new Promise((resolve) => {
     let child;
     try {
       child = spawnImpl(command, args, { cwd: cwd || undefined, env: env ? { ...process.env, ...env } : undefined, stdio: ["ignore", "pipe", "pipe"] });
@@ -441,6 +440,11 @@ const EXTRACT_VERSION = 2;
 // Bump when the text-layer merge behavior changes; old merged.md caches must be
 // rebuilt once, otherwise a fix is invisible for files already extracted.
 export const MERGE_VERSION = 1;
+
+// Twenty-volume scans (5,000+ pages, 29 MinerU chunks) take far longer than the
+// old 30-minute cap. The chunk cache is resumable, so a generous ceiling costs
+// nothing while removing the "解析一小时、结果全丢" failure.
+export const EXTRACT_TIMEOUT_MS = 4 * 60 * 60_000;
 
 function readMergeVersion(workDir) {
   try {
@@ -609,7 +613,8 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
             ? String(settings.mineruSource || "").trim().toLowerCase()
             : "",
           refresh: refresh === true,
-        }, { signal, onProgress: (progress) => report?.({ label: progress.label || "书稿引擎解析中…" }) })
+          timeoutMs: EXTRACT_TIMEOUT_MS,
+        }, { signal, timeoutMs: EXTRACT_TIMEOUT_MS + 120_000, onProgress: (progress) => report?.({ label: progress.label || "书稿引擎解析中…" }) })
         : null;
       if (viaEngine?.ok) {
         log("extract: pdf_tool via engine");
@@ -619,6 +624,9 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
         } catch { /* 标记写不了不影响提取 */ }
       } else {
         if (viaEngine?.cancelled) return { ok: false, cancelled: true, error: "任务已取消" };
+        if (viaEngine?.timedOut) {
+          return { ok: false, error: "解析超时：已完成的分块已缓存，重试会从断点继续（当前上限 4 小时）。" };
+        }
         if (viaEngine) log("extract: engine failed, falling back to local pdf_tool", viaEngine.error);
         // 交给 pdf_tool 前先去掉页眉页脚 / 页码 / 水印。
         const backend = await resolveLocalBackend(settings);
@@ -650,6 +658,7 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
           signal,
           log,
           spawnImpl,
+          timeoutMs: EXTRACT_TIMEOUT_MS,
         });
         if (!result.ok) return { ok: false, error: result.error };
         // 本机 pdf_tool 产出的缓存:标记 local,引擎探测失败时不再反复重跑。
@@ -810,12 +819,16 @@ export function registerExtractRunners(workshop, { docvortex, vaultRoot = "", ca
         model,
         mineruSource: String(settings.mineruSource || "") === "local" ? "local" : "",
         refresh: payload?.refresh === true,
-      }, { signal, onProgress: (progress) => report?.({ label: progress.label || "书稿引擎解析中…" }) });
+        timeoutMs: EXTRACT_TIMEOUT_MS,
+      }, { signal, timeoutMs: EXTRACT_TIMEOUT_MS + 120_000, onProgress: (progress) => report?.({ label: progress.label || "书稿引擎解析中…" }) });
     }
     if (viaEngine?.ok) {
       log("extract: pdf_tool via engine");
     } else {
       if (viaEngine?.cancelled) throw new Error("任务已取消");
+      if (viaEngine?.timedOut) {
+        throw new Error("解析超时：已完成的分块已缓存，重试会从断点继续（当前上限 4 小时）。");
+      }
       if (viaEngine) log("extract: engine failed, falling back to local pdf_tool", viaEngine.error);
       const target = pdfToolScriptCommand(settings);
       if (target.error) throw new Error(target.error);

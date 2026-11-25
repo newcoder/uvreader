@@ -66,11 +66,18 @@ for (const page of pages) {
 const navName = names.find((name) => /nav\.xhtml$/i.test(name));
 const ncxName = names.find((name) => /toc\.ncx$/i.test(name));
 const chapters = names.filter((name) => /chapter-[^/]+\.x?html$/i.test(name));
+// 页内锚点(id=)也要核对:图版等条目用 chapter-001.xhtml#nav-figures 定位。
+const anchors = {};
+for (const name of chapters) {
+  const html = await zip.file(name)?.async("string");
+  anchors[name] = [...String(html || "").matchAll(/\bid\s*=\s*"([^"]+)"/g)].map((match) => match[1]);
+}
 const navAudit = auditNav({
   nav: navName ? await zip.file(navName).async("string") : "",
   ncx: ncxName ? await zip.file(ncxName).async("string") : "",
   fileNames: names,
   chapterFiles: chapters,
+  anchors,
 });
 
 const ok = report.unresolved === 0 && report.rawFormulas === 0 && navAudit.ok;

@@ -118,6 +118,29 @@ test("auditNav reports dangling links, broken nesting and NCX drift", () => {
   assert.ok(dirty.problems.some((problem) => problem.includes("残留公式")), "标题里的公式标记要报出来");
 });
 
+test("fragment links point inside a chapter and must find their anchor", () => {
+  // 图版条目是 chapter-001.xhtml#nav-figures:文件名存在,锚点在章节里。
+  const ok = auditNav({
+    nav: `<ol><li><a href="chapter-001.xhtml#nav-figures">图版</a></li><li><a href="chapter-002.xhtml">第一章</a></li></ol>`,
+    ncx: `<content src="chapter-001.xhtml"/><content src="chapter-002.xhtml"/>`,
+    fileNames: ["OEBPS/chapter-001.xhtml", "OEBPS/chapter-002.xhtml"],
+    chapterFiles: ["OEBPS/chapter-001.xhtml", "OEBPS/chapter-002.xhtml"],
+    anchors: { "OEBPS/chapter-001.xhtml": ["nav-figures"], "OEBPS/chapter-002.xhtml": [] },
+  });
+  assert.equal(ok.ok, true, ok.problems.join(" / "));
+  assert.equal(ok.stats.linkedChapters, 2, "带 # 的链接仍算作已链接章节");
+
+  const missingAnchor = auditNav({
+    nav: `<ol><li><a href="chapter-001.xhtml#nav-figures">图版</a></li></ol>`,
+    ncx: `<content src="chapter-001.xhtml"/>`,
+    fileNames: ["OEBPS/chapter-001.xhtml"],
+    chapterFiles: ["OEBPS/chapter-001.xhtml"],
+    anchors: { "OEBPS/chapter-001.xhtml": [] },
+  });
+  assert.equal(missingAnchor.ok, false);
+  assert.ok(missingAnchor.problems.some((problem) => problem.includes("导航锚点不存在")));
+});
+
 test("a printed toc drives the nav and a fragment never reaches it", async () => {
   const { nav, audit, task } = await buildFromMarkdown([printedToc, "", body].join("\n\n"));
   assert.match(task.detail, /目录来自印刷目录/);

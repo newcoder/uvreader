@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { adoptPdfToolOutputs, appendFootnotes, collectContinuations, collectHeaderImages, collectPageFootnotes, collectUpstreamTocEntries, extractionKind, extractMarkdown, MERGE_VERSION, mergePdfMarkdown, patchMarkdownCaptions, registerExtractRunners, splitMarkdownChapters } from "../src/main/extract-doc.js";
+import { adoptPdfToolOutputs, appendFootnotes, collectContinuations, collectHeaderImages, collectPageFootnotes, collectUpstreamTocEntries, EXTRACT_TIMEOUT_MS, extractionKind, extractMarkdown, MERGE_VERSION, mergePdfMarkdown, patchMarkdownCaptions, registerExtractRunners, splitMarkdownChapters } from "../src/main/extract-doc.js";
 import { unwrapProseFences } from "../src/shared/markdown-fix.js";
 import { createWorkshopQueue } from "../src/main/workshop.js";
 import { waitForTask } from "./wait-for-task.mjs";
@@ -468,6 +468,66 @@ test("extractMarkdown ignores a cached merged markdown when the engine version c
   assert.equal(reused.ok, true, reused.error);
   assert.equal(calls.length, 1, "版本一致时继续复用缓存");
   assert.match(reused.markdown, /新引擎的稿子/);
+});
+
+test("extract gives the engine a long, resumable timeout for a many-volume book", async () => {
+  const vault = tempDir("qbr-extract-long-");
+  fs.mkdirSync(path.join(vault, "pdf_tool"), { recursive: true });
+  fs.writeFileSync(path.join(vault, "pdf_tool", "pdf_to_doc.py"), "# stub\n");
+  const source = path.join(vault, "文集.pdf");
+  fs.writeFileSync(source, "%PDF-1.4", "utf8");
+  const workDir = path.join(vault, "work");
+  fs.mkdirSync(workDir, { recursive: true });
+  const calls = [];
+  const engine = {
+    health: async () => ({ ok: true, engineVersion: "0.1.22" }),
+    runJob: async (_settings, kind, args, jobOptions) => {
+      calls.push({ kind, args, jobOptions });
+      fs.writeFileSync(path.join(args.outDir, "文集_doc.md"), "# 新稿\n");
+      fs.writeFileSync(path.join(args.outDir, "文集_doc.json"), JSON.stringify({ schema_version: 1, pages: [] }));
+      fs.writeFileSync(path.join(args.outDir, "文集_doc.html"), "<p>新</p>");
+      return { ok: true };
+    },
+  };
+  const result = await extractMarkdown(source, {
+    kind: "pdf",
+    settings: { engineUrl: "http://127.0.0.1:8760", ocrSidecarDir: vault },
+    workDir,
+    engine,
+    log: () => {},
+    textLayer: { read: async () => ({ ok: false, error: "no layer" }) },
+  });
+  assert.equal(result.ok, true, result.error);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].args.timeoutMs, EXTRACT_TIMEOUT_MS, "引擎内部的 pdf_tool 超时也要放大");
+  assert.ok(calls[0].jobOptions.timeoutMs > EXTRACT_TIMEOUT_MS, "轮询不能先于命令超时");
+});
+
+test("an engine timeout does not fall back and redo the extraction locally", async () => {
+  const vault = tempDir("qbr-extract-timeout-");
+  fs.mkdirSync(path.join(vault, "pdf_tool"), { recursive: true });
+  fs.writeFileSync(path.join(vault, "pdf_tool", "pdf_to_doc.py"), "# stub\n");
+  const source = path.join(vault, "文集.pdf");
+  fs.writeFileSync(source, "%PDF-1.4", "utf8");
+  const workDir = path.join(vault, "work");
+  fs.mkdirSync(workDir, { recursive: true });
+  let localCalls = 0;
+  const engine = {
+    health: async () => ({ ok: true, engineVersion: "0.1.22" }),
+    runJob: async () => ({ ok: false, timedOut: true, error: "引擎作业超时" }),
+  };
+  const result = await extractMarkdown(source, {
+    kind: "pdf",
+    settings: { engineUrl: "http://127.0.0.1:8760", ocrSidecarDir: vault },
+    workDir,
+    engine,
+    log: () => {},
+    spawnImpl: fakeSpawn(() => { localCalls += 1; }),
+    textLayer: { read: async () => ({ ok: false, error: "no layer" }) },
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /分块已缓存/);
+  assert.equal(localCalls, 0, "超时后不应再起本机进程重复解析");
 });
 
 test("an unknown engine version refreshes an unmarked cache once, then marks it local", async () => {

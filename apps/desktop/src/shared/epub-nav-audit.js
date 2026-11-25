@@ -57,7 +57,7 @@ export function parseNcx(ncxXml) {
 }
 
 // 审计:结构问题返回 problems,统计返回 stats。
-export function auditNav({ nav = "", ncx = "", fileNames = [], chapterFiles = [] } = {}) {
+export function auditNav({ nav = "", ncx = "", fileNames = [], chapterFiles = [], anchors = null } = {}) {
   const parsed = parseNav(nav);
   const ncxParsed = parseNcx(ncx);
   const files = new Set(fileNames);
@@ -74,14 +74,39 @@ export function auditNav({ nav = "", ncx = "", fileNames = [], chapterFiles = []
   for (const problem of parsed.problems || []) problems.push(`导航结构:${problem}`);
   if (!parsed.entries.length) problems.push("导航里一条链接都没有");
   // nav 里的 href 是相对路径(chapter-001.xhtml),而文件清单是 zip 里的完整路径(OEBPS/…),
-  // 所以按「同路径或路径后缀」判定存在性。
-  const exists = (href) => files.has(href) || [...files].some((name) => name.endsWith(`/${href}`));
+  // 所以按「同路径或路径后缀」判定存在性。`#anchor` 是页内定位,不能算进文件名。
+  const splitHref = (href) => {
+    const [rawPath, rawAnchor = ""] = String(href || "").split("#");
+    return { path: rawPath || "", anchor: decodeURIComponent(rawAnchor) };
+  };
+  const exists = (href) => {
+    const { path: target } = splitHref(href);
+    if (!target) return true;
+    return files.has(target) || [...files].some((name) => name.endsWith(`/${target}`));
+  };
+  const anchorsOf = (href) => {
+    if (!anchors) return null;
+    const { path: target } = splitHref(href);
+    const name = [...files].find((file) => file === target || file.endsWith(`/${target}`));
+    if (!name) return null;
+    return anchors[name] || anchors[target] || null;
+  };
   for (const entry of parsed.entries) {
-    if (!exists(entry.href)) problems.push(`导航链接指向不存在的文件:${entry.href}`);
+    if (!exists(entry.href)) {
+      problems.push(`导航链接指向不存在的文件:${entry.href}`);
+      continue;
+    }
+    const { anchor } = splitHref(entry.href);
+    if (anchor) {
+      const list = anchorsOf(entry.href);
+      if (Array.isArray(list) && !list.includes(anchor)) {
+        problems.push(`导航锚点不存在:${entry.href}`);
+      }
+    }
     if (!entry.label) problems.push(`导航条目没有文字:${entry.href}`);
     if (/[$\\^{}]/.test(entry.label)) problems.push(`导航条目里残留公式/标记:${entry.label}`);
   }
-  const linked = new Set(parsed.entries.map((entry) => entry.href.split("/").pop()));
+  const linked = new Set(parsed.entries.map((entry) => splitHref(entry.href).path.split("/").pop()).filter(Boolean));
   for (const file of chapterFiles) {
     if (linked.has(file.split("/").pop())) stats.linkedChapters += 1;
     else stats.unlinkedChapters += 1;

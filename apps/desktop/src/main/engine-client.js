@@ -152,7 +152,7 @@ export function createEngineClient({ fetchImpl = (...args) => fetch(...args), ti
         }
         if (Date.now() > deadline) {
           await this.cancel(settings, jobId);
-          return { ok: false, error: "引擎作业超时" };
+          return { ok: false, timedOut: true, error: "引擎作业超时" };
         }
         await new Promise((resolve) => setTimeout(resolve, intervalMs));
       }
