@@ -924,6 +924,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     const settings = payload?.settings || {};
     const source = absolute(payload?.source);
     if (!fs.existsSync(source)) throw new Error(`源文件不存在：${source}`);
+    if (!fs.statSync(source).isFile()) throw new Error(`书稿路径不是文件：${source}（请选择 PDF/Office/txt/Markdown 文件）`);
     const sourceKind = textSourceKind(source);
     const markdown = sourceKind === "markdown";
     const styles = { ...BOOK_STYLE_DEFAULTS, ...(payload?.styles || {}) };

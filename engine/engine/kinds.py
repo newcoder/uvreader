@@ -363,7 +363,6 @@ def _docvortex_commands(config: dict) -> list[list[str]]:
     if found:
         commands.append([found])
     commands.append([python, "-c", f"import sys; sys.path.insert(0, {components!r}); from docvortex.cli import main; sys.exit(main())"])
-    commands.append([python, "-c", f"import runpy, sys; sys.path.insert(0, {components!r}); runpy.run_module('docvortex', run_name='__main__')"])
     return commands
 
 
@@ -388,7 +387,10 @@ def run_convert(job: Job) -> dict:
         code, output = run_process(job, command[0], [*command[1:], *base], timeout=1800.0, label="DocVortex 转换中…")
         if code == 0 and Path(out_path).exists():
             return {"out": out_path, "log": output.strip()[-400:]}
-        last_error = f"退出码 {code}:{output.strip()[-300:]}"
+        # Keep the actual error from the CLI. The old runpy fallback reported
+        # "No module named docvortex.__main__" and hid why the conversion
+        # really failed (for a PDF: no readable text / unsupported input).
+        last_error = f"退出码 {code}:{output.strip()[-500:]}"
     raise RuntimeError(f"DocVortex 转换失败:{last_error}")
 
 

@@ -530,8 +530,17 @@ export async function mergePdfMarkdown({ docPath, source, python = "python", wor
 
 // 供向导调用:把任意来源转成 Markdown(中间产物放缓存目录,用户无感)。
 export async function extractMarkdown(source, { kind, settings = {}, docvortex, workDir, signal, log = () => {}, spawnImpl = spawn, textLayer = null, refresh = false, engine = null, report = null } = {}) {
-  const resolvedKind = extractionKind(source) || kind || "";
-  log("extract: kind", resolvedKind || "(unknown)", path.basename(String(source || "")));
+  const rawSource = String(source || "");
+  let sourceStat = null;
+  try { sourceStat = fs.statSync(rawSource); } catch { /* reported below */ }
+  if (!sourceStat?.isFile()) {
+    // A library folder / empty path is not a book source. Converting a folder
+    // with DocVortex produced the confusing "No module named docvortex.__main__".
+    return { ok: false, error: `书稿路径不是文件：${rawSource || "(空)"}` };
+  }
+  // A .pdf is always pdf_tool/MinerU, even if a caller passed a different kind.
+  const resolvedKind = /\.pdf$/i.test(rawSource) ? "pdf" : (extractionKind(rawSource) || kind || "");
+  log("extract: kind", resolvedKind || "(unknown)", path.basename(rawSource));
   // 提取产物里的「假代码块」(MinerU 把正文段落包进围栏)按段落还原,公式才会渲染。
   const repairMarkdown = (text) => {
     let cleaned = unwrapProseFences(text);

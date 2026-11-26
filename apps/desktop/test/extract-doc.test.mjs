@@ -530,6 +530,52 @@ test("an engine timeout does not fall back and redo the extraction locally", asy
   assert.equal(localCalls, 0, "超时后不应再起本机进程重复解析");
 });
 
+test("a .pdf is extracted as a PDF even when the caller passes another kind", async () => {
+  const vault = tempDir("qbr-extract-kind-");
+  fs.mkdirSync(path.join(vault, "pdf_tool"), { recursive: true });
+  fs.writeFileSync(path.join(vault, "pdf_tool", "pdf_to_doc.py"), "# stub\n");
+  const source = path.join(vault, "book.pdf");
+  fs.writeFileSync(source, "%PDF-1.4", "utf8");
+  const workDir = path.join(vault, "work");
+  const calls = [];
+  const engine = {
+    health: async () => ({ ok: true, data: { engineVersion: "0.1.22" } }),
+    runJob: async (_settings, kind, args) => {
+      calls.push({ kind, args });
+      fs.writeFileSync(path.join(args.outDir, "book_doc.md"), "# ok\n");
+      fs.writeFileSync(path.join(args.outDir, "book_doc.json"), JSON.stringify({ schema_version: 1, pages: [] }));
+      fs.writeFileSync(path.join(args.outDir, "book_doc.html"), "<p>ok</p>");
+      return { ok: true };
+    },
+  };
+  let convertCalls = 0;
+  const docvortex = { convert: async () => { convertCalls += 1; return { ok: false, error: "不应调用 DocVortex" }; } };
+  const result = await extractMarkdown(source, {
+    kind: "document",
+    settings: { engineUrl: "http://127.0.0.1:8760", ocrSidecarDir: vault },
+    workDir,
+    engine,
+    docvortex,
+    log: () => {},
+    textLayer: { read: async () => ({ ok: false, error: "no layer" }) },
+  });
+  assert.equal(result.ok, true, result.error);
+  assert.equal(convertCalls, 0, "PDF 不能绕道 DocVortex");
+  assert.equal(calls[0].kind, "extract");
+});
+
+test("a directory source is rejected before extraction", async () => {
+  const vault = tempDir("qbr-extract-dir-");
+  const result = await extractMarkdown(vault, {
+    kind: "document",
+    settings: {},
+    workDir: path.join(vault, "work"),
+    log: () => {},
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /不是文件/);
+});
+
 test("an unknown engine version refreshes an unmarked cache once, then marks it local", async () => {
   const vault = tempDir("qbr-extract-local-");
   fs.mkdirSync(path.join(vault, "pdf_tool"), { recursive: true });
