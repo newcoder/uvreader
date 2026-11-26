@@ -7,7 +7,7 @@
 // 判定不看章节标题(有的书叫目录、目次、Contents,有的干脆没有标题),而是看内容:
 // 大量短行以页码结尾(常带点线/省略号引导)。
 
-const TOC_TITLE_RE = /^(目\s*录|目\s*次|contents|table of contents|inhalt|sommaire|índice)$/i;
+const TOC_TITLE_RE = /^(目\s*[录錄]|目\s*次|contents|table of contents|inhalt|sommaire|índice)$/i;
 // 「标题 …… 12」/「标题 ... 12」/「标题 ···· 12」:引导符后跟页码
 const LEADER_RE = /(?:\.{2,}|…{2,}|·{2,}|_{2,}|-{2,})\s*\d{1,4}\s*$/;
 // 「标题 12」:结尾是页码,且去掉页码后不像一句正文
@@ -60,7 +60,10 @@ export function isPrintedTocChapter(chapter, { frontMatter = false } = {}) {
   const lines = nonEmptyLines(chapter?.text);
   if (!lines.length) return false;
   const entries = lines.filter((line) => looksLikeTocEntry(line)).length;
-  if (TOC_TITLE_RE.test(title) && entries >= 2) return true;
+  // OCR'd TOC pages often merge every entry into one long paragraph, so the
+  // "entries >= 2" test fails. A chapter whose own title is 目录/目錄/Contents
+  // is the printed TOC regardless of how its lines were merged.
+  if (TOC_TITLE_RE.test(title)) return true;
   if (!frontMatter) return false;
   return entries >= 5 && entries / lines.length >= 0.5;
 }

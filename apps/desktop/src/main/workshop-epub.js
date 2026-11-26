@@ -25,7 +25,7 @@ import { decodeText } from "../shared/text-encoding.js";
 import { extractMarkdown, extractionKind, splitMarkdownChapters } from "./extract-doc.js";
 import { createMathRenderer, shareFormulaHtml } from "./math-render.js";
 import { createTextLayerReader } from "./text-layer.js";
-import { cleanChapterTitle, joinInlineFragment, looksLikeHeadingTitle, stripNoteMarkers, unwrapProseFences } from "../shared/markdown-fix.js";
+import { cleanChapterTitle, joinInlineFragment, looksLikeHeadingTitle, normalizeCjkRadicals, stripNoteMarkers, unwrapProseFences } from "../shared/markdown-fix.js";
 import { buildNavPlan, chapterKey, chapterStartPages, fillPageGaps, isPrintedTocChapter, lastPrintedPageOf, normalizeNavLevels, parsePrintedTocEntries, printedPageOf, splitChaptersByToc, stripPageMarkers, stripPrintedToc, tocKey } from "../shared/printed-toc.js";
 import { outlineToTocEntries } from "./pdf-outline.js";
 import { forgetPolishNote, normalizePolishCover, readPolishBundle, savePolishManifest, savePolishSession, validatePolishStructure } from "./polish-session.js";
@@ -1107,7 +1107,10 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       if (signal.aborted) throw new Error("任务已取消");
       if (!extracted.ok) throw new Error(String(extracted.error || "内容提取失败"));
       text = extracted.markdown;
-      upstreamToc = Array.isArray(extracted.tocEntries) ? extracted.tocEntries : [];
+      upstreamToc = (Array.isArray(extracted.tocEntries) ? extracted.tocEntries : []).map((entry) => ({
+        ...entry,
+        title: normalizeCjkRadicals(entry?.title || ""),
+      }));
       baseDir = path.dirname(extracted.path || source);
       const found = splitMarkdownChapters(text, { bookTitle: title, keepTitle: keepOutlineTitle });
       // 扫描书的正文标题常被 OCR 拆成页内小节（“寡妇”“彭”），按标题分章会
@@ -1115,9 +1118,13 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       const tocSplit = upstreamToc.length >= 3
         ? splitChaptersByToc(text, upstreamToc)
         : null;
-      if (tocSplit) log("book build chapters from printed toc", tocSplit.chapters.length, "matched", tocSplit.matched, "/", tocSplit.entries);
-      printedTocSplit = tocSplit;
-      const chapterSource = tocSplit?.chapters?.length ? tocSplit.chapters : found;
+      // A volume-level TOC (8–15 entries) must not collapse a book that already
+      // has 1000+ markdown headings into a handful of chapters.
+      const useTocSplit = Boolean(tocSplit?.chapters?.length
+        && (found.length < 20 || tocSplit.chapters.length >= found.length * 0.8));
+      if (tocSplit) log("book build chapters from printed toc", tocSplit.chapters.length, "matched", tocSplit.matched, "/", tocSplit.entries, useTocSplit ? "" : "(ignored: headings are finer)");
+      printedTocSplit = useTocSplit ? tocSplit : null;
+      const chapterSource = useTocSplit ? tocSplit.chapters : found;
       rawChapters = (chapterSource.length
         ? chapterSource.map((chapter, index) => ({
           title: chapter.title || (index === 0 ? title : `第 ${index + 1} 章`),
@@ -1132,6 +1139,13 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
 
     // 标题去噪 + 去掉页眉/扉页重复短章(提供的章节也照办:面板传过来的标题可能带
     // 脚注标记 $^{①}$,导航里就会看到这些符号)。
+    // Normalise Kangxi-radical OCR text once, before TOC detection/splitting:
+    // a polished markdown or an older cache can still carry "⽬錄"/"第⼀部".
+    rawChapters = rawChapters.map((chapter) => ({
+      ...chapter,
+      title: normalizeCjkRadicals(chapter.title || ""),
+      text: normalizeCjkRadicals(chapter.text || ""),
+    }));
     const normalized = normalizeBookChapters(rawChapters, title, { keepKeys: outlineEntryKeys });
     const tocStrip = stripPrintedToc(normalized.chapters, { enabled: payload?.dropPrintedToc !== false });
     const bookChapters = tocStrip.chapters;
@@ -1162,6 +1176,11 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
     const tocText = normalized.chapters.filter((chapter) => isPrintedTocChapter(chapter)).map((chapter) => chapter.text).join("\n");
     const printedEntries = tocText ? parsePrintedTocEntries(tocText) : [];
     let primaryToc = pickPrimaryToc({ outlineEntries, upstreamToc, printedEntries });
+    // A sparse volume-level TOC must not replace a fine-grained heading tree.
+    if (primaryToc && normalized.chapters.length >= 20 && primaryToc.entries.length < normalized.chapters.length * 0.5) {
+      log("book build nav ignores sparse toc", primaryToc.source, primaryToc.entries.length, "of", normalized.chapters.length, "chapters");
+      primaryToc = null;
+    }
     // 已经用印刷目录重切过章节时，导航必须用同一份目录，否则章名和落点对不上。
     if (printedTocSplit && upstreamToc.length) primaryToc = { source: "upstream", entries: upstreamToc };
     const tocSource = primaryToc?.source || "";

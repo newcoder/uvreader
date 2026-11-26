@@ -301,14 +301,35 @@ export function stripCodeLineNumbers(markdown) {
   return lines.join("\n");
 }
 
-// 章节标题去噪:PDF 提取出的标题常带脚注标记与行内标记,例如
+// Kangxi radicals (U+2F00–U+2FDF) and CJK radical supplements (U+2E80–U+2EFF)
+// look like normal hanzi but are different codepoints: "⽬錄" is not "目錄",
+// so TOC detection, note matching and search all miss. NFKC maps the Kangxi
+// block, but the supplement forms below have no decomposition, so map them by
+// hand (the traditional form matches what NFKC does for the Kangxi block).
+const CJK_RADICAL_RE = /[\u2E80-\u2EFF\u2F00-\u2FDF\uF900-\uFAFF]/g;
+const RADICAL_MAP = new Map([
+  ["\u2EA0", "民"], // ⺠ CJK RADICAL CIVILIAN
+  ["\u2EC6", "角"], // ⻆ CJK RADICAL SIMPLIFIED HORN
+  ["\u2ED1", "長"], // ⻑ CJK RADICAL LONG ONE
+  ["\u2ED8", "青"], // ⻘ CJK RADICAL BLUE
+  ["\u2EDD", "食"], // ⻝ CJK RADICAL EAT ONE
+  ["\u2EE3", "骨"], // ⻣ CJK RADICAL BONE
+  ["\u2EE4", "鬼"], // ⻤ CJK RADICAL GHOST
+  ["\u2EF1", "龜"], // ⻱ CJK RADICAL TURTLE
+]);
+export function normalizeCjkRadicals(value) {
+  return String(value || "").replace(CJK_RADICAL_RE, (char) => RADICAL_MAP.get(char) || char.normalize("NFKC"));
+}
+
 // 脚注/尾注标记:正文里是 `[1]` 的上标引用,标题和目录里不应该出现。
 // MinerU 的标题行常把标记写成 `<sup>[1]</sup>`;渲染时它被转义成文字,于是
 // 目录里直接看到 "<sup>[1]</sup>"。标题清理和导航生成共用这一个函数。
 export function stripNoteMarkers(value) {
-  return String(value || "")
+  return normalizeCjkRadicals(value)
     .replace(/<sup\b[^>]*>[\s\S]*?<\/sup>/gi, " ")
     .replace(/&lt;sup\b[^&]*?&gt;[\s\S]*?&lt;\/sup&gt;/gi, " ")
+    .replace(/<\/?u\b[^>]*>/gi, " ")
+    .replace(/&lt;\/?u\b[^&]*?&gt;/gi, " ")
     .replace(/(?:\^|\\\^)\s*\{\s*\d{1,3}\s*\}/g, " ")
     .replace(/(?:\^|\\\^)\s*\[\s*\d{1,3}\s*\]/g, " ")
     .replace(/[ \t]{2,}/g, " ")

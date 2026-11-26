@@ -9,7 +9,7 @@ import path from "node:path";
 
 import { EXTRACT_MODES, IMAGE_INPUTS, extractionKind } from "../shared/extract-formats.js";
 import { textSourceKind } from "../shared/workshop-formats.js";
-import { joinContinuationLines, joinSplitCodeFences, repairMissingParallelSymbols, splitMarkdownChapters, stripCodeLineNumbers, unwrapProseFences } from "../shared/markdown-fix.js";
+import { joinContinuationLines, joinSplitCodeFences, normalizeCjkRadicals, repairMissingParallelSymbols, splitMarkdownChapters, stripCodeLineNumbers, unwrapProseFences } from "../shared/markdown-fix.js";
 import { parsePrintedTocEntries, tocKey, tocLevel } from "../shared/printed-toc.js";
 import { blocksFromDoc, blocksToMarkdown, cleanFootnoteText } from "./formula-html.js";
 import { rewriteHtmlMath } from "./html-math.js";
@@ -543,7 +543,11 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
   log("extract: kind", resolvedKind || "(unknown)", path.basename(rawSource));
   // 提取产物里的「假代码块」(MinerU 把正文段落包进围栏)按段落还原,公式才会渲染。
   const repairMarkdown = (text) => {
-    let cleaned = unwrapProseFences(text);
+    // Kangxi radicals and OCR underline markup first: they break TOC detection
+    // ("⽬錄" != "目錄"), note matching and search.
+    let cleaned = normalizeCjkRadicals(text);
+    cleaned = cleaned.replace(/<\/?u\b[^>]*>/gi, "").replace(/&lt;\/?u\b[^&]*?&gt;/gi, "");
+    cleaned = unwrapProseFences(cleaned);
     cleaned = joinSplitCodeFences(cleaned);
     cleaned = stripCodeLineNumbers(cleaned);
     cleaned = repairMissingParallelSymbols(cleaned);

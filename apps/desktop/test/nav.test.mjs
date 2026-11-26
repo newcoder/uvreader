@@ -10,14 +10,45 @@ import JSZip from "jszip";
 import { createWorkshopQueue } from "../src/main/workshop.js";
 import { registerEpubRunners } from "../src/main/workshop-epub.js";
 import { auditNav, parseNav, parseNcx } from "../src/shared/epub-nav-audit.js";
-import { cleanChapterTitle, stripNoteMarkers } from "../src/shared/markdown-fix.js";
+import { cleanChapterTitle, normalizeCjkRadicals, stripNoteMarkers } from "../src/shared/markdown-fix.js";
+import { isPrintedTocChapter } from "../src/shared/printed-toc.js";
 
 test("note markers are stripped from a title but body text is untouched", () => {
   assert.equal(stripNoteMarkers("第一部 比美尼<sup>[1]</sup>"), "第一部 比美尼");
   assert.equal(stripNoteMarkers("在士麦那&lt;sup&gt;[70]&lt;/sup&gt;码头"), "在士麦那 码头");
   assert.equal(stripNoteMarkers("论大规模计算机器的原理 $^{①②}$"), "论大规模计算机器的原理 $^{①②}$");
   assert.equal(cleanChapterTitle("第一部 比美尼<sup>[1]</sup>"), "第一部 比美尼");
-  assert.equal(cleanChapterTitle("第⼀部 ⽐美尼<sup>[1]</sup>"), "第⼀部 ⽐美尼");
+  assert.equal(cleanChapterTitle("第⼀部 ⽐美尼<sup>[1]</sup>"), "第一部 比美尼");
+});
+
+test("Kangxi-radical titles are normalized and a merged 目錄 page is dropped", async () => {
+  assert.equal(normalizeCjkRadicals("⽬錄 第⼀部 ⽐美尼"), "目錄 第一部 比美尼");
+  // These eight supplement forms have no NFKC decomposition; check each one.
+  assert.equal(
+    normalizeCjkRadicals("成⻑ ⻆色 ⻤ ⻝品 ⺠族 T字⻣ ⻘年 海⻱"),
+    "成長 角色 鬼 食品 民族 T字骨 青年 海龜",
+  );
+  assert.equal(cleanChapterTitle("⽬錄"), "目錄");
+  assert.equal(isPrintedTocChapter({ title: "目錄", text: "作者像獻詞文前譯本序第一部第一章第二章" }), true);
+  const markdown = [
+    "# ⽬錄",
+    "",
+    "作者像獻詞⽂前譯本序第⼀部第⼀章第⼆章第三章",
+    "",
+    "# 第⼀部 ⽐美尼",
+    "",
+    "正文。",
+  ].join("\n");
+  const { zip, nav, names } = await buildFromMarkdown(markdown);
+  const titles = [];
+  for (const name of names.filter((entry) => /chapter-.*\.xhtml$/.test(entry))) {
+    const html = await zip.file(name).async("string");
+    const match = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+    if (match) titles.push(match[1].replace(/<[^>]*>/g, "").trim());
+  }
+  assert.ok(!titles.includes("目錄"), "合并成一行的印刷目录页要被丢掉");
+  assert.ok(titles.some((title) => title.includes("比美尼")));
+  assert.doesNotMatch(nav, /[\u2E80-\u2FDF]/, "导航里不能残留康熙部首");
 });
 import { waitForTask } from "./wait-for-task.mjs";
 
