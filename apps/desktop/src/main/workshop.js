@@ -243,10 +243,17 @@ export function createWorkshopQueue({ file = "", onState = () => {}, onFinished 
     return false;
   }
 
-  function retry(id) {
+  function retry(id, payload = null) {
     const task = byId.get(String(id || ""));
     if (!task || !TERMINAL.has(task.status)) return "";
-    return start({ kind: task.kind, title: task.title, detail: task.detail, bookPath: task.bookPath, source: task.source, payload: task.payload, notify: task.notify, origin: task.origin });
+    // A task reloaded from disk has no payload (it is not persisted: it can
+    // contain tokens and large chapter arrays). The renderer sends a minimal
+    // fallback (source + current settings); the in-memory payload still wins.
+    const fallback = payload && typeof payload === "object" ? payload : {};
+    const original = task.payload && typeof task.payload === "object" ? task.payload : {};
+    const merged = { ...fallback, ...original };
+    const nextPayload = Object.keys(merged).length ? merged : task.payload;
+    return start({ kind: task.kind, title: task.title, detail: task.detail, bookPath: task.bookPath, source: task.source, payload: nextPayload, notify: task.notify, origin: task.origin });
   }
 
   function remove(id) {

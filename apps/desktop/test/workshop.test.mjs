@@ -138,6 +138,32 @@ test("a failing task records the error and retry starts a fresh one", async () =
   assert.equal(queue.snapshot().tasks.find((task) => task.id === third).status, "done");
 });
 
+test("retry supplies a fallback payload for a task restored without one", async () => {
+  const seen = [];
+  const { queue } = makeQueue({
+    "book-build": async ({ payload }) => {
+      seen.push(payload || null);
+      if (!payload?.source) throw new Error("书稿路径不是文件");
+      return { output: payload.source };
+    },
+  });
+  const first = queue.start({ kind: "book-build", title: "生成电子书", detail: "Books/下载/a.pdf" });
+  await sleep(30);
+  assert.equal(queue.snapshot().tasks.find((task) => task.id === first).status, "failed");
+  const retried = queue.retry(first, { source: "Books/下载/a.pdf", settings: { extractMode: "auto" } });
+  await sleep(30);
+  const task = queue.snapshot().tasks.find((entry) => entry.id === retried);
+  assert.equal(task.status, "done", task.error);
+  assert.equal(seen.at(-1).source, "Books/下载/a.pdf");
+
+  // The original payload (live task) must still win over a fallback.
+  const live = queue.start({ kind: "book-build", title: "生成电子书", payload: { source: "original.pdf" } });
+  await sleep(30);
+  queue.retry(live, { source: "fallback.pdf" });
+  await sleep(30);
+  assert.equal(seen.at(-1).source, "original.pdf");
+});
+
 test("history is persisted, reloaded and capped", async () => {
   const { queue, file } = makeQueue({ quick: async () => ({ output: "x" }) });
   for (let i = 0; i < 3; i += 1) queue.start({ kind: "quick", title: `任务${i}` });

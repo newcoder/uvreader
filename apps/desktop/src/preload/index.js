@@ -143,7 +143,7 @@ window.qbrDesktop = {
     list: () => ipcRenderer.invoke("qbr:workshop:list"),
     start: (request) => ipcRenderer.invoke("qbr:workshop:start", request),
     cancel: (id) => ipcRenderer.invoke("qbr:workshop:cancel", id),
-    retry: (id) => ipcRenderer.invoke("qbr:workshop:retry", id),
+    retry: (id, payload = null) => ipcRenderer.invoke("qbr:workshop:retry", id, payload),
     remove: (id) => ipcRenderer.invoke("qbr:workshop:remove", id),
     clear: () => ipcRenderer.invoke("qbr:workshop:clear"),
     pickFiles: () => ipcRenderer.invoke("qbr:workshop:pick-files"),

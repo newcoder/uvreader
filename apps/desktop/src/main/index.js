@@ -1050,7 +1050,7 @@ ipcMain.handle("qbr:ocr:session", (_event, payload = {}) => {
 ipcMain.handle("qbr:workshop:list", () => workshop.snapshot());
 ipcMain.handle("qbr:workshop:start", (_event, request = {}) => workshop.start(request || {}));
 ipcMain.handle("qbr:workshop:cancel", (_event, id) => workshop.cancel(String(id || "")));
-ipcMain.handle("qbr:workshop:retry", (_event, id) => workshop.retry(String(id || "")));
+ipcMain.handle("qbr:workshop:retry", (_event, id, payload = null) => workshop.retry(String(id || ""), payload));
 ipcMain.handle("qbr:workshop:remove", (_event, id) => {
   workshop.remove(String(id || ""));
   return workshop.snapshot();

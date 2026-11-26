@@ -3404,6 +3404,22 @@ export function createWorkshopView(leaf, options) {
       this.addBookSource(valid[0]);
     }
 
+    // A task restored from history has no payload; the retry needs at least the
+    // source and the current settings, otherwise the runner receives an empty
+    // path and resolves it to the library root ("书稿路径不是文件").
+    taskRetryPayload(task) {
+      if (String(task?.kind || "") !== "book-build") return null;
+      const detail = String(task?.detail || "").split(" · ")[0].trim();
+      if (!/\.(pdf|docx?|ofd|html?|epub|txt|md|markdown|png|jpe?g|webp|gif|bmp|tiff?|jp2)$/i.test(detail)) return null;
+      const selected = String(this._bookExtractMode?.value || "auto");
+      const extractMode = selected === "mineru-local" ? "mineru" : selected;
+      const mineruSource = selected === "mineru-local" ? "local" : selected === "mineru" ? "cloud" : "";
+      return {
+        source: detail,
+        settings: { ...this.formulaSettings(), extractMode, mineruSource },
+      };
+    }
+
     async startBookBuild() {
       if (!bridge) return;
       const rel = this._bookSources?.[0];
@@ -4181,7 +4197,10 @@ export function createWorkshopView(leaf, options) {
       }
       if (task.status === "failed" || task.status === "cancelled") {
         const retry = actions.createEl("button", { cls: "qbr-workshop-task-btn", text: t("重试") });
-        retry.addEventListener("click", () => { void bridge?.retry?.(task.id).catch(() => {}); });
+        retry.addEventListener("click", () => {
+          const fallback = this.taskRetryPayload?.(task) || null;
+          void bridge?.retry?.(task.id, fallback).catch(() => {});
+        });
       }
       if (["done", "failed", "cancelled"].includes(task.status)) {
         const remove = actions.createEl("button", { cls: "qbr-workshop-task-btn is-danger", text: t("删除") });
