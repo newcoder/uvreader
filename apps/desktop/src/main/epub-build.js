@@ -6,6 +6,7 @@ import path from "node:path";
 import JSZip from "jszip";
 
 import { BOOK_STYLE_DEFAULTS, normalizeBookStyles, renderBookCss } from "../shared/book-styles.js";
+import { stripNoteMarkers } from "../shared/markdown-fix.js";
 
 export { BOOK_STYLE_DEFAULTS, normalizeBookStyles, renderBookCss };
 
@@ -126,10 +127,10 @@ export function buildNav(chapters, title = "目录") {
   const render = (nodes, indent) => {
     for (const node of nodes) {
       if (!node.children.length) {
-        lines.push(`${indent}<li><a href="${node.file}">${escapeXml(node.title)}</a></li>`);
+        lines.push(`${indent}<li><a href="${node.file}">${escapeXml(stripNoteMarkers(node.title))}</a></li>`);
         continue;
       }
-      lines.push(`${indent}<li><a href="${node.file}">${escapeXml(node.title)}</a>`);
+      lines.push(`${indent}<li><a href="${node.file}">${escapeXml(stripNoteMarkers(node.title))}</a>`);
       lines.push(`${indent}  <ol>`);
       render(node.children, `${indent}    `);
       lines.push(`${indent}  </ol>`);
@@ -152,7 +153,7 @@ export function buildNcx(chapters, { title, identifier }) {
     for (const node of nodes) {
       order += 1;
       points.push(`${indent}<navPoint id="navPoint-${order}" playOrder="${order}">`);
-      points.push(`${indent}  <navLabel><text>${escapeXml(node.title)}</text></navLabel>`);
+      points.push(`${indent}  <navLabel><text>${escapeXml(stripNoteMarkers(node.title))}</text></navLabel>`);
       points.push(`${indent}  <content src="${node.file}"/>`);
       render(node.children, `${indent}  `);
       points.push(`${indent}</navPoint>`);
@@ -289,3 +290,4 @@ export async function buildEpub({ book = {}, styles = {}, chapters = [], cover =
   }
   return { out, bytes: buffer.length, chapters: files.length, hasCover, buffer };
 }
+

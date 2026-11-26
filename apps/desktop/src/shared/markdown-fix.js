@@ -302,10 +302,24 @@ export function stripCodeLineNumbers(markdown) {
 }
 
 // 章节标题去噪:PDF 提取出的标题常带脚注标记与行内标记,例如
+// 脚注/尾注标记:正文里是 `[1]` 的上标引用,标题和目录里不应该出现。
+// MinerU 的标题行常把标记写成 `<sup>[1]</sup>`;渲染时它被转义成文字,于是
+// 目录里直接看到 "<sup>[1]</sup>"。标题清理和导航生成共用这一个函数。
+export function stripNoteMarkers(value) {
+  return String(value || "")
+    .replace(/<sup\b[^>]*>[\s\S]*?<\/sup>/gi, " ")
+    .replace(/&lt;sup\b[^&]*?&gt;[\s\S]*?&lt;\/sup&gt;/gi, " ")
+    .replace(/(?:\^|\\\^)\s*\{\s*\d{1,3}\s*\}/g, " ")
+    .replace(/(?:\^|\\\^)\s*\[\s*\d{1,3}\s*\]/g, " ")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
 // 「集合论的一种公理化 $^{①}$」「论大规模计算机器的原理 $^{①②}$」。
 // 导航目录用的是标题纯文本,不清掉就会在目录里看到 $ ^ { } 这些符号。
 export function cleanChapterTitle(value) {
   let title = String(value || "");
+  title = stripNoteMarkers(title);
   title = title.replace(/`([^`]*)`/g, "$1");
   title = title.replace(/\*\*([^*]+)\*\*/g, "$1").replace(/\*([^*\n]+)\*/g, "$1").replace(/__([^_]+)__/g, "$1");
   title = title.replace(/\\\(([\s\S]*?)\\\)/g, "$1").replace(/\$([^$]*)\$/g, "$1");

@@ -10,6 +10,15 @@ import JSZip from "jszip";
 import { createWorkshopQueue } from "../src/main/workshop.js";
 import { registerEpubRunners } from "../src/main/workshop-epub.js";
 import { auditNav, parseNav, parseNcx } from "../src/shared/epub-nav-audit.js";
+import { cleanChapterTitle, stripNoteMarkers } from "../src/shared/markdown-fix.js";
+
+test("note markers are stripped from a title but body text is untouched", () => {
+  assert.equal(stripNoteMarkers("第一部 比美尼<sup>[1]</sup>"), "第一部 比美尼");
+  assert.equal(stripNoteMarkers("在士麦那&lt;sup&gt;[70]&lt;/sup&gt;码头"), "在士麦那 码头");
+  assert.equal(stripNoteMarkers("论大规模计算机器的原理 $^{①②}$"), "论大规模计算机器的原理 $^{①②}$");
+  assert.equal(cleanChapterTitle("第一部 比美尼<sup>[1]</sup>"), "第一部 比美尼");
+  assert.equal(cleanChapterTitle("第⼀部 ⽐美尼<sup>[1]</sup>"), "第⼀部 ⽐美尼");
+});
 import { waitForTask } from "./wait-for-task.mjs";
 
 function tempDir(prefix = "qbr-nav-") {
@@ -152,6 +161,27 @@ test("a printed toc drives the nav and a fragment never reaches it", async () =>
   assert.equal(audit.ok, true, audit.problems.join(" / "));
   assert.ok(audit.stats.linkedChapters >= 5, "正文里的章都在导航里");
   assert.ok(audit.stats.maxDepth >= 2, "1.1 这类条目应该嵌在章下面");
+});
+
+test("note markers stay out of chapter titles, headings and the nav", async () => {
+  const markdown = [
+    "# 第一部 比美尼<sup>[1]</sup>",
+    "",
+    "正文里的引用保留。",
+    "",
+    "## 在士麦那<sup>[70]</sup>码头",
+    "",
+    "又一段正文。",
+  ].join("\n");
+  const { nav, ncx, zip } = await buildFromMarkdown(markdown);
+  assert.doesNotMatch(nav, /&lt;sup&gt;|<sup>|\[1\]|\[70\]/, "nav 里不能出现脚注标记");
+  assert.doesNotMatch(ncx, /\[1\]|\[70\]/);
+  const chapter = await zip.file("OEBPS/chapter-001.xhtml").async("string");
+  const headings = [...chapter.matchAll(/<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/gi)].map((match) => match[1]);
+  assert.ok(headings.length >= 1);
+  for (const heading of headings) {
+    assert.doesNotMatch(heading, /&lt;sup&gt;|<sup>|\[1\]|\[70\]/, `标题里不能出现脚注标记：${heading}`);
+  }
 });
 
 test("a title-only chapter never breaks the build", async () => {

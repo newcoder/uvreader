@@ -25,7 +25,7 @@ import { decodeText } from "../shared/text-encoding.js";
 import { extractMarkdown, extractionKind, splitMarkdownChapters } from "./extract-doc.js";
 import { createMathRenderer, shareFormulaHtml } from "./math-render.js";
 import { createTextLayerReader } from "./text-layer.js";
-import { cleanChapterTitle, joinInlineFragment, looksLikeHeadingTitle, unwrapProseFences } from "../shared/markdown-fix.js";
+import { cleanChapterTitle, joinInlineFragment, looksLikeHeadingTitle, stripNoteMarkers, unwrapProseFences } from "../shared/markdown-fix.js";
 import { buildNavPlan, chapterKey, chapterStartPages, fillPageGaps, isPrintedTocChapter, lastPrintedPageOf, normalizeNavLevels, parsePrintedTocEntries, printedPageOf, splitChaptersByToc, stripPageMarkers, stripPrintedToc, tocKey } from "../shared/printed-toc.js";
 import { outlineToTocEntries } from "./pdf-outline.js";
 import { forgetPolishNote, normalizePolishCover, readPolishBundle, savePolishManifest, savePolishSession, validatePolishStructure } from "./polish-session.js";
@@ -636,11 +636,17 @@ function htmlPlainText(value) {
     .trim();
 }
 
+// Note markers on a heading line are footnote references that belong to the
+// following paragraph; the chapter title (h1 + nav) must not print them.
+function stripHeadingNoteMarkers(markdown) {
+  return String(markdown || "").replace(/^(#{1,6}[ \t]+)(.*)$/gm, (_whole, hashes, text) => `${hashes}${stripNoteMarkers(text)}`);
+}
+
 function chapterNavHeadings(chapter, bookTitle = "") {
   const html = String(chapter?.html || "");
   const items = [];
   for (const match of html.matchAll(/<h([1-3])\b[^>]*>([\s\S]*?)<\/h\1>/gi)) {
-    const title = htmlPlainText(match[2]);
+    const title = cleanChapterTitle(htmlPlainText(match[2]));
     if (!title || title.length > 80 || NAV_NOTE_HEADING_RE.test(title)) continue;
     if (bookTitle && tocKey(title) === tocKey(bookTitle)) continue;
     if (items.length && tocKey(items[items.length - 1].title) === tocKey(title)) continue;
@@ -1399,7 +1405,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
           return {
             title: chapter.title,
             text,
-            html: chapter.markdown ? markdownToHtml(text, { renderMath }) : textToHtml(text),
+            html: chapter.markdown ? markdownToHtml(stripHeadingNoteMarkers(text), { renderMath }) : textToHtml(text),
           };
         });
     const { chapters, images } = collectBookImages(chaptersWithHtml, { baseDir, log });
@@ -1660,7 +1666,7 @@ export function registerEpubRunners(workshop, { vaultRoot = "", cacheRoot = "", 
       return {
         title: chapter.title,
         text,
-        html: isTextChapter(index) ? textToHtml(text) : markdownToHtml(text, { renderMath }),
+        html: isTextChapter(index) ? textToHtml(text) : markdownToHtml(stripHeadingNoteMarkers(text), { renderMath }),
       };
     });
     const { chapters: htmlChapters, images } = collectBookImages(chaptersWithHtml, { baseDir, log });
