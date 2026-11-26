@@ -74,40 +74,56 @@ export function engineComponentSummary(health = {}) {
   };
 }
 
-export function createEngineClient({ fetchImpl = (...args) => fetch(...args), timeoutMs = 8000 } = {}) {
+export function createEngineClient({ fetchImpl = (...args) => fetch(...args), timeoutMs = 8000, tokenFallback = null } = {}) {
   async function call(settings, path, { method = "GET", body = null, timeout = timeoutMs } = {}) {
     const base = normalizeEngineUrl(settings?.engineUrl);
-    const token = String(settings?.engineToken || "").trim();
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), Math.max(500, Number(timeout) || timeoutMs));
-    try {
-      const response = await fetchImpl(`${base}${path}`, {
-        method,
-        headers: {
-          ...(body ? { "Content-Type": "application/json" } : {}),
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: body ? JSON.stringify(body) : undefined,
-        signal: controller.signal,
-      });
-      const text = await response.text().catch(() => "");
-      let data = null;
+    // A fresh profile (or a re-installed engine) can have an empty/stale
+    // settings token while <engineDir>/token.txt is correct. Without this
+    // fallback every job submit died with the engine's 401 "令牌不对".
+    const primary = String(settings?.engineToken || "").trim();
+    const fallback = String(tokenFallback?.() || "").trim();
+    const tokens = primary
+      ? (fallback && fallback !== primary ? [primary, fallback] : [primary])
+      : (fallback ? [fallback] : [""]);
+    let result = null;
+    for (let attempt = 0; attempt < tokens.length; attempt += 1) {
+      const token = tokens[attempt];
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), Math.max(500, Number(timeout) || timeoutMs));
       try {
-        data = text ? JSON.parse(text) : null;
-      } catch {
-        data = null;
+        const response = await fetchImpl(`${base}${path}`, {
+          method,
+          headers: {
+            ...(body ? { "Content-Type": "application/json" } : {}),
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: body ? JSON.stringify(body) : undefined,
+          signal: controller.signal,
+        });
+        const text = await response.text().catch(() => "");
+        let data = null;
+        try {
+          data = text ? JSON.parse(text) : null;
+        } catch {
+          data = null;
+        }
+        if (response.status === 401 && attempt + 1 < tokens.length) {
+          result = { ok: false, status: 401, error: String(data?.detail || text || "HTTP 401") };
+          continue;
+        }
+        if (!response.ok) {
+          const detail = String(data?.detail || data?.error || text || "").slice(0, 200);
+          return { ok: false, status: response.status, error: detail || `HTTP ${response.status}` };
+        }
+        return { ok: true, status: response.status, data };
+      } catch (error) {
+        const aborted = error?.name === "AbortError";
+        return { ok: false, status: 0, error: aborted ? "连接超时" : String(error?.message || error) };
+      } finally {
+        clearTimeout(timer);
       }
-      if (!response.ok) {
-        const detail = String(data?.detail || data?.error || text || "").slice(0, 200);
-        return { ok: false, status: response.status, error: detail || `HTTP ${response.status}` };
-      }
-      return { ok: true, status: response.status, data };
-    } catch (error) {
-      const aborted = error?.name === "AbortError";
-      return { ok: false, status: 0, error: aborted ? "连接超时" : String(error?.message || error) };
-    } finally {
-      clearTimeout(timer);
     }
+    return result || { ok: false, error: "引擎没有响应" };
   }
 
   return {

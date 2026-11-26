@@ -575,7 +575,7 @@ export async function extractMarkdown(source, { kind, settings = {}, docvortex, 
     if (engine && String(settings.engineUrl || "").trim()) {
       try {
         const health = await engine.health(settings);
-        engineVersion = String(health?.engineVersion || "").trim();
+        engineVersion = String(health?.data?.engineVersion || "").trim();
       } catch { /* 探测失败不挡提取,退回本机 */ }
     }
     const versionMark = path.join(workDir, "engine-version.txt");

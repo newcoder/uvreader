@@ -10,7 +10,7 @@ import { createEngineClient, describeEngineHealth } from "./engine-client.js";
 import { createEngineInstaller, checkEngineUpdate, registerEngineComponentRunner, registerEngineInstallRunner } from "./engine-install.js";
 import { findBundledEngineArchive } from "./engine-bundle.js";
 import { resolveEngineRoot } from "./engine-location.js";
-import { createEngineService, engineOcrSettings, findFreePort, portFromUrl } from "./engine-service.js";
+import { createEngineService, engineOcrSettings, findFreePort, pickEngine, portFromUrl, readToken } from "./engine-service.js";
 import { syncLocalMineru } from "./engine-wiring.js";
 import { createCalibre } from "./calibre.js";
 import { createCoverRenderer } from "./cover-render.js";
@@ -41,7 +41,19 @@ import { deepseekFetch, deepseekSearch } from "./web-search.js";
 import { bookSessionReady, closeBookSession, downloadBookFile, downloadBookFileFromPage, fetchBookPage, forgetBookSession, openBookLogin, searchPdfdrive, sessionFetch } from "./book-session.js";
 
 const aiRuntime = createAiRuntime();
-const engineClient = createEngineClient();
+// The installed engine's token is the source of truth when the renderer's
+// settings predate this install (fresh profile / engine update): a stale token
+// used to turn every job submit into the engine's 401 "令牌不对".
+const engineClient = createEngineClient({
+  tokenFallback: () => {
+    try {
+      const picked = pickEngine(engineRoot);
+      return picked ? readToken(picked.dir) : "";
+    } catch {
+      return "";
+    }
+  },
+});
 
 const appData = app.getPath("appData");
 let userDataMigration = null;

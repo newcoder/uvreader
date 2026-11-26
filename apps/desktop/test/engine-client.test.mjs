@@ -77,6 +77,28 @@ test("the client reads /v1/health and sends the token", async () => {
   }
 });
 
+test("a stale settings token is retried with the installed engine's token", async () => {
+  const seen = [];
+  const { server, url } = await startServer((req, res) => {
+    seen.push(req.headers.authorization || "");
+    if (seen.length === 1) {
+      json(res, 401, { detail: "令牌不对" });
+      return;
+    }
+    json(res, 200, { ok: true, engineVersion: "0.1.22" });
+  });
+  try {
+    const client = createEngineClient({ tokenFallback: () => "installed" });
+    const health = await client.health({ engineUrl: url, engineToken: "stale" });
+    assert.equal(health.ok, true, health.error);
+    assert.deepEqual(seen, ["Bearer stale", "Bearer installed"]);
+    await client.health({ engineUrl: url });
+    assert.equal(seen.at(-1), "Bearer installed", "空 token 直接使用引擎目录里的 token");
+  } finally {
+    server.close();
+  }
+});
+
 test("the client submits, polls and cancels a job", async () => {
   const calls = [];
   const { server, url } = await startServer((req, res) => {

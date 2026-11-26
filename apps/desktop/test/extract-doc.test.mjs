@@ -1,4 +1,4 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
@@ -440,7 +440,7 @@ test("extractMarkdown ignores a cached merged markdown when the engine version c
   fs.writeFileSync(path.join(workDir, "engine-version.txt"), "0.1.5");
   const calls = [];
   const engine = {
-    health: async () => ({ ok: true, engineVersion: "0.1.8" }),
+    health: async () => ({ ok: true, data: { engineVersion: "0.1.8" } }),
     runJob: async (_settings, kind, args) => {
       calls.push({ kind, args });
       fs.writeFileSync(path.join(args.outDir, "论文_doc.md"), "# 新引擎的稿子\n");
@@ -480,7 +480,7 @@ test("extract gives the engine a long, resumable timeout for a many-volume book"
   fs.mkdirSync(workDir, { recursive: true });
   const calls = [];
   const engine = {
-    health: async () => ({ ok: true, engineVersion: "0.1.22" }),
+    health: async () => ({ ok: true, data: { engineVersion: "0.1.22" } }),
     runJob: async (_settings, kind, args, jobOptions) => {
       calls.push({ kind, args, jobOptions });
       fs.writeFileSync(path.join(args.outDir, "文集_doc.md"), "# 新稿\n");
@@ -513,7 +513,7 @@ test("an engine timeout does not fall back and redo the extraction locally", asy
   fs.mkdirSync(workDir, { recursive: true });
   let localCalls = 0;
   const engine = {
-    health: async () => ({ ok: true, engineVersion: "0.1.22" }),
+    health: async () => ({ ok: true, data: { engineVersion: "0.1.22" } }),
     runJob: async () => ({ ok: false, timedOut: true, error: "引擎作业超时" }),
   };
   const result = await extractMarkdown(source, {
@@ -1020,3 +1020,4 @@ test("the pdf outline reader returns entries and fails quietly", async () => {
   const missing = await createPdfOutlineReader({ spawnImpl: () => { throw new Error("不该调用"); } }).read("", {});
   assert.equal(missing.ok, false);
 });
+
